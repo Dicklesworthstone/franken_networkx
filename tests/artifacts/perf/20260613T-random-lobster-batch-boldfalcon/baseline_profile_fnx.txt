@@ -1,0 +1,44 @@
+         7907 function calls in 0.006 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.006    0.006 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/random_lobster_harness.py:73(<lambda>)
+        1    0.000    0.000    0.006    0.006 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:44841(random_lobster_graph)
+        1    0.001    0.001    0.006    0.006 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:44809(random_lobster)
+     1347    0.001    0.000    0.005    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2368(add_edge)
+     1347    0.004    0.000    0.004    0.000 {function Graph.add_edge at 0x71b65ac6a840}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:19087(path_graph)
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.path_graph}
+     2460    0.000    0.000    0.000    0.000 {method 'random' of '_random.Random' objects}
+     2694    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:25358(_generator_random_state)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:2129(getLogger)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47433(_nodes_or_number_local)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1362(getLogger)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+        5    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1765(isEnabledFor)
+        8    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        1    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1478(__init__)
+        1    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+        1    0.000    0.000    0.000    0.000 {function Random.seed at 0x71b65cd97600}
+        1    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1410(_fixupParents)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+        4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1751(getEffectiveLevel)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:25362(_NumpyRandIntAdapter)
+        3    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:44814(<genexpr>)
+        5    0.000    0.000    0.000    0.000 {method '__exit__' of '_thread.RLock' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:820(__init__)
+        4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1354(disable)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:205(_checkLevel)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.abs}
+        3    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:23579(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'rfind' of 'str' objects}
+
+

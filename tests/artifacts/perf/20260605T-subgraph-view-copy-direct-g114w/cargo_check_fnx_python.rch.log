@@ -1,0 +1,2 @@
+PASS: rch exec -- cargo check -p fnx-python --all-targets
+Finished dev profile target(s); exit 0.

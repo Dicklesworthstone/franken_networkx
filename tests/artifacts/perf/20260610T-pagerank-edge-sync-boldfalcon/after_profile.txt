@@ -1,0 +1,33 @@
+         254016 function calls (247179 primitive calls) in 0.226 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1304 to 24 due to restriction <24>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.000    0.000    0.227    0.011 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py:58(pagerank_call)
+       20    0.002    0.000    0.226    0.011 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:18949(pagerank)
+       20    0.010    0.001    0.188    0.009 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:18864(_pagerank_scipy)
+    175/1    0.001    0.000    0.110    0.110 <frozen importlib._bootstrap>:1349(_find_and_load)
+    171/1    0.001    0.000    0.110    0.110 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    409/3    0.000    0.000    0.110    0.037 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    167/2    0.000    0.000    0.109    0.055 <frozen importlib._bootstrap>:911(_load_unlocked)
+    149/2    0.000    0.000    0.109    0.055 <frozen importlib._bootstrap_external>:1020(exec_module)
+    153/2    0.001    0.000    0.109    0.055 {built-in method builtins.exec}
+        1    0.000    0.000    0.099    0.099 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/__init__.py:1(<module>)
+    60/20    0.000    0.000    0.089    0.004 {built-in method builtins.__import__}
+        1    0.000    0.000    0.088    0.088 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1(<module>)
+        1    0.000    0.000    0.087    0.087 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:1(<module>)
+        1    0.000    0.000    0.087    0.087 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1(<module>)
+        1    0.000    0.000    0.086    0.086 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_array_api.py:1(<module>)
+    96/20    0.000    0.000    0.080    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        1    0.000    0.000    0.071    0.071 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/array_api_compat/numpy/__init__.py:1(<module>)
+        3    0.000    0.000    0.064    0.021 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/array_api_compat/_internal.py:56(clone_module)
+2316/1764    0.001    0.000    0.063    0.000 {built-in method builtins.hasattr}
+       10    0.000    0.000    0.063    0.006 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/__init__.py:704(__getattr__)
+        1    0.000    0.000    0.034    0.034 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/__init__.py:1(<module>)
+        1    0.000    0.000    0.034    0.034 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/f2py2e.py:1(<module>)
+      540    0.000    0.000    0.031    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:925(__rmatmul__)
+      540    0.001    0.000    0.029    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:901(_rmatmul_dispatch)
+
+
+

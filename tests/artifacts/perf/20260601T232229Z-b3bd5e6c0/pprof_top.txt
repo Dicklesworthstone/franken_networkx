@@ -1,0 +1,20 @@
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":8,"total_ms":8146.4548,"per_iter_ms":1018.3069,"checksum":22.091060}
+pprof_top_inclusive:
+1	5996	__rust_begin_short_backtrace<fn(), ()>
+2	5996	_start
+3	5996	betweenness_centrality_generic<fnx_classes::Graph>
+4	5996	betweenness_centrality_with_params
+5	5996	call_once<fn(), ()>
+6	5996	main
+7	5996	run_once
+8	4102	get_node_index
+9	3968	get_index_of<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, std::hash::random::RandomState, str>
+10	2862	find_inner
+11	2298	find<usize, hashbrown::alloc::inner::Global, indexmap::inner::equivalent::{closure_env#0}<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, str>>
+12	2298	get<usize, hashbrown::alloc::inner::Global, indexmap::inner::equivalent::{closure_env#0}<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, str>>
+13	2298	get_index_of<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, str>
+14	2298	{closure#0}<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, str>
+15	2298	{closure#0}<usize, hashbrown::alloc::inner::Global, indexmap::inner::equivalent::{closure_env#0}<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, str>>
+16	1926	hash_one<std::hash::random::RandomState, &str>
+17	1670	hash<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, std::hash::random::RandomState, str>
+18	984	hash<std::hash::random::DefaultHasher>

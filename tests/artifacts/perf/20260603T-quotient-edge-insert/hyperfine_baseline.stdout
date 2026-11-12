@@ -1,0 +1,4 @@
+Benchmark 1: python3 tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py bench --n 3000 --block-size 10 --extra-edges 9000 --samples 1 --engines fnx
+  Time (mean ± σ):     487.3 ms ±  11.6 ms    [User: 3906.8 ms, System: 87.3 ms]
+  Range (min … max):   474.1 ms … 500.4 ms    5 runs
+ 

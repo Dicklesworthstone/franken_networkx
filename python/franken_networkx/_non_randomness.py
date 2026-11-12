@@ -1,0 +1,34 @@
+"""Private wrapper backing ``franken_networkx.algorithms.non_randomness``."""
+
+from __future__ import annotations
+
+import importlib as _importlib
+
+_nx_non_randomness = _importlib.import_module("networkx.algorithms.non_randomness")
+
+import franken_networkx as _fnx
+
+__all__ = list(getattr(_nx_non_randomness, "__all__", ("non_randomness",)))
+
+
+def non_randomness(G, k=None, weight="weight", *, backend=None, **backend_kwargs):
+    """Return graph non-randomness with the upstream module signature."""
+    _fnx._validate_backend_dispatch_keywords(
+        "non_randomness", backend, backend_kwargs
+    )
+    return _fnx.non_randomness(G, k=k, weight=weight)
+
+
+def __getattr__(name):
+    try:
+        return getattr(_nx_non_randomness, name)
+    except AttributeError as exc:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}") from exc
+
+
+def __dir__():
+    public_globals = {name for name in globals() if not name.startswith("_")}
+    public_upstream = {
+        name for name in dir(_nx_non_randomness) if not name.startswith("_")
+    }
+    return sorted(public_globals | public_upstream)

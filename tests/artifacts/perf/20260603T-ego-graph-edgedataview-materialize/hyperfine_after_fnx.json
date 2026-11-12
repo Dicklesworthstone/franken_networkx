@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-ego-graph-r2-current/bench_ego_graph_r2.py sample --impl fnx --repeats 7 >/dev/null",
+      "mean": 0.7386953847057144,
+      "stddev": 0.02579179975392641,
+      "median": 0.7449588084200001,
+      "user": 4.2810527828571425,
+      "system": 0.09319770571428569,
+      "min": 0.69933196042,
+      "max": 0.77170823442,
+      "times": [
+        0.7600954164200001,
+        0.7449588084200001,
+        0.74627928742,
+        0.73802659242,
+        0.77170823442,
+        0.69933196042,
+        0.7104673934200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

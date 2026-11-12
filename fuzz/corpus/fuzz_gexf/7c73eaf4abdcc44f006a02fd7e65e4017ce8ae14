@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+     write_adj="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>.    <edges>
+      <ei egdd="0" source="a" target="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/>
+     <node id="b" label="B"/>
+      <node id="b" label="B"/>
+    </nodes>ibute id="1" title="capacity" " source="a" target="b" weight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

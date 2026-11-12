@@ -1,0 +1,133 @@
+{
+  "impl": "public",
+  "profile": "tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/after_public.prof",
+  "repeat": 80,
+  "top": [
+    {
+      "cum_time_s": 0.059194880000000005,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/harness_greedy_modularity.py:107:_public_fnx",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 9.507600000000001e-05
+    },
+    {
+      "cum_time_s": 0.059099804000000006,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/community.py:181:greedy_modularity_communities",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.000627335
+    },
+    {
+      "cum_time_s": 0.057096862000000005,
+      "function": "~:0:<built-in method franken_networkx._fnx.greedy_modularity_communities>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.057096862000000005
+    },
+    {
+      "cum_time_s": 0.0012037270000000001,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:51532:wrapper",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 7.759600000000001e-05
+    },
+    {
+      "cum_time_s": 0.0011182450000000001,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:19239:number_of_selfloops",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 9.481000000000001e-05
+    },
+    {
+      "cum_time_s": 0.0008542980000000001,
+      "function": "~:0:<built-in method franken_networkx._fnx.nodes_with_selfloops_rust>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.0008542980000000001
+    },
+    {
+      "cum_time_s": 0.000158744,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:36265:number_of_edges",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 4.4648000000000003e-05
+    },
+    {
+      "cum_time_s": 8.872200000000001e-05,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:12702:_coerce_arg_to_fnx_graph",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 5.3781000000000006e-05
+    },
+    {
+      "cum_time_s": 6.9232e-05,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:5799:predicate",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 4.8916000000000004e-05
+    },
+    {
+      "cum_time_s": 5.9794000000000004e-05,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:35503:_has_networkx_private_storage",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 3.6993e-05
+    },
+    {
+      "cum_time_s": 5.4302e-05,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:295:number_of_edges",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 2.9493e-05
+    },
+    {
+      "cum_time_s": 4.1296000000000006e-05,
+      "function": "~:0:<built-in method builtins.isinstance>",
+      "primitive_calls": 400,
+      "total_calls": 400,
+      "total_time_s": 4.1296000000000006e-05
+    },
+    {
+      "cum_time_s": 2.4809000000000003e-05,
+      "function": "~:0:<function Graph.number_of_edges at 0x730676b436a0>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 2.4809000000000003e-05
+    },
+    {
+      "cum_time_s": 2.2801e-05,
+      "function": "~:0:<built-in method builtins.vars>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 2.2801e-05
+    },
+    {
+      "cum_time_s": 2.1641e-05,
+      "function": "~:0:<method 'disable' of '_lsprof.Profiler' objects>",
+      "primitive_calls": 1,
+      "total_calls": 1,
+      "total_time_s": 2.1641e-05
+    },
+    {
+      "cum_time_s": 2.1022e-05,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/python/franken_networkx/__init__.py:23341:_validate_backend_dispatch_keywords",
+      "primitive_calls": 160,
+      "total_calls": 160,
+      "total_time_s": 2.1022e-05
+    },
+    {
+      "cum_time_s": 1.3961e-05,
+      "function": "~:0:<function _make_class_safe_predicate.<locals>.predicate at 0x73067683ed40>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 1.3961e-05
+    },
+    {
+      "cum_time_s": 1.1183000000000001e-05,
+      "function": "~:0:<built-in method builtins.len>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 1.1183000000000001e-05
+    }
+  ]
+}

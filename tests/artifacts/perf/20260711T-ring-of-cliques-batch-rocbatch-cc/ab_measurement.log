@@ -1,0 +1,4 @@
+ROC_BATCH_AB cliques=100 size=50 rounds=61 (>1 = batch faster)
+ROC_BATCH_AB BATCH_vs_string: median=19.9437x win_rate=61/61 p5_p95=[15.6427,29.3978]
+ROC_BATCH_AB NULL_batch_vs_batch: median=0.9969x win_rate=29/61 p5_p95=[0.3570,1.5722]
+parity: edges_ordered_borrowed + nodes_ordered IDENTICAL (clique + ring edges) -> byte-identical

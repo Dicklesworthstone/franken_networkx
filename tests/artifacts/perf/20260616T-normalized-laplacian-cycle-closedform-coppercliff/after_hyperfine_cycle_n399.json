@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python -c \"import franken_networkx as fnx; G=fnx.cycle_graph(399); fnx.normalized_laplacian_spectrum(G)\"",
+      "mean": 0.26212503294000006,
+      "stddev": 0.01740379616822157,
+      "median": 0.25593295294,
+      "user": 4.0187915,
+      "system": 0.05554942,
+      "min": 0.24617104394,
+      "max": 0.28635272894,
+      "times": [
+        0.25593295294,
+        0.27392067194,
+        0.28635272894,
+        0.24824776694,
+        0.24617104394
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

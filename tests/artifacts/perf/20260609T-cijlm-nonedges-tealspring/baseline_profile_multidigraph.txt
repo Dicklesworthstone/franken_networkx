@@ -1,0 +1,30 @@
+         358271 function calls in 0.046 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.010    0.010    0.046    0.046 {built-in method builtins.sum}
+   174721    0.018    0.000    0.035    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260609T-cijlm-nonedges-tealspring/harness_cijlm_nonedges.py:136(<genexpr>)
+   174721    0.010    0.000    0.017    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:40304(non_edges)
+      420    0.004    0.000    0.007    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:40273(non_neighbors)
+      420    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1175(__iter__)
+      420    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1405(_multidigraph_getitem_from_native_row)
+      420    0.001    0.000    0.001    0.000 {built-in method fromkeys}
+      420    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:33306(__contains__)
+      420    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1169(_atlas)
+      421    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32792(_private_override)
+      840    0.000    0.000    0.000    0.000 {method '_native_successor_row' of 'franken_networkx.MultiDiGraph' objects}
+      420    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32809(_raw_neighbors_dispatch)
+      420    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1413(<lambda>)
+      841    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      840    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+      421    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      420    0.000    0.000    0.000    0.000 {method '_native_node_keys' of 'franken_networkx.MultiDiGraph' objects}
+      420    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1164(__init__)
+      421    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      420    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      420    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:33286(__iter__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5712(predicate)
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x73247dd6b6a0}

@@ -1,0 +1,23 @@
+{
+  "run_id": "20260601T232229Z-b3bd5e6c0",
+  "git_sha": "b3bd5e6c0",
+  "timestamp_utc": "2026-06-01T23:22:29.986403Z",
+  "cpu_model": "AMD Ryzen Threadripper PRO 5975WX 32-Cores",
+  "cpu_cores_logical": 64,
+  "cpu_cores_physical": "64",
+  "smt": "1",
+  "governor": "powersave",
+  "no_turbo": null,
+  "ram_total": "226261624 kB",
+  "swap_total": "75497460 kB",
+  "kernel": "6.17.0-29-generic",
+  "os": "",
+  "filesystem_target": "ext4",
+  "rustc": "rustc 1.98.0-nightly (14210df0e 2026-05-31)",
+  "cargo": "cargo 1.98.0-nightly (fbb61be30 2026-05-26)",
+  "build_profile": "release-perf (inherits release; opt-level=3 lto codegen-units=1; debug=line-tables-only; strip=false; RUSTFLAGS=-C force-frame-pointers=yes)",
+  "workload_isolation": "rch remote build; benchmark run locally on host (single-threaded algos)",
+  "load_avg": "51.10 45.54 28.90 13/6444 1511980",
+  "perf_event_paranoid": "1",
+  "kptr_restrict": "0"
+}

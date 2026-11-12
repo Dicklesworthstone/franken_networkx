@@ -1,0 +1,267 @@
+{
+  "suite": "matching_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "d",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "e",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "f",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "g",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "h",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "weight": "7"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {
+        "weight": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {
+        "weight": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d",
+      "attrs": {
+        "weight": "8"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "e",
+      "attrs": {
+        "weight": "4"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "g",
+      "attrs": {
+        "weight": "6"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "e",
+      "attrs": {
+        "weight": "6"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "f",
+      "attrs": {
+        "weight": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "e",
+      "right": "f",
+      "attrs": {
+        "weight": "9"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "e",
+      "right": "h",
+      "attrs": {
+        "weight": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "f",
+      "right": "g",
+      "attrs": {
+        "weight": "1"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "g",
+      "right": "h",
+      "attrs": {
+        "weight": "10"
+      }
+    },
+    {
+      "op": "max_weight_matching_query",
+      "weight_attr": "weight"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "g",
+        "h"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "weight": "7"
+          }
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {
+            "weight": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {
+            "weight": "5"
+          }
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {
+            "weight": "8"
+          }
+        },
+        {
+          "left": "c",
+          "right": "e",
+          "attrs": {
+            "weight": "4"
+          }
+        },
+        {
+          "left": "c",
+          "right": "g",
+          "attrs": {
+            "weight": "6"
+          }
+        },
+        {
+          "left": "d",
+          "right": "e",
+          "attrs": {
+            "weight": "6"
+          }
+        },
+        {
+          "left": "d",
+          "right": "f",
+          "attrs": {
+            "weight": "2"
+          }
+        },
+        {
+          "left": "e",
+          "right": "f",
+          "attrs": {
+            "weight": "9"
+          }
+        },
+        {
+          "left": "e",
+          "right": "h",
+          "attrs": {
+            "weight": "3"
+          }
+        },
+        {
+          "left": "f",
+          "right": "g",
+          "attrs": {
+            "weight": "1"
+          }
+        },
+        {
+          "left": "g",
+          "right": "h",
+          "attrs": {
+            "weight": "10"
+          }
+        }
+      ]
+    },
+    "max_weight_matching": {
+      "matching": [
+        [
+          "a",
+          "c"
+        ],
+        [
+          "b",
+          "d"
+        ],
+        [
+          "e",
+          "f"
+        ],
+        [
+          "g",
+          "h"
+        ]
+      ],
+      "total_weight": 30.0
+    }
+  }
+}

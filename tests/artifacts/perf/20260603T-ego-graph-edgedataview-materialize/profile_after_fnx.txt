@@ -1,0 +1,55 @@
+         449752 function calls in 0.446 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.062    0.062    0.446    0.446 bench_ego_graph_r2.py:43(sample)
+        7    0.003    0.000    0.385    0.055 __init__.py:42694(wrapper)
+        7    0.042    0.006    0.381    0.054 __init__.py:16940(ego_graph)
+    51086    0.018    0.000    0.180    0.000 __init__.py:2061(add_edge)
+    51086    0.156    0.000    0.156    0.000 {function Graph.add_edge at 0x79d74f77c680}
+        7    0.090    0.013    0.090    0.013 __init__.py:464(_materialize)
+    14126    0.004    0.000    0.022    0.000 __init__.py:2107(add_node)
+    14126    0.017    0.000    0.017    0.000 {function Graph.add_node at 0x79d74f77c9a0}
+     1449    0.001    0.000    0.014    0.000 __init__.py:29278(neighbors)
+    14133    0.005    0.000    0.014    0.000 __init__.py:29027(nodes)
+     1449    0.001    0.000    0.011    0.000 __init__.py:289(neighbors)
+    14126    0.009    0.000    0.010    0.000 __init__.py:4367(__getitem__)
+    19964    0.005    0.000    0.008    0.000 __init__.py:28594(_private_override)
+     1449    0.008    0.000    0.008    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x79d74f7ee980}
+   131873    0.008    0.000    0.008    0.000 {built-in method builtins.hash}
+    21007    0.005    0.000    0.007    0.000 __init__.py:42893(__iter__)
+    34118    0.003    0.000    0.003    0.000 {built-in method builtins.vars}
+     1456    0.001    0.000    0.003    0.000 __init__.py:28602(_has_networkx_private_storage)
+    34118    0.003    0.000    0.003    0.000 {method 'get' of 'dict' objects}
+    21056    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+    14126    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+     1449    0.001    0.000    0.001    0.000 {built-in method fromkeys}
+     1470    0.001    0.000    0.001    0.000 __init__.py:5059(predicate)
+     2947    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     1456    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x79d74f794ae0}
+        7    0.000    0.000    0.000    0.000 __init__.py:29047(edges)
+     1449    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        7    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+        7    0.000    0.000    0.000    0.000 __init__.py:29014(__contains__)
+        7    0.000    0.000    0.000    0.000 __init__.py:643(wrapped)
+       14    0.000    0.000    0.000    0.000 __init__.py:4869(__get__)
+        7    0.000    0.000    0.000    0.000 __init__.py:10845(_concrete_class_for)
+        7    0.000    0.000    0.000    0.000 __init__.py:2741(__init__)
+        7    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+        7    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+        7    0.000    0.000    0.000    0.000 __init__.py:889(wrapped)
+        7    0.000    0.000    0.000    0.000 __init__.py:425(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       14    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        7    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       14    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+        7    0.000    0.000    0.000    0.000 __init__.py:18772(_validate_backend_dispatch_keywords)
+       35    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        7    0.000    0.000    0.000    0.000 weakref.py:194(get)
+       14    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       14    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x79d74f794b80}
+        7    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+        7    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+
+

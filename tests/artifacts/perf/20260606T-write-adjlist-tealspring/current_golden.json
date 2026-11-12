@@ -1,0 +1,10 @@
+{
+  "body_equal": true,
+  "body_size": 57875,
+  "edges": 9000,
+  "fnx_body_sha256": "8718f5871e0f1b2d714558485ef64e2ca57b4bab7ac5303cbb52e1ac7184c941",
+  "n": 3000,
+  "nx_body_sha256": "8718f5871e0f1b2d714558485ef64e2ca57b4bab7ac5303cbb52e1ac7184c941",
+  "seed": 7,
+  "trailing_newline": true
+}

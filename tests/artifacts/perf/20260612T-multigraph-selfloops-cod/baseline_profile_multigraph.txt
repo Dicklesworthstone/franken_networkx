@@ -1,0 +1,33 @@
+         22110001 function calls (21600001 primitive calls) in 5.723 seconds
+
+   Ordered by: cumulative time
+   List reduced from 32 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    10000    0.011    0.000    5.723    0.001 __init__.py:51491(wrapper)
+    10000    0.014    0.000    5.710    0.001 __init__.py:19214(number_of_selfloops)
+    10000    0.129    0.000    5.642    0.001 {built-in method builtins.sum}
+  1530000    0.245    0.000    5.513    0.000 __init__.py:19229(<genexpr>)
+  1530000    0.481    0.000    5.268    0.000 __init__.py:19332(<genexpr>)
+   520000    0.389    0.000    2.722    0.000 __init__.py:19261(adjacency_entries)
+  1510000    0.707    0.000    1.694    0.000 __init__.py:36123(has_edge)
+1020000/510000    0.241    0.000    1.087    0.000 {built-in method builtins.len}
+   510000    0.552    0.000    0.979    0.000 __init__.py:1219(__getitem__)
+   510000    0.198    0.000    0.976    0.000 __init__.py:1147(__len__)
+  1020000    0.196    0.000    0.660    0.000 __init__.py:1201(_atlas)
+   510000    0.102    0.000    0.648    0.000 __init__.py:1144(_atlas)
+   510000    0.404    0.000    0.629    0.000 __init__.py:1426(_multigraph_getitem_from_native_row)
+   510000    0.222    0.000    0.546    0.000 __init__.py:1230(<lambda>)
+  1020000    0.216    0.000    0.463    0.000 __init__.py:1434(<lambda>)
+  1510000    0.291    0.000    0.444    0.000 __init__.py:35462(_has_networkx_private_storage)
+  1530000    0.380    0.000    0.380    0.000 {method '_native_adjacency_row' of 'franken_networkx.MultiGraph' objects}
+  1510000    0.366    0.000    0.366    0.000 {function MultiGraph.has_edge at 0x73d7f92be7a0}
+  4040000    0.251    0.000    0.251    0.000 {built-in method builtins.hash}
+  1510000    0.154    0.000    0.154    0.000 {built-in method builtins.vars}
+   510000    0.055    0.000    0.055    0.000 __init__.py:1138(__init__)
+   510000    0.054    0.000    0.054    0.000 __init__.py:1196(__init__)
+    10000    0.013    0.000    0.033    0.000 __init__.py:19232(selfloop_edges)
+    30000    0.015    0.000    0.023    0.000 __init__.py:5799(predicate)
+    20000    0.012    0.000    0.021    0.000 __init__.py:12691(_coerce_arg_to_fnx_graph)
+
+

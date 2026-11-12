@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl fnx --repeats 1",
+      "mean": 0.3727009055314286,
+      "stddev": 0.019570784843652638,
+      "median": 0.36937056496000004,
+      "user": 4.204161902857143,
+      "system": 0.07699562,
+      "min": 0.34342216996,
+      "max": 0.40569690496,
+      "times": [
+        0.40569690496,
+        0.37064687396,
+        0.38821960896,
+        0.34342216996,
+        0.36937056496000004,
+        0.36563427596000003,
+        0.36591593996
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

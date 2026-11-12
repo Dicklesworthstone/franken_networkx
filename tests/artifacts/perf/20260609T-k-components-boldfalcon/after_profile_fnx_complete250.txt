@@ -1,0 +1,27 @@
+Tue Jun  9 12:11:42 2026    /data/tmp/tmpr5hbz2gu
+
+         42 function calls (41 primitive calls) in 0.002 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      2/1    0.000    0.000    0.002    0.002 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:47895(wrapper)
+        1    0.002    0.002    0.002    0.002 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:42649(k_components)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:17961(number_of_selfloops)
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.nodes_with_selfloops_rust}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:33560(__iter__)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:33827(number_of_edges)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:33570(__len__)
+        6    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:33066(_private_override)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:295(number_of_edges)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:33074(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:12038(_coerce_arg_to_fnx_graph)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:5712(predicate)
+        6    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        6    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x790d030e6980}
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x790d0306eca0}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-lnrxj-20260609/python/franken_networkx/__init__.py:21721(_validate_backend_dispatch_keywords)

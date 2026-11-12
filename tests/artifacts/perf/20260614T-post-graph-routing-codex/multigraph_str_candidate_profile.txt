@@ -1,0 +1,19 @@
+case=unique_path impl=fnx sha256=0d0ae68ef51dfd6f4ce26a212d3b40d015c5383d498a496b5a0df28f6bded2bc
+         56 function calls in 0.479 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.010    0.002    0.479    0.096 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260614T-next-routing-codex/bench_multigraph_str_keys.py:86(build_graph)
+        5    0.000    0.000    0.402    0.080 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:2835(_multi_add_edges_from)
+        5    0.399    0.080    0.399    0.080 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.067    0.013 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260614T-next-routing-codex/bench_multigraph_str_keys.py:63(_case_edges)
+        5    0.067    0.013    0.067    0.013 /data/projects/.scratch/franken_networkx-codex-next-20260614T0344/tests/artifacts/perf/20260614T-next-routing-codex/bench_multigraph_str_keys.py:59(_unique_edges)
+        5    0.003    0.001    0.003    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:3617(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+
+
+

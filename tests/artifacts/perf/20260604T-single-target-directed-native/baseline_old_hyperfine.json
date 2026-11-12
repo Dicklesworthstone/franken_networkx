@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-native/bench_single_target_directed.py --mode old --repeats 100 --n 2500 --fanout 4",
+      "mean": 1.9715228509000002,
+      "stddev": 0.1523342258102075,
+      "median": 1.9562231454,
+      "user": 5.491035499999999,
+      "system": 0.07737128,
+      "min": 1.7454854444,
+      "max": 2.1921663754,
+      "times": [
+        2.1131108124,
+        1.9800429134000002,
+        2.1921663754,
+        2.1827262324,
+        1.9679348864000001,
+        1.8577660554,
+        1.7454854444,
+        1.8013754044,
+        1.9301089804,
+        1.9445114044
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

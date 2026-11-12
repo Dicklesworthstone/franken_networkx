@@ -1,0 +1,25 @@
+<?graph mod   <no<?xmlxml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mde="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edg4 id="0" sding="UTF-8"?>
+<gexf version="1.2">
+  <graph mde="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edg4 id="0" source="a" target="b" weight="1.5"/>
+    </edource="a" target="b" weight="1.5"/>
+    </edges>
+  de i"a"l =dabel="A"/>
+     <node in="b" label="B"/>
+      <node id="b" ight="1.5"/>
+    </edges>
+  </graph>
+</gexf>

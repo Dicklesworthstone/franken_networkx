@@ -1,0 +1,11 @@
+Benchmark 1: python3 tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3
+  Time (mean ± σ):     698.9 ms ± 102.3 ms    [User: 2171.0 ms, System: 116.9 ms]
+  Range (min … max):   568.1 ms … 894.9 ms    10 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl nx --repeats 3
+  Time (mean ± σ):     734.1 ms ± 128.5 ms    [User: 2026.1 ms, System: 122.6 ms]
+  Range (min … max):   586.7 ms … 1065.6 ms    10 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3 ran
+    1.05 ± 0.24 times faster than python3 tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl nx --repeats 3

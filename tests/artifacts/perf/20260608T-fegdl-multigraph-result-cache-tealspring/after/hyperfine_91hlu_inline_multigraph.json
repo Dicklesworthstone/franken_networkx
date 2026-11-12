@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "python3 -c \"import franken_networkx as fnx; N=1200; D=5; P=3; G=fnx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [fnx.to_dict_of_dicts(G) for _ in range(80)]\"",
+      "mean": 0.46780041484,
+      "stddev": 0.013756603618162715,
+      "median": 0.46860748194,
+      "user": 4.466188699999999,
+      "system": 0.10138099999999999,
+      "min": 0.45117951294,
+      "max": 0.49592221094000005,
+      "times": [
+        0.45117951294,
+        0.46370294094000003,
+        0.47727232094000005,
+        0.47351202294000005,
+        0.49592221094000005,
+        0.45824818994000005,
+        0.45304763094000006,
+        0.4737198449400001,
+        0.45720786594000007,
+        0.47419160794000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 -c \"import networkx as nx; N=1200; D=5; P=3; G=nx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [nx.to_dict_of_dicts(G) for _ in range(80)]\"",
+      "mean": 0.22980250914000006,
+      "stddev": 0.008520912928732393,
+      "median": 0.23298873894,
+      "user": 0.1752123,
+      "system": 0.0537933,
+      "min": 0.21680161594000003,
+      "max": 0.24264115394000002,
+      "times": [
+        0.22442975594,
+        0.23356068294000001,
+        0.21680161594000003,
+        0.23800726094000002,
+        0.23241679494,
+        0.22068860394,
+        0.23357406794000002,
+        0.23496415294,
+        0.22094100194000002,
+        0.24264115394000002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

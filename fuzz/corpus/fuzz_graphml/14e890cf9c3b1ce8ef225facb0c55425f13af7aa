@@ -1,0 +1,10 @@
+<&xml Versioo="1.0" eattr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge sowrite_gexfarget="b">
+   e id="a"/>
+    <node id="b"/>
+    <edge sourec="a" target="b">
+      <data key="d0">1.5<ph>
+</graphml>

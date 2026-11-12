@@ -1,0 +1,31 @@
+         482721 function calls in 0.842 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       80    0.002    0.000    0.842    0.011 /data/projects/franken_networkx/tests/artifacts/perf/20260608T-ctor-pylist-tealspring/dijkstra_length_probe.py:75(<lambda>)
+       80    0.002    0.000    0.840    0.011 /data/projects/franken_networkx/python/franken_networkx/__init__.py:45865(wrapper)
+       80    0.003    0.000    0.838    0.010 /data/projects/franken_networkx/python/franken_networkx/__init__.py:15721(single_source_dijkstra_path_length)
+       80    0.748    0.009    0.748    0.009 {built-in method franken_networkx._fnx.single_source_dijkstra_path_length}
+       80    0.056    0.001    0.085    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:15553(_sp_coerce_dist_to_int)
+   240000    0.017    0.000    0.017    0.000 {method 'is_integer' of 'float' objects}
+   240720    0.012    0.000    0.012    0.000 {built-in method builtins.isinstance}
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6522(_should_delegate_dijkstra_to_networkx)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:15485(_sp_edge_weights_all_int)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31895(__contains__)
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5686(predicate)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:11785(_coerce_arg_to_fnx_graph)
+       80    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+       80    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.graph_edge_weights_all_int}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      160    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7d83f0b1eca0}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31434(_private_override)
+       80    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20683(_validate_backend_dispatch_keywords)
+      160    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

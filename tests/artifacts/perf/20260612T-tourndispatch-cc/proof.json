@@ -1,0 +1,18 @@
+{
+  "functions": ["tournament.score_sequence", "tournament.is_tournament"],
+  "root_cause": "tournament.py 'from networkx... import *' bound nx's @_dispatchable functions; called on an fnx graph they routed through nx's backend-dispatch machinery (~2.5ms pure overhead). For trivial score_sequence (sorted out-degrees) that is 280x; for is_tournament it adds to nx's O(V^2) all-pairs edge check on the slow fnx adjacency view (6x).",
+  "lever": "override both in tournament.py, bypassing the dispatcher: score_sequence = sorted(G.out_degree()) directly; is_tournament snapshots successor adjacency to plain set dicts then runs nx's exact XOR-over-pairs test. Exception order fixed to match nx (multigraph checked before undirected). Deterministic outputs, byte-exact.",
+  "parity": {
+    "cases": 75,
+    "mismatches": 0,
+    "coverage": "tournaments (score_sequence + is_tournament), gnp non-tournaments (25 False), self-loop, MultiGraph/MultiDiGraph/Graph exception-message parity",
+    "pytest": "179 passed (tournament)"
+  },
+  "bench_min_of_11_ms": {
+    "score_sequence_n80":  {"nx": 0.0102, "old_fnx": 2.5134, "new_fnx": 0.0091, "self_speedup": 276, "vs_nx": 0.95},
+    "score_sequence_n150": {"nx": 0.0166, "new_fnx": 0.0164, "vs_nx": 1.03},
+    "is_tournament_n80":   {"nx": 2.0973, "old_fnx": 12.5882, "new_fnx": 0.3890, "self_speedup": 32, "vs_nx": 0.18},
+    "is_tournament_n150":  {"nx": 7.3296, "new_fnx": 1.2873, "vs_nx": 0.17}
+  },
+  "headline": "tournament.score_sequence 280x slower than nx -> PARITY (~276x self-speedup); is_tournament 6x slower -> 5.4x FASTER than nx (~32x self-speedup). Cause was the nx @_dispatchable backend-dispatch overhead on import*-re-exported functions. Pure Python, no rebuild."
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "cgse-semantics-threat-model-validation-v1",
+  "artifact": "artifacts/cgse/v1/cgse_semantics_threat_model_v1.json",
+  "schema": "artifacts/cgse/schema/v1/cgse_semantics_threat_model_schema_v1.json",
+  "policy": "artifacts/cgse/v1/cgse_deterministic_policy_spec_v1.json",
+  "ledger": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "threat_row_count": 14,
+    "boundary_row_count": 14,
+    "policy_row_count": 14,
+    "threat_allowlist_count": 12
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl native --case dense --n 200 --loops 3 --samples 5",
+      "mean": 0.37540488208000006,
+      "stddev": 0.020135560767628485,
+      "median": 0.37291619178,
+      "user": 4.36105888,
+      "system": 0.06669944,
+      "min": 0.35243627528000004,
+      "max": 0.41901550428000006,
+      "times": [
+        0.37341528128000007,
+        0.36432600028000006,
+        0.38872353128000003,
+        0.38860391428,
+        0.35243627528000004,
+        0.38155763128000003,
+        0.37241710228,
+        0.35723952128,
+        0.41901550428000006,
+        0.35631405928000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl numpy --case dense --n 200 --loops 3 --samples 5",
+      "mean": 0.2966154342800001,
+      "stddev": 0.01635422298532195,
+      "median": 0.29590531728,
+      "user": 5.730713279999999,
+      "system": 0.06922484,
+      "min": 0.27320593128000004,
+      "max": 0.32601335128000003,
+      "times": [
+        0.31781257128,
+        0.27320593128000004,
+        0.27983803028000004,
+        0.30170679228,
+        0.32601335128000003,
+        0.29603986128000004,
+        0.30255269428000003,
+        0.28748885828000004,
+        0.28572547928,
+        0.29577077328
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

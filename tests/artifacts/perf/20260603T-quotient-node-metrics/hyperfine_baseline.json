@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-quotient-node-metrics/bench_quotient_graph.py bench --engines fnx --samples 1 --n 3000 --block-size 10 --extra-edges 9000",
+      "mean": 7.33879451944,
+      "stddev": 0.12399965320295445,
+      "median": 7.2771265088399995,
+      "user": 10.81050948,
+      "system": 0.09828622000000001,
+      "min": 7.2133501208399995,
+      "max": 7.52230156084,
+      "times": [
+        7.52230156084,
+        7.2771265088399995,
+        7.2133501208399995,
+        7.27624239884,
+        7.4049520078399995
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

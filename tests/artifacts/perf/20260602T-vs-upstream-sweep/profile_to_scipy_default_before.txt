@@ -1,0 +1,46 @@
+         4172334 function calls (4165517 primitive calls) in 2.909 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1213 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.000    0.000    3.006    0.601 bench_vs_upstream.py:73(_call_case)
+        5    0.001    0.000    3.006    0.601 __init__.py:42296(wrapper)
+        5    0.300    0.060    3.005    0.601 __init__.py:38774(to_scipy_sparse_array)
+   399845    0.094    0.000    1.665    0.000 __init__.py:993(<genexpr>)
+   359840    0.072    0.000    1.256    0.000 __init__.py:1041(_atlas)
+   319840    0.092    0.000    1.248    0.000 __init__.py:1050(__getitem__)
+   359840    1.032    0.000    1.184    0.000 __init__.py:1113(<lambda>)
+    40005    0.041    0.000    0.523    0.000 __init__.py:978(_adjacency_view_items)
+    40243    0.098    0.000    0.490    0.000 {built-in method builtins.__build_class__}
+    40057    0.055    0.000    0.363    0.000 <frozen abc>:105(__new__)
+    40000    0.296    0.000    0.323    0.000 __init__.py:1103(__getitem__)
+40811/40749    0.269    0.000    0.270    0.000 {built-in method __new__ of type object at 0xa15020}
+       29    0.000    0.000    0.259    0.009 __init__.py:1(<module>)
+   399845    0.073    0.000    0.170    0.000 __init__.py:1085(_atlas)
+    40005    0.018    0.000    0.142    0.000 __init__.py:992(__iter__)
+    40000    0.016    0.000    0.121    0.000 __init__.py:1047(__iter__)
+   682691    0.117    0.000    0.117    0.000 {method 'get' of 'dict' objects}
+    175/1    0.001    0.000    0.110    0.110 <frozen importlib._bootstrap>:1349(_find_and_load)
+    171/1    0.001    0.000    0.110    0.110 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    409/3    0.000    0.000    0.110    0.037 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    167/2    0.000    0.000    0.110    0.055 <frozen importlib._bootstrap>:911(_load_unlocked)
+    149/2    0.000    0.000    0.110    0.055 <frozen importlib._bootstrap_external>:1020(exec_module)
+    153/2    0.001    0.000    0.109    0.055 {built-in method builtins.exec}
+   978054    0.094    0.000    0.094    0.000 {method 'append' of 'list' objects}
+        2    0.000    0.000    0.089    0.044 _base.py:1(<module>)
+        1    0.000    0.000    0.088    0.088 _sputils.py:1(<module>)
+    60/20    0.000    0.000    0.088    0.004 {built-in method builtins.__import__}
+        1    0.000    0.000    0.087    0.087 _util.py:1(<module>)
+        1    0.000    0.000    0.086    0.086 _array_api.py:1(<module>)
+    96/20    0.000    0.000    0.080    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.065    0.022 _internal.py:56(clone_module)
+2261/1709    0.000    0.000    0.064    0.000 {built-in method builtins.hasattr}
+       11    0.000    0.000    0.064    0.006 __init__.py:704(__getattr__)
+        5    0.000    0.000    0.044    0.009 _coo.py:32(__init__)
+    40057    0.039    0.000    0.039    0.000 {built-in method _abc._abc_init}
+        1    0.000    0.000    0.035    0.035 f2py2e.py:1(<module>)
+      217    0.001    0.000    0.030    0.000 __init__.py:330(_compile)
+       75    0.000    0.000    0.029    0.000 __init__.py:287(compile)
+       80    0.000    0.000    0.029    0.000 _compiler.py:743(compile)
+        1    0.000    0.000    0.028    0.028 capi_maps.py:1(<module>)

@@ -1,0 +1,21 @@
+  [2m2026-06-08T03:40:04.694088Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: bash -lc 'python3 - <<"PY"
+import cProfile
+import importlib.util
+import pstats
+import sys
+from pathlib import Path
+
+path = Path("tests/artifacts/perf/20260608T-find-cycle-early-exit-tealspring/bench_find_cycle.py")
+spec = importlib.util.spec_from_file_location("bench_find_cycle", path)
+bench = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(bench)
+
+graph = bench._build_graph(bench.fnx)
+prof = cProfile.Profile()
+prof.enable()
+for _ in range(1000):
+    bench.fnx.find_cycle(graph)
+prof.disable()
+pstats.Stats(prof, stream=sys.stdout).sort_stats("tottime").print_stats(60)
+PY'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

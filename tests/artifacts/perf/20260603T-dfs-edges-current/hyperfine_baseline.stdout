@@ -1,0 +1,4 @@
+Benchmark 1: python3 tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op dfs_edges --repeat 20 --n 3000 --m 4
+  Time (mean ± σ):     433.4 ms ±  57.6 ms    [User: 4137.9 ms, System: 65.9 ms]
+  Range (min … max):   391.2 ms … 621.6 ms    15 runs
+ 

@@ -1,0 +1,9 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib grid_2d -- --nocapture
+running 4 tests
+test tests::grid_2d_graph_periodic_axes_add_networkx_wrap_edges ... ok
+test tests::grid_2d_graph_small_periodic_dimensions_do_not_duplicate_edges ... ok
+(+2 more) test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 205 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).

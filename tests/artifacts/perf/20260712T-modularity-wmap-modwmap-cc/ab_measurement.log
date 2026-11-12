@@ -1,0 +1,25 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib modularity_wmap_ab -- --ignored --nocapture
+
+# First attempt: w_map ONLY (has_edge -> index-tuple map lookup) kept the per-pair node_to_idx.get(u/v).
+# MARGINAL (1.0584x, candidate p5 0.88 < null p95 1.17) -- has_edge is already an internal hash, so swapping
+# it for another hash saved little. The per-pair node_to_idx.get String hash was the real dominant cost.
+MODWMAP_AB v1 (w_map only): WMAP_vs_hasedge median=1.0584x 44/61 p5_p95=[0.8824,1.2524]
+
+# Added: resolve each community's nodes to INDICES once (comm_idx) so the double-loop is pure integer
+# (no per-pair node_to_idx.get). DECISIVE:
+MODWMAP_AB circ2000_comm4x500 rounds=61 (>1 = wmap faster)
+MODWMAP_AB WMAP_vs_hasedge: median=1.9794x win_rate=60/61 p5_p95=[1.4957,2.3381]
+MODWMAP_AB NULL_wmap_vs_wmap: median=0.9990x win_rate=30/61 p5_p95=[0.7713,1.3048]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1010 filtered out; finished in 8.34s
+
+Marker MODWMAP_AB + test name confirmed (fresh binary). ULP parity (old.to_bits() ==
+new.to_bits()) passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib modularity -- --nocapture
+test tests::modularity_perfect_partition ... ok        # asserts the numeric Q value
+test tests::modularity_rejects_overlapping_partition ... ok
+... (5 passed)
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~23960-23995 / test ~71895-72047)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

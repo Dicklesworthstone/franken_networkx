@@ -1,0 +1,119 @@
+{
+  "suite": "algorithms_flow_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "s",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "t",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "capacity": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "s",
+      "attrs": {
+        "capacity": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "t",
+      "attrs": {
+        "capacity": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "s",
+      "attrs": {
+        "capacity": "0"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "t",
+      "attrs": {
+        "capacity": "7"
+      }
+    },
+    {
+      "op": "max_flow_query",
+      "source": "s",
+      "target": "t"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "s",
+        "t"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "capacity": "2"
+          }
+        },
+        {
+          "left": "a",
+          "right": "s",
+          "attrs": {
+            "capacity": "5"
+          }
+        },
+        {
+          "left": "a",
+          "right": "t",
+          "attrs": {
+            "capacity": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "s",
+          "attrs": {
+            "capacity": "0"
+          }
+        },
+        {
+          "left": "b",
+          "right": "t",
+          "attrs": {
+            "capacity": "7"
+          }
+        }
+      ]
+    },
+    "max_flow_value": 5
+  }
+}

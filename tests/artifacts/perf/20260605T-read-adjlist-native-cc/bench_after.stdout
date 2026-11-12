@@ -1,0 +1,4 @@
+nodes/edges: 1500 5224
+{'nx': '4.928ms', 'fnx_before': '28.203ms', 'fnx_after': '4.770ms'}
+before vs nx: 5.72x | after vs nx: 0.97x | self-speedup: 5.91x
+small(50 edges): {'nx': '116us', 'fnx_after': '70us'} ratio 0.60x

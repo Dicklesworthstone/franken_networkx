@@ -1,0 +1,12 @@
+{
+  "density_per_mille": 160,
+  "edges": 2603,
+  "impl": "fnx-current",
+  "loops": 5,
+  "n": 180,
+  "profile": "tests/artifacts/perf/20260615T-max-weight-matching-inprocess-coppercliff/profile_fnx-current.prof",
+  "result_sha256": "7dd82721b85d76009f8a297dbb7c9dfae28a6c24a7a7ff6840d0d5afb5d019dd",
+  "result_size": 90,
+  "text": "tests/artifacts/perf/20260615T-max-weight-matching-inprocess-coppercliff/profile_fnx-current.txt",
+  "warmup": 1
+}

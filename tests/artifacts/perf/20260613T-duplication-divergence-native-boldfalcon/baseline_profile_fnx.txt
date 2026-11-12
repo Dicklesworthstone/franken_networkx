@@ -1,0 +1,58 @@
+         69645 function calls (69618 primitive calls) in 0.026 seconds
+
+   Ordered by: cumulative time
+   List reduced from 243 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.026    0.026 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-duplication-divergence-native-boldfalcon/duplication_divergence_harness.py:75(<lambda>)
+        1    0.000    0.000    0.026    0.026 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:45149(duplication_divergence_graph)
+        1    0.000    0.000    0.026    0.026 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:45176(_duplication_divergence_graph_impl)
+        1    0.000    0.000    0.013    0.013 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/readwrite/__init__.py:449(_from_nx_graph)
+      4/1    0.000    0.000    0.013    0.013 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.013    0.013 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_duplication_divergence_graph_1)
+      3/1    0.000    0.000    0.013    0.013 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      3/1    0.000    0.000    0.012    0.012 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.005    0.005    0.012    0.012 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/generators/duplication.py:97(duplication_divergence_graph)
+        1    0.000    0.000    0.009    0.009 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2780(add_edges_from)
+     1699    0.001    0.000    0.008    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/readwrite/__init__.py:505(_topo_edge_batch)
+     1699    0.003    0.000    0.006    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/backend.py:490(_topo_emit_edges_by_adj)
+      800    0.002    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2452(add_node)
+     1698    0.002    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:917(add_edge)
+     4196    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/backend.py:539(_is_ready)
+     1176    0.001    0.000    0.001    0.000 /usr/lib/python3.13/random.py:345(choice)
+     1176    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:535(add_node)
+      800    0.001    0.000    0.001    0.000 {function Graph.add_node at 0x70833f190cc0}
+     1698    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+     2498    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+        4    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+     3253    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/misc.py:645(_clear_cache)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+     1176    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+     6815    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:911(_load_unlocked)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap_external>:1020(exec_module)
+      5/4    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+     4239    0.000    0.000    0.000    0.000 {method 'random' of '_random.Random' objects}
+     5095    0.000    0.000    0.000    0.000 {method 'popleft' of 'collections.deque' objects}
+        1    0.000    0.000    0.000    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+        4    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+     1176    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:1344(neighbors)
+        3    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/backend.py:549(<genexpr>)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+     2886    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+     4345    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      378    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:662(remove_node)
+     1176    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:455(__iter__)
+     1176    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:487(__len__)
+     3302    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+     3155    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+        1    0.000    0.000    0.000    0.000 {built-in method marshal.loads}
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+
+

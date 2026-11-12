@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260609T-k-components-cycle-boldfalcon/harness_cycle_k_components.py time --n 10 --repeats 20 --which nx",
+      "mean": 2.6317188914399994,
+      "stddev": 0.026959015357466,
+      "median": 2.6212473092399997,
+      "user": 6.32934528,
+      "system": 0.059326000000000004,
+      "min": 2.6063277392399997,
+      "max": 2.67639179024,
+      "times": [
+        2.61962251524,
+        2.6350051032399997,
+        2.67639179024,
+        2.6212473092399997,
+        2.6063277392399997
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

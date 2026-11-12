@@ -1,0 +1,135 @@
+=== ELF identity ===
+5da6b171d43c9f03d3244915a36e7ae6aebc481ab437ad5bbc23a7d112b73145  /data/tmp/claude-1000/-data-projects-franken-networkx/58e12b6f-96f8-4c7b-b881-51d9992f6f6f/scratchpad/farm_before2/franken_networkx/_fnx.abi3.so
+972203d34df51cc0fcb2c2938046c1ef6479988d07107e59ae8aba3b63276281  /data/tmp/claude-1000/-data-projects-franken-networkx/58e12b6f-96f8-4c7b-b881-51d9992f6f6f/scratchpad/farm_after2/franken_networkx/_fnx.abi3.so
+
+############ INT-KEY PARITY vs live networkx: before2 ############
+loaded _fnx: /data/tmp/claude-1000/-data-projects-franken-networkx/58e12b6f-96f8-4c7b-b881-51d9992f6f6f/scratchpad/farm_before2/franken_networkx/_fnx.abi3.so
+
+int-key parity vs networkx: ALL CHECKS PASS
+
+############ PYTHON SUITE (digraph / edge / view surface): before2 ############
+ERROR: stale python/franken_networkx/_fnx.abi3.so is older than Rust sources; rebuild the Python extension before running pytest:
+  env -u CARGO_TARGET_DIR maturin develop --release --features pyo3/abi3-py310
+(--release matters: the debug profile is ~9x slower at the Python-Rust boundary and silently invalidates any measurement)
+
+
+############ TIMING: before2 ############
+bench_elf_sha256=5da6b171d43c9f03d3244915a36e7ae6aebc481ab437ad5bbc23a7d112b73145 (14098544 bytes) /data/tmp/claude-1000/-data-projects-franken-networkx/58e12b6f-96f8-4c7b-b881-51d9992f6f6f/scratchpad/farm_before2/franken_networkx/_fnx.abi3.so
+[A/A nx]  DiGraph.edges[u,v]      x512 int             ratio_p50=   0.9938x CI=[0.9734,1.0035] a=    73.11us b=    74.54us cv=138.24/110.35% wins=8/21
+[A/A fnx] DiGraph.edges[u,v]      x512 int             ratio_p50=   1.0013x CI=[0.9903,1.0057] a=   246.23us b=   246.04us cv= 5.37/ 2.09% wins=11/21
+DiGraph.edges[u,v]      x512 int                       ratio_p50=   0.3002x CI=[0.2978,0.3045] a=    72.38us b=   241.92us cv= 2.69/14.14% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.6998>2x_null_half_width=0.0301:True worst_null_median_bias=0.0062<=0.0200:True (A/A nx median=0.9938 CI=0.9734-1.0035, A/A fnx median=1.0013 CI=0.9903-1.0057)
+[A/A nx]  DiGraph.get_edge_data() x512 int             ratio_p50=   1.0039x CI=[0.9973,1.0140] a=    63.48us b=    63.13us cv= 1.38/ 1.26% wins=13/21
+[A/A fnx] DiGraph.get_edge_data() x512 int             ratio_p50=   1.0088x CI=[0.9846,1.0200] a=   178.53us b=   177.11us cv= 4.13/12.65% wins=12/21
+DiGraph.get_edge_data() x512 int                       ratio_p50=   0.3547x CI=[0.3531,0.3573] a=    63.06us b=   179.36us cv= 2.74/ 2.12% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.6453>2x_null_half_width=0.0354:True worst_null_median_bias=0.0088<=0.0200:True (A/A nx median=1.0039 CI=0.9973-1.0140, A/A fnx median=1.0088 CI=0.9846-1.0200)
+[A/A nx]  DiGraph.adj[u][v]       x512 int             ratio_p50=   1.0047x CI=[0.9893,1.0165] a=   134.06us b=   131.88us cv= 6.53/ 9.77% wins=12/21
+[A/A fnx] DiGraph.adj[u][v]       x512 int             ratio_p50=   1.0125x CI=[0.9109,2.1248] a=   932.55us b=   458.94us cv=48.06/42.40% wins=13/21
+DiGraph.adj[u][v]       x512 int                       ratio_p50=   0.2896x CI=[0.2884,0.2907] a=   128.50us b=   443.51us cv= 4.54/ 3.61% wins=0/21  -> UNDECIDABLE clauses=CI_excludes_1:True effect_dev=0.7104>2x_null_half_width=1.2139:False worst_null_median_bias=0.0125<=0.0200:True (A/A nx median=1.0047 CI=0.9893-1.0165, A/A fnx median=1.0125 CI=0.9109-2.1248)
+[A/A nx]  DiGraph.edges[u,v]      x512 str             ratio_p50=   1.0014x CI=[0.9965,1.2779] a=    70.58us b=    70.56us cv=46.87/146.01% wins=13/21
+[A/A fnx] DiGraph.edges[u,v]      x512 str             ratio_p50=   0.9920x CI=[0.9868,0.9996] a=   167.53us b=   169.08us cv= 2.43/28.37% wins=6/21
+DiGraph.edges[u,v]      x512 str                       ratio_p50=   0.4126x CI=[0.4068,0.4167] a=    71.91us b=   175.11us cv=104.45/ 2.90% wins=2/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.5874>2x_null_half_width=0.2813:True worst_null_median_bias=0.0080<=0.0200:True (A/A nx median=1.0014 CI=0.9965-1.2779, A/A fnx median=0.9920 CI=0.9868-0.9996)
+[A/A nx]  DiGraph.get_edge_data() x512 str             ratio_p50=   0.9987x CI=[0.9857,1.0107] a=    62.01us b=    61.51us cv= 3.39/ 6.77% wins=10/21
+[A/A fnx] DiGraph.get_edge_data() x512 str             ratio_p50=   1.0029x CI=[1.0012,1.0046] a=   116.04us b=   115.57us cv= 0.85/ 0.55% wins=17/21
+DiGraph.get_edge_data() x512 str                       ratio_p50=   0.5322x CI=[0.5287,0.5338] a=    61.45us b=   115.95us cv= 2.10/ 2.31% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.4678>2x_null_half_width=0.0250:True worst_null_median_bias=0.0029<=0.0200:True (A/A nx median=0.9987 CI=0.9857-1.0107, A/A fnx median=1.0029 CI=1.0012-1.0046)
+[A/A nx]  DiGraph.adj[u][v]       x512 str             ratio_p50=   0.9994x CI=[0.9965,1.0012] a=   125.11us b=   125.18us cv= 1.50/ 1.27% wins=7/21
+[A/A fnx] DiGraph.adj[u][v]       x512 str             ratio_p50=   1.0019x CI=[1.0003,1.0041] a=   379.01us b=   378.79us cv= 1.19/ 1.52% wins=15/21
+DiGraph.adj[u][v]       x512 str                       ratio_p50=   0.3274x CI=[0.3237,0.3288] a=   124.34us b=   379.64us cv= 4.86/ 4.62% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.6726>2x_null_half_width=0.0047:True worst_null_median_bias=0.0019<=0.0200:True (A/A nx median=0.9994 CI=0.9965-1.0012, A/A fnx median=1.0019 CI=1.0003-1.0041)
+[A/A nx]  Graph.edges[u,v]      x512 int               ratio_p50=   0.9945x CI=[0.9904,0.9984] a=    72.77us b=    72.92us cv= 7.09/ 2.52% wins=4/21
+[A/A fnx] Graph.edges[u,v]      x512 int               ratio_p50=   1.0045x CI=[0.9992,1.0265] a=   119.97us b=   118.55us cv= 4.02/ 1.37% wins=13/21
+Graph.edges[u,v]      x512 int                         ratio_p50=   0.6261x CI=[0.6197,0.6300] a=    73.83us b=   118.84us cv= 8.72/10.39% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.3739>2x_null_half_width=0.0273:True worst_null_median_bias=0.0055<=0.0200:True (A/A nx median=0.9945 CI=0.9904-0.9984, A/A fnx median=1.0045 CI=0.9992-1.0265)
+[A/A nx]  Graph.get_edge_data() x512 int               ratio_p50=   1.0061x CI=[0.9993,1.0115] a=    64.60us b=    64.24us cv= 2.24/ 2.21% wins=13/21
+[A/A fnx] Graph.get_edge_data() x512 int               ratio_p50=   0.9954x CI=[0.9414,1.0004] a=   202.74us b=   203.78us cv= 2.95/ 5.78% wins=7/21
+Graph.get_edge_data() x512 int                         ratio_p50=   0.3151x CI=[0.3126,0.3183] a=    63.94us b=   201.76us cv= 8.70/ 5.02% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.6849>2x_null_half_width=0.0590:True worst_null_median_bias=0.0061<=0.0200:True (A/A nx median=1.0061 CI=0.9993-1.0115, A/A fnx median=0.9954 CI=0.9414-1.0004)
+[A/A nx]  Graph.adj[u][v]       x512 int               ratio_p50=   1.0106x CI=[0.9907,1.0252] a=   133.02us b=   129.48us cv=39.40/83.29% wins=12/21
+[A/A fnx] Graph.adj[u][v]       x512 int               ratio_p50=   1.0022x CI=[0.9972,1.0054] a=   287.15us b=   286.98us cv= 2.54/ 1.39% wins=12/21
+Graph.adj[u][v]       x512 int                         ratio_p50=   0.4448x CI=[0.4434,0.4469] a=   128.62us b=   288.56us cv= 2.01/ 2.45% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.5552>2x_null_half_width=0.0346:True worst_null_median_bias=0.0106<=0.0200:True (A/A nx median=1.0106 CI=0.9907-1.0252, A/A fnx median=1.0022 CI=0.9972-1.0054)
+[A/A nx]  Graph.edges[u,v]      x512 str               ratio_p50=   1.0020x CI=[1.0000,1.0057] a=    69.14us b=    69.03us cv= 1.36/ 0.98% wins=15/21
+[A/A fnx] Graph.edges[u,v]      x512 str               ratio_p50=   0.9994x CI=[0.9957,1.0035] a=   116.29us b=   116.30us cv= 1.00/ 0.81% wins=10/21
+Graph.edges[u,v]      x512 str                         ratio_p50=   0.5873x CI=[0.5850,0.5929] a=    68.86us b=   117.09us cv= 1.10/ 1.70% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.4127>2x_null_half_width=0.0078:True worst_null_median_bias=0.0020<=0.0200:True (A/A nx median=1.0020 CI=1.0000-1.0057, A/A fnx median=0.9994 CI=0.9957-1.0035)
+[A/A nx]  Graph.get_edge_data() x512 str               ratio_p50=   0.9982x CI=[0.9966,0.9993] a=    59.39us b=    59.57us cv= 1.05/ 0.41% wins=5/21
+[A/A fnx] Graph.get_edge_data() x512 str               ratio_p50=   1.0097x CI=[0.9987,1.0320] a=   119.36us b=   118.55us cv= 8.30/ 9.57% wins=14/21
+Graph.get_edge_data() x512 str                         ratio_p50=   0.5059x CI=[0.5009,0.5096] a=    60.79us b=   120.54us cv= 2.51/ 2.87% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.4941>2x_null_half_width=0.0332:True worst_null_median_bias=0.0097<=0.0200:True (A/A nx median=0.9982 CI=0.9966-0.9993, A/A fnx median=1.0097 CI=0.9987-1.0320)
+[A/A nx]  Graph.adj[u][v]       x512 str               ratio_p50=   1.0069x CI=[0.9990,1.0147] a=   125.34us b=   124.26us cv= 1.77/ 1.08% wins=14/21
+[A/A fnx] Graph.adj[u][v]       x512 str               ratio_p50=   1.0010x CI=[0.9956,1.0032] a=   245.31us b=   245.44us cv=67.00/94.30% wins=11/21
+Graph.adj[u][v]       x512 str                         ratio_p50=   0.5073x CI=[0.5055,0.5097] a=   124.33us b=   245.01us cv= 1.94/ 1.91% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.4927>2x_null_half_width=0.0157:True worst_null_median_bias=0.0069<=0.0200:True (A/A nx median=1.0069 CI=0.9990-1.0147, A/A fnx median=1.0010 CI=0.9956-1.0032)
+
+arm=before2 (worst first):
+   0.2896x  CI 0.2884-0.2907  nx= 128.50 fnx= 443.51us ( 866.2ns/call)  dec=False  DiGraph.adj[u][v]       x512 int
+   0.3002x  CI 0.2978-0.3045  nx=  72.38 fnx= 241.92us ( 472.5ns/call)  dec=True  DiGraph.edges[u,v]      x512 int
+   0.3151x  CI 0.3126-0.3183  nx=  63.94 fnx= 201.76us ( 394.1ns/call)  dec=True  Graph.get_edge_data() x512 int
+   0.3274x  CI 0.3237-0.3288  nx= 124.34 fnx= 379.64us ( 741.5ns/call)  dec=True  DiGraph.adj[u][v]       x512 str
+   0.3547x  CI 0.3531-0.3573  nx=  63.06 fnx= 179.36us ( 350.3ns/call)  dec=True  DiGraph.get_edge_data() x512 int
+   0.4126x  CI 0.4068-0.4167  nx=  71.91 fnx= 175.11us ( 342.0ns/call)  dec=True  DiGraph.edges[u,v]      x512 str
+   0.4448x  CI 0.4434-0.4469  nx= 128.62 fnx= 288.56us ( 563.6ns/call)  dec=True  Graph.adj[u][v]       x512 int
+   0.5059x  CI 0.5009-0.5096  nx=  60.79 fnx= 120.54us ( 235.4ns/call)  dec=True  Graph.get_edge_data() x512 str
+   0.5073x  CI 0.5055-0.5097  nx= 124.33 fnx= 245.01us ( 478.5ns/call)  dec=True  Graph.adj[u][v]       x512 str
+   0.5322x  CI 0.5287-0.5338  nx=  61.45 fnx= 115.95us ( 226.5ns/call)  dec=True  DiGraph.get_edge_data() x512 str
+   0.5873x  CI 0.5850-0.5929  nx=  68.86 fnx= 117.09us ( 228.7ns/call)  dec=True  Graph.edges[u,v]      x512 str
+   0.6261x  CI 0.6197-0.6300  nx=  73.83 fnx= 118.84us ( 232.1ns/call)  dec=True  Graph.edges[u,v]      x512 int
+
+decidable 11/12; nulls nx [0.9938,1.0106] fnx [0.9920,1.0125]
+
+############ INT-KEY PARITY vs live networkx: after2 ############
+loaded _fnx: /data/tmp/claude-1000/-data-projects-franken-networkx/58e12b6f-96f8-4c7b-b881-51d9992f6f6f/scratchpad/farm_after2/franken_networkx/_fnx.abi3.so
+
+int-key parity vs networkx: ALL CHECKS PASS
+
+############ PYTHON SUITE (digraph / edge / view surface): after2 ############
+ERROR: stale python/franken_networkx/_fnx.abi3.so is older than Rust sources; rebuild the Python extension before running pytest:
+  env -u CARGO_TARGET_DIR maturin develop --release --features pyo3/abi3-py310
+(--release matters: the debug profile is ~9x slower at the Python-Rust boundary and silently invalidates any measurement)
+
+
+############ TIMING: after2 ############
+bench_elf_sha256=972203d34df51cc0fcb2c2938046c1ef6479988d07107e59ae8aba3b63276281 (14098800 bytes) /data/tmp/claude-1000/-data-projects-franken-networkx/58e12b6f-96f8-4c7b-b881-51d9992f6f6f/scratchpad/farm_after2/franken_networkx/_fnx.abi3.so
+[A/A nx]  DiGraph.edges[u,v]      x512 int             ratio_p50=   1.0114x CI=[1.0021,1.0161] a=    74.31us b=    73.18us cv= 2.12/ 1.40% wins=15/21
+[A/A fnx] DiGraph.edges[u,v]      x512 int             ratio_p50=   1.0001x CI=[0.9974,1.0036] a=   176.85us b=   176.41us cv= 1.22/ 0.65% wins=11/21
+DiGraph.edges[u,v]      x512 int                       ratio_p50=   0.4089x CI=[0.4029,0.4235] a=    76.41us b=   192.44us cv=105.78/90.04% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.5911>2x_null_half_width=0.0140:True worst_null_median_bias=0.0114<=0.0200:True (A/A nx median=1.0114 CI=1.0021-1.0161, A/A fnx median=1.0001 CI=0.9974-1.0036)
+[A/A nx]  DiGraph.get_edge_data() x512 int             ratio_p50=   6.7225x CI=[4.4089,7.3910] a=   465.85us b=    63.62us cv=26.52/119.98% wins=18/21
+[A/A fnx] DiGraph.get_edge_data() x512 int             ratio_p50=   0.9918x CI=[0.9892,0.9960] a=   119.02us b=   119.84us cv= 3.80/21.59% wins=5/21
+DiGraph.get_edge_data() x512 int                       ratio_p50=   0.5048x CI=[0.4866,0.5137] a=    62.04us b=   122.13us cv= 4.00/111.67% wins=0/21  -> UNDECIDABLE clauses=CI_excludes_1:True effect_dev=0.4952>2x_null_half_width=2.9821:False worst_null_median_bias=5.7225<=0.0200:False (A/A nx median=6.7225 CI=4.4089-7.3910, A/A fnx median=0.9918 CI=0.9892-0.9960)
+[A/A nx]  DiGraph.adj[u][v]       x512 int             ratio_p50=   1.0253x CI=[1.0034,1.0412] a=   138.52us b=   135.88us cv= 6.39/ 5.73% wins=16/21
+[A/A fnx] DiGraph.adj[u][v]       x512 int             ratio_p50=   1.0003x CI=[0.9976,1.0060] a=   389.89us b=   390.36us cv=12.24/11.68% wins=11/21
+DiGraph.adj[u][v]       x512 int                       ratio_p50=   0.3431x CI=[0.3401,0.3448] a=   135.46us b=   395.69us cv= 2.21/ 2.03% wins=0/21  -> UNDECIDABLE clauses=CI_excludes_1:True effect_dev=0.6569>2x_null_half_width=0.0379:True worst_null_median_bias=0.0253<=0.0200:False (A/A nx median=1.0253 CI=1.0034-1.0412, A/A fnx median=1.0003 CI=0.9976-1.0060)
+[A/A nx]  DiGraph.edges[u,v]      x512 str             ratio_p50=   1.0045x CI=[0.9843,1.0176] a=    71.28us b=    70.35us cv= 3.03/29.05% wins=12/21
+[A/A fnx] DiGraph.edges[u,v]      x512 str             ratio_p50=   0.9777x CI=[0.9678,0.9851] a=   177.75us b=   181.73us cv= 0.52/ 4.98% wins=3/21
+DiGraph.edges[u,v]      x512 str                       ratio_p50=   0.3879x CI=[0.3823,0.3944] a=    70.76us b=   182.07us cv= 2.30/ 2.25% wins=0/21  -> UNDECIDABLE clauses=CI_excludes_1:True effect_dev=0.6121>2x_null_half_width=0.0333:True worst_null_median_bias=0.0223<=0.0200:False (A/A nx median=1.0045 CI=0.9843-1.0176, A/A fnx median=0.9777 CI=0.9678-0.9851)
+[A/A nx]  DiGraph.get_edge_data() x512 str             ratio_p50=   1.0130x CI=[1.0070,1.0160] a=    60.01us b=    59.16us cv= 1.68/ 1.86% wins=19/21
+[A/A fnx] DiGraph.get_edge_data() x512 str             ratio_p50=   1.0259x CI=[1.0023,1.0400] a=   123.77us b=   120.44us cv=25.01/ 2.35% wins=15/21
+DiGraph.get_edge_data() x512 str                       ratio_p50=   0.4985x CI=[0.4888,0.5057] a=    60.80us b=   123.36us cv=17.10/30.74% wins=0/21  -> UNDECIDABLE clauses=CI_excludes_1:True effect_dev=0.5015>2x_null_half_width=0.0377:True worst_null_median_bias=0.0259<=0.0200:False (A/A nx median=1.0130 CI=1.0070-1.0160, A/A fnx median=1.0259 CI=1.0023-1.0400)
+[A/A nx]  DiGraph.adj[u][v]       x512 str             ratio_p50=   1.0040x CI=[0.9770,1.0098] a=   133.10us b=   133.37us cv= 2.91/ 2.71% wins=11/21
+[A/A fnx] DiGraph.adj[u][v]       x512 str             ratio_p50=   1.0037x CI=[0.9968,1.0627] a=   400.84us b=   396.27us cv= 7.27/ 5.02% wins=12/21
+DiGraph.adj[u][v]       x512 str                       ratio_p50=   0.3375x CI=[0.3354,0.3468] a=   132.04us b=   391.08us cv= 6.55/ 9.01% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.6625>2x_null_half_width=0.0659:True worst_null_median_bias=0.0040<=0.0200:True (A/A nx median=1.0040 CI=0.9770-1.0098, A/A fnx median=1.0037 CI=0.9968-1.0627)
+[A/A nx]  Graph.edges[u,v]      x512 int               ratio_p50=   1.0006x CI=[0.9969,1.0053] a=    71.43us b=    71.31us cv= 1.79/ 2.84% wins=11/21
+[A/A fnx] Graph.edges[u,v]      x512 int               ratio_p50=   1.0124x CI=[0.9991,1.0179] a=   120.27us b=   119.12us cv= 2.85/ 3.16% wins=12/21
+Graph.edges[u,v]      x512 int                         ratio_p50=   0.6158x CI=[0.6042,0.6204] a=    74.35us b=   120.18us cv=11.77/12.34% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.3842>2x_null_half_width=0.0189:True worst_null_median_bias=0.0124<=0.0200:True (A/A nx median=1.0006 CI=0.9969-1.0053, A/A fnx median=1.0124 CI=0.9991-1.0179)
+[A/A nx]  Graph.get_edge_data() x512 int               ratio_p50=   1.0000x CI=[0.9985,1.0204] a=    64.39us b=    63.11us cv= 2.79/ 3.75% wins=11/21
+[A/A fnx] Graph.get_edge_data() x512 int               ratio_p50=   1.0098x CI=[0.9950,1.0221] a=   191.63us b=   192.00us cv= 1.83/ 1.45% wins=13/21
+Graph.get_edge_data() x512 int                         ratio_p50=   0.3196x CI=[0.2901,0.3213] a=    62.22us b=   195.47us cv=46.55/87.50% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.6804>2x_null_half_width=0.0271:True worst_null_median_bias=0.0098<=0.0200:True (A/A nx median=1.0000 CI=0.9985-1.0204, A/A fnx median=1.0098 CI=0.9950-1.0221)
+[A/A nx]  Graph.adj[u][v]       x512 int               ratio_p50=   1.0020x CI=[0.9952,1.0076] a=   132.91us b=   132.92us cv=37.67/41.46% wins=12/21
+[A/A fnx] Graph.adj[u][v]       x512 int               ratio_p50=   0.9985x CI=[0.9639,1.0029] a=   286.71us b=   290.04us cv=10.60/ 7.53% wins=8/21
+Graph.adj[u][v]       x512 int                         ratio_p50=   0.4589x CI=[0.4573,0.4657] a=   132.74us b=   287.11us cv= 3.32/ 3.55% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.5411>2x_null_half_width=0.0390:True worst_null_median_bias=0.0020<=0.0200:True (A/A nx median=1.0020 CI=0.9952-1.0076, A/A fnx median=0.9985 CI=0.9639-1.0029)
+[A/A nx]  Graph.edges[u,v]      x512 str               ratio_p50=   0.9995x CI=[0.9943,1.0057] a=    70.39us b=    70.22us cv= 3.45/130.05% wins=10/21
+[A/A fnx] Graph.edges[u,v]      x512 str               ratio_p50=   0.9995x CI=[0.9869,1.0200] a=   117.23us b=   117.64us cv= 2.71/ 2.32% wins=10/21
+Graph.edges[u,v]      x512 str                         ratio_p50=   0.6056x CI=[0.5970,0.6094] a=    70.43us b=   116.82us cv= 1.37/28.09% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.3944>2x_null_half_width=0.0331:True worst_null_median_bias=0.0005<=0.0200:True (A/A nx median=0.9995 CI=0.9943-1.0057, A/A fnx median=0.9995 CI=0.9869-1.0200)
+[A/A nx]  Graph.get_edge_data() x512 str               ratio_p50=   0.9905x CI=[0.9827,0.9987] a=    61.43us b=    61.81us cv= 2.54/142.24% wins=5/21
+[A/A fnx] Graph.get_edge_data() x512 str               ratio_p50=   0.9993x CI=[0.9979,1.0101] a=   118.77us b=   118.24us cv= 2.24/ 1.99% wins=10/21
+Graph.get_edge_data() x512 str                         ratio_p50=   0.5100x CI=[0.5044,0.5130] a=    60.65us b=   119.85us cv= 1.91/ 2.42% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.4900>2x_null_half_width=0.0160:True worst_null_median_bias=0.0095<=0.0200:True (A/A nx median=0.9905 CI=0.9827-0.9987, A/A fnx median=0.9993 CI=0.9979-1.0101)
+[A/A nx]  Graph.adj[u][v]       x512 str               ratio_p50=   0.9985x CI=[0.9921,1.0049] a=   130.86us b=   131.45us cv= 1.01/ 2.84% wins=8/21
+[A/A fnx] Graph.adj[u][v]       x512 str               ratio_p50=   0.9984x CI=[0.9947,1.0037] a=   247.59us b=   248.37us cv= 1.00/ 1.33% wins=10/21
+Graph.adj[u][v]       x512 str                         ratio_p50=   0.5213x CI=[0.5195,0.5225] a=   129.05us b=   248.00us cv= 0.92/ 0.52% wins=0/21  -> DECIDABLE clauses=CI_excludes_1:True effect_dev=0.4787>2x_null_half_width=0.0128:True worst_null_median_bias=0.0016<=0.0200:True (A/A nx median=0.9985 CI=0.9921-1.0049, A/A fnx median=0.9984 CI=0.9947-1.0037)
+
+arm=after2 (worst first):
+   0.3196x  CI 0.2901-0.3213  nx=  62.22 fnx= 195.47us ( 381.8ns/call)  dec=True  Graph.get_edge_data() x512 int
+   0.3375x  CI 0.3354-0.3468  nx= 132.04 fnx= 391.08us ( 763.8ns/call)  dec=True  DiGraph.adj[u][v]       x512 str
+   0.3431x  CI 0.3401-0.3448  nx= 135.46 fnx= 395.69us ( 772.8ns/call)  dec=False  DiGraph.adj[u][v]       x512 int
+   0.3879x  CI 0.3823-0.3944  nx=  70.76 fnx= 182.07us ( 355.6ns/call)  dec=False  DiGraph.edges[u,v]      x512 str
+   0.4089x  CI 0.4029-0.4235  nx=  76.41 fnx= 192.44us ( 375.9ns/call)  dec=True  DiGraph.edges[u,v]      x512 int
+   0.4589x  CI 0.4573-0.4657  nx= 132.74 fnx= 287.11us ( 560.8ns/call)  dec=True  Graph.adj[u][v]       x512 int
+   0.4985x  CI 0.4888-0.5057  nx=  60.80 fnx= 123.36us ( 240.9ns/call)  dec=False  DiGraph.get_edge_data() x512 str
+   0.5048x  CI 0.4866-0.5137  nx=  62.04 fnx= 122.13us ( 238.5ns/call)  dec=False  DiGraph.get_edge_data() x512 int
+   0.5100x  CI 0.5044-0.5130  nx=  60.65 fnx= 119.85us ( 234.1ns/call)  dec=True  Graph.get_edge_data() x512 str
+   0.5213x  CI 0.5195-0.5225  nx= 129.05 fnx= 248.00us ( 484.4ns/call)  dec=True  Graph.adj[u][v]       x512 str
+   0.6056x  CI 0.5970-0.6094  nx=  70.43 fnx= 116.82us ( 228.2ns/call)  dec=True  Graph.edges[u,v]      x512 str
+   0.6158x  CI 0.6042-0.6204  nx=  74.35 fnx= 120.18us ( 234.7ns/call)  dec=True  Graph.edges[u,v]      x512 int
+
+decidable 8/12; nulls nx [0.9905,6.7225] fnx [0.9777,1.0259]

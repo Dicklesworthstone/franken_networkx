@@ -1,0 +1,52 @@
+{
+  "bead": "br-r37-c1-p80x1.10",
+  "workload": "claim/kosaraju_strongly_connected_components n=800 m=4000 seed=11 weighted=true directed=true",
+  "command": "taskset -c 24 env PYTHONHASHSEED=0 PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 EXPECT_ELF_SHA=cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935 /data/projects/franken_networkx/.venv/bin/python scripts/balanced_square_ab.py --workload claim-kosaraju --rounds 21 --warmup 4 --reps 1 --calls-per-slot 1",
+  "incumbent": {
+    "name": "networkx",
+    "version": "3.6.1",
+    "same_process": true
+  },
+  "candidate": {
+    "elf": "python/franken_networkx/_fnx.abi3.so",
+    "elf_sha256": "cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935",
+    "build_profile": "release"
+  },
+  "harness": {
+    "path": "scripts/balanced_square_ab.py",
+    "sha256": "a5435d6541110c77e50df8f6619f8910c0746c1318b09688d021941387d5b003",
+    "rounds": 21,
+    "warmup": 4,
+    "reps": 1,
+    "calls_per_slot": 1,
+    "square": "ABBAABBA"
+  },
+  "exact_fixture_contract": {
+    "input_sha256": "5d7c003cd5c7507408804b01e266bb81d7cfb2fe6546c58dfebff60f621ea89b",
+    "input_canonical_bytes": 189843,
+    "ordered_component_sizes": [1, 1, 1, 1, 1, 790, 1, 1, 1, 1, 1],
+    "ordered_output_sha256": "d75eb49951307e7288928ee8174a752851f4e53c84c0739ed1e3292ddf7f6b60",
+    "normalized_output_sha256": "8a2d25bce721d744f9d57470cf21a9c82890d0c5181f24b426cd35090eb73995",
+    "output_canonical_bytes": 5512,
+    "parity_passed_before_timing": true,
+    "negative_case": "A reordered or membership-wrong SCC generator fails ordered or normalized component validation before timing."
+  },
+  "ratio_t_networkx_over_t_fnx": 3.8304,
+  "ci_95": [3.7633, 3.8939],
+  "aa_nulls": {
+    "networkx": 0.9969,
+    "fnx": 1.0119,
+    "bound": 0.02,
+    "passed": true
+  },
+  "host": {
+    "name": "thinkstation1",
+    "affinity_cpu": 24,
+    "smt_sibling_cpu": 56,
+    "smt_sibling_utilization_percent": 0,
+    "loadavg_start": [7.365234375, 10.99365234375, 8.64208984375],
+    "loadavg_end": [7.365234375, 10.99365234375, 8.64208984375]
+  },
+  "git_head_at_measurement": "5d8eee5e7c06278d03b62fcbf51231c00a74fafc",
+  "verdict": "ADMISSIBLE"
+}

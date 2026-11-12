@@ -1,0 +1,4 @@
+baseline fnx sample sha256: 3d95e61519c778f79f1a76ab3f900fb9c8e7a3fb2991e89213fba2475aec3547
+after fnx sample sha256:    3d95e61519c778f79f1a76ab3f900fb9c8e7a3fb2991e89213fba2475aec3547
+networkx sample sha256:     3d95e61519c778f79f1a76ab3f900fb9c8e7a3fb2991e89213fba2475aec3547
+sample workload: BA(3000, 4, seed=42), shortest_path_length(G, 0, 2999), 500 calls

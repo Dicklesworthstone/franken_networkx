@@ -1,0 +1,4 @@
+graph [
+  di [ id 0 read_gexf]
+  edge [ source 0 target 0 M
+]

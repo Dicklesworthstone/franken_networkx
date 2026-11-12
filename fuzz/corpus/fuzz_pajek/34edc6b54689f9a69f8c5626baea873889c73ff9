@@ -1,0 +1,6 @@
+*Vertices 3
+one "bad"
+2 "ok"
+3
+*Edges
+1g 2 1.0

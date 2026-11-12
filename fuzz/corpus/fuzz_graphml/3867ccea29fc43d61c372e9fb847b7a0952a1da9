@@ -1,0 +1,7 @@
+<&xml Versioo="1.0" eat.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge sourr.name="weight" attr.type="double"/>
+  <ding="UTF-8"?>
+<graphml xmlns="http://graphm>

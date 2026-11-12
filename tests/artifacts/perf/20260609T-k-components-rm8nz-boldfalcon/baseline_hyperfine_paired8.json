@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260609T-k-components-jfsyo-boldfalcon/harness_kcomponents_residual.py time --which fnx --family paired_clique_barbell --size 8 --repeats 5",
+      "mean": 0.45040022372,
+      "stddev": 0.04812989883496237,
+      "median": 0.44339847412000005,
+      "user": 3.7225684,
+      "system": 0.062495180000000004,
+      "min": 0.39806063112,
+      "max": 0.5274326901199999,
+      "times": [
+        0.39806063112,
+        0.45546513212000006,
+        0.42764419112,
+        0.44339847412000005,
+        0.5274326901199999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

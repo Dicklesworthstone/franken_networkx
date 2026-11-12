@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/harness_kpsns.py time --which fnx --family chorded_cycle --size 16 --repeats 1",
+      "mean": 0.9679028370800001,
+      "stddev": 0.029337990909493596,
+      "median": 0.9626894972800001,
+      "user": 4.71043496,
+      "system": 0.054928199999999996,
+      "min": 0.9386976882800001,
+      "max": 1.01146878028,
+      "times": [
+        0.94568085428,
+        0.9626894972800001,
+        0.9809773652800001,
+        0.9386976882800001,
+        1.01146878028
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260609T-kpsns-two-degenerate-boldfalcon/harness_kpsns.py time --which nx --family chorded_cycle --size 16 --repeats 1",
+      "mean": 1.0134406500800002,
+      "stddev": 0.049049979609696044,
+      "median": 1.02306144828,
+      "user": 4.41907756,
+      "system": 0.0609256,
+      "min": 0.9586192692800001,
+      "max": 1.0786514972799999,
+      "times": [
+        1.02306144828,
+        0.9712408092800001,
+        0.9586192692800001,
+        1.03563022628,
+        1.0786514972799999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

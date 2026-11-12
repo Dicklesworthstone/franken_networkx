@@ -1,0 +1,68 @@
+         1131200 function calls (1131180 primitive calls) in 0.365 seconds
+
+   Ordered by: cumulative time
+   List reduced from 272 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.365    0.122 __init__.py:16485(write_gml)
+        3    0.000    0.000    0.365    0.122 __init__.py:306(_write_gml_via_nx)
+        3    0.003    0.001    0.211    0.070 __init__.py:94(_to_nx)
+        3    0.042    0.014    0.208    0.069 backend.py:606(_fnx_to_nx)
+        3    0.000    0.000    0.154    0.051 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_write_gml_5)
+        3    0.049    0.016    0.153    0.051 gml.py:817(write_gml)
+    26970    0.042    0.000    0.081    0.000 backend.py:490(_topo_emit_edges_by_adj)
+   143781    0.033    0.000    0.071    0.000 gml.py:626(generate_gml)
+        2    0.000    0.000    0.052    0.026 decorators.py:783(func)
+        3    0.026    0.009    0.035    0.012 graph.py:986(add_edges_from)
+    62895    0.018    0.000    0.023    0.000 backend.py:539(_is_ready)
+        3    0.010    0.003    0.021    0.007 graph.py:584(add_nodes_from)
+   137053    0.019    0.000    0.019    0.000 {method 'get' of 'dict' objects}
+   143778    0.018    0.000    0.018    0.000 {method 'write' of '_io.BufferedWriter' objects}
+    26970    0.015    0.000    0.017    0.000 reportviews.py:856(__iter__)
+   143778    0.015    0.000    0.015    0.000 {method 'encode' of 'str' objects}
+        3    0.014    0.005    0.014    0.005 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+    17952    0.008    0.000    0.012    0.000 gml.py:711(stringize)
+     8979    0.003    0.000    0.009    0.000 backend.py:635(<genexpr>)
+    83148    0.007    0.000    0.007    0.000 {method 'popleft' of 'collections.deque' objects}
+    71900    0.007    0.000    0.007    0.000 {method 'update' of 'dict' objects}
+     8976    0.005    0.000    0.006    0.000 __init__.py:4813(__getitem__)
+     8979    0.002    0.000    0.005    0.000 <frozen _collections_abc>:897(__iter__)
+     4530    0.001    0.000    0.004    0.000 backend.py:549(<genexpr>)
+    44932    0.004    0.000    0.004    0.000 {method 'items' of 'dict' objects}
+    27041    0.003    0.000    0.003    0.000 {method 'append' of 'list' objects}
+     8976    0.002    0.000    0.003    0.000 reportviews.py:190(__getitem__)
+    36024    0.003    0.000    0.003    0.000 {built-in method builtins.isinstance}
+    24702    0.002    0.000    0.002    0.000 {method 'append' of 'collections.deque' objects}
+        6    0.002    0.000    0.002    0.000 __init__.py:31388(__iter__)
+     8976    0.002    0.000    0.002    0.000 {method 'match' of 're.Pattern' objects}
+        3    0.001    0.000    0.002    0.001 {built-in method builtins.sum}
+35997/35992    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+    26967    0.002    0.000    0.002    0.000 reportviews.py:785(<lambda>)
+     8979    0.001    0.000    0.001    0.000 backend.py:554(<genexpr>)
+     8976    0.001    0.000    0.001    0.000 {method 'copy' of 'dict' objects}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+     8976    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:911(_load_unlocked)
+        2    0.000    0.000    0.001    0.000 decorators.py:715(_lazy_compile)
+        2    0.000    0.000    0.001    0.000 decorators.py:869(compile)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap_external>:1020(exec_module)
+        3    0.000    0.000    0.000    0.000 decorators.py:180(_open_file)
+        3    0.000    0.000    0.000    0.000 {built-in method _io.open}
+        3    0.000    0.000    0.000    0.000 decorators.py:195(<lambda>)
+        3    0.000    0.000    0.000    0.000 {method 'close' of '_io.BufferedWriter' objects}
+        2    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        2    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+        2    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.exec}
+        1    0.000    0.000    0.000    0.000 backend.py:1(<module>)
+       10    0.000    0.000    0.000    0.000 __init__.py:330(_compile)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+        1    0.000    0.000    0.000    0.000 {built-in method marshal.loads}
+        3    0.000    0.000    0.000    0.000 __init__.py:287(compile)
+        1    0.000    0.000    0.000    0.000 _compiler.py:743(compile)
+      3/2    0.000    0.000    0.000    0.000 inspect.py:3373(signature)
+      3/2    0.000    0.000    0.000    0.000 inspect.py:3094(from_callable)
+
+

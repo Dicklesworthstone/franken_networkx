@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1
+  Time (mean ± σ):     808.3 ms ±  50.1 ms    [User: 3755.4 ms, System: 138.0 ms]
+  Range (min … max):   734.9 ms … 884.2 ms    12 runs
+ 

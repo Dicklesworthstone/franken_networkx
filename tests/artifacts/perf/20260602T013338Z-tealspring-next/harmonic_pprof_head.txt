@@ -1,0 +1,22 @@
+{"algo":"harmonic","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":55.0970,"per_iter_ms":55.0970,"checksum":629305.204762}
+pprof_top_inclusive:
+1	52	__rust_begin_short_backtrace<fn(), ()>
+2	52	_start
+3	52	call_once<fn(), ()>
+4	52	harmonic_centrality
+5	52	harmonic_centrality_generic<fnx_classes::Graph>
+6	52	main
+7	52	run_once
+8	51	is_none<usize>
+9	51	is_some<usize>
+10	1	<std::alloc::System as core::alloc::global::GlobalAlloc>::realloc
+11	1	__rustc::__rdl_realloc
+12	1	finish_grow<alloc::alloc::Global>
+13	1	grow
+14	1	grow<usize, alloc::alloc::Global>
+15	1	grow_amortized<alloc::alloc::Global>
+16	1	grow_impl
+17	1	grow_impl_runtime
+18	1	grow_one<alloc::alloc::Global>
+19	1	grow_one<usize, alloc::alloc::Global>
+20	1	push_back<usize, alloc::alloc::Global>

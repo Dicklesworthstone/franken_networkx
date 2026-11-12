@@ -1,0 +1,11 @@
+<&xml Versioo="1.0" eattr.name="weigT" att.trype="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <="a" t   id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <=ea" target="b">
+      <data key="d0">1.5<ph>
+</graphml>

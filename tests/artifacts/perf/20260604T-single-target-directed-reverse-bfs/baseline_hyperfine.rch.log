@@ -1,0 +1,3 @@
+  [2m2026-06-04T19:41:29.885196Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 1 --runs 5 --export-json tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/baseline_hyperfine.json 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl fnx --size 5000 --target 4999 --repeats 20' 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl nx --size 5000 --target 4999 --repeats 20'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

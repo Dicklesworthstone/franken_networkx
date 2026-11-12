@@ -1,0 +1,1 @@
+{"calls_per_sample": 5000, "directed": false, "engine": "fnx", "mean_s_per_call": 6.463195324904518e-06, "median_s_per_call": 6.246628399094334e-06, "min_s_per_call": 6.034607200126629e-06, "p95_s_per_call": 7.581757599837146e-06, "result": 152, "samples": 40}

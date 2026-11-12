@@ -1,0 +1,26 @@
+{
+  "ws150": {
+    "old_ms": 108.6,
+    "new_ms": 31.08,
+    "nx_ms": 43.19,
+    "self_speedup": 3.49,
+    "new_vs_nx": 1.39,
+    "old_vs_nx": 0.4
+  },
+  "ws300": {
+    "old_ms": 500.39,
+    "new_ms": 192.78,
+    "nx_ms": 172.42,
+    "self_speedup": 2.6,
+    "new_vs_nx": 0.89,
+    "old_vs_nx": 0.34
+  },
+  "ws500": {
+    "old_ms": 1584.79,
+    "new_ms": 726.56,
+    "nx_ms": 556.52,
+    "self_speedup": 2.18,
+    "new_vs_nx": 0.77,
+    "old_vs_nx": 0.35
+  }
+}

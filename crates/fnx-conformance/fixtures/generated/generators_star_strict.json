@@ -1,0 +1,47 @@
+{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "generate_star_graph",
+      "n": 4
+    },
+    {
+      "op": "number_connected_components_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "4",
+          "attrs": {}
+        }
+      ]
+    },
+    "number_connected_components": 1
+  }
+}

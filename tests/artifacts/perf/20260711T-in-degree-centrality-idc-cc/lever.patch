@@ -1,0 +1,148 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index b70118fa5..a4a4e4ee8 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -31184,6 +31184,44 @@ pub fn reconstruct_path(
+ /// Matches `networkx.in_degree_centrality(G)`.
+ #[must_use]
+ pub fn in_degree_centrality(digraph: &DiGraph) -> Vec<CentralityScore> {
++    let nodes = digraph.nodes_ordered();
++    let n = nodes.len();
++    if n == 0 {
++        return Vec::new();
++    }
++    if n == 1 {
++        return nodes
++            .iter()
++            .map(|&node| CentralityScore {
++                node: node.to_owned(),
++                score: 1.0,
++            })
++            .collect();
++    }
++    let denom = (n - 1) as f64;
++    // br-r37-c1-idc (cc): no-alloc in-degree via `in_degree_by_index(i)` instead of
++    // `predecessors(node)` (a `Vec<&str>` alloc just to take `.len()`). Byte-identical:
++    // `in_degree_by_index(i) == predecessors(nodes[i]).len()`; `node.to_owned()` and the
++    // `in_deg / denom` score are unchanged. Directed twin of br-r37-c1-odc — the per-node
++    // `Vec<&str>` alloc dominates the per-node String clone, so this is a clean win.
++    nodes
++        .iter()
++        .enumerate()
++        .map(|(i, &node)| {
++            let in_deg = digraph.in_degree_by_index(i);
++            CentralityScore {
++                node: node.to_owned(),
++                score: in_deg as f64 / denom,
++            }
++        })
++        .collect()
++}
++
++/// br-r37-c1-idc A/B baseline: the pre-lever `in_degree_centrality` that took
++/// `predecessors(node).len()` (a `Vec<&str>` alloc) per node. Test-only; byte-identical
++/// to `in_degree_centrality`.
++#[cfg(test)]
++fn in_degree_centrality_orig_string(digraph: &DiGraph) -> Vec<CentralityScore> {
+     let nodes = digraph.nodes_ordered();
+     let n = nodes.len();
+     if n == 0 {
+@@ -51031,6 +51069,98 @@ mod tests {
+         report("NULL_noalloc_vs_noalloc", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-idc: paired-interleaved median A/B for the no-alloc `in_degree_centrality`
++    /// vs the old `predecessors().len()` (`Vec<&str>`) baseline, in ONE binary / ONE worker
++    /// with a NULL control. `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib in_degree_centrality_idc_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn in_degree_centrality_idc_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Moderate-degree directed graph n=100000: in_degree_centrality maps every node
++        // to (name, in_deg/(n-1)), allocating a Vec<&str> via predecessors(node) per node
++        // in the baseline just to take .len(). Directed twin of the ODC A/B.
++        let n = 100000usize;
++        let deg = 8usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++
++        // Byte-exact parity: no-alloc == String baseline.
++        assert_eq!(
++            super::in_degree_centrality(&g),
++            super::in_degree_centrality_orig_string(&g),
++            "no-alloc in_degree_centrality must equal the String baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::in_degree_centrality(&g));
++                } else {
++                    black_box(super::in_degree_centrality_orig_string(&g));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "IDC_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("IDC_AB n={n} deg={deg} rounds={rounds} (>1 = no-alloc faster)");
++        report("NOALLOC_vs_string", &paired(true, false));
++        report("NULL_noalloc_vs_noalloc", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

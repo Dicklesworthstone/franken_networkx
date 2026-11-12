@@ -1,0 +1,342 @@
+{
+  "artifact_dir": "tests/artifacts/perf/20260608T-fegdl-multigraph-result-cache-tealspring",
+  "bead": "br-r37-c1-fegdl",
+  "candidate": {
+    "lever": "mutation-stamped graph-owned row/result cache using persistent keydict mirrors or cached row PyDict templates, returning fresh outer/row dicts while reusing graph-backed keydict views",
+    "proof_obligations": [
+      "fresh outer and row dict identity",
+      "ordering and display-key SHA equality",
+      "known undirected alias delta unchanged",
+      "custom nodelist and edge_data fallback",
+      "live attr mutation and mutation invalidation",
+      "read-only guards",
+      "pickle/deepcopy cache exclusion"
+    ],
+    "score": {
+      "confidence": 3.5,
+      "effort": 4.0,
+      "impact": 4.0,
+      "impact_x_confidence_div_effort": 3.5
+    }
+  },
+  "commands_note": "Primary commands were proof/timing/profile via existing adjacent 91hlu harness plus report-aligned inline 91hlu-native fixture, and paired hyperfine --warmup 3 --runs 10 FNX vs NetworkX. No build was needed; no source, Beads, or commits were changed.",
+  "cwd": "/data/projects/franken_networkx",
+  "direct_timing": {
+    "cases": [
+      {
+        "alias_delta": -12000,
+        "directed": false,
+        "fnx": {
+          "alias_pairs": 0,
+          "cell_count": 12000,
+          "degree": 5,
+          "directed": false,
+          "edge_count": 18000,
+          "elapsed": 0.10442021198105067,
+          "live_mutations": 36000,
+          "module": "fnx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 80,
+          "row_count": 1200,
+          "sha256": "2226941d4717019a8b2986fc2327ebe946c2aa3848a13ed23721e1d39595dca4"
+        },
+        "matches_nx_sha": true,
+        "nx": {
+          "alias_pairs": 12000,
+          "cell_count": 12000,
+          "degree": 5,
+          "directed": false,
+          "edge_count": 18000,
+          "elapsed": 0.011378757073543966,
+          "live_mutations": 36000,
+          "module": "nx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 80,
+          "row_count": 1200,
+          "sha256": "2226941d4717019a8b2986fc2327ebe946c2aa3848a13ed23721e1d39595dca4"
+        },
+        "ratio": 9.176767840824333
+      },
+      {
+        "alias_delta": 0,
+        "directed": true,
+        "fnx": {
+          "alias_pairs": 0,
+          "cell_count": 6000,
+          "degree": 5,
+          "directed": true,
+          "edge_count": 18000,
+          "elapsed": 0.05354855896439403,
+          "live_mutations": 18000,
+          "module": "fnx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 80,
+          "row_count": 1200,
+          "sha256": "3c849b07c63bdf2e53089b36387a9e7ad0171c40923e66bbf6547d89fae2fc2f"
+        },
+        "matches_nx_sha": true,
+        "nx": {
+          "alias_pairs": 0,
+          "cell_count": 6000,
+          "degree": 5,
+          "directed": true,
+          "edge_count": 18000,
+          "elapsed": 0.01152185897808522,
+          "live_mutations": 18000,
+          "module": "nx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 80,
+          "row_count": 1200,
+          "sha256": "3c849b07c63bdf2e53089b36387a9e7ad0171c40923e66bbf6547d89fae2fc2f"
+        },
+        "ratio": 4.647562434694292
+      }
+    ]
+  },
+  "hyperfine": {
+    "multidigraph": {
+      "results": [
+        {
+          "command": "python3 -c \"import franken_networkx as fnx; N=1200; D=5; P=3; G=fnx.MultiDiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [fnx.to_dict_of_dicts(G) for _ in range(80)]\"",
+          "exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "max": 0.5711017315,
+          "mean": 0.5194341358,
+          "median": 0.511563278,
+          "min": 0.4734312015,
+          "stddev": 0.032419854598035605,
+          "system": 0.099679,
+          "times": [
+            0.5574621175,
+            0.5024409875,
+            0.5106321755000001,
+            0.4734312015,
+            0.49949776050000005,
+            0.4934166235,
+            0.5606634915,
+            0.5711017315,
+            0.5124943805,
+            0.5132008885
+          ],
+          "user": 4.56895748
+        },
+        {
+          "command": "python3 -c \"import networkx as nx; N=1200; D=5; P=3; G=nx.MultiDiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [nx.to_dict_of_dicts(G) for _ in range(80)]\"",
+          "exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "max": 0.24375760350000003,
+          "mean": 0.21411117350000003,
+          "median": 0.20948632600000003,
+          "min": 0.1961860615,
+          "stddev": 0.015536751622671409,
+          "system": 0.04446289999999999,
+          "times": [
+            0.22568123450000002,
+            0.20048629850000002,
+            0.1961860615,
+            0.20910900550000003,
+            0.20986364650000003,
+            0.20199484950000002,
+            0.2015146985,
+            0.22839278650000003,
+            0.24375760350000003,
+            0.22412555050000002
+          ],
+          "user": 0.16896788000000001
+        }
+      ]
+    },
+    "multigraph": {
+      "results": [
+        {
+          "command": "python3 -c \"import franken_networkx as fnx; N=1200; D=5; P=3; G=fnx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [fnx.to_dict_of_dicts(G) for _ in range(80)]\"",
+          "exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "max": 0.59214769304,
+          "mean": 0.5640221405400001,
+          "median": 0.56268296604,
+          "min": 0.54299617604,
+          "stddev": 0.018042071156553957,
+          "system": 0.10177467999999998,
+          "times": [
+            0.59214769304,
+            0.54299617604,
+            0.57680977204,
+            0.5768336160399999,
+            0.58566481704,
+            0.56230493904,
+            0.56306099304,
+            0.5464776810399999,
+            0.54879690004,
+            0.54512881804
+          ],
+          "user": 4.6357672
+        },
+        {
+          "command": "python3 -c \"import networkx as nx; N=1200; D=5; P=3; G=nx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [nx.to_dict_of_dicts(G) for _ in range(80)]\"",
+          "exit_codes": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "max": 0.25485980204,
+          "mean": 0.23659262214000001,
+          "median": 0.23539368254,
+          "min": 0.21186781204,
+          "stddev": 0.013532067188692987,
+          "system": 0.05011048,
+          "times": [
+            0.25485980204,
+            0.23886227404000002,
+            0.22691825504,
+            0.25477535104000004,
+            0.24907148004,
+            0.21186781204,
+            0.23653497804,
+            0.23148808304000001,
+            0.23425238704,
+            0.22729579904
+          ],
+          "user": 0.18541539999999995
+        }
+      ]
+    }
+  },
+  "mission": "baseline/profile residual after br-r37-c1-91hlu; no source edits",
+  "pass": 26,
+  "primary_fixture": "report-aligned 91hlu-native inline fixture: N=1200, D=5, P=3, repeats=80",
+  "profiles": {
+    "hotspot": "_native_to_dict_of_dicts_live remains the dominant in-target conversion frame: 0.083s / 0.088s to_dict cumulative for MultiGraph and 0.051s / 0.057s for MultiDiGraph over 80 calls.",
+    "multidigraph": "profile_91hlu_inline_multidigraph_fnx.txt",
+    "multigraph": "profile_91hlu_inline_multigraph_fnx.txt"
+  },
+  "proof": {
+    "cases": [
+      {
+        "alias_delta": -12000,
+        "directed": false,
+        "fnx": {
+          "alias_pairs": 0,
+          "cell_count": 12000,
+          "degree": 5,
+          "directed": false,
+          "edge_count": 18000,
+          "elapsed": 0.006619308027438819,
+          "live_mutations": 36000,
+          "module": "fnx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 1,
+          "row_count": 1200,
+          "sha256": "2226941d4717019a8b2986fc2327ebe946c2aa3848a13ed23721e1d39595dca4"
+        },
+        "matches_nx_sha": true,
+        "nx": {
+          "alias_pairs": 12000,
+          "cell_count": 12000,
+          "degree": 5,
+          "directed": false,
+          "edge_count": 18000,
+          "elapsed": 0.00020287500228732824,
+          "live_mutations": 36000,
+          "module": "nx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 1,
+          "row_count": 1200,
+          "sha256": "2226941d4717019a8b2986fc2327ebe946c2aa3848a13ed23721e1d39595dca4"
+        }
+      },
+      {
+        "alias_delta": 0,
+        "directed": true,
+        "fnx": {
+          "alias_pairs": 0,
+          "cell_count": 6000,
+          "degree": 5,
+          "directed": true,
+          "edge_count": 18000,
+          "elapsed": 0.0028372930828481913,
+          "live_mutations": 18000,
+          "module": "fnx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 1,
+          "row_count": 1200,
+          "sha256": "3c849b07c63bdf2e53089b36387a9e7ad0171c40923e66bbf6547d89fae2fc2f"
+        },
+        "matches_nx_sha": true,
+        "nx": {
+          "alias_pairs": 0,
+          "cell_count": 6000,
+          "degree": 5,
+          "directed": true,
+          "edge_count": 18000,
+          "elapsed": 0.00025434198323637247,
+          "live_mutations": 18000,
+          "module": "nx",
+          "node_count": 1200,
+          "nodes": 1200,
+          "parallel": 3,
+          "repeats": 1,
+          "row_count": 1200,
+          "sha256": "3c849b07c63bdf2e53089b36387a9e7ad0171c40923e66bbf6547d89fae2fc2f"
+        }
+      }
+    ],
+    "file_sha256": "1c782f29d145884735d7197d11283720c7f2b5c1bd6c3c40016131f88f1a4f10",
+    "floating_point": "N/A: integer attrs are serialized only",
+    "ordering_preserved": "default to_dict_of_dicts row, neighbor, key, and attr insertion order encoded in SHA payload",
+    "payload_sha256": "214aadc851bc5cf978fc4143911b1056ac868e8507b1502da1cbf998e45c03dc",
+    "rng": "N/A: deterministic arithmetic graph fixture",
+    "tie_breaking": "N/A: deterministic conversion, no algorithmic tie-break path"
+  }
+}

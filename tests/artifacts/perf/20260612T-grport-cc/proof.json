@@ -1,0 +1,21 @@
+{
+  "function": "goldberg_radzik (directed)",
+  "lever": "replace the naive O(V*E) all-edges-every-pass Bellman-Ford (which re-walked the slow G.edges(data=True) EdgeView each pass AND picked different predecessors than nx on ties) with a faithful in-process port of networkx's scan-based Goldberg-Radzik algorithm, operating on a one-time native to_dict_of_dicts adjacency snapshot ({u:{v:w}}). Fixes BOTH the perf gap and a latent pred-divergence correctness bug.",
+  "correctness_fix": "fnx's old directed goldberg_radzik returned a DIFFERENT predecessor dict than nx on tie-heavy graphs (naive BF tie-break != nx Goldberg-Radzik). The conformance fixtures had no ties so it passed; tie-heavy graphs diverged. The port matches nx's exact (pred,dist).",
+  "parity": {
+    "byte_exact_vs_nx_cases": 20,
+    "mismatches": 0,
+    "coverage": "weighted, negative weights, negative-cycle detection, tie-heavy gnp; fair rebuild-from-edges baseline",
+    "golden_sha256": "f068ba83db33bff31cee53d57c9e70f6b41a823aa83976cc64d1e8ab91cc3784",
+    "pytest": "408 passed (goldberg/bellman/shortest_path_conformance/native_replacements)"
+  },
+  "bench_min_of_7_ms": {
+    "n200":  {"nx": 0.734, "old_naive": 1.984, "new_port": 0.842, "self_speedup": 2.36, "vs_nx": 1.15},
+    "n300":  {"nx": 1.451, "old_naive": 4.592, "new_port": 1.676, "self_speedup": 2.74, "vs_nx": 1.15},
+    "n500":  {"nx": 3.865, "old_naive": 8.882, "new_port": 4.609, "self_speedup": 1.93, "vs_nx": 1.19},
+    "n800":  {"nx": 9.733, "old_naive": 27.049,"new_port": 12.910,"self_speedup": 2.10, "vs_nx": 1.33},
+    "n1200": {"nx": 22.596,"old_naive": 71.838,"new_port": 32.302,"self_speedup": 2.22, "vs_nx": 1.43}
+  },
+  "headline": "goldberg_radzik directed: ~2.3x self-speedup (naive BF -> nx scan algo), gap 4.21x slower -> ~1.2x near-parity, AND fixes a latent predecessor-divergence correctness bug (now byte-exact to nx). Pure Python, no rebuild.",
+  "residual": "~1.2-1.4x vs nx = to_dict_of_dicts snapshot + plain-Python algo vs nx native _adj; near-parity."
+}

@@ -1,0 +1,1 @@
+{"graph_seed": 42, "impl": "nx", "m": 4, "max_seconds": 0.002130615001078695, "mean_seconds": 0.0015962435980327427, "min_seconds": 0.0013373629917623475, "n": 3000, "op": "single_source_shortest_path", "p50_seconds": 0.0015762559924041852, "repeat": 20, "sha256": "d9f9307bf79bc0ba306f70eb31e19b5ccce8943aec3738b95dcfa13dccbd7d9b"}

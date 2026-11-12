@@ -1,0 +1,909 @@
+{
+  "schema_version": "1.0.0",
+  "contract_id": "fnx-phase2c-security-compat-contract-v1",
+  "generated_at_utc": "2026-02-13T20:22:00Z",
+  "packet_families": [
+    {
+      "packet_id": "FNX-P2C-001",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed graph payloads.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics and incident evidence.",
+          "mitigations": [
+            "schema pre-validation",
+            "deterministic parse error codes",
+            "adversarial fixture replay"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/risk_note.md",
+          "drift_gate": "graph-core-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on unknown conflicting graph metadata.",
+          "hardened_mode_response": "Quarantine unsupported metadata and fail-closed when contract impact is unknown.",
+          "mitigations": [
+            "metadata allowlist",
+            "deterministic metadata normalization",
+            "compatibility drift ledger"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/risk_note.md",
+          "drift_gate": "graph-core-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported schema/version claims.",
+          "hardened_mode_response": "Reject downgrade/upgrade ambiguity with explicit remediation hints.",
+          "mitigations": [
+            "version envelope checks",
+            "schema version pinning",
+            "upgrade path tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/parity_gate.yaml",
+          "drift_gate": "graph-core-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed when graph size exceeds strict policy budgets.",
+          "hardened_mode_response": "Apply bounded caps and reject once clamp budget is exhausted.",
+          "mitigations": [
+            "input budget policies",
+            "allocation guards",
+            "runtime tail telemetry"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/parity_gate.yaml",
+          "drift_gate": "graph-core-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Abort mutation path and fail-closed on invariant break.",
+          "hardened_mode_response": "Rollback to last valid snapshot, then fail-closed with audit log.",
+          "mitigations": [
+            "mutation invariant checks",
+            "deterministic rollback points",
+            "state transition property tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/contract_table.md",
+          "drift_gate": "graph-core-threat-gate"
+        },
+        {
+          "threat_class": "provenance_spoofing",
+          "strict_mode_response": "Fail-closed when provenance anchors, signer identity, or lineage links are forged.",
+          "hardened_mode_response": "Reject forged provenance claims, emit deterministic contamination incident report, and block execution.",
+          "mitigations": [
+            "signed lineage envelope verification",
+            "anchor hash validation against allowlisted source manifests",
+            "forged lineage adversarial replay fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-001/risk_note.md",
+          "drift_gate": "graph-core-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-002",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed view construction inputs.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics for malformed view inputs.",
+          "mitigations": [
+            "view argument validation",
+            "cache key validation",
+            "adversarial view fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-002/risk_note.md",
+          "drift_gate": "view-layer-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous filter or projection metadata.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic view semantics.",
+          "mitigations": [
+            "filter metadata allowlist",
+            "projection normalization",
+            "drift classification logs"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-002/risk_note.md",
+          "drift_gate": "view-layer-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on incompatible view contract versions.",
+          "hardened_mode_response": "Reject unsupported version skew with deterministic diagnostics.",
+          "mitigations": [
+            "contract version lock",
+            "compatibility matrix checks",
+            "cross-version conformance tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-002/parity_gate.yaml",
+          "drift_gate": "view-layer-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed when view expansion exceeds strict limits.",
+          "hardened_mode_response": "Bound iterator/materialization costs and reject after budget exhaustion.",
+          "mitigations": [
+            "iterator guardrails",
+            "bounded cache growth",
+            "memory budget checks"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-002/parity_gate.yaml",
+          "drift_gate": "view-layer-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when cache invalidation invariants are violated.",
+          "hardened_mode_response": "Reset affected view cache segments and fail-closed with audit evidence.",
+          "mitigations": [
+            "cache coherence checks",
+            "revision counters",
+            "invalidation property tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-002/contract_table.md",
+          "drift_gate": "view-layer-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-003",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed backend configuration payloads.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics for malformed backend configuration.",
+          "mitigations": [
+            "backend config schema checks",
+            "route signature validation",
+            "adversarial backend fixtures"
+          ],
+          "compatibility_boundary": "backend config parse boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_config_malformed_payload"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.parse.malformed_payload",
+            "dispatch.parse.signature_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous backend metadata and routing hints.",
+          "hardened_mode_response": "Quarantine unsupported metadata and refuse ambiguous dispatch routes.",
+          "mitigations": [
+            "backend metadata allowlist",
+            "deterministic route ranking",
+            "route evidence ledger"
+          ],
+          "compatibility_boundary": "metadata normalization boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_conflicting_backend_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.metadata.ambiguous_hint",
+            "dispatch.metadata.conflicting_source"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported backend API versions.",
+          "hardened_mode_response": "Reject incompatible versions and emit compatibility drift diagnostics.",
+          "mitigations": [
+            "version envelope lock",
+            "backend feature compatibility matrix",
+            "upgrade gate checks"
+          ],
+          "compatibility_boundary": "backend API version envelope boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_backend_api_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.version.unsupported_backend_api",
+            "dispatch.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed on route search/dispatch costs above strict budget.",
+          "hardened_mode_response": "Bound dispatch search costs and reject when quotas are exceeded.",
+          "mitigations": [
+            "dispatch budget caps",
+            "timeout guards",
+            "tail latency monitoring"
+          ],
+          "compatibility_boundary": "dispatch budget boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_route_fanout_exhaustion"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.resource.route_fanout_exhaustion",
+            "dispatch.resource.budget_threshold_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/parity_gate.yaml",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when dispatch cache state violates determinism invariants.",
+          "hardened_mode_response": "Reset dispatch cache and fail-closed with deterministic incident record.",
+          "mitigations": [
+            "cache key determinism tests",
+            "route state checksums",
+            "cache rollback hooks"
+          ],
+          "compatibility_boundary": "dispatch cache determinism boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_cache_state_break"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.state.cache_invariant_break",
+            "dispatch.state.replay_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "backend_route_ambiguity",
+          "strict_mode_response": "Fail-closed on competing backend routes with equal precedence.",
+          "hardened_mode_response": "Apply deterministic allowlisted fallback route with full audit trace.",
+          "mitigations": [
+            "explicit route priority matrix",
+            "tie-break policy witness",
+            "route drift tests"
+          ],
+          "compatibility_boundary": "backend route priority boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_equal_priority_route_collision"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.route.equal_precedence_collision",
+            "dispatch.route.fallback_audit_required"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_backend_fallback_with_audit"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/contract_table.md",
+          "drift_gate": "dispatch-threat-gate"
+        },
+        {
+          "threat_class": "policy_bypass",
+          "strict_mode_response": "Fail-closed on any attempt to bypass signed policy constraints or unsafe-code prohibitions.",
+          "hardened_mode_response": "Ignore unauthorized overrides, emit deterministic policy-bypass incident evidence, and halt route execution.",
+          "mitigations": [
+            "policy signature verification",
+            "immutable enforcement toggle registry",
+            "override injection adversarial fixtures"
+          ],
+          "compatibility_boundary": "policy enforcement boundary",
+          "adversarial_fixture_hooks": [
+            "dispatch_policy_override_injection"
+          ],
+          "crash_triage_taxonomy": [
+            "dispatch.policy.unauthorized_override",
+            "dispatch.policy.signature_verification_failed"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-003/risk_note.md",
+          "drift_gate": "dispatch-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-004",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed conversion payload structures and invalid edge-list coercion.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics and defensive parse recovery before deterministic abort.",
+          "mitigations": [
+            "payload schema checks",
+            "field cardinality validation",
+            "malformed payload fixtures"
+          ],
+          "compatibility_boundary": "conversion parse boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_payload_malformed_shape"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.parse.malformed_payload",
+            "convert.parse.field_cardinality_invalid"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
+          "drift_gate": "convert-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous node/edge attribute precedence and conflicting metadata envelopes.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic precedence ordering.",
+          "mitigations": [
+            "attribute precedence table",
+            "metadata allowlist",
+            "attribute drift report"
+          ],
+          "compatibility_boundary": "attribute precedence normalization boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_conflicting_attribute_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.metadata.ambiguous_precedence",
+            "convert.metadata.conflicting_attribute_source"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
+          "drift_gate": "convert-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported conversion schema versions or contract envelopes.",
+          "hardened_mode_response": "Reject incompatible schema versions with deterministic diagnostics.",
+          "mitigations": [
+            "schema version pinning",
+            "compatibility probes",
+            "version skew fixtures"
+          ],
+          "compatibility_boundary": "conversion schema version envelope boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_schema_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.version.unsupported_schema",
+            "convert.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+          "drift_gate": "convert-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed on conversion expansion above strict complexity or memory budget.",
+          "hardened_mode_response": "Apply bounded resource clamps and reject once deterministic thresholds are exceeded.",
+          "mitigations": [
+            "bounded conversion passes",
+            "memory budget guards",
+            "expansion ratio checks"
+          ],
+          "compatibility_boundary": "conversion expansion budget boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_expansion_ratio_blowup"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.resource.expansion_ratio_exceeded",
+            "convert.resource.budget_threshold_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/parity_gate.yaml",
+          "drift_gate": "convert-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when conversion/relabel mutates graph state outside declared transaction boundary.",
+          "hardened_mode_response": "Rollback conversion transaction and emit deterministic incident evidence before fail-closed exit.",
+          "mitigations": [
+            "mutation boundary checks",
+            "transaction rollback points",
+            "round-trip invariants"
+          ],
+          "compatibility_boundary": "conversion transaction boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_transaction_boundary_break"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.state.transaction_boundary_break",
+            "convert.state.roundtrip_invariant_break"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/contract_table.md",
+          "drift_gate": "convert-threat-gate"
+        },
+        {
+          "threat_class": "attribute_confusion",
+          "strict_mode_response": "Fail-closed on duplicate/conflicting attribute namespaces and ambiguous relabel collisions.",
+          "hardened_mode_response": "Apply deterministic namespace canonicalization policy and reject unresolved conflicts.",
+          "mitigations": [
+            "attribute namespace validation",
+            "canonicalization policy",
+            "conflict fixtures"
+          ],
+          "compatibility_boundary": "attribute namespace canonicalization boundary",
+          "adversarial_fixture_hooks": [
+            "conversion_attribute_namespace_collision"
+          ],
+          "crash_triage_taxonomy": [
+            "convert.metadata.namespace_collision",
+            "convert.metadata.canonicalization_conflict"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "deterministic_tie_break_normalization"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-004/risk_note.md",
+          "drift_gate": "convert-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-005",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed weighted-path request payloads and invalid source/target selectors.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics and defensive parse recovery before deterministic abort.",
+          "mitigations": [
+            "weighted request schema checks",
+            "source/target existence guards",
+            "malformed payload fixtures"
+          ],
+          "compatibility_boundary": "weighted request parse boundary",
+          "adversarial_fixture_hooks": [
+            "algorithm_request_malformed_payload"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.parse.malformed_payload",
+            "shortest_path.parse.invalid_source_target"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "defensive_parse_recovery"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
+          "drift_gate": "shortest-path-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous weight metadata, hidden-edge callbacks, or conflicting route hints.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic weighted-route semantics.",
+          "mitigations": [
+            "weight metadata precedence table",
+            "hidden-edge callback contract checks",
+            "metadata drift classification"
+          ],
+          "compatibility_boundary": "weighted metadata normalization boundary",
+          "adversarial_fixture_hooks": [
+            "algorithm_conflicting_weight_metadata"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.metadata.ambiguous_weight_selector",
+            "shortest_path.metadata.hidden_edge_callback_conflict"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "quarantine_of_unsupported_metadata"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
+          "drift_gate": "shortest-path-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported algorithm contract versions.",
+          "hardened_mode_response": "Reject incompatible version envelopes with deterministic compatibility diagnostics.",
+          "mitigations": [
+            "algorithm contract version pinning",
+            "versioned fixture bundle checks",
+            "compatibility matrix probes"
+          ],
+          "compatibility_boundary": "algorithm contract version envelope boundary",
+          "adversarial_fixture_hooks": [
+            "algorithm_contract_version_skew"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.version.unsupported_contract_envelope",
+            "shortest_path.version.contract_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+          "drift_gate": "shortest-path-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed when weighted frontier expansion exceeds strict complexity budgets.",
+          "hardened_mode_response": "Apply bounded resource clamps and reject once deterministic thresholds are exceeded.",
+          "mitigations": [
+            "frontier expansion ratio guards",
+            "priority-queue work caps",
+            "runtime tail budget sentinels"
+          ],
+          "compatibility_boundary": "weighted frontier expansion budget boundary",
+          "adversarial_fixture_hooks": [
+            "shortest_path_frontier_blowup"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.resource.frontier_budget_exceeded",
+            "shortest_path.resource.priority_queue_cap_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/parity_gate.yaml",
+          "drift_gate": "shortest-path-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when path witness, predecessor state, or component route invariants drift.",
+          "hardened_mode_response": "Reset transient route state and fail-closed with deterministic incident evidence.",
+          "mitigations": [
+            "witness invariant checkpoints",
+            "predecessor map consistency checks",
+            "state-reset replay hooks"
+          ],
+          "compatibility_boundary": "path witness and route-state determinism boundary",
+          "adversarial_fixture_hooks": [
+            "shortest_path_witness_state_break"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.state.witness_invariant_break",
+            "shortest_path.state.predecessor_state_mismatch"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/contract_table.md",
+          "drift_gate": "shortest-path-threat-gate"
+        },
+        {
+          "threat_class": "algorithmic_complexity_dos",
+          "strict_mode_response": "Fail-closed on adversarial graph classes outside strict complexity envelopes.",
+          "hardened_mode_response": "Apply bounded admission checks and deterministic tie-break normalization before rejection.",
+          "mitigations": [
+            "adversarial graph taxonomy",
+            "complexity witness artifacts",
+            "runtime tail regression sentinels"
+          ],
+          "compatibility_boundary": "hostile graph complexity admission boundary",
+          "adversarial_fixture_hooks": [
+            "shortest_path_lollipop_and_barbell_stressor"
+          ],
+          "crash_triage_taxonomy": [
+            "shortest_path.complexity.hostile_graph_class",
+            "shortest_path.complexity.tail_budget_exceeded"
+          ],
+          "hardened_allowlisted_categories": [
+            "bounded_diagnostic_enrichment",
+            "bounded_resource_clamp",
+            "deterministic_tie_break_normalization"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-005/risk_note.md",
+          "drift_gate": "shortest-path-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-006",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed read/write payload lines.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics for malformed line sets.",
+          "mitigations": [
+            "line schema validation",
+            "deterministic parse errors",
+            "malformed corpus fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-006/risk_note.md",
+          "drift_gate": "readwrite-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous format metadata and delimiter semantics.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic serialization contract.",
+          "mitigations": [
+            "format metadata allowlist",
+            "delimiter policy lock",
+            "format drift classification"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-006/contract_table.md",
+          "drift_gate": "readwrite-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported read/write format versions.",
+          "hardened_mode_response": "Reject incompatible format versions with deterministic diagnostics.",
+          "mitigations": [
+            "format version pinning",
+            "cross-version fixture checks",
+            "compatibility report ledger"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-006/parity_gate.yaml",
+          "drift_gate": "readwrite-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed on parse/write resource usage over strict budget.",
+          "hardened_mode_response": "Bound parse buffers and reject once resource clamp thresholds are exceeded.",
+          "mitigations": [
+            "bounded parser buffers",
+            "line-count limits",
+            "streaming budget guards"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-006/parity_gate.yaml",
+          "drift_gate": "readwrite-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when read/write operations violate graph state invariants.",
+          "hardened_mode_response": "Rollback partial import/export state and emit deterministic incident evidence.",
+          "mitigations": [
+            "round-trip invariants",
+            "transactional import checkpoints",
+            "state checksum verification"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-006/contract_table.md",
+          "drift_gate": "readwrite-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-007",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed generator parameter payloads.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics for malformed generator inputs.",
+          "mitigations": [
+            "generator arg schema checks",
+            "parameter boundary validation",
+            "adversarial generator fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/risk_note.md",
+          "drift_gate": "generator-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous generator metadata or seed semantics.",
+          "hardened_mode_response": "Quarantine unsupported metadata and preserve deterministic generation outcomes.",
+          "mitigations": [
+            "seed policy lock",
+            "metadata allowlist",
+            "generation drift ledger"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
+          "drift_gate": "generator-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported generator contract versions.",
+          "hardened_mode_response": "Reject incompatible versions with deterministic diagnostics.",
+          "mitigations": [
+            "generator version pinning",
+            "contract compatibility checks",
+            "versioned fixture corpus"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+          "drift_gate": "generator-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed on generation workload above strict budget.",
+          "hardened_mode_response": "Apply bounded size/time clamps and reject after quota exhaustion.",
+          "mitigations": [
+            "generation size caps",
+            "runtime quota checks",
+            "resource tail gates"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/parity_gate.yaml",
+          "drift_gate": "generator-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when generated graph violates structural invariants.",
+          "hardened_mode_response": "Discard generated state and emit deterministic incident report.",
+          "mitigations": [
+            "post-generation invariant checks",
+            "deterministic discard policy",
+            "property tests on generated graphs"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/contract_table.md",
+          "drift_gate": "generator-threat-gate"
+        },
+        {
+          "threat_class": "algorithmic_complexity_dos",
+          "strict_mode_response": "Fail-closed on generator parameters that imply adversarial complexity.",
+          "hardened_mode_response": "Clamp parameter ranges and reject hostile generation requests.",
+          "mitigations": [
+            "parameter complexity classifier",
+            "complexity witness checks",
+            "admission policy logs"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-007/risk_note.md",
+          "drift_gate": "generator-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-008",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed runtime config/env payloads.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics for malformed runtime config.",
+          "mitigations": [
+            "runtime config schema checks",
+            "env key validation",
+            "invalid config fixtures"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-008/risk_note.md",
+          "drift_gate": "runtime-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous dependency/runtime metadata.",
+          "hardened_mode_response": "Quarantine unsupported metadata and reject ambiguous runtime selection.",
+          "mitigations": [
+            "dependency metadata allowlist",
+            "runtime metadata normalization",
+            "drift audit logs"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-008/contract_table.md",
+          "drift_gate": "runtime-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported runtime/dependency version envelopes.",
+          "hardened_mode_response": "Reject incompatible version combinations with deterministic diagnostics.",
+          "mitigations": [
+            "version envelope checks",
+            "optional dependency compatibility matrix",
+            "version probe tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-008/parity_gate.yaml",
+          "drift_gate": "runtime-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed on runtime config expansion over strict budgets.",
+          "hardened_mode_response": "Bound runtime probing and diagnostics overhead via explicit quotas.",
+          "mitigations": [
+            "config expansion caps",
+            "bounded probe loops",
+            "runtime budget telemetry"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-008/parity_gate.yaml",
+          "drift_gate": "runtime-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when runtime policy state diverges from contract.",
+          "hardened_mode_response": "Reset runtime policy cache and fail-closed with evidence ledger.",
+          "mitigations": [
+            "policy state checksums",
+            "cache reset invariants",
+            "config transition tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-008/contract_table.md",
+          "drift_gate": "runtime-threat-gate"
+        },
+        {
+          "threat_class": "backend_route_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous optional dependency backend routes.",
+          "hardened_mode_response": "Apply deterministic allowlisted fallback route with audit trace.",
+          "mitigations": [
+            "dependency route priority matrix",
+            "deterministic selection witness",
+            "fallback policy tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-008/risk_note.md",
+          "drift_gate": "runtime-threat-gate"
+        }
+      ]
+    },
+    {
+      "packet_id": "FNX-P2C-009",
+      "threats": [
+        {
+          "threat_class": "parser_abuse",
+          "strict_mode_response": "Fail-closed on malformed conformance fixture payloads.",
+          "hardened_mode_response": "Fail-closed with bounded diagnostics for malformed fixture batches.",
+          "mitigations": [
+            "fixture schema validation",
+            "batch boundary checks",
+            "adversarial fixture ingestion tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/risk_note.md",
+          "drift_gate": "conformance-threat-gate"
+        },
+        {
+          "threat_class": "metadata_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous fixture metadata and oracle references.",
+          "hardened_mode_response": "Quarantine unsupported metadata and reject ambiguous comparator routes.",
+          "mitigations": [
+            "oracle metadata allowlist",
+            "fixture ID normalization",
+            "drift classifier audits"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+          "drift_gate": "conformance-threat-gate"
+        },
+        {
+          "threat_class": "version_skew",
+          "strict_mode_response": "Fail-closed on unsupported fixture/comparator schema versions.",
+          "hardened_mode_response": "Reject incompatible schema versions with deterministic diagnostics.",
+          "mitigations": [
+            "fixture schema pinning",
+            "comparator version checks",
+            "cross-version compatibility tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/parity_gate.yaml",
+          "drift_gate": "conformance-threat-gate"
+        },
+        {
+          "threat_class": "resource_exhaustion",
+          "strict_mode_response": "Fail-closed on fixture execution workloads above strict budget.",
+          "hardened_mode_response": "Bound fixture execution batches and reject once budget is exhausted.",
+          "mitigations": [
+            "fixture batch quotas",
+            "runtime budget guards",
+            "tail latency gates"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/parity_gate.yaml",
+          "drift_gate": "conformance-threat-gate"
+        },
+        {
+          "threat_class": "state_corruption",
+          "strict_mode_response": "Fail-closed when comparator state invalidates deterministic parity claims.",
+          "hardened_mode_response": "Reset comparator state and fail-closed with deterministic incident report.",
+          "mitigations": [
+            "comparator invariant checks",
+            "state snapshot rollback points",
+            "determinism verification tests"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+          "drift_gate": "conformance-threat-gate"
+        },
+        {
+          "threat_class": "source_contamination_ambiguity",
+          "strict_mode_response": "Fail-closed on ambiguous or mixed-origin fixture/oracle lineage claims.",
+          "hardened_mode_response": "Quarantine contaminated fixture bundles, emit deterministic contamination proofs, and reject comparator execution.",
+          "mitigations": [
+            "source lineage envelope checks",
+            "fixture-oracle provenance pairing validation",
+            "mixed-lineage adversarial replay corpus"
+          ],
+          "evidence_artifact": "artifacts/phase2c/FNX-P2C-009/risk_note.md",
+          "drift_gate": "conformance-threat-gate"
+        }
+      ]
+    }
+  ]
+}

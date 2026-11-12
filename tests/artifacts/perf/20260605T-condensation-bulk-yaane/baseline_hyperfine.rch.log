@@ -1,0 +1,14 @@
+  [2m2026-06-05T16:13:26.681427Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260605T-condensation-bulk-yaane/baseline_hyperfine.json 'PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl fnx --kind dag --n 3000 --degree 4 --repeat 3' 'PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl nx --kind dag --n 3000 --degree 4 --repeat 3'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl fnx --kind dag --n 3000 --degree 4 --repeat 3
+  Time (mean ± σ):     633.4 ms ±  48.2 ms    [User: 3865.0 ms, System: 133.4 ms]
+  Range (min … max):   565.6 ms … 730.6 ms    10 runs
+ 
+Benchmark 2: PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl nx --kind dag --n 3000 --degree 4 --repeat 3
+  Time (mean ± σ):     482.0 ms ±  29.4 ms    [User: 4132.7 ms, System: 78.7 ms]
+  Range (min … max):   441.0 ms … 515.6 ms    10 runs
+ 
+Summary
+  PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl nx --kind dag --n 3000 --degree 4 --repeat 3 ran
+    1.31 ± 0.13 times faster than PYTHONDONTWRITEBYTECODE=1 python3 tests/artifacts/perf/20260605T-condensation-bulk-yaane/bench_condensation.py bench --impl fnx --kind dag --n 3000 --degree 4 --repeat 3

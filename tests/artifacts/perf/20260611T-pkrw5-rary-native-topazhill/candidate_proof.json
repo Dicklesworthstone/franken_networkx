@@ -1,0 +1,104 @@
+{
+  "all_match": true,
+  "results": [
+    {
+      "fnx_digest": "3454ec4024cb71fbe114dd3afe21ae87ec0605937bf2ca445555c86b7980bfd5",
+      "fnx_edge_count": 5000,
+      "fnx_node_count": 5001,
+      "label": "star_graph(5000)",
+      "matches_nx": true,
+      "nx_digest": "3454ec4024cb71fbe114dd3afe21ae87ec0605937bf2ca445555c86b7980bfd5",
+      "nx_edge_count": 5000,
+      "nx_node_count": 5001,
+      "scenario": "star_5000"
+    },
+    {
+      "fnx_digest": "146a9192603fb29070632c58c8a41184f8cdbb57b9c99b3ce7e7e63be95c8cee",
+      "fnx_edge_count": 5998,
+      "fnx_node_count": 3000,
+      "label": "wheel_graph(3000)",
+      "matches_nx": true,
+      "nx_digest": "146a9192603fb29070632c58c8a41184f8cdbb57b9c99b3ce7e7e63be95c8cee",
+      "nx_edge_count": 5998,
+      "nx_node_count": 3000,
+      "scenario": "wheel_3000"
+    },
+    {
+      "fnx_digest": "c22a5febbe363b33eaad5df75b24b8c29435d05ce70f5f7eb281ec4d3e5bc6d4",
+      "fnx_edge_count": 8190,
+      "fnx_node_count": 8191,
+      "label": "full_rary_tree(2, 8191)",
+      "matches_nx": true,
+      "nx_digest": "c22a5febbe363b33eaad5df75b24b8c29435d05ce70f5f7eb281ec4d3e5bc6d4",
+      "nx_edge_count": 8190,
+      "nx_node_count": 8191,
+      "scenario": "full_rary_2_8191"
+    },
+    {
+      "fnx_digest": "c22a5febbe363b33eaad5df75b24b8c29435d05ce70f5f7eb281ec4d3e5bc6d4",
+      "fnx_edge_count": 8190,
+      "fnx_node_count": 8191,
+      "label": "balanced_tree(2, 12)",
+      "matches_nx": true,
+      "nx_digest": "c22a5febbe363b33eaad5df75b24b8c29435d05ce70f5f7eb281ec4d3e5bc6d4",
+      "nx_edge_count": 8190,
+      "nx_node_count": 8191,
+      "scenario": "balanced_2_12"
+    },
+    {
+      "fnx_digest": "e3c71666e1894596d6a3e8949cafe6bb4fb192776696d48dfe08b2218dc9dcba",
+      "fnx_edge_count": 6000,
+      "fnx_node_count": 4000,
+      "label": "circular_ladder_graph(2000)",
+      "matches_nx": true,
+      "nx_digest": "e3c71666e1894596d6a3e8949cafe6bb4fb192776696d48dfe08b2218dc9dcba",
+      "nx_edge_count": 6000,
+      "nx_node_count": 4000,
+      "scenario": "circular_ladder_2000"
+    },
+    {
+      "fnx_digest": "9a39815f01c084851db326be79cf7aa8a6f08a063376a2580529077c20d37090",
+      "fnx_edge_count": 36000,
+      "fnx_node_count": 300,
+      "label": "turan_graph(300, 5)",
+      "matches_nx": true,
+      "nx_digest": "9a39815f01c084851db326be79cf7aa8a6f08a063376a2580529077c20d37090",
+      "nx_edge_count": 36000,
+      "nx_node_count": 300,
+      "scenario": "turan_300_5"
+    },
+    {
+      "fnx_digest": "ffb042f383bd2fdc22ecf321f9d0cb1209c0efa7a372b514ebfe2172300e00fe",
+      "fnx_edge_count": 61250,
+      "fnx_node_count": 2500,
+      "label": "caveman_graph(50, 50)",
+      "matches_nx": true,
+      "nx_digest": "ffb042f383bd2fdc22ecf321f9d0cb1209c0efa7a372b514ebfe2172300e00fe",
+      "nx_edge_count": 61250,
+      "nx_node_count": 2500,
+      "scenario": "caveman_50_50"
+    },
+    {
+      "fnx_digest": "dc3a479a0e0599be5d1c88bd82f4d4e2e0ee25fb3daebe872e28914b26dba8ad",
+      "fnx_edge_count": 125250,
+      "fnx_node_count": 1000,
+      "label": "lollipop_graph(500, 500)",
+      "matches_nx": true,
+      "nx_digest": "dc3a479a0e0599be5d1c88bd82f4d4e2e0ee25fb3daebe872e28914b26dba8ad",
+      "nx_edge_count": 125250,
+      "nx_node_count": 1000,
+      "scenario": "lollipop_500_500"
+    },
+    {
+      "fnx_digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24",
+      "fnx_edge_count": 6000,
+      "fnx_node_count": 1500,
+      "label": "random_regular_graph(8, 1500, seed=12345)",
+      "matches_nx": true,
+      "nx_digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24",
+      "nx_edge_count": 6000,
+      "nx_node_count": 1500,
+      "scenario": "random_regular_8_1500"
+    }
+  ]
+}

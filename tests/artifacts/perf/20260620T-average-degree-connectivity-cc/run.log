@@ -1,0 +1,11 @@
+== timings (min-of-6, warm) ==
+undir/unw            2.489x  fnx     2.53ms  nx    6.30ms
+undir/wt             1.914x  fnx     7.29ms  nx   13.94ms
+dir/unw in+out       2.374x  fnx     2.59ms  nx    6.16ms
+dir/unw in/out       1.464x  fnx     3.65ms  nx    5.34ms
+dir/unw out/in       2.085x  fnx     2.56ms  nx    5.34ms
+dir/wt in+out        1.052x  fnx    15.41ms  nx   16.21ms
+dir/wt in/out        1.250x  fnx    13.03ms  nx   16.29ms
+dir/wt out/in        1.342x  fnx     9.98ms  nx   13.40ms
+== parity: 1500 checks, 0 fails ==
+golden sha256: d82e8fa9adcc0187ae7a4c9e9510fa9cf481dcb6c016b749f450af7ba8a82bb6

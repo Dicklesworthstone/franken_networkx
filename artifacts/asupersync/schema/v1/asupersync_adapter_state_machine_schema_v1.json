@@ -1,0 +1,143 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "asupersync_adapter_state_machine",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "adapter_interface",
+    "state_machine",
+    "transition_invariants",
+    "conflict_policy",
+    "checksum_policy",
+    "recovery_checkpoint_contract",
+    "test_bindings",
+    "telemetry_fields",
+    "decision_theoretic_runtime_contract",
+    "profile_first_artifacts",
+    "alien_uplift_contract_card",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_adapter_interface_keys": [
+    "owning_crate",
+    "module_path",
+    "adapter_types",
+    "isolation_boundary"
+  ],
+  "required_state_machine_keys": [
+    "states",
+    "terminal_states",
+    "events",
+    "reason_codes",
+    "transition_table"
+  ],
+  "required_transition_row_keys": [
+    "from_state",
+    "event",
+    "to_state",
+    "reason_code",
+    "notes"
+  ],
+  "required_conflict_policy_keys": [
+    "strict_mode",
+    "hardened_mode",
+    "default_action",
+    "reason_codes"
+  ],
+  "required_checksum_policy_keys": [
+    "strict_mode",
+    "hardened_mode",
+    "validation_state",
+    "failure_reason_code"
+  ],
+  "required_recovery_checkpoint_keys": [
+    "checkpoint_fields",
+    "resume_invariants",
+    "deterministic_resume_rule"
+  ],
+  "required_test_binding_keys": [
+    "test_id",
+    "layer",
+    "artifact_path",
+    "replay_command"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ],
+  "required_loss_budget_keys": [
+    "max_expected_loss",
+    "max_replay_loss",
+    "max_data_loss"
+  ],
+  "required_safe_mode_fallback_keys": [
+    "trigger_thresholds",
+    "fallback_action",
+    "budgeted_recovery_window_ms"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_states": [
+    "idle",
+    "capability_check",
+    "syncing",
+    "verifying_checksum",
+    "completed",
+    "failed_closed"
+  ],
+  "required_terminal_states": [
+    "completed",
+    "failed_closed"
+  ],
+  "required_events": [
+    "start",
+    "capability_accepted",
+    "capability_rejected",
+    "chunk_committed",
+    "resume_applied",
+    "transport_interrupted",
+    "checksum_verification_started",
+    "checksum_validated",
+    "checksum_mismatch",
+    "conflict_detected",
+    "retry_budget_exceeded"
+  ],
+  "required_reason_codes": [
+    "unsupported_capability",
+    "capability_mismatch",
+    "integrity_precheck_failed",
+    "conflict_detected",
+    "retry_exhausted",
+    "invalid_transition",
+    "resume_cursor_ahead",
+    "resume_transfer_mismatch",
+    "resume_seed_mismatch"
+  ],
+  "required_test_layers": [
+    "unit",
+    "differential",
+    "e2e"
+  ],
+  "required_telemetry_fields": [
+    "transfer_id",
+    "artifact_id",
+    "mode",
+    "state",
+    "event",
+    "attempt",
+    "committed_cursor",
+    "reason_code",
+    "seed",
+    "replay_command",
+    "env_fingerprint",
+    "duration_ms"
+  ]
+}

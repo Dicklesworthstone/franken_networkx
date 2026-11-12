@@ -1,0 +1,21 @@
+Benchmark 1: PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_directed --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):     13.882 s ±  1.307 s    [User: 17.385 s, System: 0.082 s]
+  Range (min … max):   12.911 s … 16.073 s    5 runs
+ 
+Benchmark 2: PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_undirected --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):     11.305 s ±  0.595 s    [User: 14.729 s, System: 0.082 s]
+  Range (min … max):   10.839 s … 12.280 s    5 runs
+ 
+Benchmark 3: PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_directed --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):      3.858 s ±  0.044 s    [User: 7.376 s, System: 0.065 s]
+  Range (min … max):    3.812 s …  3.913 s    5 runs
+ 
+Benchmark 4: PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_undirected --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):      4.842 s ±  0.045 s    [User: 8.462 s, System: 0.068 s]
+  Range (min … max):    4.785 s …  4.897 s    5 runs
+ 
+Summary
+  PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_directed --nodes 160 --edges 800 --repeat 3 ran
+    1.25 ± 0.02 times faster than PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_undirected --nodes 160 --edges 800 --repeat 3
+    2.93 ± 0.16 times faster than PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_undirected --nodes 160 --edges 800 --repeat 3
+    3.60 ± 0.34 times faster than PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_directed --nodes 160 --edges 800 --repeat 3

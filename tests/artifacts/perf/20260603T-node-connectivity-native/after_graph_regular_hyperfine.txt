@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py bench --kind graph --mode regular --n 400 --degree 4 --samples 1 --engines fnx --skip-digest
+  Time (mean ± σ):     942.8 ms ±  21.0 ms    [User: 4179.7 ms, System: 55.2 ms]
+  Range (min … max):   914.3 ms … 989.7 ms    10 runs
+ 

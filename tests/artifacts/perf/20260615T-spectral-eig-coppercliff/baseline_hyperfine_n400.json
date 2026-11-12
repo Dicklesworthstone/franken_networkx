@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-coppercliff/laplacian_spectrum_harness.py bench --impl fnx --n 400 --loops 1 --samples 1",
+      "mean": 6.19470703086,
+      "stddev": 3.5502548499915303,
+      "median": 8.22652396146,
+      "user": 108.7307441,
+      "system": 0.26167784,
+      "min": 1.20334100546,
+      "max": 9.51115614646,
+      "times": [
+        8.287016762459999,
+        9.51115614646,
+        8.22652396146,
+        3.7454972784600002,
+        1.20334100546
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-coppercliff/laplacian_spectrum_harness.py bench --impl nx --n 400 --loops 1 --samples 1",
+      "mean": 1.4668198582599998,
+      "stddev": 0.5405681314254731,
+      "median": 1.45348864046,
+      "user": 61.36138269999999,
+      "system": 0.23004564,
+      "min": 0.84764512546,
+      "max": 2.3161601584600002,
+      "times": [
+        2.3161601584600002,
+        1.21625305346,
+        1.50055231346,
+        1.45348864046,
+        0.84764512546
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

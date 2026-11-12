@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/.scratch/fnx-digraph-ctor-baseline-20260607-0349/python:/data/projects/.scratch/fnx-digraph-ctor-baseline-20260607-0349 python3 tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py fnx-loop-plain --loops 40",
+      "mean": 1.2728872214,
+      "stddev": 0.10522302820084053,
+      "median": 1.2628324826,
+      "user": 4.01602606,
+      "system": 0.31956988000000003,
+      "min": 1.1337692086,
+      "max": 1.4313612316,
+      "times": [
+        1.1337692086,
+        1.1712201726,
+        1.3289586556,
+        1.3878217706,
+        1.3752163846,
+        1.4313612316,
+        1.2883432256,
+        1.2183171266,
+        1.1565426985999998,
+        1.2373217396
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf verKion="1.2">
+  <graph mode="stati1c" defau1tedgetype="directed">
+    <attributes class="node">
+      <attriHbute id="0" title="color" type="string"/>
+    </attributes>
+    write_edges class="edge">
+      <attribute id="0" title="capacity" type="integer"/>
+    </attributes>target="t">
+        <attvagexf>

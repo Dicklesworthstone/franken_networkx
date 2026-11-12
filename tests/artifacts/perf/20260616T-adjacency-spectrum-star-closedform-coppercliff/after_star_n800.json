@@ -1,0 +1,71 @@
+{
+  "baseline_direct_median_seconds_per_call": 0.031713,
+  "baseline_rch_hyperfine_5_calls_mean_seconds": 0.4888,
+  "bead": "br-r37-c1-04z53.9125",
+  "case": "fnx.adjacency_spectrum(fnx.star_graph(799))",
+  "dtype_matches": true,
+  "expected_sorted_sha256": "074becfe8e5addfd61981ce2fe0abdd63e6cbc88e8e094b0904315fa027f3063",
+  "first_values": [
+    [
+      28.266588050205,
+      0.0
+    ],
+    [
+      -28.266588050205,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ]
+  ],
+  "fnx_mean_seconds_per_call": 0.0009369813473507141,
+  "fnx_median_seconds_per_call": 0.0009316857100930064,
+  "fnx_raw_sha256": "6024e8f1ff1b9c7799a61eb13a51a9d8bceb8859fa1796f96c55cf9123004706",
+  "fnx_seconds_per_call": [
+    0.0010502299599465914,
+    0.0009808490399154835,
+    0.0009155242500128224,
+    0.0008856904398999177,
+    0.0010589513299055398,
+    0.000915964184969198,
+    0.0009645298251416535,
+    0.0009417337449849583,
+    0.000958619185257703,
+    0.0008705031700083055,
+    0.0008564672351349145,
+    0.0009322045449516736,
+    0.0009047310549067333,
+    0.0009316857100930064,
+    0.0008870365351322107
+  ],
+  "fnx_sorted_sha256": "074becfe8e5addfd61981ce2fe0abdd63e6cbc88e8e094b0904315fa027f3063",
+  "loops_per_sample": 200,
+  "max_sorted_abs_delta": 3.197442310920451e-14,
+  "node_count": 800,
+  "nx_raw_sha256": "6024e8f1ff1b9c7799a61eb13a51a9d8bceb8859fa1796f96c55cf9123004706",
+  "nx_sorted_sha256": "074becfe8e5addfd61981ce2fe0abdd63e6cbc88e8e094b0904315fa027f3063",
+  "raw_order_matches": true,
+  "samples": 15,
+  "sorted_values_match": true
+}

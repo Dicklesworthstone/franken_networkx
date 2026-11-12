@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "cgse-final-evidence-pack-v1-scrub-report",
+  "generated_at_utc": "2026-02-18T19:39:09Z",
+  "artifact_path": "artifacts/cgse/v1/cgse_final_evidence_pack_v1.json",
+  "sidecar_path": "artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json",
+  "recovered_output_path": "artifacts/cgse/v1/cgse_final_evidence_pack_v1.recovered.json",
+  "source_hash": "blake3:396dfa0a33f94227f2a8b20e455ea2e3eafa86019fb1a401f52adb8e6d656977",
+  "scrub_status": "recovered",
+  "decode_proof_count": 1,
+  "decode_proofs": [
+    {
+      "ts_unix_ms": 1771443520763,
+      "reason": "decode_drill",
+      "recovered_blocks": 5,
+      "proof_hash": "blake3:0e83eb5a5d19bb4135bdbab6552c6c08945fe70cb112ce15c753ee1b1cae26b7"
+    }
+  ],
+  "commands": {
+    "build_durability_tool": "rch exec -- cargo build -q -p fnx-durability --bin fnx-durability --release",
+    "generate": "./target/release/fnx-durability generate artifacts/cgse/v1/cgse_final_evidence_pack_v1.json artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json cgse-final-evidence-pack-v1 cgse_final_evidence_bundle 1400 6",
+    "scrub": "./target/release/fnx-durability scrub artifacts/cgse/v1/cgse_final_evidence_pack_v1.json artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json",
+    "decode_drill": "./target/release/fnx-durability decode-drill artifacts/cgse/v1/cgse_final_evidence_pack_v1.raptorq.json artifacts/cgse/v1/cgse_final_evidence_pack_v1.recovered.json"
+  }
+}

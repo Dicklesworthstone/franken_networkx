@@ -1,0 +1,126 @@
+{
+  "payload": {
+    "fnx": {
+      "add_existing_edge": {
+        "error": null,
+        "first": 0,
+        "second": true
+      },
+      "add_new": {
+        "error": {
+          "message": "dictionary changed size during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "clear": {
+        "error": {
+          "message": "dictionary changed size during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "edges": [
+        [
+          "0",
+          "2"
+        ],
+        [
+          "0",
+          "'0'"
+        ]
+      ],
+      "iter_type": "NodeIterator",
+      "list": [
+        "0",
+        "True",
+        "'0'",
+        "2"
+      ],
+      "remove": {
+        "error": {
+          "message": "dictionary changed size during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "remove_add_same_size": {
+        "error": {
+          "message": "dictionary keys changed during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "set_repr_sorted": [
+        "'0'",
+        "0",
+        "2",
+        "True"
+      ]
+    },
+    "nx": {
+      "add_existing_edge": {
+        "error": null,
+        "first": 0,
+        "second": true
+      },
+      "add_new": {
+        "error": {
+          "message": "dictionary changed size during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "clear": {
+        "error": {
+          "message": "dictionary changed size during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "edges": [
+        [
+          "0",
+          "2"
+        ],
+        [
+          "0",
+          "'0'"
+        ]
+      ],
+      "iter_type": "dict_keyiterator",
+      "list": [
+        "0",
+        "True",
+        "'0'",
+        "2"
+      ],
+      "remove": {
+        "error": {
+          "message": "dictionary changed size during iteration",
+          "type": "RuntimeError"
+        },
+        "first": 0,
+        "second": null
+      },
+      "remove_add_same_size": {
+        "error": null,
+        "first": 0,
+        "second": true
+      },
+      "set_repr_sorted": [
+        "'0'",
+        "0",
+        "2",
+        "True"
+      ]
+    }
+  },
+  "sha256": "3e733c7e79e8fbaabb14e93090afe03df6ccfa29682c1bc8ccfd3fd287d9a547"
+}

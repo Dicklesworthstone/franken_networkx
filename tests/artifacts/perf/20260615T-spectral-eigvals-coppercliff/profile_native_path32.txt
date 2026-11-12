@@ -1,0 +1,40 @@
+Mon Jun 15 15:29:56 2026    tests/artifacts/perf/20260615T-spectral-eigvals-coppercliff/profile_native_path32.prof
+
+         501058 function calls (494276 primitive calls) in 0.919 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1929 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       47    0.004    0.000    1.032    0.022 __init__.py:1(<module>)
+    471/1    0.003    0.000    0.919    0.919 {built-in method builtins.exec}
+        1    0.000    0.000    0.919    0.919 laplacian_spectrum_harness.py:1(<module>)
+        1    0.000    0.000    0.610    0.610 laplacian_spectrum_harness.py:120(main)
+        1    0.011    0.011    0.608    0.608 laplacian_spectrum_harness.py:62(bench)
+    10000    0.008    0.000    0.595    0.000 __init__.py:53083(wrapper)
+    10000    0.012    0.000    0.586    0.000 __init__.py:22546(laplacian_spectrum)
+    10000    0.544    0.000    0.544    0.000 {built-in method franken_networkx._fnx.unweighted_laplacian_spectrum_rust}
+    524/6    0.002    0.000    0.309    0.051 <frozen importlib._bootstrap>:1349(_find_and_load)
+    504/6    0.002    0.000    0.309    0.051 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    489/6    0.001    0.000    0.308    0.051 <frozen importlib._bootstrap>:911(_load_unlocked)
+    462/5    0.001    0.000    0.308    0.062 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1092/12    0.001    0.000    0.300    0.025 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+   445/30    0.000    0.000    0.243    0.008 {built-in method builtins.__import__}
+   529/58    0.001    0.000    0.242    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      9/5    0.000    0.000    0.149    0.030 <frozen importlib._bootstrap_external>:1326(exec_module)
+      9/5    0.009    0.001    0.149    0.030 {built-in method _imp.exec_dynamic}
+        2    0.000    0.000    0.100    0.050 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.099    0.050 layout.py:1(<module>)
+      462    0.003    0.000    0.062    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.047    0.047 __config__.py:1(<module>)
+        1    0.000    0.000    0.040    0.040 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.040    0.040 _index_tricks_impl.py:1(<module>)
+        1    0.000    0.000    0.038    0.038 defmatrix.py:1(<module>)
+        1    0.000    0.000    0.037    0.037 _linalg.py:1(<module>)
+        1    0.001    0.001    0.034    0.034 __init__.py:52752(_bulk_add_backend_dispatch_kwargs)
+      462    0.002    0.000    0.034    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      462    0.032    0.000    0.032    0.000 {built-in method marshal.loads}
+  265/139    0.002    0.000    0.030    0.000 typing.py:426(inner)
+      499    0.002    0.000    0.028    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+
+

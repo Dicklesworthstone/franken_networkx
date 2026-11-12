@@ -1,0 +1,7 @@
+  [2m2026-07-11T06:33:01.236118Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib bfs_labeled_edges -- --include-ignored --nocapture[0m
+BFSLBL_AB n=3000 deg=10 rounds=121 (>1 = integer faster)
+BFSLBL_AB INT_vs_string: median=1.1521x win_rate=116/121 p5_p95=[1.0168,1.3491]
+BFSLBL_AB NULL_int_vs_int: median=0.9952x win_rate=55/121 p5_p95=[0.8775,1.1236]
+test tests::bfs_labeled_edges_bfslbl_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 949 filtered out; finished in 13.34s
+AB loop ended

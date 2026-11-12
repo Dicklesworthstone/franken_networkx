@@ -1,0 +1,214 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index c97b095f3..d68c3c506 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -27894,19 +27894,27 @@ fn is_arborescence_orig_string(graph: &DiGraph) -> bool {
+ /// every node has in-degree 0 or 1).
+ #[must_use]
+ pub fn is_branching(graph: &DiGraph) -> bool {
+-    let nodes = graph.nodes_ordered();
+-    let n = nodes.len();
++    let n = graph.node_count();
+     if n == 0 {
+         return true; // empty graph is a branching
+     }
+ 
++    // br-r37-c1-branch (cc): no-alloc degrees + integer per-component edge count. The
++    // old kernel took `predecessors(node).len()`/`successors(node).len()` (`Vec<&str>`
++    // allocs) per node, and for each weakly-connected component built a `HashSet<&str>`
++    // and walked `successors_iter(name)` with String `contains`. Use no-alloc
++    // `in_degree_by_index`/`out_degree_by_index` and a reusable `Vec<bool>` component
++    // mark array + `successors_indices`. Byte-identical: `in_degree ==
++    // predecessors().len()`, `out_degree == successors().len()` (so the `in_deg`
++    // early-return in node-index order and `edge_count` match), and `comp_edges` is
++    // the same intra-component directed-edge count (WCC components are valid graph
++    // nodes, so every name resolves). `weakly_connected_components` is unchanged.
+     let mut edge_count = 0usize;
+-    for &node in &nodes {
+-        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
+-        if in_deg > 1 {
++    for i in 0..n {
++        if graph.in_degree_by_index(i) > 1 {
+             return false;
+         }
+-        edge_count += graph.successors(node).map_or(0, |v| v.len());
++        edge_count += graph.out_degree_by_index(i);
+     }
+ 
+     // A branching (forest of arborescences) has at most n-1 edges.
+@@ -27917,6 +27925,60 @@ pub fn is_branching(graph: &DiGraph) -> bool {
+     // Ensure the underlying undirected structure is a forest: each weakly
+     // connected component must have exactly |V|-1 edges.
+     let components = weakly_connected_components(graph);
++    let mut in_comp = vec![false; n];
++    for comp in &components {
++        let comp_len = comp.len();
++        let mut comp_idx: Vec<usize> = Vec::with_capacity(comp_len);
++        for name in comp {
++            if let Some(ci) = graph.get_node_index(name) {
++                in_comp[ci] = true;
++                comp_idx.push(ci);
++            }
++        }
++        let mut comp_edges = 0usize;
++        for &ci in &comp_idx {
++            if let Some(succs) = graph.successors_indices(ci) {
++                for &s in succs {
++                    if in_comp[s] {
++                        comp_edges += 1;
++                    }
++                }
++            }
++        }
++        for &ci in &comp_idx {
++            in_comp[ci] = false;
++        }
++        if comp_edges != comp_len.saturating_sub(1) {
++            return false;
++        }
++    }
++
++    true
++}
++
++/// br-r37-c1-branch A/B baseline: the pre-lever `is_branching` that took
++/// `predecessors()/successors().len()` (`Vec<&str>` allocs) per node and a
++/// `HashSet<&str>` + `successors_iter` per component. Test-only; byte-identical to
++/// `is_branching`.
++#[cfg(test)]
++fn is_branching_orig_string(graph: &DiGraph) -> bool {
++    let nodes = graph.nodes_ordered();
++    let n = nodes.len();
++    if n == 0 {
++        return true;
++    }
++    let mut edge_count = 0usize;
++    for &node in &nodes {
++        let in_deg = graph.predecessors(node).map_or(0, |v| v.len());
++        if in_deg > 1 {
++            return false;
++        }
++        edge_count += graph.successors(node).map_or(0, |v| v.len());
++    }
++    if edge_count >= n {
++        return false;
++    }
++    let components = weakly_connected_components(graph);
+     for comp in components {
+         let comp_len = comp.len();
+         let comp_set: HashSet<&str> = comp.iter().map(String::as_str).collect();
+@@ -27934,7 +27996,6 @@ pub fn is_branching(graph: &DiGraph) -> bool {
+             return false;
+         }
+     }
+-
+     true
+ }
+ 
+@@ -50166,6 +50227,106 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-branch: paired-interleaved median A/B for the no-alloc-degree +
++    /// integer per-component `is_branching` vs the old `predecessors()/successors().len()`
++    /// + `HashSet<&str>` baseline, in ONE binary / ONE worker with a NULL control.
++    /// `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib is_branching_branch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn is_branching_branch_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Rooted binary tree on n=60000 (parent (i-1)/2 -> i): a branching (forest with
++        // one tree), so is_branching runs the full degree check + WCC + per-component
++        // edge count and returns true.
++        let n = 60000usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 1..n {
++            let _ = g.add_edge(format!("n{}", (i - 1) / 2), format!("n{i}"));
++        }
++
++        // Parity across the true path (tree) and false paths: a node with in-degree 2
++        // (not a branching), and a component with a cycle (comp_edges != comp_len-1).
++        let mut indeg2 = DiGraph::strict();
++        for i in 0..5usize {
++            let _ = indeg2.add_node(format!("i{i}"));
++        }
++        let _ = indeg2.add_edge("i0".to_string(), "i2".to_string());
++        let _ = indeg2.add_edge("i1".to_string(), "i2".to_string());
++        let mut cyc = DiGraph::strict();
++        for i in 0..4usize {
++            let _ = cyc.add_node(format!("c{i}"));
++        }
++        let _ = cyc.add_edge("c0".to_string(), "c1".to_string());
++        let _ = cyc.add_edge("c1".to_string(), "c2".to_string());
++        let _ = cyc.add_edge("c2".to_string(), "c0".to_string());
++        for gr in [&g, &indeg2, &cyc] {
++            assert_eq!(
++                super::is_branching(gr),
++                super::is_branching_orig_string(gr),
++                "integer is_branching must equal the String baseline"
++            );
++        }
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::is_branching(&g));
++                } else {
++                    black_box(super::is_branching_orig_string(&g));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "BRANCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("BRANCH_AB n={n} (binary tree) rounds={rounds} (>1 = integer faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

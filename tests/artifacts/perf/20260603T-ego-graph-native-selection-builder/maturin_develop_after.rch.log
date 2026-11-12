@@ -1,0 +1,71 @@
+  [2m2026-06-03T15:58:25.476710Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: maturin develop --release --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+🍹 Building a mixed python/rust project
+🔗 Found pyo3 bindings with abi3 support
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+Ignoring numpy: markers 'extra == "all"' don't match your environment
+Ignoring scipy: markers 'extra == "all"' don't match your environment
+Ignoring numpy: markers 'extra == "numpy"' don't match your environment
+Ignoring scipy: markers 'extra == "scipy"' don't match your environment
+Ignoring pytest: markers 'extra == "test"' don't match your environment
+Ignoring hypothesis: markers 'extra == "test"' don't match your environment
+Ignoring networkx: markers 'extra == "test"' don't match your environment
+Requirement already satisfied: networkx>=3.0 in ./.venv/lib/python3.13/site-packages (3.6.1)
+   Compiling fnx-python v0.1.0 (/data/projects/franken_networkx/crates/fnx-python)
+error[E0308]: mismatched types
+    --> crates/fnx-python/src/lib.rs:3674:25
+     |
+3674 |                 |attrs| attrs.bind(py).copy().map(Bound::unbind),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Py<PyDict>`, found `Result<Py<PyDict>, PyErr>`
+     |
+     = note: expected struct `pyo3::Py<_>`
+                  found enum `Result<pyo3::Py<_>, pyo3::PyErr>`
+help: consider using `Result::expect` to unwrap the `Result<pyo3::Py<PyDict>, pyo3::PyErr>` value, panicking if the value is a `Result::Err`
+     |
+3674 |                 |attrs| attrs.bind(py).copy().map(Bound::unbind).expect("REASON"),
+     |                                                                 +++++++++++++++++
+
+error[E0277]: the `?` operator can only be applied to values that implement `Try`
+    --> crates/fnx-python/src/lib.rs:3672:28
+     |
+3672 |               let py_attrs = self.node_py_attrs.get(*canonical).map_or_else(
+     |  ____________________________^
+3673 | |                 || PyDict::new(py).unbind(),
+3674 | |                 |attrs| attrs.bind(py).copy().map(Bound::unbind),
+3675 | |             )?;
+     | |______________^ the `?` operator cannot be applied to type `pyo3::Py<PyDict>`
+     |
+     = help: the nightly-only, unstable trait `Try` is not implemented for `pyo3::Py<PyDict>`
+
+error[E0308]: mismatched types
+    --> crates/fnx-python/src/lib.rs:3711:25
+     |
+3711 |                 |attrs| attrs.bind(py).copy().map(Bound::unbind),
+     |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `Py<PyDict>`, found `Result<Py<PyDict>, PyErr>`
+     |
+     = note: expected struct `pyo3::Py<_>`
+                  found enum `Result<pyo3::Py<_>, pyo3::PyErr>`
+help: consider using `Result::expect` to unwrap the `Result<pyo3::Py<PyDict>, pyo3::PyErr>` value, panicking if the value is a `Result::Err`
+     |
+3711 |                 |attrs| attrs.bind(py).copy().map(Bound::unbind).expect("REASON"),
+     |                                                                 +++++++++++++++++
+
+error[E0277]: the `?` operator can only be applied to values that implement `Try`
+    --> crates/fnx-python/src/lib.rs:3709:28
+     |
+3709 |               let py_attrs = attrs_entry.map_or_else(
+     |  ____________________________^
+3710 | |                 || PyDict::new(py).unbind(),
+3711 | |                 |attrs| attrs.bind(py).copy().map(Bound::unbind),
+3712 | |             )?;
+     | |______________^ the `?` operator cannot be applied to type `pyo3::Py<PyDict>`
+     |
+     = help: the nightly-only, unstable trait `Try` is not implemented for `pyo3::Py<PyDict>`
+
+Some errors have detailed explanations: E0277, E0308.
+For more information about an error, try `rustc --explain E0277`.
+error: could not compile `fnx-python` (lib) due to 4 previous errors
+💥 maturin failed
+  Caused by: Failed to build a native library through cargo
+  Caused by: Cargo build finished with "exit status: 101": `env -u CARGO PYO3_BUILD_EXTENSION_MODULE="1" PYO3_ENVIRONMENT_SIGNATURE="cpython-3.13-64bit" PYO3_PYTHON="/data/projects/franken_networkx/.venv/bin/python" PYTHON_SYS_EXECUTABLE="/data/projects/franken_networkx/.venv/bin/python" "cargo" "rustc" "--profile" "release" "--features" "pyo3/abi3-py310" "--message-format" "json-render-diagnostics" "--manifest-path" "/data/projects/franken_networkx/crates/fnx-python/Cargo.toml" "--lib" "--crate-type" "cdylib"`

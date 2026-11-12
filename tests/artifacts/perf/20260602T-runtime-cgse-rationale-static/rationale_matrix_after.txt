@@ -1,0 +1,84 @@
+CGSE_RATIONALE_GOLDEN	CGSE-R01	strict_selected_allow_0_2	deterministic policy CGSE-R01 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R01	strict_selected_validate_0_3	deterministic policy CGSE-R01 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R01	strict_selected_fail_0_9	deterministic policy CGSE-R01 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R01	strict_nan	fail_closed_on_cgse_r01_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R01	strict_unknown_feature	fail_closed_on_cgse_r01_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R01	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r01_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R02	strict_selected_allow_0_2	deterministic policy CGSE-R02 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R02	strict_selected_validate_0_3	deterministic policy CGSE-R02 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R02	strict_selected_fail_0_9	deterministic policy CGSE-R02 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R02	strict_nan	fail_closed_on_cgse_r02_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R02	strict_unknown_feature	fail_closed_on_cgse_r02_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R02	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r02_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R03	strict_selected_allow_0_2	deterministic policy CGSE-R03 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R03	strict_selected_validate_0_3	deterministic policy CGSE-R03 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R03	strict_selected_fail_0_9	deterministic policy CGSE-R03 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R03	strict_nan	fail_closed_on_cgse_r03_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R03	strict_unknown_feature	fail_closed_on_cgse_r03_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R03	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r03_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R04	strict_selected_allow_0_2	deterministic policy CGSE-R04 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R04	strict_selected_validate_0_3	deterministic policy CGSE-R04 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R04	strict_selected_fail_0_9	deterministic policy CGSE-R04 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R04	strict_nan	fail_closed_on_cgse_r04_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R04	strict_unknown_feature	fail_closed_on_cgse_r04_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R04	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r04_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R05	strict_selected_allow_0_2	deterministic policy CGSE-R05 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R05	strict_selected_validate_0_3	deterministic policy CGSE-R05 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R05	strict_selected_fail_0_9	deterministic policy CGSE-R05 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R05	strict_nan	fail_closed_on_cgse_r05_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R05	strict_unknown_feature	fail_closed_on_cgse_r05_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R05	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r05_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R06	strict_selected_allow_0_2	deterministic policy CGSE-R06 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R06	strict_selected_validate_0_3	deterministic policy CGSE-R06 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R06	strict_selected_fail_0_9	deterministic policy CGSE-R06 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R06	strict_nan	fail_closed_on_cgse_r06_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R06	strict_unknown_feature	fail_closed_on_cgse_r06_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R06	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r06_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R07	strict_selected_allow_0_2	deterministic policy CGSE-R07 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R07	strict_selected_validate_0_3	deterministic policy CGSE-R07 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R07	strict_selected_fail_0_9	deterministic policy CGSE-R07 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R07	strict_nan	fail_closed_on_cgse_r07_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R07	strict_unknown_feature	fail_closed_on_cgse_r07_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R07	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r07_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R08	strict_selected_allow_0_2	deterministic policy CGSE-R08 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R08	strict_selected_validate_0_3	deterministic policy CGSE-R08 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R08	strict_selected_fail_0_9	deterministic policy CGSE-R08 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R08	strict_nan	fail_closed_on_cgse_r08_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R08	strict_unknown_feature	fail_closed_on_cgse_r08_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R08	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r08_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R09	strict_selected_allow_0_2	deterministic policy CGSE-R09 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R09	strict_selected_validate_0_3	deterministic policy CGSE-R09 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R09	strict_selected_fail_0_9	deterministic policy CGSE-R09 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R09	strict_nan	fail_closed_on_cgse_r09_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R09	strict_unknown_feature	fail_closed_on_cgse_r09_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R09	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r09_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R10	strict_selected_allow_0_2	deterministic policy CGSE-R10 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R10	strict_selected_validate_0_3	deterministic policy CGSE-R10 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R10	strict_selected_fail_0_9	deterministic policy CGSE-R10 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R10	strict_nan	fail_closed_on_cgse_r10_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R10	strict_unknown_feature	fail_closed_on_cgse_r10_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R10	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r10_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R11	strict_selected_allow_0_2	deterministic policy CGSE-R11 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R11	strict_selected_validate_0_3	deterministic policy CGSE-R11 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R11	strict_selected_fail_0_9	deterministic policy CGSE-R11 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R11	strict_nan	fail_closed_on_cgse_r11_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R11	strict_unknown_feature	fail_closed_on_cgse_r11_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R11	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r11_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R12	strict_selected_allow_0_2	deterministic policy CGSE-R12 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R12	strict_selected_validate_0_3	deterministic policy CGSE-R12 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R12	strict_selected_fail_0_9	deterministic policy CGSE-R12 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R12	strict_nan	fail_closed_on_cgse_r12_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R12	strict_unknown_feature	fail_closed_on_cgse_r12_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R12	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r12_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R13	strict_selected_allow_0_2	deterministic policy CGSE-R13 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R13	strict_selected_validate_0_3	deterministic policy CGSE-R13 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R13	strict_selected_fail_0_9	deterministic policy CGSE-R13 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R13	strict_nan	fail_closed_on_cgse_r13_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R13	strict_unknown_feature	fail_closed_on_cgse_r13_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R13	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r13_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode
+CGSE_RATIONALE_GOLDEN	CGSE-R14	strict_selected_allow_0_2	deterministic policy CGSE-R14 selected Allow at incompatibility_probability=0.2000
+CGSE_RATIONALE_GOLDEN	CGSE-R14	strict_selected_validate_0_3	deterministic policy CGSE-R14 selected FullValidate at incompatibility_probability=0.3000
+CGSE_RATIONALE_GOLDEN	CGSE-R14	strict_selected_fail_0_9	deterministic policy CGSE-R14 selected FailClosed at incompatibility_probability=0.9000
+CGSE_RATIONALE_GOLDEN	CGSE-R14	strict_nan	fail_closed_on_cgse_r14_drift triggered fail-closed due to NaN incompatibility_probability
+CGSE_RATIONALE_GOLDEN	CGSE-R14	strict_unknown_feature	fail_closed_on_cgse_r14_drift triggered fail-closed due to unknown incompatible feature
+CGSE_RATIONALE_GOLDEN	CGSE-R14	hardened_non_allowlisted_ambiguity	fail_closed_on_cgse_r14_drift triggered fail-closed because ambiguity tag `CGSE-AMB-999` is not allowlisted in hardened mode

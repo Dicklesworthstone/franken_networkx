@@ -1,0 +1,5 @@
+graph [
+  dread_graphmlirected 0
+  node [ id 0 label "ah [
+  ddge [ source 0 target 5 weight 2 ]
+]

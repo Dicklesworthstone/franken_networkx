@@ -1,0 +1,124 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 86a0ad65b..0dfaea6d5 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -27085,6 +27085,28 @@ pub fn barycenter(graph: &Graph) -> Vec<String> {
+ /// Return a sorted list of isolate nodes (nodes with degree 0).
+ #[must_use]
+ pub fn isolates(graph: &Graph) -> Vec<String> {
++    let nodes = graph.nodes_ordered();
++    let n = nodes.len();
++    let mut result = Vec::new();
++    // br-r37-c1-iso (cc): the old kernel allocated a `Vec<&str>` via `neighbors(node)`
++    // per node just to check `is_empty()`; use the no-alloc `neighbors_indices(i)` slice
++    // length. Byte-identical: `neighbors_indices(i).len() == neighbors(nodes[i]).len()`,
++    // and (for the existing nodes iterated here) `neighbors` is always `Some`, so
++    // `len == 0` is exactly the old "empty or None -> isolate" test; the pushed nodes
++    // (in `nodes_ordered()` order) are unchanged.
++    for i in 0..n {
++        if graph.neighbors_indices(i).map_or(0, <[usize]>::len) == 0 {
++            result.push(nodes[i].to_string());
++        }
++    }
++    result
++}
++
++/// br-r37-c1-iso A/B baseline: the pre-lever `isolates` that allocated a `Vec<&str>`
++/// via `neighbors(node)` per node just to check `is_empty()`. Test-only; byte-identical
++/// to `isolates`.
++#[cfg(test)]
++fn isolates_orig_string(graph: &Graph) -> Vec<String> {
+     let nodes = graph.nodes_ordered();
+     let mut result = Vec::new();
+     for &node in &nodes {
+@@ -50793,6 +50815,90 @@ mod tests {
+         report("NULL_noalloc_vs_noalloc", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-iso: paired-interleaved median A/B for the no-alloc `isolates`
++    /// (undirected) vs the old `neighbors()` (`Vec<&str>`) is_empty baseline, in ONE
++    /// binary / ONE worker with a NULL control. `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib isolates_iso_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn isolates_iso_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // n=200000 nodes, a sparse path over the first half: `isolates` tests every
++        // node's neighbour count, allocating a Vec<&str> per node in the baseline just
++        // to check is_empty(). The isolate output is a fraction, so the alloc drop
++        // dominates.
++        let n = 200000usize;
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..(n / 2).saturating_sub(1) {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
++        }
++
++        // Byte-exact parity: no-alloc isolates == String baseline.
++        assert_eq!(
++            super::isolates(&g),
++            super::isolates_orig_string(&g),
++            "no-alloc isolates must equal the String baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::isolates(&g));
++                } else {
++                    black_box(super::isolates_orig_string(&g));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "ISO_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("ISO_AB n={n} rounds={rounds} (>1 = no-alloc faster)");
++        report("NOALLOC_vs_string", &paired(true, false));
++        report("NULL_noalloc_vs_noalloc", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

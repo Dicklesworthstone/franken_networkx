@@ -1,0 +1,28 @@
+         4200269 function calls in 2.683 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.000    0.000    2.683    0.089 bench_add_edges_fastpath.py:83(<lambda>)
+       30    0.010    0.000    2.683    0.089 bench_add_edges_fastpath.py:62(build_raw_int)
+       30    0.361    0.012    2.624    0.087 __init__.py:2316(add_edges_from)
+       30    2.032    0.068    2.032    0.068 {function Graph.add_edges_from at 0x7c284b16d440}
+  1800063    0.095    0.000    0.095    0.000 {built-in method builtins.isinstance}
+  1200000    0.071    0.000    0.071    0.000 {built-in method builtins.hash}
+  1200000    0.065    0.000    0.065    0.000 {built-in method builtins.len}
+       30    0.049    0.002    0.049    0.002 bench_add_edges_fastpath.py:25(raw_int_edges)
+       30    0.000    0.000    0.000    0.000 __init__.py:2741(__init__)
+        1    0.000    0.000    0.000    0.000 __init__.py:2129(getLogger)
+        1    0.000    0.000    0.000    0.000 __init__.py:1362(getLogger)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:1765(isEnabledFor)
+        1    0.000    0.000    0.000    0.000 __init__.py:1478(__init__)
+        1    0.000    0.000    0.000    0.000 __init__.py:1410(_fixupParents)
+        4    0.000    0.000    0.000    0.000 __init__.py:1751(getEffectiveLevel)
+        1    0.000    0.000    0.000    0.000 __init__.py:820(__init__)
+        5    0.000    0.000    0.000    0.000 {method '__exit__' of '_thread.RLock' objects}
+        4    0.000    0.000    0.000    0.000 __init__.py:1354(disable)
+        1    0.000    0.000    0.000    0.000 __init__.py:205(_checkLevel)
+        1    0.000    0.000    0.000    0.000 {method 'rfind' of 'str' objects}
+
+

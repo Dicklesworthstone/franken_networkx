@@ -1,0 +1,2 @@
+# native DiGraph disjoint_union (br-r37-c1-djudir, cc)
+0.79x -> 3.28-3.32x (~4x self-speedup). PyDiGraph::_native_disjoint_union mirrors PyGraph's but directed (successors walk, no symmetric dedup, directional edge mirrors). Relabels both parts to fresh int ranges -> source row-display discarded, NO gating needed. Byte-exact: 6 checks (node+edge+graph attrs, str-keyed source, self-loops, isolated, empty; succ AND pred). 1284 union/operator tests + full suite zero new failures.

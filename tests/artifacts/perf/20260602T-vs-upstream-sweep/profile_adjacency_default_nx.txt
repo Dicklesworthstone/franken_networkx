@@ -1,0 +1,41 @@
+         486433 function calls (479592 primitive calls) in 0.324 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1225 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       29    0.000    0.000    0.452    0.016 __init__.py:1(<module>)
+        3    0.000    0.000    0.325    0.108 bench_vs_upstream.py:73(_call_case)
+        3    0.000    0.000    0.324    0.108 <class 'networkx.utils.decorators.argmap'> compilation 29:1(argmap_adjacency_matrix_26)
+      6/3    0.000    0.000    0.324    0.108 backends.py:554(_call_if_any_backends_installed)
+      6/3    0.002    0.000    0.324    0.108 backends.py:1484(_call_with_backend)
+        3    0.000    0.000    0.324    0.108 graphmatrix.py:108(adjacency_matrix)
+        3    0.000    0.000    0.324    0.108 <class 'networkx.utils.decorators.argmap'> compilation 33:1(argmap_to_scipy_sparse_array_30)
+        3    0.039    0.013    0.321    0.107 convert_matrix.py:489(to_scipy_sparse_array)
+      2/1    0.000    0.000    0.221    0.221 decorators.py:783(func)
+    175/2    0.001    0.000    0.176    0.088 <frozen importlib._bootstrap>:1349(_find_and_load)
+    171/2    0.001    0.000    0.176    0.088 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    167/2    0.000    0.000    0.176    0.088 <frozen importlib._bootstrap>:911(_load_unlocked)
+    149/2    0.000    0.000    0.176    0.088 <frozen importlib._bootstrap_external>:1020(exec_module)
+    408/4    0.000    0.000    0.175    0.044 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    155/4    0.001    0.000    0.175    0.044 {built-in method builtins.exec}
+      2/1    0.000    0.000    0.165    0.165 __init__.py:129(__getattr__)
+      5/1    0.000    0.000    0.165    0.165 __init__.py:71(import_module)
+      5/1    0.000    0.000    0.165    0.165 <frozen importlib._bootstrap>:1375(_gcd_import)
+        2    0.000    0.000    0.153    0.076 _base.py:1(<module>)
+        1    0.000    0.000    0.152    0.152 _sputils.py:1(<module>)
+        1    0.000    0.000    0.151    0.151 _util.py:1(<module>)
+        1    0.000    0.000    0.150    0.150 _array_api.py:1(<module>)
+    59/23    0.000    0.000    0.147    0.006 {built-in method builtins.__import__}
+    96/20    0.000    0.000    0.145    0.007 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.127    0.042 _internal.py:56(clone_module)
+2272/1720    0.001    0.000    0.127    0.000 {built-in method builtins.hasattr}
+       11    0.000    0.000    0.126    0.011 __init__.py:704(__getattr__)
+        1    0.000    0.000    0.092    0.092 f2py2e.py:1(<module>)
+      223    0.001    0.000    0.085    0.000 __init__.py:330(_compile)
+       75    0.000    0.000    0.084    0.001 __init__.py:287(compile)
+        1    0.000    0.000    0.084    0.084 capi_maps.py:1(<module>)
+       80    0.000    0.000    0.083    0.001 _compiler.py:743(compile)
+        1    0.000    0.000    0.080    0.080 crackfortran.py:1(<module>)
+    95955    0.020    0.000    0.076    0.000 convert_matrix.py:685(<genexpr>)
+       80    0.000    0.000    0.060    0.001 _parser.py:970(parse)

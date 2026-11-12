@@ -1,0 +1,14 @@
+  [2m2026-07-13T01:21:18.033813Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib -- descendants ancestors --include-ignored --nocapture[0m
+test tests::descendants_leaf ... ok
+test tests::descendants_at_distance_test ... ok
+test tests::descendants_at_distance_zero ... ok
+test tests::descendants_test ... ok
+test tests::descendants_at_distance_directed_matches_networkx_golden_layers ... ok
+test tests::ancestors_matches_networkx_branching_golden_sets ... ok
+test tests::ancestors_root ... ok
+test tests::ancestors_test ... ok
+DESCIDX_AB descendants 3000-node fwd-deg50 rounds=61 (>1 = index faster)
+DESCIDX_AB INDEX_vs_string: median=2.8024x win_rate=61/61 p5_p95=[2.4039,3.2080]
+DESCIDX_AB NULL_index_vs_index: median=0.9735x win_rate=21/61 p5_p95=[0.8751,1.1328]
+test tests::descendants_idx_ab ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1030 filtered out; finished in 0.71s

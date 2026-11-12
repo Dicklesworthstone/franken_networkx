@@ -1,0 +1,42 @@
+         17671 function calls in 0.005 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.005    0.005 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-duplication-divergence-native-boldfalcon/duplication_divergence_harness.py:75(<lambda>)
+        1    0.000    0.000    0.005    0.005 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:45149(duplication_divergence_graph)
+        1    0.002    0.002    0.005    0.005 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:45176(_duplication_divergence_graph_impl)
+     1176    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:345(choice)
+     1176    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+     4990    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+     4239    0.000    0.000    0.000    0.000 {method 'random' of '_random.Random' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2780(add_edges_from)
+        1    0.000    0.000    0.000    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2486(add_nodes_from)
+        1    0.000    0.000    0.000    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+     2352    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+     1721    0.000    0.000    0.000    0.000 {method 'getrandbits' of '_random.Random' objects}
+     1176    0.000    0.000    0.000    0.000 {method 'bit_length' of 'int' objects}
+      798    0.000    0.000    0.000    0.000 {method 'extend' of 'list' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47430(_checked_create_using)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:25385(_generator_random_state)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:5926(predicate)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47317(_empty_graph_from_create_using)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+        1    0.000    0.000    0.000    0.000 {function Random.seed at 0x7bbeff4c8220}
+        4    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47437(<genexpr>)
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:3436(__init__)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7bbefd4a4d60}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:25389(_NumpyRandIntAdapter)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47521(_classic_default_graph_type)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:23606(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7bbefd4a4e00}
+
+

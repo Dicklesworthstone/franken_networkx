@@ -1,0 +1,4 @@
+  [2m2026-07-11T04:36:58.924099Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib group_closeness -- --include-ignored --nocapture[0m
+test tests::test_group_closeness_centrality_hub ... ok
+test tests::group_closeness_gcmark_ab ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 941 filtered out; finished in 0.36s

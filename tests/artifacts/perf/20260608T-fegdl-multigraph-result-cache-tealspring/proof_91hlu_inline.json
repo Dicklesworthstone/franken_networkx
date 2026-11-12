@@ -1,0 +1,83 @@
+{
+  "cases": [
+    {
+      "alias_delta": -12000,
+      "directed": false,
+      "fnx": {
+        "alias_pairs": 0,
+        "cell_count": 12000,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 18000,
+        "elapsed": 0.006619308027438819,
+        "live_mutations": 36000,
+        "module": "fnx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 1200,
+        "sha256": "2226941d4717019a8b2986fc2327ebe946c2aa3848a13ed23721e1d39595dca4"
+      },
+      "matches_nx_sha": true,
+      "nx": {
+        "alias_pairs": 12000,
+        "cell_count": 12000,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 18000,
+        "elapsed": 0.00020287500228732824,
+        "live_mutations": 36000,
+        "module": "nx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 1200,
+        "sha256": "2226941d4717019a8b2986fc2327ebe946c2aa3848a13ed23721e1d39595dca4"
+      }
+    },
+    {
+      "alias_delta": 0,
+      "directed": true,
+      "fnx": {
+        "alias_pairs": 0,
+        "cell_count": 6000,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18000,
+        "elapsed": 0.0028372930828481913,
+        "live_mutations": 18000,
+        "module": "fnx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 1200,
+        "sha256": "3c849b07c63bdf2e53089b36387a9e7ad0171c40923e66bbf6547d89fae2fc2f"
+      },
+      "matches_nx_sha": true,
+      "nx": {
+        "alias_pairs": 0,
+        "cell_count": 6000,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18000,
+        "elapsed": 0.00025434198323637247,
+        "live_mutations": 18000,
+        "module": "nx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 1,
+        "row_count": 1200,
+        "sha256": "3c849b07c63bdf2e53089b36387a9e7ad0171c40923e66bbf6547d89fae2fc2f"
+      }
+    }
+  ],
+  "floating_point": "N/A: integer attrs are serialized only",
+  "ordering_preserved": "default to_dict_of_dicts row, neighbor, key, and attr insertion order encoded in SHA payload",
+  "rng": "N/A: deterministic arithmetic graph fixture",
+  "sha256": "214aadc851bc5cf978fc4143911b1056ac868e8507b1502da1cbf998e45c03dc",
+  "tie_breaking": "N/A: deterministic conversion, no algorithmic tie-break path"
+}

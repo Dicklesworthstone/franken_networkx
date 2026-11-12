@@ -1,0 +1,7 @@
+  [2m2026-06-05T01:04:18.772846Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 1 --runs 5 --export-json /data/projects/franken_networkx/tests/artifacts/perf/20260605T-powerlaw-cluster-int-adj-n5c3e/baseline_hyperfine_n5c3e.json 'env PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260605T-powerlaw-cluster-int-adj-n5c3e/powerlaw_cluster_bench_n5c3e.py --n 1200 --m 4 --p 0.65 --loops 3 --profile-loops 1'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260605T-powerlaw-cluster-int-adj-n5c3e/powerlaw_cluster_bench_n5c3e.py --n 1200 --m 4 --p 0.65 --loops 3 --profile-loops 1
+  Time (mean ± σ):      4.159 s ±  0.091 s    [User: 8.136 s, System: 0.118 s]
+  Range (min … max):    4.059 s …  4.287 s    5 runs
+ 

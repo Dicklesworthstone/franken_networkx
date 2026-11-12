@@ -1,0 +1,34 @@
+         3256724 function calls (3256719 primitive calls) in 1.474 seconds
+
+   Ordered by: cumulative time
+   List reduced from 108 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.472    0.016    1.474    0.049 /data/projects/franken_networkx/tests/artifacts/perf/20260608T-fnx-to-nx-align-rows-tealspring/fnx_to_nx_align_rows_harness.py:17(_old_fnx_to_nx)
+       30    0.301    0.010    0.438    0.015 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+       30    0.062    0.002    0.283    0.009 /data/projects/franken_networkx/tests/artifacts/perf/20260608T-fnx-to-nx-align-rows-tealspring/fnx_to_nx_align_rows_harness.py:81(_align_rows)
+       30    0.169    0.006    0.169    0.006 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+    21000    0.008    0.000    0.108    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1118(__iter__)
+    21000    0.027    0.000    0.101    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32271(_cached_adj_row_key_iter)
+   746882    0.093    0.000    0.093    0.000 {method 'update' of 'dict' objects}
+    21000    0.013    0.000    0.049    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32186(_has_networkx_private_storage)
+       30    0.023    0.001    0.046    0.002 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+   457684    0.039    0.000    0.039    0.000 {method 'get' of 'dict' objects}
+    21001    0.019    0.000    0.037    0.000 {built-in method builtins.any}
+    21000    0.024    0.000    0.037    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1187(__getitem__)
+    84180    0.021    0.000    0.037    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32178(_private_override)
+    21000    0.008    0.000    0.032    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1115(__len__)
+   352442    0.031    0.000    0.031    0.000 {method 'add' of 'set' objects}
+   352451    0.028    0.000    0.028    0.000 {method 'append' of 'list' objects}
+   415470    0.024    0.000    0.024    0.000 {built-in method builtins.len}
+    21000    0.005    0.000    0.021    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1112(_atlas)
+   278550    0.018    0.000    0.018    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260608T-fnx-to-nx-align-rows-tealspring/fnx_to_nx_align_rows_harness.py:85(<genexpr>)
+    42000    0.008    0.000    0.018    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1169(_atlas)
+    21030    0.006    0.000    0.017    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260608T-fnx-to-nx-align-rows-tealspring/fnx_to_nx_align_rows_harness.py:29(<genexpr>)
+    21000    0.008    0.000    0.017    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1198(<lambda>)
+    21000    0.014    0.000    0.014    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+    21000    0.010    0.000    0.011    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5015(__getitem__)
+    42000    0.010    0.000    0.010    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1321(<lambda>)
+
+
+

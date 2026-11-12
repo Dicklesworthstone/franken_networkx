@@ -1,0 +1,36 @@
+  [2m2026-06-05T06:42:37.137055Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260605T-to-dict-of-dicts-byu7d/bench.py --module fnx --mode generated --nodes 2000 --prob 0.002 --repeats 200 --profile[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+         397079 function calls (390440 primitive calls) in 0.651 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1818 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       45    0.004    0.000    1.637    0.036 __init__.py:1(<module>)
+        1    0.057    0.057    0.651    0.651 bench.py:80(run_once)
+        1    0.000    0.000    0.471    0.471 bench.py:25(_module)
+    491/1    0.002    0.000    0.470    0.470 <frozen importlib._bootstrap>:1349(_find_and_load)
+    471/1    0.002    0.000    0.470    0.470 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    464/1    0.027    0.000    0.470    0.470 <frozen importlib._bootstrap>:911(_load_unlocked)
+    446/1    0.001    0.000    0.469    0.469 <frozen importlib._bootstrap_external>:1020(exec_module)
+   1030/2    0.001    0.000    0.460    0.230 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    453/1    0.003    0.000    0.460    0.460 {built-in method builtins.exec}
+   444/29    0.000    0.000    0.388    0.013 {built-in method builtins.__import__}
+   532/58    0.001    0.000    0.387    0.007 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        2    0.000    0.000    0.209    0.105 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.208    0.104 layout.py:1(<module>)
+      6/4    0.000    0.000    0.197    0.049 <frozen importlib._bootstrap_external>:1326(exec_module)
+      6/4    0.017    0.003    0.197    0.049 {built-in method _imp.exec_dynamic}
+        1    0.000    0.000    0.131    0.131 __config__.py:1(<module>)
+      446    0.003    0.000    0.078    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.059    0.059 multiarray.py:1(<module>)
+      200    0.003    0.000    0.055    0.000 __init__.py:41761(to_dict_of_dicts)
+        1    0.000    0.000    0.055    0.055 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.055    0.055 _index_tricks_impl.py:1(<module>)
+      200    0.052    0.000    0.052    0.000 {built-in method franken_networkx._fnx.to_dict_of_dicts_undirected}
+        1    0.000    0.000    0.051    0.051 defmatrix.py:1(<module>)
+        1    0.000    0.000    0.050    0.050 _linalg.py:1(<module>)
+        1    0.001    0.001    0.050    0.050 __init__.py:44640(_bulk_add_backend_dispatch_kwargs)
+
+

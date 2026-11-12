@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/tmp/fnx_current_source_overlay_20260613T2230Z python3 tests/artifacts/perf/20260613T-current-routing-boldfalcon/shortest_path_wrapper.py bench --impl fnx --loops 50000 --repeats 1",
+      "mean": 1.1157476338999999,
+      "stddev": 0.0432541329986182,
+      "median": 1.124055979,
+      "user": 5.39770084,
+      "system": 0.06620718,
+      "min": 1.0560032145,
+      "max": 1.1663864325,
+      "times": [
+        1.1262900825,
+        1.1663619035,
+        1.1309502404999998,
+        1.1663864325,
+        1.0636409505,
+        1.0560032145,
+        1.1218218755,
+        1.1649470005,
+        1.0891517505,
+        1.0719228884999998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

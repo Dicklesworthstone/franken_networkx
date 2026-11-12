@@ -1,0 +1,31 @@
+         788957 function calls in 0.336 seconds
+
+   Ordered by: cumulative time
+   List reduced from 71 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.336    0.336 dijkstra_family_pass.py:272(repeated)
+       15    0.000    0.000    0.335    0.022 dijkstra_family_pass.py:178(<lambda>)
+       15    0.000    0.000    0.335    0.022 __init__.py:52975(wrapper)
+       15    0.000    0.000    0.335    0.022 __init__.py:28976(dijkstra_predecessor_and_distance)
+       15    0.003    0.000    0.335    0.022 __init__.py:7341(_call_networkx_for_parity)
+       15    0.009    0.001    0.251    0.017 __init__.py:6747(_networkx_graph_for_parity)
+       15    0.076    0.005    0.242    0.016 backend.py:606(_fnx_to_nx)
+       15    0.062    0.004    0.084    0.006 graph.py:986(add_edges_from)
+       30    0.000    0.000    0.082    0.003 backends.py:554(_call_if_any_backends_installed)
+       15    0.000    0.000    0.081    0.005 <class 'networkx.utils.decorators.argmap'> compilation 8:1(argmap_dijkstra_predecessor_and_distance_5)
+       30    0.000    0.000    0.081    0.003 backends.py:1484(_call_with_backend)
+       15    0.000    0.000    0.081    0.005 weighted.py:910(dijkstra_predecessor_and_distance)
+       15    0.000    0.000    0.081    0.005 weighted.py:770(_dijkstra)
+       15    0.044    0.003    0.081    0.005 weighted.py:784(_dijkstra_multisource)
+       15    0.029    0.002    0.029    0.002 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+   116970    0.015    0.000    0.026    0.000 weighted.py:78(<lambda>)
+       15    0.011    0.001    0.022    0.001 graph.py:584(add_nodes_from)
+       15    0.015    0.001    0.021    0.001 backend.py:776(_align_rows)
+   186090    0.018    0.000    0.018    0.000 {method 'get' of 'dict' objects}
+   138000    0.016    0.000    0.016    0.000 {method 'update' of 'dict' objects}
+    10515    0.003    0.000    0.009    0.000 backend.py:635(<genexpr>)
+    10500    0.005    0.000    0.006    0.000 __init__.py:5472(__getitem__)
+    20940    0.006    0.000    0.006    0.000 {built-in method _heapq.heappop}
+    58500    0.005    0.000    0.005    0.000 {method 'add' of 'set' objects}
+    59670    0.004    0.000    0.004    0.000 {method 'append' of 'list' objects}

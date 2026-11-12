@@ -1,0 +1,33 @@
+{
+  "all_public_match": true,
+  "all_raw_match": true,
+  "hyperfine": {
+    "after_mean_s": 0.3165919401,
+    "after_stddev_s": 0.03293537858747649,
+    "baseline_mean_s": 0.6763774987800002,
+    "baseline_stddev_s": 0.026549452809214363,
+    "runs": 10,
+    "speedup": 2.1364330960742617
+  },
+  "loop_speedups_mean": {
+    "ws150": 26.120920840574698,
+    "ws300": 27.151366028393294
+  },
+  "loop_speedups_median": {
+    "ws150": 25.186143945643348,
+    "ws300": 27.260511341900667
+  },
+  "proof_sha256": "5245eeaa4f13da247e9bc14fef3e89ff15d6f281f3edb3e1cecc67e5e2d1d692",
+  "raw_to_public_overhead_median_s": {
+    "ws150": 5.304998921928927e-06,
+    "ws300": -6.35250034974888e-05
+  },
+  "score": {
+    "confidence": 5.0,
+    "effort": 3.0,
+    "impact": 5.0,
+    "impact_x_confidence_over_effort": 8.333333333333334
+  },
+  "summary_sha256": "650d69ae188b1b2ef2d4df950749255ea4986a1da7322054b3c938bbd0d947bb",
+  "target": "br-r37-c1-wxy3x greedy_modularity_communities native CNM route"
+}

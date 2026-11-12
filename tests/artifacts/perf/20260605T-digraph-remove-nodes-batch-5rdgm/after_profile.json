@@ -1,0 +1,1 @@
+{"digest": "73bfa8d675918eb5879f5038a1b5d2ba3d33a6366c1b83b295c6952feee5bce2", "edges": 16000, "impl": "fnx", "nodes": 2000, "profile": "tests/artifacts/perf/20260605T-digraph-remove-nodes-batch-5rdgm/after_cprofile.txt", "style": "range"}

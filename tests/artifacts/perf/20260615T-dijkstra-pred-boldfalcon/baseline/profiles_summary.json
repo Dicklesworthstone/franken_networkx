@@ -1,0 +1,1850 @@
+{
+  "graph": {
+    "edges": 3899,
+    "kind": "simple_undirected_weighted_graph",
+    "nodes": 700,
+    "seed": 20260614
+  },
+  "profile_repeats": 15,
+  "profiles": {
+    "fnx_dijkstra_path_length": {
+      "label": "fnx_dijkstra_path_length",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.039758473,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 6.0500000000000005e-06
+        },
+        {
+          "cumulative_time_s": 0.039752423,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 169,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.2743000000000001e-05
+        },
+        {
+          "cumulative_time_s": 0.03973968,
+          "file": "__init__.py",
+          "function": "wrapper",
+          "line": 52975,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.1959e-05
+        },
+        {
+          "cumulative_time_s": 0.039714979000000004,
+          "file": "__init__.py",
+          "function": "dijkstra_path_length",
+          "line": 17997,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 4.6566e-05
+        },
+        {
+          "cumulative_time_s": 0.035959025000000006,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.dijkstra_path>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.035959025000000006
+        },
+        {
+          "cumulative_time_s": 0.003488648,
+          "file": "__init__.py",
+          "function": "_should_delegate_dijkstra_to_networkx",
+          "line": 7012,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.4460000000000003e-05
+        },
+        {
+          "cumulative_time_s": 0.0034402850000000004,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.0034402850000000004
+        },
+        {
+          "cumulative_time_s": 0.0001577,
+          "file": "__init__.py",
+          "function": "_path_length_preserving_weight_type",
+          "line": 7531,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.1934e-05
+        },
+        {
+          "cumulative_time_s": 4.3453000000000006e-05,
+          "file": "__init__.py",
+          "function": "__contains__",
+          "line": 37013,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 2.1293e-05
+        },
+        {
+          "cumulative_time_s": 4.3202000000000004e-05,
+          "file": "__init__.py",
+          "function": "_graph_getitem_from_adj",
+          "line": 1595,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 2.8839000000000003e-05
+        },
+        {
+          "cumulative_time_s": 3.6790000000000005e-05,
+          "file": "__init__.py",
+          "function": "__getitem__",
+          "line": 1252,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 1.9709e-05
+        },
+        {
+          "cumulative_time_s": 3.3822e-05,
+          "file": "__init__.py",
+          "function": "predicate",
+          "line": 6169,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 2.4166000000000002e-05
+        },
+        {
+          "cumulative_time_s": 2.5199e-05,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 210,
+          "total_calls": 210,
+          "total_time_s": 2.5199e-05
+        },
+        {
+          "cumulative_time_s": 2.216e-05,
+          "file": "__init__.py",
+          "function": "_private_override",
+          "line": 36440,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 1.3537000000000001e-05
+        },
+        {
+          "cumulative_time_s": 1.7504e-05,
+          "file": "__init__.py",
+          "function": "_coerce_arg_to_fnx_graph",
+          "line": 13126,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.2266e-05
+        },
+        {
+          "cumulative_time_s": 1.7081e-05,
+          "file": "__init__.py",
+          "function": "_keydict",
+          "line": 1210,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 1.7081e-05
+        },
+        {
+          "cumulative_time_s": 1.5700000000000002e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 1.5700000000000002e-05
+        },
+        {
+          "cumulative_time_s": 1.0459000000000001e-05,
+          "file": "~",
+          "function": "<built-in method builtins.isinstance>",
+          "line": 0,
+          "primitive_calls": 105,
+          "total_calls": 105,
+          "total_time_s": 1.0459000000000001e-05
+        },
+        {
+          "cumulative_time_s": 5.629000000000001e-06,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.dijkstra_weight_cache_token>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.629000000000001e-06
+        },
+        {
+          "cumulative_time_s": 5.529000000000001e-06,
+          "file": "~",
+          "function": "<function _make_class_safe_predicate.<locals>.predicate at 0x7ffabe474ea0>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.529000000000001e-06
+        },
+        {
+          "cumulative_time_s": 5.448e-06,
+          "file": "~",
+          "function": "<built-in method builtins.vars>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.448e-06
+        },
+        {
+          "cumulative_time_s": 2.742e-06,
+          "file": "__init__.py",
+          "function": "_validate_backend_dispatch_keywords",
+          "line": 24179,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.742e-06
+        },
+        {
+          "cumulative_time_s": 2.0830000000000002e-06,
+          "file": "~",
+          "function": "<built-in method builtins.hash>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.0830000000000002e-06
+        },
+        {
+          "cumulative_time_s": 1.4710000000000002e-06,
+          "file": "~",
+          "function": "<built-in method builtins.callable>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.4710000000000002e-06
+        }
+      ]
+    },
+    "fnx_dijkstra_predecessor_and_distance": {
+      "label": "fnx_dijkstra_predecessor_and_distance",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.33565886100000003,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 0.00029760400000000003
+        },
+        {
+          "cumulative_time_s": 0.335361257,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 178,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.6716000000000004e-05
+        },
+        {
+          "cumulative_time_s": 0.335304541,
+          "file": "__init__.py",
+          "function": "wrapper",
+          "line": 52975,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 6.3441e-05
+        },
+        {
+          "cumulative_time_s": 0.335235728,
+          "file": "__init__.py",
+          "function": "dijkstra_predecessor_and_distance",
+          "line": 28976,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.5727000000000003e-05
+        },
+        {
+          "cumulative_time_s": 0.33521000100000004,
+          "file": "__init__.py",
+          "function": "_call_networkx_for_parity",
+          "line": 7341,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.0025234510000000003
+        },
+        {
+          "cumulative_time_s": 0.251095265,
+          "file": "__init__.py",
+          "function": "_networkx_graph_for_parity",
+          "line": 6747,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.008900355
+        },
+        {
+          "cumulative_time_s": 0.24219272800000002,
+          "file": "backend.py",
+          "function": "_fnx_to_nx",
+          "line": 606,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.075823601
+        },
+        {
+          "cumulative_time_s": 0.08407816,
+          "file": "graph.py",
+          "function": "add_edges_from",
+          "line": 986,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.06175876600000001
+        },
+        {
+          "cumulative_time_s": 0.08172591200000001,
+          "file": "backends.py",
+          "function": "_call_if_any_backends_installed",
+          "line": 554,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 0.000362399
+        },
+        {
+          "cumulative_time_s": 0.08149901300000001,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 8",
+          "function": "argmap_dijkstra_predecessor_and_distance_5",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 4.635e-05
+        },
+        {
+          "cumulative_time_s": 0.081270534,
+          "file": "backends.py",
+          "function": "_call_with_backend",
+          "line": 1484,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 3.3843e-05
+        },
+        {
+          "cumulative_time_s": 0.08121753500000001,
+          "file": "weighted.py",
+          "function": "dijkstra_predecessor_and_distance",
+          "line": 910,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.013e-05
+        },
+        {
+          "cumulative_time_s": 0.08113162700000001,
+          "file": "weighted.py",
+          "function": "_dijkstra",
+          "line": 770,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 7.019800000000001e-05
+        },
+        {
+          "cumulative_time_s": 0.081061429,
+          "file": "weighted.py",
+          "function": "_dijkstra_multisource",
+          "line": 784,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.044135475
+        },
+        {
+          "cumulative_time_s": 0.02876586,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.fnx_to_nx_adjacency>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.02876586
+        },
+        {
+          "cumulative_time_s": 0.025612023,
+          "file": "weighted.py",
+          "function": "<lambda>",
+          "line": 78,
+          "primitive_calls": 116970,
+          "total_calls": 116970,
+          "total_time_s": 0.014542119000000001
+        },
+        {
+          "cumulative_time_s": 0.022438565,
+          "file": "graph.py",
+          "function": "add_nodes_from",
+          "line": 584,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.010769839000000002
+        },
+        {
+          "cumulative_time_s": 0.020975437000000003,
+          "file": "backend.py",
+          "function": "_align_rows",
+          "line": 776,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.014596337000000001
+        },
+        {
+          "cumulative_time_s": 0.017689913,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 186090,
+          "total_calls": 186090,
+          "total_time_s": 0.017689913
+        },
+        {
+          "cumulative_time_s": 0.015650763,
+          "file": "~",
+          "function": "<method 'update' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 138000,
+          "total_calls": 138000,
+          "total_time_s": 0.015650763
+        },
+        {
+          "cumulative_time_s": 0.00856792,
+          "file": "backend.py",
+          "function": "<genexpr>",
+          "line": 635,
+          "primitive_calls": 10515,
+          "total_calls": 10515,
+          "total_time_s": 0.002623757
+        },
+        {
+          "cumulative_time_s": 0.005944163000000001,
+          "file": "__init__.py",
+          "function": "__getitem__",
+          "line": 5472,
+          "primitive_calls": 10500,
+          "total_calls": 10500,
+          "total_time_s": 0.005308844
+        },
+        {
+          "cumulative_time_s": 0.00577741,
+          "file": "~",
+          "function": "<built-in method _heapq.heappop>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.00577741
+        },
+        {
+          "cumulative_time_s": 0.004982753,
+          "file": "~",
+          "function": "<method 'add' of 'set' objects>",
+          "line": 0,
+          "primitive_calls": 58500,
+          "total_calls": 58500,
+          "total_time_s": 0.004982753
+        },
+        {
+          "cumulative_time_s": 0.004433084,
+          "file": "~",
+          "function": "<method 'append' of 'list' objects>",
+          "line": 0,
+          "primitive_calls": 59670,
+          "total_calls": 59670,
+          "total_time_s": 0.004433084
+        }
+      ]
+    },
+    "fnx_shortest_path_length_weight": {
+      "label": "fnx_shortest_path_length_weight",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.045709096000000005,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 7.374e-06
+        },
+        {
+          "cumulative_time_s": 0.045701722,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 172,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.5149e-05
+        },
+        {
+          "cumulative_time_s": 0.045686573,
+          "file": "__init__.py",
+          "function": "wrapper",
+          "line": 52975,
+          "primitive_calls": 15,
+          "total_calls": 30,
+          "total_time_s": 4.9299000000000004e-05
+        },
+        {
+          "cumulative_time_s": 0.045656726,
+          "file": "__init__.py",
+          "function": "shortest_path_length",
+          "line": 7687,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.5226000000000005e-05
+        },
+        {
+          "cumulative_time_s": 0.041264494000000006,
+          "file": "__init__.py",
+          "function": "dijkstra_path_length",
+          "line": 17997,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.6947000000000004e-05
+        },
+        {
+          "cumulative_time_s": 0.03771361,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.dijkstra_path>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.03771361
+        },
+        {
+          "cumulative_time_s": 0.007543731000000001,
+          "file": "__init__.py",
+          "function": "_should_delegate_dijkstra_to_networkx",
+          "line": 7012,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 4.6157000000000005e-05
+        },
+        {
+          "cumulative_time_s": 0.007452508,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 0.007452508
+        },
+        {
+          "cumulative_time_s": 0.000175694,
+          "file": "__init__.py",
+          "function": "_path_length_preserving_weight_type",
+          "line": 7531,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.7761000000000005e-05
+        },
+        {
+          "cumulative_time_s": 8.2345e-05,
+          "file": "__init__.py",
+          "function": "__contains__",
+          "line": 37013,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 4.4163000000000004e-05
+        },
+        {
+          "cumulative_time_s": 5.7457e-05,
+          "file": "__init__.py",
+          "function": "_path_query_has_missing_nodes",
+          "line": 6795,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.096e-05
+        },
+        {
+          "cumulative_time_s": 4.8746000000000004e-05,
+          "file": "__init__.py",
+          "function": "predicate",
+          "line": 6169,
+          "primitive_calls": 45,
+          "total_calls": 45,
+          "total_time_s": 3.3885000000000005e-05
+        },
+        {
+          "cumulative_time_s": 4.6306e-05,
+          "file": "__init__.py",
+          "function": "_graph_getitem_from_adj",
+          "line": 1595,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 3.0609000000000005e-05
+        },
+        {
+          "cumulative_time_s": 4.3213e-05,
+          "file": "__init__.py",
+          "function": "__getitem__",
+          "line": 1252,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 2.2021e-05
+        },
+        {
+          "cumulative_time_s": 3.8182e-05,
+          "file": "__init__.py",
+          "function": "_private_override",
+          "line": 36440,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 2.1879000000000002e-05
+        },
+        {
+          "cumulative_time_s": 3.1919000000000004e-05,
+          "file": "__init__.py",
+          "function": "_coerce_arg_to_fnx_graph",
+          "line": 13126,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 2.1327e-05
+        },
+        {
+          "cumulative_time_s": 2.9843000000000002e-05,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 240,
+          "total_calls": 240,
+          "total_time_s": 2.9843000000000002e-05
+        },
+        {
+          "cumulative_time_s": 2.1621000000000002e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 2.1621000000000002e-05
+        },
+        {
+          "cumulative_time_s": 2.1192e-05,
+          "file": "__init__.py",
+          "function": "_keydict",
+          "line": 1210,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 2.1192e-05
+        },
+        {
+          "cumulative_time_s": 1.8354e-05,
+          "file": "~",
+          "function": "<built-in method builtins.isinstance>",
+          "line": 0,
+          "primitive_calls": 195,
+          "total_calls": 195,
+          "total_time_s": 1.8354e-05
+        },
+        {
+          "cumulative_time_s": 1.1779e-05,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.dijkstra_weight_cache_token>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 1.1779e-05
+        },
+        {
+          "cumulative_time_s": 9.771e-06,
+          "file": "~",
+          "function": "<built-in method builtins.vars>",
+          "line": 0,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 9.771e-06
+        },
+        {
+          "cumulative_time_s": 9.182000000000001e-06,
+          "file": "~",
+          "function": "<function _make_class_safe_predicate.<locals>.predicate at 0x7ffabe474ea0>",
+          "line": 0,
+          "primitive_calls": 45,
+          "total_calls": 45,
+          "total_time_s": 9.182000000000001e-06
+        },
+        {
+          "cumulative_time_s": 4.758e-06,
+          "file": "__init__.py",
+          "function": "_validate_backend_dispatch_keywords",
+          "line": 24179,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 4.758e-06
+        },
+        {
+          "cumulative_time_s": 3.2580000000000004e-06,
+          "file": "~",
+          "function": "<built-in method builtins.callable>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 3.2580000000000004e-06
+        }
+      ]
+    },
+    "fnx_single_source_dijkstra": {
+      "label": "fnx_single_source_dijkstra",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.059046189000000006,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 0.00044790000000000005
+        },
+        {
+          "cumulative_time_s": 0.058598289000000005,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 175,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.0124000000000002e-05
+        },
+        {
+          "cumulative_time_s": 0.058578165,
+          "file": "__init__.py",
+          "function": "wrapper",
+          "line": 52975,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 7.1025e-05
+        },
+        {
+          "cumulative_time_s": 0.058503773,
+          "file": "__init__.py",
+          "function": "single_source_dijkstra",
+          "line": 18344,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.0013419390000000001
+        },
+        {
+          "cumulative_time_s": 0.046963331000000004,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.single_source_dijkstra>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.046963331000000004
+        },
+        {
+          "cumulative_time_s": 0.004480943,
+          "file": "__init__.py",
+          "function": "_should_delegate_dijkstra_to_networkx",
+          "line": 7012,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.9635000000000003e-05
+        },
+        {
+          "cumulative_time_s": 0.0044167170000000006,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.0044167170000000006
+        },
+        {
+          "cumulative_time_s": 0.004090169,
+          "file": "__init__.py",
+          "function": "_sp_coerce_dist_to_int",
+          "line": 18246,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.002783578
+        },
+        {
+          "cumulative_time_s": 0.001488429,
+          "file": "__init__.py",
+          "function": "_reorder_by_distance",
+          "line": 18252,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.6484e-05
+        },
+        {
+          "cumulative_time_s": 0.0014694530000000001,
+          "file": "~",
+          "function": "<built-in method builtins.sorted>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.0009013550000000001
+        },
+        {
+          "cumulative_time_s": 0.000758427,
+          "file": "~",
+          "function": "<method 'is_integer' of 'float' objects>",
+          "line": 0,
+          "primitive_calls": 10500,
+          "total_calls": 10500,
+          "total_time_s": 0.000758427
+        },
+        {
+          "cumulative_time_s": 0.0005680980000000001,
+          "file": "__init__.py",
+          "function": "<lambda>",
+          "line": 18267,
+          "primitive_calls": 10500,
+          "total_calls": 10500,
+          "total_time_s": 0.0005680980000000001
+        },
+        {
+          "cumulative_time_s": 0.00055993,
+          "file": "~",
+          "function": "<built-in method builtins.isinstance>",
+          "line": 0,
+          "primitive_calls": 10620,
+          "total_calls": 10620,
+          "total_time_s": 0.00055993
+        },
+        {
+          "cumulative_time_s": 6.8096e-05,
+          "file": "__init__.py",
+          "function": "_sp_edge_weights_all_int",
+          "line": 18178,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.8321000000000002e-05
+        },
+        {
+          "cumulative_time_s": 4.5092e-05,
+          "file": "__init__.py",
+          "function": "predicate",
+          "line": 6169,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 2.8836000000000003e-05
+        },
+        {
+          "cumulative_time_s": 4.4855e-05,
+          "file": "__init__.py",
+          "function": "__contains__",
+          "line": 37013,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.4967e-05
+        },
+        {
+          "cumulative_time_s": 2.0499e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 2.0499e-05
+        },
+        {
+          "cumulative_time_s": 2.0459000000000002e-05,
+          "file": "__init__.py",
+          "function": "_coerce_arg_to_fnx_graph",
+          "line": 13126,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.3933e-05
+        },
+        {
+          "cumulative_time_s": 1.9888e-05,
+          "file": "__init__.py",
+          "function": "_private_override",
+          "line": 36440,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.0765000000000001e-05
+        },
+        {
+          "cumulative_time_s": 1.1329000000000001e-05,
+          "file": "~",
+          "function": "<function _make_class_safe_predicate.<locals>.predicate at 0x7ffabe474ea0>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 1.1329000000000001e-05
+        },
+        {
+          "cumulative_time_s": 1.0739e-05,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.dijkstra_weight_cache_token>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.0739e-05
+        },
+        {
+          "cumulative_time_s": 1.0128e-05,
+          "file": "~",
+          "function": "<built-in method franken_networkx._fnx.graph_edge_weights_all_int>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.0128e-05
+        },
+        {
+          "cumulative_time_s": 5.8290000000000004e-06,
+          "file": "~",
+          "function": "<built-in method builtins.vars>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.8290000000000004e-06
+        },
+        {
+          "cumulative_time_s": 3.7370000000000004e-06,
+          "file": "~",
+          "function": "<built-in method builtins.hasattr>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.7370000000000004e-06
+        },
+        {
+          "cumulative_time_s": 3.367e-06,
+          "file": "__init__.py",
+          "function": "_validate_backend_dispatch_keywords",
+          "line": 24179,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.367e-06
+        }
+      ]
+    },
+    "networkx_dijkstra_path_length": {
+      "label": "networkx_dijkstra_path_length",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.060479956,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 7.2340000000000005e-06
+        },
+        {
+          "cumulative_time_s": 0.060472722000000007,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 169,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.3786000000000002e-05
+        },
+        {
+          "cumulative_time_s": 0.060458936000000005,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 20",
+          "function": "argmap_dijkstra_path_length_17",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.2172e-05
+        },
+        {
+          "cumulative_time_s": 0.060426764,
+          "file": "backends.py",
+          "function": "_call_if_any_backends_installed",
+          "line": 554,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.000131931
+        },
+        {
+          "cumulative_time_s": 0.060253407,
+          "file": "backends.py",
+          "function": "_call_with_backend",
+          "line": 1484,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 4.3422000000000005e-05
+        },
+        {
+          "cumulative_time_s": 0.060209985,
+          "file": "weighted.py",
+          "function": "dijkstra_path_length",
+          "line": 175,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.8488e-05
+        },
+        {
+          "cumulative_time_s": 0.060171921,
+          "file": "weighted.py",
+          "function": "_dijkstra",
+          "line": 770,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.00027500800000000003
+        },
+        {
+          "cumulative_time_s": 0.059896913,
+          "file": "weighted.py",
+          "function": "_dijkstra_multisource",
+          "line": 784,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.032678303
+        },
+        {
+          "cumulative_time_s": 0.019283296000000002,
+          "file": "weighted.py",
+          "function": "<lambda>",
+          "line": 78,
+          "primitive_calls": 92550,
+          "total_calls": 92550,
+          "total_time_s": 0.011487478
+        },
+        {
+          "cumulative_time_s": 0.007795818,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 92550,
+          "total_calls": 92550,
+          "total_time_s": 0.007795818
+        },
+        {
+          "cumulative_time_s": 0.0029640530000000003,
+          "file": "~",
+          "function": "<built-in method _heapq.heappop>",
+          "line": 0,
+          "primitive_calls": 9210,
+          "total_calls": 9210,
+          "total_time_s": 0.0029640530000000003
+        },
+        {
+          "cumulative_time_s": 0.0024739600000000003,
+          "file": "~",
+          "function": "<built-in method _heapq.heappush>",
+          "line": 0,
+          "primitive_calls": 20715,
+          "total_calls": 20715,
+          "total_time_s": 0.0024739600000000003
+        },
+        {
+          "cumulative_time_s": 0.001665961,
+          "file": "~",
+          "function": "<built-in method builtins.next>",
+          "line": 0,
+          "primitive_calls": 20715,
+          "total_calls": 20715,
+          "total_time_s": 0.001665961
+        },
+        {
+          "cumulative_time_s": 0.0008322980000000001,
+          "file": "~",
+          "function": "<method 'items' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 8100,
+          "total_calls": 8100,
+          "total_time_s": 0.0008322980000000001
+        },
+        {
+          "cumulative_time_s": 1.8105e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 1.8105e-05
+        },
+        {
+          "cumulative_time_s": 1.4626e-05,
+          "file": "weighted.py",
+          "function": "_weight_function",
+          "line": 41,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.1411000000000001e-05
+        },
+        {
+          "cumulative_time_s": 8.292000000000001e-06,
+          "file": "~",
+          "function": "<built-in method builtins.len>",
+          "line": 0,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 8.292000000000001e-06
+        },
+        {
+          "cumulative_time_s": 7.113e-06,
+          "file": "backends.py",
+          "function": "_will_call_mutate_input",
+          "line": 1052,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.279000000000001e-06
+        },
+        {
+          "cumulative_time_s": 6.091000000000001e-06,
+          "file": "~",
+          "function": "<built-in method builtins.getattr>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 6.091000000000001e-06
+        },
+        {
+          "cumulative_time_s": 5.608e-06,
+          "file": "configs.py",
+          "function": "get",
+          "line": 162,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.4440000000000004e-06
+        },
+        {
+          "cumulative_time_s": 4.95e-06,
+          "file": "graph.py",
+          "function": "__contains__",
+          "line": 473,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 4.95e-06
+        },
+        {
+          "cumulative_time_s": 3.0770000000000004e-06,
+          "file": "~",
+          "function": "<method 'discard' of 'set' objects>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.0770000000000004e-06
+        },
+        {
+          "cumulative_time_s": 2.9120000000000002e-06,
+          "file": "backends.py",
+          "function": "_can_backend_run",
+          "line": 1099,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.9120000000000002e-06
+        },
+        {
+          "cumulative_time_s": 2.6540000000000003e-06,
+          "file": "~",
+          "function": "<method 'endswith' of 'str' objects>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.6540000000000003e-06
+        },
+        {
+          "cumulative_time_s": 2.404e-06,
+          "file": "~",
+          "function": "<method 'append' of 'list' objects>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.404e-06
+        }
+      ]
+    },
+    "networkx_dijkstra_predecessor_and_distance": {
+      "label": "networkx_dijkstra_predecessor_and_distance",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.08339621500000001,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 0.00029267400000000004
+        },
+        {
+          "cumulative_time_s": 0.083103541,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 178,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.5654e-05
+        },
+        {
+          "cumulative_time_s": 0.083087887,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 8",
+          "function": "argmap_dijkstra_predecessor_and_distance_5",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.5925e-05
+        },
+        {
+          "cumulative_time_s": 0.083061962,
+          "file": "backends.py",
+          "function": "_call_if_any_backends_installed",
+          "line": 554,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.000147336
+        },
+        {
+          "cumulative_time_s": 0.082870258,
+          "file": "backends.py",
+          "function": "_call_with_backend",
+          "line": 1484,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.1993e-05
+        },
+        {
+          "cumulative_time_s": 0.082858265,
+          "file": "weighted.py",
+          "function": "dijkstra_predecessor_and_distance",
+          "line": 910,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.2132e-05
+        },
+        {
+          "cumulative_time_s": 0.082814593,
+          "file": "weighted.py",
+          "function": "_dijkstra",
+          "line": 770,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.4791000000000004e-05
+        },
+        {
+          "cumulative_time_s": 0.08275980200000001,
+          "file": "weighted.py",
+          "function": "_dijkstra_multisource",
+          "line": 784,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.046233283
+        },
+        {
+          "cumulative_time_s": 0.025025709,
+          "file": "weighted.py",
+          "function": "<lambda>",
+          "line": 78,
+          "primitive_calls": 116970,
+          "total_calls": 116970,
+          "total_time_s": 0.015069666
+        },
+        {
+          "cumulative_time_s": 0.009956043000000001,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 116970,
+          "total_calls": 116970,
+          "total_time_s": 0.009956043000000001
+        },
+        {
+          "cumulative_time_s": 0.005900964000000001,
+          "file": "~",
+          "function": "<built-in method _heapq.heappop>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.005900964000000001
+        },
+        {
+          "cumulative_time_s": 0.002563264,
+          "file": "~",
+          "function": "<built-in method _heapq.heappush>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.002563264
+        },
+        {
+          "cumulative_time_s": 0.001764614,
+          "file": "~",
+          "function": "<built-in method builtins.next>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.001764614
+        },
+        {
+          "cumulative_time_s": 0.0011092720000000001,
+          "file": "~",
+          "function": "<method 'items' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 10515,
+          "total_calls": 10515,
+          "total_time_s": 0.0011092720000000001
+        },
+        {
+          "cumulative_time_s": 0.000165725,
+          "file": "~",
+          "function": "<method 'append' of 'list' objects>",
+          "line": 0,
+          "primitive_calls": 1185,
+          "total_calls": 1185,
+          "total_time_s": 0.000165725
+        },
+        {
+          "cumulative_time_s": 1.9537000000000003e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 1.9537000000000003e-05
+        },
+        {
+          "cumulative_time_s": 1.552e-05,
+          "file": "weighted.py",
+          "function": "_weight_function",
+          "line": 41,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.1629e-05
+        },
+        {
+          "cumulative_time_s": 9.124000000000001e-06,
+          "file": "~",
+          "function": "<built-in method builtins.len>",
+          "line": 0,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 9.124000000000001e-06
+        },
+        {
+          "cumulative_time_s": 6.995000000000001e-06,
+          "file": "backends.py",
+          "function": "_will_call_mutate_input",
+          "line": 1052,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 5.2e-06
+        },
+        {
+          "cumulative_time_s": 6.691000000000001e-06,
+          "file": "~",
+          "function": "<built-in method builtins.getattr>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 6.691000000000001e-06
+        },
+        {
+          "cumulative_time_s": 6.561e-06,
+          "file": "configs.py",
+          "function": "get",
+          "line": 162,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 4.326000000000001e-06
+        },
+        {
+          "cumulative_time_s": 6.02e-06,
+          "file": "graph.py",
+          "function": "__contains__",
+          "line": 473,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 6.02e-06
+        },
+        {
+          "cumulative_time_s": 3.1560000000000004e-06,
+          "file": "~",
+          "function": "<method 'discard' of 'set' objects>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.1560000000000004e-06
+        },
+        {
+          "cumulative_time_s": 3.0380000000000004e-06,
+          "file": "~",
+          "function": "<method 'values' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 3.0380000000000004e-06
+        },
+        {
+          "cumulative_time_s": 2.9070000000000003e-06,
+          "file": "~",
+          "function": "<method 'endswith' of 'str' objects>",
+          "line": 0,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.9070000000000003e-06
+        }
+      ]
+    },
+    "networkx_shortest_path_length_weight": {
+      "label": "networkx_shortest_path_length_weight",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.062125954000000004,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 7.031e-06
+        },
+        {
+          "cumulative_time_s": 0.062118923000000006,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 172,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.3368000000000001e-05
+        },
+        {
+          "cumulative_time_s": 0.06210555500000001,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 24",
+          "function": "argmap_shortest_path_length_21",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.2311e-05
+        },
+        {
+          "cumulative_time_s": 0.062083244,
+          "file": "backends.py",
+          "function": "_call_if_any_backends_installed",
+          "line": 554,
+          "primitive_calls": 15,
+          "total_calls": 30,
+          "total_time_s": 0.000217669
+        },
+        {
+          "cumulative_time_s": 0.061909954,
+          "file": "backends.py",
+          "function": "_call_with_backend",
+          "line": 1484,
+          "primitive_calls": 15,
+          "total_calls": 30,
+          "total_time_s": 5.2990000000000006e-05
+        },
+        {
+          "cumulative_time_s": 0.061900104000000004,
+          "file": "generic.py",
+          "function": "shortest_path_length",
+          "line": 181,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.4936e-05
+        },
+        {
+          "cumulative_time_s": 0.061885168000000004,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 20",
+          "function": "argmap_dijkstra_path_length_17",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.0519e-05
+        },
+        {
+          "cumulative_time_s": 0.061701211000000006,
+          "file": "weighted.py",
+          "function": "dijkstra_path_length",
+          "line": 175,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.9269e-05
+        },
+        {
+          "cumulative_time_s": 0.061662526,
+          "file": "weighted.py",
+          "function": "_dijkstra",
+          "line": 770,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.00029121400000000003
+        },
+        {
+          "cumulative_time_s": 0.061371312000000004,
+          "file": "weighted.py",
+          "function": "_dijkstra_multisource",
+          "line": 784,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.034000811
+        },
+        {
+          "cumulative_time_s": 0.019463863,
+          "file": "weighted.py",
+          "function": "<lambda>",
+          "line": 78,
+          "primitive_calls": 92550,
+          "total_calls": 92550,
+          "total_time_s": 0.011579574
+        },
+        {
+          "cumulative_time_s": 0.007884289000000001,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 92550,
+          "total_calls": 92550,
+          "total_time_s": 0.007884289000000001
+        },
+        {
+          "cumulative_time_s": 0.002921233,
+          "file": "~",
+          "function": "<built-in method _heapq.heappop>",
+          "line": 0,
+          "primitive_calls": 9210,
+          "total_calls": 9210,
+          "total_time_s": 0.002921233
+        },
+        {
+          "cumulative_time_s": 0.002427873,
+          "file": "~",
+          "function": "<built-in method _heapq.heappush>",
+          "line": 0,
+          "primitive_calls": 20715,
+          "total_calls": 20715,
+          "total_time_s": 0.002427873
+        },
+        {
+          "cumulative_time_s": 0.0017115910000000002,
+          "file": "~",
+          "function": "<built-in method builtins.next>",
+          "line": 0,
+          "primitive_calls": 20715,
+          "total_calls": 20715,
+          "total_time_s": 0.0017115910000000002
+        },
+        {
+          "cumulative_time_s": 0.0008479420000000001,
+          "file": "~",
+          "function": "<method 'items' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 8115,
+          "total_calls": 8115,
+          "total_time_s": 0.0008479420000000001
+        },
+        {
+          "cumulative_time_s": 2.5148e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 2.5148e-05
+        },
+        {
+          "cumulative_time_s": 1.4929e-05,
+          "file": "weighted.py",
+          "function": "_weight_function",
+          "line": 41,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.1472000000000001e-05
+        },
+        {
+          "cumulative_time_s": 1.4028e-05,
+          "file": "~",
+          "function": "<built-in method builtins.len>",
+          "line": 0,
+          "primitive_calls": 105,
+          "total_calls": 105,
+          "total_time_s": 1.4028e-05
+        },
+        {
+          "cumulative_time_s": 1.2015000000000001e-05,
+          "file": "backends.py",
+          "function": "_will_call_mutate_input",
+          "line": 1052,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 8.6e-06
+        },
+        {
+          "cumulative_time_s": 1.1312000000000001e-05,
+          "file": "configs.py",
+          "function": "get",
+          "line": 162,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 7.2120000000000006e-06
+        },
+        {
+          "cumulative_time_s": 1.0276000000000001e-05,
+          "file": "~",
+          "function": "<built-in method builtins.getattr>",
+          "line": 0,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 1.0276000000000001e-05
+        },
+        {
+          "cumulative_time_s": 5.6610000000000005e-06,
+          "file": "backends.py",
+          "function": "_can_backend_run",
+          "line": 1099,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.6610000000000005e-06
+        },
+        {
+          "cumulative_time_s": 5.483000000000001e-06,
+          "file": "~",
+          "function": "<method 'values' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.483000000000001e-06
+        },
+        {
+          "cumulative_time_s": 5.441e-06,
+          "file": "~",
+          "function": "<method 'discard' of 'set' objects>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.441e-06
+        }
+      ]
+    },
+    "networkx_single_source_dijkstra": {
+      "label": "networkx_single_source_dijkstra",
+      "repeats": 15,
+      "top": [
+        {
+          "cumulative_time_s": 0.081974011,
+          "file": "dijkstra_family_pass.py",
+          "function": "repeated",
+          "line": 272,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 0.000423463
+        },
+        {
+          "cumulative_time_s": 0.081550548,
+          "file": "dijkstra_family_pass.py",
+          "function": "<lambda>",
+          "line": 175,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.4164e-05
+        },
+        {
+          "cumulative_time_s": 0.081536384,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 12",
+          "function": "argmap_single_source_dijkstra_9",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.5188e-05
+        },
+        {
+          "cumulative_time_s": 0.08151119600000001,
+          "file": "backends.py",
+          "function": "_call_if_any_backends_installed",
+          "line": 554,
+          "primitive_calls": 15,
+          "total_calls": 30,
+          "total_time_s": 0.00022752900000000002
+        },
+        {
+          "cumulative_time_s": 0.08132917,
+          "file": "backends.py",
+          "function": "_call_with_backend",
+          "line": 1484,
+          "primitive_calls": 15,
+          "total_calls": 30,
+          "total_time_s": 1.9549000000000002e-05
+        },
+        {
+          "cumulative_time_s": 0.08132144200000001,
+          "file": "weighted.py",
+          "function": "single_source_dijkstra",
+          "line": 392,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.0564e-05
+        },
+        {
+          "cumulative_time_s": 0.081310878,
+          "file": "<class 'networkx.utils.decorators.argmap'> compilation 16",
+          "function": "argmap_multi_source_dijkstra_13",
+          "line": 1,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 2.2226e-05
+        },
+        {
+          "cumulative_time_s": 0.08115440900000001,
+          "file": "weighted.py",
+          "function": "multi_source_dijkstra",
+          "line": 650,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.000290148
+        },
+        {
+          "cumulative_time_s": 0.08084474400000001,
+          "file": "weighted.py",
+          "function": "_dijkstra_multisource",
+          "line": 784,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 0.045034791000000005
+        },
+        {
+          "cumulative_time_s": 0.024728084,
+          "file": "weighted.py",
+          "function": "<lambda>",
+          "line": 78,
+          "primitive_calls": 116970,
+          "total_calls": 116970,
+          "total_time_s": 0.014810052
+        },
+        {
+          "cumulative_time_s": 0.009918032,
+          "file": "~",
+          "function": "<method 'get' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 116970,
+          "total_calls": 116970,
+          "total_time_s": 0.009918032
+        },
+        {
+          "cumulative_time_s": 0.005728333,
+          "file": "~",
+          "function": "<built-in method _heapq.heappop>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.005728333
+        },
+        {
+          "cumulative_time_s": 0.002570258,
+          "file": "~",
+          "function": "<built-in method _heapq.heappush>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.002570258
+        },
+        {
+          "cumulative_time_s": 0.0017276770000000002,
+          "file": "~",
+          "function": "<built-in method builtins.next>",
+          "line": 0,
+          "primitive_calls": 20940,
+          "total_calls": 20940,
+          "total_time_s": 0.0017276770000000002
+        },
+        {
+          "cumulative_time_s": 0.001058946,
+          "file": "~",
+          "function": "<method 'items' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 10530,
+          "total_calls": 10530,
+          "total_time_s": 0.001058946
+        },
+        {
+          "cumulative_time_s": 1.9026e-05,
+          "file": "~",
+          "function": "<method 'disable' of '_lsprof.Profiler' objects>",
+          "line": 0,
+          "primitive_calls": 1,
+          "total_calls": 1,
+          "total_time_s": 1.9026e-05
+        },
+        {
+          "cumulative_time_s": 1.4529000000000001e-05,
+          "file": "weighted.py",
+          "function": "_weight_function",
+          "line": 41,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 1.1262e-05
+        },
+        {
+          "cumulative_time_s": 1.3792000000000001e-05,
+          "file": "~",
+          "function": "<built-in method builtins.len>",
+          "line": 0,
+          "primitive_calls": 105,
+          "total_calls": 105,
+          "total_time_s": 1.3792000000000001e-05
+        },
+        {
+          "cumulative_time_s": 1.1941000000000001e-05,
+          "file": "backends.py",
+          "function": "_will_call_mutate_input",
+          "line": 1052,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 8.286e-06
+        },
+        {
+          "cumulative_time_s": 1.169e-05,
+          "file": "configs.py",
+          "function": "get",
+          "line": 162,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 7.636000000000001e-06
+        },
+        {
+          "cumulative_time_s": 1.0337000000000001e-05,
+          "file": "~",
+          "function": "<built-in method builtins.getattr>",
+          "line": 0,
+          "primitive_calls": 60,
+          "total_calls": 60,
+          "total_time_s": 1.0337000000000001e-05
+        },
+        {
+          "cumulative_time_s": 5.541e-06,
+          "file": "~",
+          "function": "<method 'discard' of 'set' objects>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.541e-06
+        },
+        {
+          "cumulative_time_s": 5.354000000000001e-06,
+          "file": "~",
+          "function": "<method 'values' of 'dict' objects>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.354000000000001e-06
+        },
+        {
+          "cumulative_time_s": 5.0120000000000005e-06,
+          "file": "~",
+          "function": "<method 'append' of 'list' objects>",
+          "line": 0,
+          "primitive_calls": 30,
+          "total_calls": 30,
+          "total_time_s": 5.0120000000000005e-06
+        },
+        {
+          "cumulative_time_s": 4.988e-06,
+          "file": "graph.py",
+          "function": "__contains__",
+          "line": 473,
+          "primitive_calls": 15,
+          "total_calls": 15,
+          "total_time_s": 4.988e-06
+        }
+      ]
+    }
+  }
+}

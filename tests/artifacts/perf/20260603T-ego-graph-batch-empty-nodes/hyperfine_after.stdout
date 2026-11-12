@@ -1,0 +1,7 @@
+  [2m2026-06-03T15:04:01.888387Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 15 --export-json tests/artifacts/perf/20260603T-ego-graph-batch-empty-nodes/hyperfine_after.json '.venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op ego_graph_r2 --repeat 5 --n 3000 --m 4 --graph-seed 42'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op ego_graph_r2 --repeat 5 --n 3000 --m 4 --graph-seed 42
+  Time (mean ± σ):     564.0 ms ± 144.0 ms    [User: 3651.3 ms, System: 84.6 ms]
+  Range (min … max):   453.1 ms … 841.8 ms    15 runs
+ 

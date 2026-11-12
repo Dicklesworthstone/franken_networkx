@@ -1,0 +1,99 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "asupersync_performance_characterization",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "measurement_corpus",
+    "optimization_lever",
+    "baseline_metrics",
+    "candidate_metrics",
+    "stable_window_metrics",
+    "delta_summary",
+    "tail_regression_gate",
+    "test_bindings",
+    "decision_theoretic_runtime_contract",
+    "profile_first_artifacts",
+    "alien_uplift_contract_card",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_measurement_corpus_keys": [
+    "command",
+    "runs",
+    "sample_retention_policy",
+    "outlier_cutoff_seconds"
+  ],
+  "required_optimization_lever_keys": [
+    "lever_id",
+    "code_paths",
+    "description",
+    "expected_effect",
+    "risk_guardrails"
+  ],
+  "required_metrics_keys": [
+    "elapsed_s",
+    "max_rss_kb"
+  ],
+  "required_metric_block_keys": [
+    "samples",
+    "p50",
+    "p95",
+    "p99",
+    "mean"
+  ],
+  "required_stable_window_metric_keys": [
+    "baseline",
+    "candidate"
+  ],
+  "required_delta_summary_keys": [
+    "elapsed_p50_pct",
+    "elapsed_p95_pct",
+    "elapsed_p99_pct",
+    "max_rss_p50_pct",
+    "max_rss_p95_pct",
+    "max_rss_p99_pct"
+  ],
+  "required_tail_regression_gate_keys": [
+    "latency_tail_pct_threshold",
+    "memory_tail_pct_threshold",
+    "evaluated_on",
+    "status",
+    "blocked"
+  ],
+  "required_test_binding_keys": [
+    "test_id",
+    "layer",
+    "artifact_path",
+    "replay_command"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ],
+  "required_loss_budget_keys": [
+    "max_expected_loss",
+    "max_replay_loss",
+    "max_data_loss"
+  ],
+  "required_safe_mode_fallback_keys": [
+    "trigger_thresholds",
+    "fallback_action",
+    "budgeted_recovery_window_ms"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_test_layers": [
+    "unit",
+    "differential",
+    "e2e"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "digest": "846e40680ebf4314cd1e5d6c48e96e1fc957e4841ea05f2b034ab53fb9d42f52",
+  "records": [
+    {
+      "case": "unweighted_sparse_pair",
+      "impl": "fnx",
+      "value": 0.47316532
+    },
+    {
+      "case": "unweighted_sparse_pair",
+      "impl": "dense_exact",
+      "value": 0.47316532
+    },
+    {
+      "case": "unweighted_sparse_pair",
+      "impl": "nx",
+      "value": 0.47316532
+    },
+    {
+      "case": "weighted_sparse_pair",
+      "impl": "fnx",
+      "value": 0.98126019
+    },
+    {
+      "case": "weighted_sparse_pair",
+      "impl": "dense_exact",
+      "value": 0.98126019
+    },
+    {
+      "case": "weighted_sparse_pair",
+      "impl": "nx",
+      "value": 0.98126019
+    },
+    {
+      "case": "weighted_multigraph_pair",
+      "impl": "fnx",
+      "value": 0.68858835
+    },
+    {
+      "case": "weighted_multigraph_pair",
+      "impl": "dense_exact",
+      "value": 0.68858835
+    },
+    {
+      "case": "weighted_multigraph_pair",
+      "impl": "nx",
+      "value": 0.68858835
+    }
+  ]
+}

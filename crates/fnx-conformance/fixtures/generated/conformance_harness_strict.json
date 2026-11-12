@@ -1,0 +1,47 @@
+{
+  "suite": "conformance_harness_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "n0",
+      "right": "n1"
+    },
+    {
+      "op": "add_edge",
+      "left": "n1",
+      "right": "n2"
+    },
+    {
+      "op": "shortest_path_query",
+      "source": "n0",
+      "target": "n2"
+    }
+  ],
+  "expected": {
+    "shortest_path_unweighted": [
+      "n0",
+      "n1",
+      "n2"
+    ],
+    "graph": {
+      "nodes": [
+        "n0",
+        "n1",
+        "n2"
+      ],
+      "edges": [
+        {
+          "left": "n0",
+          "right": "n1",
+          "attrs": {}
+        },
+        {
+          "left": "n1",
+          "right": "n2",
+          "attrs": {}
+        }
+      ]
+    }
+  }
+}

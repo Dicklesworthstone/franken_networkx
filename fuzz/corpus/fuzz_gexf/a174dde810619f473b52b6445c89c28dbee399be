@@ -1,0 +1,19 @@
+<?xml Dersion="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribuTe id="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </attributes>
+    <nodes>
+      <node ,     <attvalue for="0" value="red"/>
+        </attvalues>
+ "    </node>
+      <no  </attributes>
+    <nodes>
+    lue for="0" value="red"/>
+   >
+  </graph>
+</gexf>

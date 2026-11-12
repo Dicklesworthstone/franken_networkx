@@ -1,0 +1,57 @@
+{
+ "compose": {
+  "fnx_ms": 31.81,
+  "nx_ms": 18.63,
+  "ratio": 1.708
+ },
+ "union": {
+  "fnx_ms": 42.15,
+  "nx_ms": 19.83,
+  "ratio": 2.125
+ },
+ "bfs_tree directed": {
+  "fnx_ms": 2.59,
+  "nx_ms": 3.75,
+  "ratio": 0.691
+ },
+ "sssp_len directed": {
+  "fnx_ms": 0.43,
+  "nx_ms": 1.06,
+  "ratio": 0.406
+ },
+ "dijkstra weighted": {
+  "fnx_ms": 7.63,
+  "nx_ms": 6.33,
+  "ratio": 1.205
+ },
+ "betweenness k=60": {
+  "fnx_ms": 390.12,
+  "nx_ms": 393.8,
+  "ratio": 0.991
+ },
+ "closeness": {
+  "fnx_ms": 266.07,
+  "nx_ms": 4640.15,
+  "ratio": 0.057
+ },
+ "pagerank": {
+  "fnx_ms": 4.65,
+  "nx_ms": 6.35,
+  "ratio": 0.733
+ },
+ "copy": {
+  "fnx_ms": 10.81,
+  "nx_ms": 9.26,
+  "ratio": 1.167
+ },
+ "to_directed": {
+  "fnx_ms": 28.61,
+  "nx_ms": 35.96,
+  "ratio": 0.795
+ },
+ "Graph(edges) ctor": {
+  "fnx_ms": 25.58,
+  "nx_ms": 6.79,
+  "ratio": 3.769
+ }
+}

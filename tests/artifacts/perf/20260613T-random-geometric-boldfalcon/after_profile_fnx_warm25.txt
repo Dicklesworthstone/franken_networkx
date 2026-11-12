@@ -1,0 +1,41 @@
+         41351 function calls (41326 primitive calls) in 0.099 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       25    0.000    0.000    0.099    0.004 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-geometric-boldfalcon/random_geometric_harness.py:75(<lambda>)
+    50/25    0.006    0.000    0.099    0.004 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:52040(wrapper)
+       25    0.034    0.001    0.093    0.004 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:40782(random_geometric_graph)
+       25    0.030    0.001    0.030    0.001 {built-in method builtins.sorted}
+       25    0.000    0.000    0.018    0.001 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2809(add_edges_from)
+       25    0.018    0.001    0.018    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+       25    0.000    0.000    0.004    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:19324(set_node_attributes)
+       25    0.003    0.000    0.003    0.000 {method '_native_set_node_attribute_scalar' of 'franken_networkx.Graph' objects}
+    40000    0.003    0.000    0.003    0.000 {method 'random' of '_random.Random' objects}
+       25    0.000    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2499(add_nodes_from)
+       25    0.002    0.000    0.002    0.000 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+       75    0.001    0.000    0.001    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       50    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:66(_wrapreduction)
+       25    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:3127(amax)
+       25    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:3265(amin)
+       25    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/_core/_methods.py:64(_all)
+       25    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+       25    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+      325    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       25    0.000    0.000    0.000    0.000 {function Random.seed at 0x759dc10a3420}
+       25    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:23584(_native_random_seed)
+       50    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:924(copy)
+       25    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:3465(__init__)
+       25    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+       50    0.000    0.000    0.000    0.000 {built-in method numpy.array}
+       25    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       50    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+       50    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:23650(_validate_backend_dispatch_keywords)
+       25    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
+       50    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:920(_copy_dispatcher)
+       25    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:3006(_max_dispatcher)
+       25    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/_core/fromnumeric.py:3144(_min_dispatcher)
+
+

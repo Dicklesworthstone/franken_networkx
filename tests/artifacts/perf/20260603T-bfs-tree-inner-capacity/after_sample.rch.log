@@ -1,0 +1,4 @@
+  [2m2026-06-03T14:54:25.627870Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: bash -lc '.venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op bfs_tree --repeat 50 --n 3000 --m 4 --graph-seed 42 | tee tests/artifacts/perf/20260603T-bfs-tree-inner-capacity/after_fnx.jsonl'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"graph_seed": 42, "impl": "fnx", "m": 4, "max_seconds": 0.009374574990943074, "mean_seconds": 0.006293302656849846, "min_seconds": 0.004327492002630606, "n": 3000, "op": "bfs_tree", "p50_seconds": 0.006328288989607245, "repeat": 50, "sha256": "5a16c0c6b529b4abf6a1e8e95a7b383d81f8b9f586357b010ec92697613cdc64"}

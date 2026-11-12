@@ -1,0 +1,326 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "0_0",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "0_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "0_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "0_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "1_0",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "1_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "1_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "1_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "2_0",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "2_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "2_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "2_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_0",
+      "right": "0_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_0",
+      "right": "1_0",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_1",
+      "right": "0_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_1",
+      "right": "1_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_2",
+      "right": "0_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_2",
+      "right": "1_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0_3",
+      "right": "1_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_0",
+      "right": "1_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_0",
+      "right": "2_0",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_1",
+      "right": "1_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_1",
+      "right": "2_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_2",
+      "right": "1_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_2",
+      "right": "2_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1_3",
+      "right": "2_3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "2_0",
+      "right": "2_1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "2_1",
+      "right": "2_2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "2_2",
+      "right": "2_3",
+      "attrs": {}
+    },
+    {
+      "op": "harmonic_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0_0",
+        "0_1",
+        "0_2",
+        "0_3",
+        "1_0",
+        "1_1",
+        "1_2",
+        "1_3",
+        "2_0",
+        "2_1",
+        "2_2",
+        "2_3"
+      ],
+      "edges": [
+        {
+          "left": "0_0",
+          "right": "0_1",
+          "attrs": {}
+        },
+        {
+          "left": "0_0",
+          "right": "1_0",
+          "attrs": {}
+        },
+        {
+          "left": "0_1",
+          "right": "0_2",
+          "attrs": {}
+        },
+        {
+          "left": "0_1",
+          "right": "1_1",
+          "attrs": {}
+        },
+        {
+          "left": "0_2",
+          "right": "0_3",
+          "attrs": {}
+        },
+        {
+          "left": "0_2",
+          "right": "1_2",
+          "attrs": {}
+        },
+        {
+          "left": "0_3",
+          "right": "1_3",
+          "attrs": {}
+        },
+        {
+          "left": "1_0",
+          "right": "1_1",
+          "attrs": {}
+        },
+        {
+          "left": "1_0",
+          "right": "2_0",
+          "attrs": {}
+        },
+        {
+          "left": "1_1",
+          "right": "1_2",
+          "attrs": {}
+        },
+        {
+          "left": "1_1",
+          "right": "2_1",
+          "attrs": {}
+        },
+        {
+          "left": "1_2",
+          "right": "1_3",
+          "attrs": {}
+        },
+        {
+          "left": "1_2",
+          "right": "2_2",
+          "attrs": {}
+        },
+        {
+          "left": "1_3",
+          "right": "2_3",
+          "attrs": {}
+        },
+        {
+          "left": "2_0",
+          "right": "2_1",
+          "attrs": {}
+        },
+        {
+          "left": "2_1",
+          "right": "2_2",
+          "attrs": {}
+        },
+        {
+          "left": "2_2",
+          "right": "2_3",
+          "attrs": {}
+        }
+      ]
+    },
+    "harmonic_centrality": [
+      {
+        "node": "0_0",
+        "score": 5.2
+      },
+      {
+        "node": "0_1",
+        "score": 6.249999999999999
+      },
+      {
+        "node": "0_2",
+        "score": 6.249999999999999
+      },
+      {
+        "node": "0_3",
+        "score": 5.2
+      },
+      {
+        "node": "1_0",
+        "score": 5.999999999999999
+      },
+      {
+        "node": "1_1",
+        "score": 7.166666666666666
+      },
+      {
+        "node": "1_2",
+        "score": 7.166666666666666
+      },
+      {
+        "node": "1_3",
+        "score": 6.0
+      },
+      {
+        "node": "2_0",
+        "score": 5.2
+      },
+      {
+        "node": "2_1",
+        "score": 6.25
+      },
+      {
+        "node": "2_2",
+        "score": 6.249999999999999
+      },
+      {
+        "node": "2_3",
+        "score": 5.199999999999999
+      }
+    ]
+  }
+}

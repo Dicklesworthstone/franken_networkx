@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/.scratch/franken_networkx-writeadjlist-baseline-tealspring-20260606T0105/python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260606T-write-adjlist-tealspring/write_adjlist_perf.py bench --impl nx --loops 20",
+      "mean": 0.49647164088,
+      "stddev": 0.12430837962772859,
+      "median": 0.45045391948,
+      "user": 2.7952233800000004,
+      "system": 0.0668309,
+      "min": 0.39759927848000004,
+      "max": 0.8150377214800001,
+      "times": [
+        0.8150377214800001,
+        0.5670193114800001,
+        0.50452998548,
+        0.51837723948,
+        0.44867727748,
+        0.45223056148,
+        0.44093197748,
+        0.39759927848000004,
+        0.41583435948,
+        0.40447869648
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

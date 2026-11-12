@@ -1,0 +1,4 @@
+  [2m2026-07-11T04:03:21.997842Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib closeness_vitality_single -- --include-ignored --nocapture[0m
+test tests::closeness_vitality_single_node_api ... ok
+test tests::closeness_vitality_single_clvit1_ab ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 938 filtered out; finished in 2.70s

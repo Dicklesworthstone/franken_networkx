@@ -1,0 +1,93 @@
+profile which=nx family=wheel size=12
+fnx_file=/data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py
+nx_file=/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py
+Tue Jun  9 16:27:38 2026    /data/tmp/tmptvcwhqvd
+
+         3208794 function calls (3206743 primitive calls) in 0.967 seconds
+
+   Ordered by: cumulative time
+   List reduced from 276 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.967    0.967 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/tests/artifacts/perf/20260609T-k-components-wheel-boldfalcon-baseline/harness_wheel.py:25(genuine_nx_k_components)
+        1    0.000    0.000    0.967    0.967 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:20(k_components)
+       45    0.266    0.006    0.959    0.021 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:25(all_node_cuts)
+   108083    0.148    0.000    0.406    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/dag.py:939(antichains)
+  1098199    0.159    0.000    0.167    0.000 {method 'update' of 'set' objects}
+   236734    0.043    0.000    0.125    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+   235661    0.062    0.000    0.097    0.000 <frozen _collections_abc>:815(__contains__)
+ 1023/132    0.006    0.000    0.092    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+ 1023/132    0.001    0.000    0.090    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+   238528    0.068    0.000    0.082    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+       16    0.000    0.000    0.066    0.004 <class 'networkx.utils.decorators.argmap'> compilation 75:1(argmap_transitive_closure_72)
+       16    0.000    0.000    0.066    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/dag.py:717(transitive_closure)
+      645    0.009    0.000    0.065    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/digraph.py:748(add_edges_from)
+     3289    0.005    0.000    0.052    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/dag.py:804(<genexpr>)
+     8577    0.012    0.000    0.038    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:20(edge_bfs)
+   242811    0.036    0.000    0.036    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/coreviews.py:53(__getitem__)
+   216704    0.024    0.000    0.024    0.000 {method 'pop' of 'list' objects}
+     3312    0.002    0.000    0.017    0.000 {built-in method builtins.any}
+   108067    0.017    0.000    0.017    0.000 {method 'issubset' of 'set' objects}
+     4015    0.003    0.000    0.016    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:127(edges_from)
+    17953    0.006    0.000    0.015    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:195(<genexpr>)
+   238570    0.015    0.000    0.015    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/coreviews.py:44(__init__)
+   112230    0.013    0.000    0.013    0.000 {method 'append' of 'list' objects}
+    23/11    0.000    0.000    0.012    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+    43543    0.008    0.000    0.012    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:190(__getitem__)
+     4067    0.002    0.000    0.010    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:1102(__call__)
+    61710    0.008    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:192(<genexpr>)
+       25    0.000    0.000    0.008    0.000 <class 'networkx.utils.decorators.argmap'> compilation 67:1(argmap_edmonds_karp_64)
+       16    0.000    0.000    0.008    0.000 <class 'networkx.utils.decorators.argmap'> compilation 111:1(argmap_transitive_closure_dag_107)
+       25    0.000    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:120(edmonds_karp)
+       25    0.001    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:94(edmonds_karp_impl)
+       16    0.000    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/dag.py:809(transitive_closure_dag)
+     4049    0.004    0.000    0.007    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:771(__init__)
+    16898    0.005    0.000    0.007    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:799(<genexpr>)
+        1    0.000    0.000    0.007    0.007 <class 'networkx.utils.decorators.argmap'> compilation 38:1(argmap_node_connectivity_35)
+        1    0.000    0.000    0.007    0.007 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:209(node_connectivity)
+      195    0.000    0.000    0.005    0.000 <class 'networkx.utils.decorators.argmap'> compilation 115:1(argmap_descendants_at_distance_112)
+10953/10941    0.002    0.000    0.005    0.000 {built-in method builtins.iter}
+       25    0.000    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:11(edmonds_karp_core)
+       32    0.000    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1592(copy)
+       16    0.000    0.000    0.005    0.000 <class 'networkx.utils.decorators.argmap'> compilation 84:1(argmap_condensation_80)
+       16    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/components/strongly_connected.py:277(condensation)
+       23    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        9    0.000    0.000    0.004    0.000 <class 'networkx.utils.decorators.argmap'> compilation 59:1(argmap_local_node_connectivity_56)
+       23    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+        9    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:35(local_node_connectivity)
+      384    0.000    0.000    0.004    0.000 <class 'networkx.utils.decorators.argmap'> compilation 79:1(argmap_edge_bfs_76)
+        9    0.000    0.000    0.004    0.000 <class 'networkx.utils.decorators.argmap'> compilation 63:1(argmap_maximum_flow_value_60)
+    45244    0.004    0.000    0.004    0.000 {built-in method builtins.isinstance}
+        9    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/maxflow.py:171(maximum_flow_value)
+      195    0.000    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/traversal/breadth_first_search.py:539(descendants_at_distance)
+       91    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:40(bidirectional_bfs)
+     4401    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:2013(nbunch_iter)
+     4049    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:798(__iter__)
+    30/23    0.000    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+    14610    0.002    0.000    0.002    0.000 {method 'update' of 'dict' objects}
+       23    0.000    0.000    0.002    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+    13524    0.002    0.000    0.002    0.000 {method 'add' of 'set' objects}
+12682/12639    0.001    0.000    0.002    0.000 {built-in method builtins.len}
+       50    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/digraph.py:500(add_nodes_from)
+      195    0.000    0.000    0.002    0.000 <class 'networkx.utils.decorators.argmap'> compilation 119:1(argmap_bfs_layers_116)
+    45/23    0.000    0.000    0.001    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+    45/23    0.000    0.000    0.001    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+    45/23    0.000    0.000    0.001    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+      507    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/traversal/breadth_first_search.py:405(bfs_layers)
+     3230    0.001    0.000    0.001    0.000 <frozen _collections_abc>:897(__iter__)
+       22    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:503(__signature__)
+     3880    0.001    0.000    0.001    0.000 <frozen _collections_abc>:916(__iter__)
+       75    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:19(augment)
+      211    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/components/strongly_connected.py:15(strongly_connected_components)
+       23    0.001    0.000    0.001    0.000 {built-in method builtins.compile}
+        2    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 47:1(argmap_build_auxiliary_node_connectivity_44)
+     4015    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:779(<lambda>)
+        2    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/connectivity/utils.py:10(build_auxiliary_node_connectivity)
+      211    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/dag.py:243(topological_sort)
+     6984    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+        2    0.000    0.000    0.001    0.000 <class 'networkx.utils.decorators.argmap'> compilation 55:1(argmap_build_residual_network_52)
+        2    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/flow/utils.py:80(build_residual_network)
+     5231    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:473(__contains__)
+     8193    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:787(<lambda>)
+
+

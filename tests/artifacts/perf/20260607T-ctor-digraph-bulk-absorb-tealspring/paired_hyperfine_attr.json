@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/.scratch/fnx-digraph-ctor-baseline-20260607-0349/python:/data/projects/.scratch/fnx-digraph-ctor-baseline-20260607-0349 python3 tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py fnx-loop-attr --loops 30",
+      "mean": 1.6649405433199997,
+      "stddev": 0.24115192036050992,
+      "median": 1.6414098093199998,
+      "user": 3.5275104799999992,
+      "system": 0.4003822,
+      "min": 1.36632962332,
+      "max": 2.24420167832,
+      "times": [
+        2.24420167832,
+        1.68278793032,
+        1.6327766013199998,
+        1.7954165983200001,
+        1.5948656363199998,
+        1.7181045423199999,
+        1.6500430173199998,
+        1.53595362832,
+        1.36632962332,
+        1.42892617732
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260607T-ctor-digraph-bulk-absorb-tealspring/digraph_ctor_bulk_absorb.py fnx-loop-attr --loops 30",
+      "mean": 1.0181829625199998,
+      "stddev": 0.07365993720419875,
+      "median": 1.0205412908199998,
+      "user": 3.48203088,
+      "system": 0.22726629999999998,
+      "min": 0.9116854523200001,
+      "max": 1.13619034232,
+      "times": [
+        1.1150675853199998,
+        1.13619034232,
+        1.02719615232,
+        1.05165186232,
+        1.0138864293199998,
+        0.9775589913200001,
+        1.03776865432,
+        0.9944239113200001,
+        0.9164002443200001,
+        0.9116854523200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

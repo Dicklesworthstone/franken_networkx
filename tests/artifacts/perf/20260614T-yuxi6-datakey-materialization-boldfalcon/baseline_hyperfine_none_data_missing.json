@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-yuxi6-datakey-materialization-boldfalcon/datakey_materialization_harness.py loop --which fnx --attr-mode none --case data_missing --loops 80 --warmup 3",
+      "mean": 1.1258083181457141,
+      "stddev": 0.03814047506984048,
+      "median": 1.12212831186,
+      "user": 5.2313218571428575,
+      "system": 0.07704335714285715,
+      "min": 1.0585782648600002,
+      "max": 1.1786350728600001,
+      "times": [
+        1.10603995086,
+        1.15161525386,
+        1.0585782648600002,
+        1.12212831186,
+        1.12010971386,
+        1.14355165886,
+        1.1786350728600001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-yuxi6-datakey-materialization-boldfalcon/datakey_materialization_harness.py loop --which nx --attr-mode none --case data_missing --loops 80 --warmup 3",
+      "mean": 0.7205634902885715,
+      "stddev": 0.009274935171340986,
+      "median": 0.71696807886,
+      "user": 4.471972714285714,
+      "system": 0.06598664285714285,
+      "min": 0.70996041186,
+      "max": 0.73520727786,
+      "times": [
+        0.71696807886,
+        0.72932021286,
+        0.71434243986,
+        0.70996041186,
+        0.71375656786,
+        0.72438944286,
+        0.73520727786
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

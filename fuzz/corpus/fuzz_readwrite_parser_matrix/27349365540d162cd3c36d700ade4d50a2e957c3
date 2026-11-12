@@ -1,0 +1,7 @@
+Z<?xml version="1.0" encoding="UTF-8"?>
+<gexf versraph edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edrget="b"/></edges>
+  </graph>
+</gexf>

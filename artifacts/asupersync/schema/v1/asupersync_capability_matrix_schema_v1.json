@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "asupersync_capability_matrix",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "capability_summary",
+    "integration_boundaries",
+    "capability_matrix",
+    "decision_theoretic_runtime_contract",
+    "profile_first_artifacts",
+    "alien_uplift_contract_card",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_summary_keys": [
+    "operation_count",
+    "artifact_class_count",
+    "strict_fail_closed_default",
+    "hardened_fail_closed_default"
+  ],
+  "required_boundary_keys": [
+    "owning_crate",
+    "feature_gate",
+    "allowed_runtime_crates",
+    "forbidden_algorithm_crates",
+    "boundary_rule"
+  ],
+  "required_capability_row_keys": [
+    "operation_id",
+    "artifact_class",
+    "description",
+    "asupersync_primitives",
+    "strict_mode_behavior",
+    "hardened_mode_behavior",
+    "fail_closed_contract",
+    "integration_boundary",
+    "test_bindings",
+    "telemetry_fields"
+  ],
+  "required_mode_behavior_keys": [
+    "mode",
+    "execution_policy",
+    "unsupported_capability_policy",
+    "deterministic_replay_requirement",
+    "fallback_behavior"
+  ],
+  "required_fail_closed_contract_keys": [
+    "default_action",
+    "reason_codes",
+    "escalation_path"
+  ],
+  "required_integration_boundary_keys": [
+    "owning_crate",
+    "allowed_crates",
+    "forbidden_crates",
+    "notes"
+  ],
+  "required_test_binding_keys": [
+    "test_id",
+    "layer",
+    "artifact_path",
+    "replay_command"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ],
+  "required_loss_budget_keys": [
+    "max_expected_loss",
+    "max_replay_loss",
+    "max_data_loss"
+  ],
+  "required_safe_mode_fallback_keys": [
+    "trigger_thresholds",
+    "fallback_action",
+    "budgeted_recovery_window_ms"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_artifact_classes": [
+    "conformance_fixture_bundle",
+    "benchmark_baseline_bundle",
+    "migration_manifest",
+    "reproducibility_ledger",
+    "long_lived_state_snapshot"
+  ],
+  "required_test_layers": [
+    "unit",
+    "differential",
+    "e2e"
+  ],
+  "required_telemetry_fields": [
+    "transfer_id",
+    "artifact_id",
+    "artifact_class",
+    "mode",
+    "primitive",
+    "attempt",
+    "outcome",
+    "reason_code",
+    "seed",
+    "replay_command",
+    "env_fingerprint",
+    "duration_ms"
+  ],
+  "required_fail_closed_reason_codes": [
+    "unsupported_capability",
+    "capability_mismatch",
+    "integrity_precheck_failed"
+  ],
+  "required_forbidden_algorithm_crates": [
+    "fnx-classes",
+    "fnx-views",
+    "fnx-algorithms",
+    "fnx-dispatch",
+    "fnx-convert",
+    "fnx-generators",
+    "fnx-readwrite"
+  ]
+}

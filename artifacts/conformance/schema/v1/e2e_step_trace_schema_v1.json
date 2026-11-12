@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "artifact": "e2e_step_trace",
+  "description": "Step-level E2E telemetry schema with deterministic replay and forensics linkage.",
+  "required_fields": [
+    "run_id",
+    "test_id",
+    "step_id",
+    "step_label",
+    "phase",
+    "status",
+    "start_unix_ms",
+    "end_unix_ms",
+    "duration_ms",
+    "replay_command",
+    "forensic_bundle_id",
+    "artifact_refs",
+    "hash_id"
+  ],
+  "status_values": [
+    "started",
+    "passed",
+    "failed",
+    "skipped"
+  ],
+  "invariants": [
+    "start_unix_ms <= end_unix_ms",
+    "duration_ms == end_unix_ms - start_unix_ms",
+    "artifact_refs must not be empty",
+    "reason_code required for failed/skipped status",
+    "run_id/test_id/forensic_bundle_id/replay_command must match parent StructuredTestLog"
+  ]
+}

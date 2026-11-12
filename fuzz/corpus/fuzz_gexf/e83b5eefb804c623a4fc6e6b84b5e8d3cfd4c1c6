@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <gread_graphmltatic" defaultedgetype="directed">
+    <attribut">
+    <attributes class="node">
+      <attribute id="5" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute ids>
+    <nodes>
+      <node id?"s" label="source">
+        <attvalueread_gexf    <attvalue for="0" value="red"/>
+        </attvalues>
+      </n id="t" label="target"/>
+    <    <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

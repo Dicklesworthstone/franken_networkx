@@ -1,0 +1,13 @@
+{
+  "cases": [
+    2,
+    5,
+    8,
+    32,
+    96
+  ],
+  "max_abs_delta": 4.263256414560601e-14,
+  "max_rel_delta": 7.993605777301124e-15,
+  "sha256": "c762d58536cb5b8cb9a6fcad089bec55dee983c2207b8737553a08ef0faca22b",
+  "within_1e_8": true
+}

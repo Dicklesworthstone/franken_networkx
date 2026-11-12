@@ -1,0 +1,45 @@
+Fri Jun  5 17:42:35 2026    tests/artifacts/perf/20260605T-native-all-pairs-dijkstra-tgwv4/after_fnx_public.prof
+
+         82843562 function calls (66188302 primitive calls) in 20.232 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1971 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+    474/1    0.003    0.000   20.232   20.232 {built-in method builtins.exec}
+        1    0.000    0.000   20.232   20.232 bench_delegation_goldmines.py:1(<module>)
+        1    0.001    0.001   19.847   19.847 bench_delegation_goldmines.py:224(main)
+        1    0.097    0.097   19.845   19.845 bench_delegation_goldmines.py:172(bench)
+      120    0.002    0.000   19.746    0.165 bench_delegation_goldmines.py:164(_run_once)
+      120    0.284    0.002   19.114    0.159 bench_delegation_goldmines.py:33(_digest)
+16648200/120   12.870    0.000   17.892    0.149 bench_delegation_goldmines.py:18(_stable)
+ 65003659    5.023    0.000    5.023    0.000 {built-in method builtins.isinstance}
+       47    0.005    0.000    1.337    0.028 __init__.py:1(<module>)
+      121    0.002    0.000    0.839    0.007 __init__.py:183(dumps)
+      121    0.001    0.000    0.837    0.007 encoder.py:183(encode)
+      121    0.835    0.007    0.835    0.007 encoder.py:205(iterencode)
+      120    0.007    0.000    0.630    0.005 bench_delegation_goldmines.py:70(case_all_pairs_dijkstra)
+     9720    0.190    0.000    0.621    0.000 __init__.py:12496(all_pairs_dijkstra)
+    529/6    0.002    0.000    0.386    0.064 <frozen importlib._bootstrap>:1349(_find_and_load)
+    509/6    0.002    0.000    0.385    0.064 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    494/6    0.001    0.000    0.384    0.064 <frozen importlib._bootstrap>:911(_load_unlocked)
+    465/6    0.001    0.000    0.384    0.064 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1103/12    0.001    0.000    0.375    0.031 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+   445/30    0.000    0.000    0.320    0.011 {built-in method builtins.__import__}
+   533/60    0.001    0.000    0.319    0.005 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      120    0.295    0.002    0.295    0.002 {built-in method franken_networkx._fnx.all_pairs_dijkstra}
+     10/6    0.000    0.000    0.177    0.030 <frozen importlib._bootstrap_external>:1326(exec_module)
+     10/6    0.027    0.003    0.177    0.030 {built-in method _imp.exec_dynamic}
+        2    0.000    0.000    0.169    0.085 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.168    0.084 layout.py:1(<module>)
+     9600    0.004    0.000    0.116    0.000 __init__.py:15291(_reorder_by_distance)
+     9920    0.068    0.000    0.111    0.000 {built-in method builtins.sorted}
+        1    0.000    0.000    0.107    0.107 __config__.py:1(<module>)
+      465    0.003    0.000    0.080    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+      121    0.077    0.001    0.077    0.001 {built-in method _hashlib.openssl_sha256}
+        1    0.000    0.000    0.069    0.069 multiarray.py:1(<module>)
+      465    0.004    0.000    0.053    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      465    0.049    0.000    0.049    0.000 {built-in method marshal.loads}
+        1    0.000    0.000    0.048    0.048 _arraypad_impl.py:1(<module>)
+
+

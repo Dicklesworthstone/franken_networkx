@@ -1,0 +1,11 @@
+         1202 function calls in 0.017 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.014    0.014    0.017    0.017 /data/projects/.scratch/franken_networkx_cod_04z5360_20260609_1419/tests/artifacts/perf/20260609T-04z5360-iterator-substrate-boldfalcon/harness_iterator_substrate.py:111(run)
+      300    0.003    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx_cod_04z5360_20260609_1419/python/franken_networkx/__init__.py:33376(__iter__)
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_cod_04z5360_20260609_1419/python/franken_networkx/__init__.py:32882(_private_override)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      300    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

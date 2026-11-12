@@ -1,0 +1,40 @@
+800000
+         121124 function calls in 0.142 seconds
+
+   Ordered by: internal time
+   List reduced from 42 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.053    0.053    0.053    0.053 {function Graph.add_edges_from at 0x7a295f48aa20}
+       40    0.042    0.001    0.042    0.001 {built-in method builtins.iter}
+        1    0.016    0.016    0.142    0.142 adj_dict_mirror_harness.py:184(run_loop)
+        1    0.014    0.014    0.082    0.082 __init__.py:2627(add_edges_from)
+    20001    0.008    0.000    0.008    0.000 adj_dict_mirror_harness.py:27(<genexpr>)
+    40041    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+    20000    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+    20006    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+    20081    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+        1    0.001    0.001    0.083    0.083 adj_dict_mirror_harness.py:24(build_hub_graph)
+       40    0.000    0.000    0.000    0.000 __init__.py:1174(__getitem__)
+       80    0.000    0.000    0.000    0.000 __init__.py:1184(<lambda>)
+      120    0.000    0.000    0.000    0.000 __init__.py:1302(<lambda>)
+       40    0.000    0.000    0.043    0.001 __init__.py:1115(__iter__)
+        1    0.000    0.000    0.000    0.000 {function Graph.add_node at 0x7a295f48a020}
+       40    0.000    0.000    0.000    0.000 __init__.py:31390(_private_override)
+       40    0.000    0.000    0.000    0.000 __init__.py:31452(_private_adj_mapping)
+       40    0.000    0.000    0.000    0.000 __init__.py:1348(_graph_getitem_from_adj)
+       40    0.000    0.000    0.000    0.000 __init__.py:1112(__len__)
+      120    0.000    0.000    0.000    0.000 __init__.py:1156(_atlas)
+       80    0.000    0.000    0.000    0.000 __init__.py:1109(_atlas)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       40    0.000    0.000    0.000    0.000 __init__.py:32172(<lambda>)
+       40    0.000    0.000    0.000    0.000 __init__.py:1284(_accessor)
+       80    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:1765(isEnabledFor)
+        1    0.000    0.000    0.000    0.000 __init__.py:1362(getLogger)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.print}
+        1    0.000    0.000    0.000    0.000 __init__.py:2129(getLogger)
+
+
+

@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260602T-vs-upstream-sweep/bench_vs_upstream.py bench --case laplacian_default --impl fnx --n 8000 --m 4 --repeats 5",
+      "mean": 0.8843777657,
+      "stddev": 0.12140701829581896,
+      "median": 0.8929915371,
+      "user": 3.6348329199999996,
+      "system": 0.13228047999999998,
+      "min": 0.7393018356,
+      "max": 1.0768198176,
+      "times": [
+        0.9246305036,
+        1.0768198176,
+        0.9430067466000001,
+        1.0545081076,
+        0.9195081676,
+        0.8664749066,
+        0.7638553926,
+        0.8077649806,
+        0.7393018356,
+        0.7479071986
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

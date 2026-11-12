@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-script-pack-bundle-manifest-v1",
+  "bundle_id": "e2e-bundle-ab38693735bd62ac",
+  "stable_fingerprint": "7f2d94a83ed9a0d8",
+  "scenario_id": "conformance_harness_hardened",
+  "scenario_kind": "happy_path",
+  "journey_id": "J-CONFORMANCE-HARNESS",
+  "packet_id": "FNX-P2C-009",
+  "gate_step_id": "step-1",
+  "mode": "hardened",
+  "fixture_id": "generated/conformance_harness_strict.json",
+  "env_fingerprint": "4099bde3cd892d8e",
+  "e2e_step_traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::conformance_harness_hardened",
+      "step_id": "conformance_harness_hardened::cycle-01",
+      "step_label": "execute:happy_path",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452215148,
+      "end_unix_ms": 1771452224519,
+      "duration_ms": 9371,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened",
+      "input_ref": "generated/conformance_harness_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-009::generated::conformance_harness_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/command.log",
+        "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "552da5432073a8e4",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ],
+  "e2e_step_trace_artifact_path": "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/e2e_step_traces_v1.json",
+  "deterministic_seed": 16760608802675680113,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened",
+  "execution_metadata": {
+    "run_id": "e2e-script-pack-20260218T215618Z",
+    "pass_label": "baseline",
+    "gate_step_id": "step-1",
+    "status": "passed",
+    "reason_code": null,
+    "start_unix_ms": 1771452215148,
+    "end_unix_ms": 1771452224519,
+    "duration_ms": 9371,
+    "generated_at_utc": "2026-02-18T22:03:44.523198+00:00",
+    "forensics_source": "synthesized_fallback"
+  },
+  "forensics_links": {
+    "structured_log_hash_id": "388558e8e2b88cbf",
+    "forensic_bundle_id": "forensics::FNX-P2C-009::generated::conformance_harness_strict.json",
+    "forensics_bundle_hash_id": "1247f350fb8f6b6b",
+    "forensics_bundle_replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/conformance_harness_strict.json --mode hardened"
+  },
+  "forensics_index_path": "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+  "evidence_refs": {
+    "parity_report": "artifacts/phase2c/FNX-P2C-009/parity_report.json",
+    "parity_report_raptorq": "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+    "parity_report_decode_proof": "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+    "contract_table": "artifacts/phase2c/FNX-P2C-009/contract_table.md",
+    "risk_note": "artifacts/phase2c/FNX-P2C-009/risk_note.md",
+    "legacy_anchor_map": "artifacts/phase2c/FNX-P2C-009/legacy_anchor_map.md",
+    "profile_first_artifacts": {
+      "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+    },
+    "optimization_lever_policy": {
+      "rule": "exactly_one_optimization_lever_per_change",
+      "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+    },
+    "isomorphism_proof_artifacts": [
+      "artifacts/proofs/ISOMORPHISM_PROOF_FNX_P2C_FOUNDATION_V1.md",
+      "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+      "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+    ],
+    "durability_evidence": [
+      "artifacts/conformance/latest/durability_pipeline_report.json",
+      "artifacts/conformance/latest/structured_logs.raptorq.json"
+    ],
+    "baseline_comparator": "legacy_networkx/main@python3.12"
+  },
+  "failure_envelope_path": "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/failure_envelope_v1.json",
+  "artifact_refs": [
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/smoke_report.json",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/fixture_report.json",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/structured_logs.jsonl",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/command.log",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/selected_structured_log.json",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/e2e_step_traces_v1.json",
+    "artifacts/phase2c/FNX-P2C-009/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-009/parity_report.raptorq.json",
+    "artifacts/e2e/latest/bundles/conformance_harness_hardened/baseline/failure_envelope_v1.json"
+  ],
+  "retention_policy": {
+    "policy_id": "e2e-latest-retention-v1",
+    "min_retention_days": 14,
+    "storage_root": "artifacts/e2e/latest",
+    "policy_digest": "fnv1a64:8cdc8c7c182cecd2"
+  }
+}

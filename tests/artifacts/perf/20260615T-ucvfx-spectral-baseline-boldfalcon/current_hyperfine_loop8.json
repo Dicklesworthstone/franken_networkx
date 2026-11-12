@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py loop --which fnx --loops 8 --warmup 1",
+      "mean": 0.6144940921200002,
+      "stddev": 0.033422944729030686,
+      "median": 0.6011246463200001,
+      "user": 3.90046478,
+      "system": 0.053614039999999995,
+      "min": 0.57903082632,
+      "max": 0.6597300063200001,
+      "times": [
+        0.5941652313200001,
+        0.57903082632,
+        0.6597300063200001,
+        0.6384197503200001,
+        0.6011246463200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py loop --which nx --loops 8 --warmup 1",
+      "mean": 1.0084340383200001,
+      "stddev": 0.1347698939313077,
+      "median": 1.01976792632,
+      "user": 7.160442579999999,
+      "system": 0.09677423999999998,
+      "min": 0.7989618273200001,
+      "max": 1.15900880432,
+      "times": [
+        0.7989618273200001,
+        1.08141300632,
+        1.01976792632,
+        0.9830186273200001,
+        1.15900880432
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

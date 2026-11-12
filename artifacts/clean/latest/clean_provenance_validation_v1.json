@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "clean-provenance-ledger-validation-v1",
+  "artifact": "artifacts/clean/v1/clean_provenance_ledger_v1.json",
+  "schema": "artifacts/clean/schema/v1/clean_provenance_ledger_schema_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "record_count": 9,
+    "lineage_family_count": 9,
+    "ambiguity_count": 7,
+    "audit_query_count": 3
+  }
+}

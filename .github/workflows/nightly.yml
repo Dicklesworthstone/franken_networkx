@@ -1,0 +1,92 @@
+name: Nightly Hypothesis Suite
+
+on:
+  schedule:
+    - cron: '0 3 * * *' # Run daily at 03:00 UTC
+  workflow_dispatch: # Allow manual triggering
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  hypothesis-suite:
+    name: Hypothesis Property-Based Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+      - name: Create virtualenv (maturin develop refuses to run without one)
+        run: |
+          python -m venv .venv
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install maturin and test dependencies
+        run: pip install maturin pytest hypothesis networkx numpy scipy pandas
+      - name: Build and install
+        run: maturin develop --features pyo3/abi3-py310
+      - name: Run Hypothesis property suite
+        run: pytest tests/python/test_hypothesis.py -v --tb=long
+
+  parser-fuzz-soak:
+    name: Nightly Parser Fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: fuzz_edgelist
+            corpus: fuzz_edgelist
+          - target: fuzz_json
+            corpus: fuzz_json
+          - target: fuzz_graphml
+            corpus: fuzz_graphml
+          - target: fuzz_gml
+            corpus: fuzz_gml
+          - target: fuzz_adjlist
+            corpus: fuzz_adjlist
+          - target: fuzz_node_link
+            corpus: fuzz_node_link
+          - target: fuzz_attribute_value
+            corpus: fuzz_attribute_value
+          - target: fuzz_pajek
+            corpus: fuzz_pajek
+          # E7: Structure-aware algorithm fuzzers
+          - target: fuzz_shortest_path
+            corpus: fuzz_shortest_path
+          - target: fuzz_centrality
+            corpus: fuzz_centrality
+          - target: fuzz_connectivity
+            corpus: fuzz_connectivity
+          - target: fuzz_matching
+            corpus: fuzz_matching
+          - target: fuzz_flow
+            corpus: fuzz_flow
+          - target: fuzz_spanning_tree
+            corpus: fuzz_spanning_tree
+          - target: fuzz_clustering
+            corpus: fuzz_clustering
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+      - name: Run nightly parser fuzz soak
+        run: cd fuzz && cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.corpus }} -- -max_total_time=3600

@@ -1,0 +1,21 @@
+{
+  "bead": "br-r37-c1-natdiffsimple",
+  "function": "difference (simple undirected Graph)",
+  "lever": "native PyGraph::_native_difference in G integer index space (HashSet<(usize,usize)>, neighbors_indices, lazy node_key_map propagation); wrapper gate type(G) is Graph",
+  "parity": {
+    "cases": 50,
+    "native_hits": 50,
+    "mismatches": 0,
+    "golden_sha256": "801b1b28573c60ca6d1326ccba69d1500f5313f086c816b4b5a4f9c3677b72e3",
+    "golden_sha_stable_across_optimizations": true
+  },
+  "pytest": "300 passed (difference/operator/binary), 0 regressions",
+  "bench_warm_min_of_11_ms": {
+    "BA800_diff_self_empty":   {"nx": 0.897, "fnx_before": 2.976, "fnx_after": 0.818, "after_ratio": 0.91, "self_speedup": 3.64},
+    "BA800_minus_sparse_gnp":  {"nx": 2.752, "fnx_after": 1.277, "after_ratio": 0.46},
+    "WS2000_minus_WS":         {"nx": 5.555, "fnx_after": 2.858, "after_ratio": 0.51},
+    "BA3000_diff_self_empty":  {"nx": 3.999, "fnx_after": 4.784, "after_ratio": 1.20, "note": "degenerate self-difference, pathological"}
+  },
+  "headline": "difference BA800 3.28x slower than nx -> 1.10x faster, byte-exact (3.64x self-speedup); realistic residual differences ~2x faster",
+  "scope": "undirected simple Graph only; DiGraph simple-path native difference is a follow-up"
+}

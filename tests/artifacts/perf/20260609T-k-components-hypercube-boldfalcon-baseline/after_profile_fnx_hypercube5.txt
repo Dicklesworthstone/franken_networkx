@@ -1,0 +1,58 @@
+profile which=fnx family=hypercube dim=5
+fnx_file=/data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py
+nx_file=/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py
+Tue Jun  9 16:41:47 2026    /data/tmp/tmpm4fny0d2
+
+         2258 function calls (2257 primitive calls) in 0.002 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      2/1    0.000    0.000    0.002    0.002 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:48407(wrapper)
+        1    0.000    0.000    0.002    0.002 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:43044(k_components)
+        1    0.000    0.000    0.002    0.002 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:42998(_hypercube_k_components)
+       32    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1118(__iter__)
+       32    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33265(_cached_adj_row_key_iter)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1382(_graph_getitem_from_adj)
+       68    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33180(_has_networkx_private_storage)
+      341    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33172(_private_override)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:4142(__call__)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1187(__getitem__)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33766(degree)
+       32    0.000    0.000    0.000    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33686(__contains__)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:34056(<lambda>)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33234(_private_adj_mapping)
+      405    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      437    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       32    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+        4    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33933(number_of_edges)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:17961(number_of_selfloops)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1302(_accessor)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1169(_atlas)
+      192    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:43029(<genexpr>)
+       38    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1321(<lambda>)
+      102    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       96    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.nodes_with_selfloops_rust}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        4    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33676(__len__)
+        4    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:295(number_of_edges)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:33666(__iter__)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:42917(_ordered_prism_k_components)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1320(<lambda>)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:42950(_wheel_k_components)
+       32    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1106(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:4329(_graph_degree)
+       32    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       32    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        4    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x71536ec2a0c0}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:12038(_coerce_arg_to_fnx_graph)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:5712(predicate)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:1164(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:4021(__init__)
+        1    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x71536edba3e0}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_beads_0e9ey_boldfalcon_20260609/python/franken_networkx/__init__.py:21728(_validate_backend_dispatch_keywords)
+
+

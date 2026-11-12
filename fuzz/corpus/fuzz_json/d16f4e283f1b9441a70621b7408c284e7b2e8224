@@ -1,0 +1,2 @@
+{"mode":"strict","directed":{"name":"demo"},"nodes":["a","b"],"edges":[{"ledt":"a","rmght":"b","attrs":{"weight":0}}
+z

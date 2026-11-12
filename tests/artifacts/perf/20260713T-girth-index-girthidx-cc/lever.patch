@@ -1,0 +1,197 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index d7faa8b18..be3924a8d 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -28894,14 +28891,27 @@ pub fn girth(graph: &Graph) -> Option<usize> {
+         return None;
+     }
+ 
++    // br-r37-c1-girthidx (cc): integer-index BFS from every node instead of per-source String-keyed
++    // HashMap<&str, _> `dist`/`parent`. girth runs |V| BFS traversals, so the old kernel paid a String
++    // hash on every dist/parent probe across O(|V|·(|V|+|E|)) steps. Walk `neighbors_indices` over node
++    // INDICES with reusable `dist`/`parent` Vecs, using a per-source epoch stamp (`seen`) to mark
++    // "visited this BFS" with no realloc/O(n)-clear between sources. Byte-identical: `min_girth` is an
++    // order-independent minimum over the same BFS-discovered back-edge cycles; the early-exit
++    // `d_v*2+1 >= min_girth` and the parent-edge skip are unchanged (source has no parent → usize::MAX,
++    // which never equals a real neighbour index).
+     let mut min_girth = usize::MAX;
++    let mut dist: Vec<usize> = vec![0; n];
++    let mut parent: Vec<usize> = vec![usize::MAX; n];
++    let mut seen: Vec<u32> = vec![0; n];
++    let mut epoch: u32 = 0;
++    let mut queue: VecDeque<usize> = VecDeque::new();
+ 
+-    // BFS from each node, looking for the shortest back-edge
+-    for &source in &nodes {
+-        let mut dist: HashMap<&str, usize> = HashMap::new();
+-        let mut parent: HashMap<&str, &str> = HashMap::new();
+-        let mut queue = VecDeque::new();
+-        dist.insert(source, 0);
++    for source in 0..n {
++        epoch += 1;
++        seen[source] = epoch;
++        dist[source] = 0;
++        parent[source] = usize::MAX;
++        queue.clear();
+         queue.push_back(source);
+ 
+         while let Some(v) = queue.pop_front() {
+@@ -28909,20 +28919,21 @@ pub fn girth(graph: &Graph) -> Option<usize> {
+             if d_v * 2 + 1 >= min_girth {
+                 break; // Can't improve
+             }
+-            if let Some(neighbors) = graph.neighbors_iter(v) {
+-                for w in neighbors {
+-                    if let Some(&d_w) = dist.get(w) {
+-                        // Skip parent edge (tree edge in BFS)
+-                        if parent.get(v) == Some(&w) {
++            if let Some(neighbors) = graph.neighbors_indices(v) {
++                for &w in neighbors {
++                    if seen[w] == epoch {
++                        // w already discovered in this BFS; skip the parent (tree) edge.
++                        if parent[v] == w {
+                             continue;
+                         }
+-                        let cycle_len = d_v + d_w + 1;
++                        let cycle_len = d_v + dist[w] + 1;
+                         if cycle_len < min_girth {
+                             min_girth = cycle_len;
+                         }
+                     } else {
+-                        dist.insert(w, d_v + 1);
+-                        parent.insert(w, v);
++                        seen[w] = epoch;
++                        dist[w] = d_v + 1;
++                        parent[w] = v;
+                         queue.push_back(w);
+                     }
+                 }
+@@ -50460,6 +50471,128 @@ mod tests {
+         report("NULL_index_vs_index", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-girthidx: full-function paired-interleaved median A/B for `girth` — inline ORIGINAL
++    /// per-source String-keyed BFS (HashMap<&str,usize> dist + HashMap<&str,&str> parent) vs the shipped
++    /// integer-index stamped BFS. Large ring (girth = |V|) so BFS from each node runs deep and the
++    /// String hashing over O(|V|·(|V|+|E|)) steps dominates. Result parity asserted first. `#[ignore]`;
++    /// run with `cargo test --release -p fnx-algorithms --lib girth_idx_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn girth_idx_ab() {
++        use std::collections::{HashMap, VecDeque};
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Ring C_1200 → girth 1200; BFS from every node explores the whole ring (deep BFS).
++        let n_nodes = 1200usize;
++        let mut g = Graph::strict();
++        for i in 0..n_nodes {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            let _ = g.add_edge(i.to_string(), ((i + 1) % n_nodes).to_string());
++        }
++
++        // Inline ORIGINAL String-keyed girth.
++        let old_fn = |graph: &Graph| -> Option<usize> {
++            let nodes = graph.nodes_ordered();
++            let n = nodes.len();
++            if n == 0 {
++                return None;
++            }
++            let mut min_girth = usize::MAX;
++            for &source in &nodes {
++                let mut dist: HashMap<&str, usize> = HashMap::new();
++                let mut parent: HashMap<&str, &str> = HashMap::new();
++                let mut queue = VecDeque::new();
++                dist.insert(source, 0);
++                queue.push_back(source);
++                while let Some(v) = queue.pop_front() {
++                    let d_v = dist[v];
++                    if d_v * 2 + 1 >= min_girth {
++                        break;
++                    }
++                    if let Some(neighbors) = graph.neighbors_iter(v) {
++                        for w in neighbors {
++                            if let Some(&d_w) = dist.get(w) {
++                                if parent.get(v) == Some(&w) {
++                                    continue;
++                                }
++                                let cycle_len = d_v + d_w + 1;
++                                if cycle_len < min_girth {
++                                    min_girth = cycle_len;
++                                }
++                            } else {
++                                dist.insert(w, d_v + 1);
++                                parent.insert(w, v);
++                                queue.push_back(w);
++                            }
++                        }
++                    }
++                }
++            }
++            if min_girth == usize::MAX {
++                None
++            } else {
++                Some(min_girth)
++            }
++        };
++
++        assert_eq!(
++            old_fn(&g),
++            super::girth(&g),
++            "integer-index girth must be byte-identical to the String-keyed BFS"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand { super::girth(&g) } else { old_fn(&g) };
++            black_box(r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "GIRTHIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("GIRTHIDX_AB girth ring-1200 rounds={rounds} (>1 = index faster)");
++        report("INDEX_vs_string", &paired(true, false));
++        report("NULL_index_vs_index", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact

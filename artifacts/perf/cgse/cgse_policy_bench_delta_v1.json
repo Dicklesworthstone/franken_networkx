@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "cgse-policy-bench-delta-v1",
+  "baseline_path": "artifacts/perf/cgse/cgse_policy_bench_baseline_v1.json",
+  "candidate_path": "artifacts/perf/cgse/cgse_policy_bench_candidate_v1.json",
+  "latency_ms": {
+    "p50_delta_ms": -321.1854271357879,
+    "p95_delta_ms": -323.7239376758225,
+    "p99_delta_ms": -320.2461098902859,
+    "p50_pct": -27.592819503419395,
+    "p95_pct": -26.47955905444691,
+    "p99_pct": -26.09058456546852,
+    "baseline": {
+      "p50": 1164.0181500697508,
+      "p95": 1222.5427810568362,
+      "p99": 1227.439381768927,
+      "mean": 1172.6288531374719
+    },
+    "candidate": {
+      "p50": 842.8327229339629,
+      "p95": 898.8188433810137,
+      "p99": 907.1932718786411,
+      "mean": 855.3636422813205
+    }
+  },
+  "memory_kb": {
+    "p50_delta_kb": 1028,
+    "p95_delta_kb": 1056.4,
+    "p99_delta_kb": 1059.2800000000002,
+    "p50_pct": 95.18518518518519,
+    "p95_pct": 97.4538745387454,
+    "p99_pct": 97.71955719557197,
+    "baseline": {
+      "p50": 1080,
+      "p95": 1084.0,
+      "p99": 1084.0,
+      "mean": 1073.142857142857
+    },
+    "candidate": {
+      "p50": 2108,
+      "p95": 2140.4,
+      "p99": 2143.28,
+      "mean": 1678.857142857143
+    }
+  },
+  "notes": {
+    "single_lever": "Replace per-call format!(\"{}::{}\", family, rule_id.to_lowercase()) with precomputed CgsePolicyRule::operation_key() + to_owned() to eliminate lowercase conversion/formatting in hot path."
+  }
+}

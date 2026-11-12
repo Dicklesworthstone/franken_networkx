@@ -1,0 +1,3 @@
+{"case": "grid_8_8_8", "fallback_s": 0.006832488049985841, "fallback_size": [512, 1344], "native_s": 0.0006837122491560876, "native_size": [512, 1344], "speedup": 9.993221649047891}
+{"case": "hypercube_10", "fallback_s": 0.03402805715159048, "fallback_size": [1024, 5120], "native_s": 0.002936251150094904, "native_size": [1024, 5120], "speedup": 11.588946385083796}
+{"case": "hypercube_13", "fallback_s": 0.4043177588027902, "fallback_size": [8192, 53248], "native_s": 0.03855556841008365, "native_size": [8192, 53248], "speedup": 10.486624253658952}

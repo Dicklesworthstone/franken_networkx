@@ -1,0 +1,40 @@
+         545915 function calls (545911 primitive calls) in 0.211 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.061    0.002    0.211    0.007 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:15184(average_clustering)
+    30000    0.038    0.000    0.095    0.000 /usr/lib/python3.13/random.py:363(sample)
+    60053    0.024    0.000    0.037    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+    35652    0.035    0.000    0.035    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7ea85b13a700}
+    30330    0.007    0.000    0.018    0.000 {built-in method builtins.isinstance}
+    80072    0.013    0.000    0.013    0.000 {method 'get' of 'dict' objects}
+    30000    0.005    0.000    0.010    0.000 <frozen abc>:117(__instancecheck__)
+    96091    0.007    0.000    0.007    0.000 {method 'getrandbits' of '_random.Random' objects}
+    60053    0.006    0.000    0.006    0.000 {method 'bit_length' of 'int' objects}
+    60030    0.005    0.000    0.005    0.000 {built-in method builtins.len}
+    30000    0.005    0.000    0.005    0.000 {built-in method _abc._abc_instancecheck}
+    30000    0.003    0.000    0.003    0.000 {method 'random' of '_random.Random' objects}
+       30    0.000    0.000    0.001    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:23503(_generator_random_state)
+       30    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+     2814    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33737(__iter__)
+       30    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+       30    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:128(seed)
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33260(_raw_neighbors_dispatch)
+      180    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33243(_private_override)
+       30    0.000    0.000    0.000    0.000 {function Random.seed at 0x7ea85a3df9c0}
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33251(_has_networkx_private_storage)
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:12061(_coerce_arg_to_fnx_graph)
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:5735(predicate)
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:23507(_NumpyRandIntAdapter)
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:33747(__len__)
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      3/1    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+       30    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7ea85b0da840}
+      3/1    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       30    0.000    0.000    0.000    0.000 /data/projects/franken_networkx_cod_linalg_3nzg8/python/franken_networkx/__init__.py:21790(_validate_backend_dispatch_keywords)
+        3    0.000    0.000    0.000    0.000 <frozen _collections_abc>:345(__subclasshook__)
+
+

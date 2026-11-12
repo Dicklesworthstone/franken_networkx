@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260614T-digraph-attr-mirror-copy-boldfalcon/digraph_attr_construction_harness.py once --impl fnx --loops 30",
+      "mean": 0.8801893567200002,
+      "stddev": 0.08798140295369387,
+      "median": 0.8935155001200001,
+      "user": 5.18672464,
+      "system": 0.08119753999999998,
+      "min": 0.7457793266200001,
+      "max": 0.9853030626200001,
+      "times": [
+        0.8177420996200001,
+        0.8959479266200001,
+        0.9853030626200001,
+        0.9610077756200001,
+        0.89108307362,
+        0.9449635376200001,
+        0.8458714486200001,
+        0.74913134562,
+        0.7457793266200001,
+        0.9650639706200002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260614T-digraph-attr-mirror-copy-boldfalcon/digraph_attr_construction_harness.py once --impl nx --loops 30",
+      "mean": 0.60705988732,
+      "stddev": 0.03705715630885841,
+      "median": 0.5963871816200002,
+      "user": 4.83347224,
+      "system": 0.09466363999999998,
+      "min": 0.5604743536200001,
+      "max": 0.6742104606200001,
+      "times": [
+        0.5896256496200001,
+        0.6336112016200001,
+        0.5882491416200001,
+        0.6250018946200001,
+        0.5604743536200001,
+        0.5605342576200001,
+        0.6025940636200001,
+        0.5901802996200001,
+        0.6461175506200001,
+        0.6742104606200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

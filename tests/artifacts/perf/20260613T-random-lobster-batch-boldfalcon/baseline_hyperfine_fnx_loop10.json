@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "python3 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/random_lobster_harness.py --repo-root /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z --extension /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/baseline_lib_fnx.so bench --impl fnx --loops 10 --warmups 2 >/dev/null",
+      "mean": 0.33947073084,
+      "stddev": 0.016284714166369972,
+      "median": 0.33997316024,
+      "user": 4.67222408,
+      "system": 0.07974672,
+      "min": 0.31493358124000004,
+      "max": 0.36767735524,
+      "times": [
+        0.34973705824,
+        0.32279879324000005,
+        0.34125330523999997,
+        0.36767735524,
+        0.33869301524000006,
+        0.32288805124,
+        0.35734479024,
+        0.31493358124000004,
+        0.34160698524,
+        0.33777437324000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

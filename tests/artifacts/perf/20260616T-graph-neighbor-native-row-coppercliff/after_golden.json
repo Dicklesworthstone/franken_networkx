@@ -1,0 +1,222 @@
+{
+  "fixture": {
+    "nodes": 2400,
+    "probability": 0.0045,
+    "seed": 23
+  },
+  "golden_sha256": "516ad47facf5cf86cade0bb8ec8fd77863104349445edea0e49519e9b57f1180",
+  "metadata": {
+    "franken_networkx_file": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "Graph(gnp_random_graph(n, p, seed))",
+      "n": 2400,
+      "p": 0.0045,
+      "seed": 23
+    },
+    "head": "c02f3f208330838068bc59512a7bc8bf6630cb02",
+    "head_short": "c02f3f208 perf(graph): specialize neighbors row cache",
+    "networkx_file": "/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin",
+    "workload": "[list(G.neighbors(n)) for n in G.nodes()]"
+  },
+  "missing": {
+    "fnx": {
+      "message": "The node missing is not in the graph.",
+      "type": "NetworkXError"
+    },
+    "nx": {
+      "message": "The node missing is not in the graph.",
+      "type": "NetworkXError"
+    }
+  },
+  "mutation": {
+    "fnx": {
+      "first": 128,
+      "message": "dictionary changed size during iteration",
+      "type": "RuntimeError"
+    },
+    "nx": {
+      "first": 128,
+      "message": "dictionary changed size during iteration",
+      "type": "RuntimeError"
+    }
+  },
+  "neighbors": {
+    "fnx_sha256": "b99171852c6eeb1d713fec332be3c5adae9270e08127abedd6b2ac02014954f4",
+    "match": true,
+    "nx_sha256": "b99171852c6eeb1d713fec332be3c5adae9270e08127abedd6b2ac02014954f4",
+    "rows": 2400,
+    "samples": {
+      "first_5": [
+        [
+          128,
+          338,
+          545,
+          564,
+          595,
+          1090,
+          1160,
+          1225,
+          1285,
+          1297,
+          1345,
+          1506,
+          1601,
+          1616,
+          1669,
+          1696,
+          1821
+        ],
+        [
+          320,
+          714,
+          1288,
+          1548,
+          1842,
+          2027,
+          2263,
+          2374
+        ],
+        [
+          246,
+          491,
+          529,
+          574,
+          703,
+          733,
+          878,
+          893,
+          1185,
+          1637,
+          2049
+        ],
+        [
+          206,
+          223,
+          227,
+          532,
+          718,
+          719,
+          906,
+          1137,
+          1153,
+          1430,
+          1477,
+          1537,
+          1550,
+          1620,
+          1906
+        ],
+        [
+          96,
+          145,
+          156,
+          383,
+          574,
+          1464,
+          1634,
+          1717,
+          1909,
+          1999,
+          2010,
+          2125,
+          2153
+        ]
+      ],
+      "last_5": [
+        [
+          237,
+          265,
+          317,
+          431,
+          699,
+          743,
+          757,
+          799,
+          955,
+          1004,
+          1059,
+          1145,
+          1337,
+          1489,
+          1864,
+          1940,
+          2074,
+          2151,
+          2393
+        ],
+        [
+          227,
+          376,
+          692,
+          744,
+          807,
+          932,
+          1079,
+          1115,
+          1287,
+          1337,
+          1496,
+          1644,
+          1757,
+          1761,
+          2051,
+          2072
+        ],
+        [
+          98,
+          339,
+          591,
+          884,
+          1218,
+          1350,
+          1418,
+          1616,
+          2236
+        ],
+        [
+          608,
+          841,
+          1110,
+          1176,
+          1420,
+          1528,
+          2348
+        ],
+        [
+          365,
+          503,
+          602,
+          615,
+          984,
+          1200,
+          1227,
+          1875,
+          1903
+        ]
+      ]
+    }
+  },
+  "private_override": {
+    "fnx": [
+      2,
+      1
+    ],
+    "nx": [
+      2,
+      1
+    ]
+  },
+  "unhashable": {
+    "fnx": {
+      "message": "unhashable type: 'list'",
+      "type": "TypeError"
+    },
+    "nx": {
+      "message": "unhashable type: 'list'",
+      "type": "TypeError"
+    }
+  }
+}

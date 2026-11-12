@@ -1,0 +1,58 @@
+{
+  "parity": {
+    "cartesian_product": {
+      "checks": 25,
+      "fails": 0
+    },
+    "tensor_product": {
+      "checks": 25,
+      "fails": 0
+    },
+    "lexicographic_product": {
+      "checks": 25,
+      "fails": 0
+    },
+    "strong_product": {
+      "checks": 25,
+      "fails": 0
+    },
+    "modular_product": {
+      "checks": 25,
+      "fails": 0
+    },
+    "corona_product": {
+      "checks": 25,
+      "fails": 0
+    },
+    "rooted_product": {
+      "checks": 1,
+      "fails": 0
+    },
+    "power": {
+      "checks": 1,
+      "fails": 0
+    }
+  },
+  "speedup": {
+    "cartesian_product": {
+      "routed_ms": 9.96,
+      "genuine_nx_ms": 31.81,
+      "speedup_vs_nx": 3.19
+    },
+    "tensor_product": {
+      "routed_ms": 29.12,
+      "genuine_nx_ms": 136.25,
+      "speedup_vs_nx": 4.68
+    },
+    "strong_product": {
+      "routed_ms": 43.51,
+      "genuine_nx_ms": 172.54,
+      "speedup_vs_nx": 3.97
+    },
+    "lexicographic_product": {
+      "routed_ms": 481.56,
+      "genuine_nx_ms": 917.41,
+      "speedup_vs_nx": 1.91
+    }
+  }
+}

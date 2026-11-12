@@ -1,0 +1,10 @@
+*Vertices!"zero"
+3 "huge"
+*Edges
+1 +2 1
+2 3 0
+3 1 1e3"huge"
+*Edges
+1 +2 1
+2 3 0
+3 1 1e3

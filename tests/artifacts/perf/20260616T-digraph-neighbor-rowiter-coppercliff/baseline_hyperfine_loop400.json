@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/.worktrees/franken_networkx-coppercliff-9119-baseline/python python3 tests/artifacts/perf/20260616T-digraph-neighbor-rowiter-coppercliff/digraph_neighbor_rowiter_harness.py bench-fnx --kind pred --loops 400",
+      "mean": 0.99154095108,
+      "stddev": 0.025986074313164718,
+      "median": 1.00138014248,
+      "user": 5.00635054,
+      "system": 0.06490082,
+      "min": 0.9558173694800001,
+      "max": 1.02166441248,
+      "times": [
+        0.9558173694800001,
+        1.00376910648,
+        0.9750737244800001,
+        1.00138014248,
+        1.02166441248
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/.worktrees/franken_networkx-coppercliff-9119-baseline/python python3 tests/artifacts/perf/20260616T-digraph-neighbor-rowiter-coppercliff/digraph_neighbor_rowiter_harness.py bench-fnx --kind succ --loops 400",
+      "mean": 1.00486506008,
+      "stddev": 0.042791339862411064,
+      "median": 1.02347823048,
+      "user": 5.141807739999999,
+      "system": 0.06411742,
+      "min": 0.93182399448,
+      "max": 1.03593688848,
+      "times": [
+        0.93182399448,
+        1.03593688848,
+        1.00231747848,
+        1.0307687084800001,
+        1.02347823048
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python python3 tests/artifacts/perf/20260616T-digraph-neighbor-rowiter-coppercliff/digraph_neighbor_rowiter_harness.py bench-nx --kind pred --loops 400",
+      "mean": 0.72159185488,
+      "stddev": 0.03762786253547635,
+      "median": 0.71619394648,
+      "user": 4.875446139999999,
+      "system": 0.06306022,
+      "min": 0.67563716748,
+      "max": 0.78030210548,
+      "times": [
+        0.72283706948,
+        0.71298898548,
+        0.78030210548,
+        0.71619394648,
+        0.67563716748
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python python3 tests/artifacts/perf/20260616T-digraph-neighbor-rowiter-coppercliff/digraph_neighbor_rowiter_harness.py bench-nx --kind succ --loops 400",
+      "mean": 0.6914718164800001,
+      "stddev": 0.03349474744927525,
+      "median": 0.68172914648,
+      "user": 4.851598139999999,
+      "system": 0.06891062,
+      "min": 0.65072514148,
+      "max": 0.73601625348,
+      "times": [
+        0.68172914648,
+        0.67533271048,
+        0.71355583048,
+        0.65072514148,
+        0.73601625348
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

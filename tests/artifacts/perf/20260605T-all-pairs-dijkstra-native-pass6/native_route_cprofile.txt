@@ -1,0 +1,38 @@
+         830284 function calls in 3.471 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.062    0.062    3.471    3.471 <stdin>:13(run)
+     9720    0.289    0.000    3.408    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:12496(all_pairs_dijkstra)
+      120    2.546    0.021    2.546    0.021 {built-in method franken_networkx._fnx.all_pairs_dijkstra}
+     9720    0.444    0.000    0.446    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:45476(__iter__)
+     9600    0.005    0.000    0.117    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:15278(_reorder_by_distance)
+     9600    0.068    0.000    0.112    0.000 {built-in method builtins.sorted}
+   768000    0.044    0.000    0.044    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:15293(<lambda>)
+      120    0.000    0.000    0.006    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:6478(_graph_has_nonunit_weight)
+      120    0.000    0.000    0.006    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:6412(_sync_rust_edge_attrs)
+      120    0.005    0.000    0.005    0.000 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+    10080    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+      120    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:6341(_should_delegate_dijkstra_to_networkx)
+      120    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:31376(nodes)
+     9600    0.001    0.000    0.001    0.000 {method 'keys' of 'dict' objects}
+      120    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:45277(wrapper)
+      361    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+      120    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:11579(_coerce_arg_to_fnx_graph)
+      120    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:938(wrapped)
+      120    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+      120    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:5505(predicate)
+      120    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:30943(_private_override)
+      720    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      360    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x737ccf61b100}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      360    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+      120    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-pass6-20260605T212540Z/python/franken_networkx/__init__.py:20329(_validate_backend_dispatch_keywords)
+      240    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 <stdin>:11(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+
+

@@ -1,0 +1,92 @@
+{
+  "results": [
+    {
+      "command": "env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py bench --impl fnx --n 1400 --loops 80",
+      "mean": 0.5055072355733333,
+      "stddev": 0.01900913252925198,
+      "median": 0.50754037724,
+      "user": 4.6288987,
+      "system": 0.08205494666666667,
+      "min": 0.47338479324000005,
+      "max": 0.54429182024,
+      "times": [
+        0.51303800524,
+        0.50754037724,
+        0.52870744124,
+        0.49255170124000003,
+        0.47338479324000005,
+        0.51386616524,
+        0.48400105324000003,
+        0.48641692824000005,
+        0.51513936624,
+        0.48902993524000005,
+        0.49611403824000005,
+        0.54429182024,
+        0.51547876024,
+        0.52235569124,
+        0.50069245724
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py bench --impl nx --n 1400 --loops 80",
+      "mean": 0.72019418284,
+      "stddev": 0.032930037584190844,
+      "median": 0.71989087424,
+      "user": 4.718234633333332,
+      "system": 0.07756461333333335,
+      "min": 0.65784611724,
+      "max": 0.77879720024,
+      "times": [
+        0.77879720024,
+        0.7430816622399999,
+        0.76018215824,
+        0.69799530424,
+        0.67433812524,
+        0.72058497324,
+        0.72723438324,
+        0.68372446824,
+        0.7582525892399999,
+        0.71614856724,
+        0.73508903724,
+        0.71989087424,
+        0.65784611724,
+        0.71185257624,
+        0.71789470624
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

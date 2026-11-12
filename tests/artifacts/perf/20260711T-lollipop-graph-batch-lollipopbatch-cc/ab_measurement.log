@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib lollipop_batch_ab -- --ignored --nocapture
+
+running 1 test
+LOLLIPOP_BATCH_AB m=800 n=10 rounds=61 (>1 = batch faster)
+LOLLIPOP_BATCH_AB BATCH_vs_string: median=13.2854x win_rate=61/61 p5_p95=[9.5126,22.8564]
+LOLLIPOP_BATCH_AB NULL_batch_vs_batch: median=0.9896x win_rate=26/61 p5_p95=[0.8417,1.2266]
+test tests::lollipop_batch_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 203 filtered out; finished in 40.72s
+
+Gate: candidate p5 (9.5126) >> NULL p95 (1.2266); 61/61 rounds. Byte-identity parity asserts in the
+A/B test (edges_ordered_borrowed + nodes_ordered) passed before timing.

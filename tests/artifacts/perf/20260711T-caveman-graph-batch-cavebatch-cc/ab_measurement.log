@@ -1,0 +1,4 @@
+CAVE_BATCH_AB l=100 k=60 rounds=61 (>1 = batch faster)
+CAVE_BATCH_AB BATCH_vs_string: median=3.8550x win_rate=61/61 p5_p95=[3.1643,26.0222]
+CAVE_BATCH_AB NULL_batch_vs_batch: median=1.0032x win_rate=32/61 p5_p95=[0.8342,1.2169]
+parity: edges_ordered_borrowed + nodes_ordered IDENTICAL (l disjoint cliques) -> byte-identical

@@ -1,0 +1,174 @@
+diff --git a/crates/fnx-python/src/algorithms.rs b/crates/fnx-python/src/algorithms.rs
+index 0c2413441..9fd9a4fd6 100644
+--- a/crates/fnx-python/src/algorithms.rs
++++ b/crates/fnx-python/src/algorithms.rs
+@@ -5310,6 +5310,58 @@ fn multigraph_sssp_length_with_parents<'a>(
+     mg: &'a fnx_classes::MultiGraph,
+     source: &str,
+     cutoff: Option<usize>,
++) -> Vec<(&'a str, usize, Option<&'a str>)> {
++    use std::collections::VecDeque;
++    // br-r37-c1-thp6w slice 2 (cc): BFS over the memoized INTEGER adjacency
++    // (`with_int_adjacency`) with a `Vec<bool>` mark array + integer queue, instead of a
++    // fresh `mg.neighbors(node)` `Vec<&str>` alloc per pop + a `HashSet<&str>` (String
++    // hashing). `adj[i]` lists the distinct neighbors of node `i` in the SAME adjacency-row
++    // order `mg.neighbors` yields, so BFS discovery order — hence every `(node, length,
++    // parent)` tuple — is byte-identical; indices map back through `nodes` at the end.
++    // On repeated single-source calls over an unmutated graph (all-pairs), the memo is
++    // built once and reused across every source.
++    let nodes = mg.nodes_ordered();
++    let Some(source_idx) = mg.get_node_index(source) else {
++        return Vec::new();
++    };
++    let n = nodes.len();
++    let discovered: Vec<(usize, usize, Option<usize>)> = mg.with_int_adjacency(|adj| {
++        let mut visited = vec![false; n];
++        let mut disc: Vec<(usize, usize, Option<usize>)> = Vec::new();
++        visited[source_idx] = true;
++        disc.push((source_idx, 0, None));
++        let mut queue: VecDeque<(usize, usize)> = VecDeque::new();
++        queue.push_back((source_idx, 0));
++        while let Some((node, dist)) = queue.pop_front() {
++            if let Some(c) = cutoff
++                && dist >= c
++            {
++                continue;
++            }
++            for &v in &adj[node] {
++                if !visited[v] {
++                    visited[v] = true;
++                    disc.push((v, dist + 1, Some(node)));
++                    queue.push_back((v, dist + 1));
++                }
++            }
++        }
++        disc
++    });
++    discovered
++        .into_iter()
++        .map(|(ni, d, pi)| (nodes[ni], d, pi.map(|p| nodes[p])))
++        .collect()
++}
++
++/// br-r37-c1-thp6w slice 2 A/B baseline: the pre-lever `multigraph_sssp_length_with_parents`
++/// (fresh `mg.neighbors(node)` `Vec<&str>` per pop + `HashSet<&str>` visited). Test-only;
++/// byte-identical to the integer-adjacency version.
++#[cfg(test)]
++fn multigraph_sssp_length_with_parents_orig_string<'a>(
++    mg: &'a fnx_classes::MultiGraph,
++    source: &str,
++    cutoff: Option<usize>,
+ ) -> Vec<(&'a str, usize, Option<&'a str>)> {
+     use std::collections::{HashSet, VecDeque};
+     let mut out: Vec<(&'a str, usize, Option<&'a str>)> = Vec::new();
+@@ -26206,6 +26258,110 @@ mod tests {
+         Python::initialize();
+     }
+ 
++    /// br-r37-c1-thp6w slice 2: paired-interleaved median A/B for the integer-adjacency
++    /// (`with_int_adjacency` + `Vec<bool>`) MultiGraph BFS vs the pre-lever String BFS
++    /// (`mg.neighbors` `Vec<&str>` per pop + `HashSet<&str>`), in ONE binary / ONE worker
++    /// with a NULL control. Measures the ALL-PAIRS scenario (BFS from every node) so the
++    /// revision-keyed memo is built once and reused across sources — the maintained-mirror
++    /// win. `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-python --lib mg_bfs_intadj_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn mg_bfs_intadj_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Deterministic connected MultiGraph: a ring (connectivity) + pseudo-random chords
++        // and some parallel edges (so rows have several distinct neighbors). All-pairs BFS
++        // over it exercises V independent single-source calls reusing one memo.
++        let n = 400usize;
++        let mut g = MultiGraph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + 1) % n));
++        }
++        for i in 0..n {
++            for k in [7usize, 19, 43] {
++                let j = (i.wrapping_mul(1_000_003).wrapping_add(k)) % n;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++        let names: Vec<String> = g.nodes_ordered().iter().map(|s| (*s).to_owned()).collect();
++
++        // Byte-exact parity: integer BFS == String BFS for EVERY source.
++        for src in &names {
++            assert_eq!(
++                super::multigraph_sssp_length_with_parents(&g, src, None),
++                super::multigraph_sssp_length_with_parents_orig_string(&g, src, None),
++                "integer-adjacency MultiGraph BFS must equal the String baseline for {src}"
++            );
++        }
++
++        // All-pairs: BFS from every node. `lever` picks the integer or String primitive.
++        let all_pairs = |lever: bool| -> usize {
++            let mut acc = 0usize;
++            for src in &names {
++                let r = if lever {
++                    super::multigraph_sssp_length_with_parents(&g, src, None)
++                } else {
++                    super::multigraph_sssp_length_with_parents_orig_string(&g, src, None)
++                };
++                acc = acc.wrapping_add(r.len());
++            }
++            acc
++        };
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(all_pairs(lever));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "MG_BFS_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("MG_BFS_AB n={n} all_pairs rounds={rounds} (>1 = integer-adjacency faster)");
++        report("INTADJ_vs_string", &paired(true, false));
++        report("NULL_intadj_vs_intadj", &paired(true, true));
++    }
++
+     /// br-r37-c1-mgdt3: paired-interleaved median A/B of the interned-keys allocation
+     /// lever against its exact pre-change baseline, inside ONE binary / ONE worker so
+     /// there is no cross-worker ratio noise. Also runs a NULL control (interned vs

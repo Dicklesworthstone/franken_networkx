@@ -1,0 +1,63 @@
+{
+  "suite": "components_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d"
+    },
+    {
+      "op": "add_node",
+      "node": "solo"
+    },
+    {
+      "op": "connected_components_query"
+    },
+    {
+      "op": "number_connected_components_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "solo"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "connected_components": [
+      [
+        "a",
+        "b"
+      ],
+      [
+        "c",
+        "d"
+      ],
+      [
+        "solo"
+      ]
+    ],
+    "number_connected_components": 3
+  }
+}

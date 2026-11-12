@@ -1,0 +1,111 @@
+bead=br-r37-c1-2a00r which=fnx cases=['edges', 'edges_data_true', 'edges_data_w', 'out_edges_data_true', 'edges_data_view_w'] loops=20 checksum=4000000
+graph=DiGraph nodes=5000 edges=40000 warmup_calls=2
+         3202941 function calls in 1.544 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.000    0.000    1.544    0.015 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:100(run_case)
+       80    0.085    0.001    0.694    0.009 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1708(__call__)
+       40    0.593    0.015    0.593    0.015 {method '_native_edges_data_key' of 'franken_networkx.DiGraph' objects}
+       20    0.077    0.004    0.586    0.029 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:94(<lambda>)
+  3200080    0.490    0.000    0.490    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       20    0.054    0.003    0.486    0.024 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:96(<lambda>)
+       20    0.000    0.000    0.322    0.016 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5026(_edge_view_data)
+       20    0.049    0.002    0.249    0.012 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:92(<lambda>)
+       20    0.063    0.003    0.204    0.010 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:93(<lambda>)
+       20    0.000    0.000    0.095    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1672(__iter__)
+       20    0.018    0.001    0.095    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1666(_materialize)
+       20    0.078    0.004    0.078    0.004 {method '_native_edges_no_data' of 'franken_networkx.DiGraph' objects}
+       40    0.018    0.000    0.018    0.000 {method '_native_edges_with_data' of 'franken_networkx.DiGraph' objects}
+       20    0.006    0.000    0.017    0.001 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:95(<lambda>)
+       20    0.000    0.000    0.011    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6289(__call__)
+       20    0.000    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:183(_digraph_out_edges)
+      100    0.008    0.000    0.008    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5016(_wrap_edge_data_view)
+       80    0.000    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36984(edges)
+       80    0.000    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2194(__iter__)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+       80    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:90(target_cases)
+       80    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+      180    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36386(_has_networkx_private_storage)
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:475(_guarded_edge_list)
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      260    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      220    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1682(__len__)
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6164(predicate)
+       80    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      120    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37198(number_of_edges)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6507(getter)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7308b658ade0}
+       20    0.000    0.000    0.000    0.000 {function DiGraph.number_of_edges at 0x7308b65e7a60}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6219(__init__)
+
+
+
+--- tottime ---
+         3202941 function calls in 1.544 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       40    0.593    0.015    0.593    0.015 {method '_native_edges_data_key' of 'franken_networkx.DiGraph' objects}
+  3200080    0.490    0.000    0.490    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       80    0.085    0.001    0.694    0.009 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1708(__call__)
+       20    0.078    0.004    0.078    0.004 {method '_native_edges_no_data' of 'franken_networkx.DiGraph' objects}
+       20    0.077    0.004    0.586    0.029 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:94(<lambda>)
+       20    0.063    0.003    0.204    0.010 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:93(<lambda>)
+       20    0.054    0.003    0.486    0.024 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:96(<lambda>)
+       20    0.049    0.002    0.249    0.012 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:92(<lambda>)
+       40    0.018    0.000    0.018    0.000 {method '_native_edges_with_data' of 'franken_networkx.DiGraph' objects}
+       20    0.018    0.001    0.095    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1666(_materialize)
+      100    0.008    0.000    0.008    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5016(_wrap_edge_data_view)
+       20    0.006    0.000    0.017    0.001 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:95(<lambda>)
+       80    0.000    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       80    0.000    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36984(edges)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+       80    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:90(target_cases)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2194(__iter__)
+       20    0.000    0.000    0.011    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6289(__call__)
+      100    0.000    0.000    1.544    0.015 /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py:100(run_case)
+      180    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       60    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:475(_guarded_edge_list)
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      260    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      220    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       80    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+       20    0.000    0.000    0.322    0.016 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5026(_edge_view_data)
+      180    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36386(_has_networkx_private_storage)
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       80    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       20    0.000    0.000    0.095    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1672(__iter__)
+      120    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6164(predicate)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6507(getter)
+       20    0.000    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:183(_digraph_out_edges)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1682(__len__)
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37198(number_of_edges)
+       20    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7308b658ade0}
+       20    0.000    0.000    0.000    0.000 {function DiGraph.number_of_edges at 0x7308b65e7a60}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6219(__init__)
+
+
+
+--- guard-token relevant frames ---
+{"cumtime": 0.48968853100000004, "filename": "/data/projects/franken_networkx/python/franken_networkx/__init__.py", "function": "_gen", "line": 439, "primitive_calls": 3200080, "total_calls": 3200080, "tottime": 0.48968853100000004}
+{"cumtime": 0.0007621160000000001, "filename": "/data/projects/franken_networkx/python/franken_networkx/__init__.py", "function": "_FailFastEdgeIterator", "line": 414, "primitive_calls": 80, "total_calls": 80, "tottime": 0.00041502600000000003}
+{"cumtime": 0.000222341, "filename": "/data/projects/franken_networkx/python/franken_networkx/__init__.py", "function": "_guarded_edge_list", "line": 475, "primitive_calls": 60, "total_calls": 60, "tottime": 0.000184529}

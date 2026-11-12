@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib turan_graph_batch_ab -- --ignored --nocapture
+
+TURAN_BATCH_AB T300_5 rounds=61 (>1 = batch faster)
+TURAN_BATCH_AB BATCH_vs_string: median=25.4229x win_rate=61/61 p5_p95=[17.3829,31.5429]
+TURAN_BATCH_AB NULL_batch_vs_batch: median=0.9975x win_rate=30/61 p5_p95=[0.8812,1.1438]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 990 filtered out; finished in 3.24s
+
+Marker TURAN_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) on T(300,5) passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib turan -- --nocapture
+test tests::test_turan_graph ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~33856-33874 / test ~69174-69268)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

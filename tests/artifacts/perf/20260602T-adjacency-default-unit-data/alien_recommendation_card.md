@@ -1,0 +1,22 @@
+# Alien Recommendation Card: sparse default adjacency unit data
+
+- Pass: 27
+- Bead: `br-r37-c1-04z53.11`, default sparse adjacency export
+- Target: `fnx.adjacency_matrix(G)` / `to_scipy_sparse_array(..., dtype=None, weight="weight")` on BA(8000, 4, seed=42)
+- Profile evidence:
+  - Baseline sampled-call mean: 0.04150113813011558 s, digest `987fb0c41578a61146699304815a73d3c6d70160384e8fb3046d1d0c7b7d13c6`.
+  - Baseline cProfile spent 0.114 s in `_fnx.adjacency_arrays` and 0.021 s in `_fnx.graph_has_edge_attr` across 5 calls.
+  - After cProfile spends the native work in `_fnx.adjacency_index_arrays`; the separate edge-attribute scan is gone.
+- Alien primitive:
+  - Source: `/data/projects/alien_cs_graveyard/alien_cs_graveyard.md`.
+  - Applied principle: make the narrowest drop-in interface that cuts representation work, then measure the constants.
+  - Translation: for the absent-weight default path, collect only COO row/column indices and prove absence of a Python-visible weight attr in the same scan.
+- Lever:
+  - Added `adjacency_index_arrays` in `fnx-python`.
+  - Routed default sparse export to create unit data directly in Python after the fused native index probe.
+  - Kept weighted and present-weight cases on the existing behavior-preserving paths.
+- Score:
+  - Impact 3 x Confidence 4 / Effort 2 = 6.0.
+  - Keep threshold is 2.0; this slice clears it.
+- Fallback:
+  - If any Python-visible weight attr is found, the helper returns `None` and the wrapper falls back to the legacy Python path for dtype inference and weighted values.

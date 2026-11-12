@@ -1,0 +1,22 @@
+{
+  "elapsed_s": 0.2205727079999633,
+  "loops": 220,
+  "metadata": {
+    "franken_networkx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "Graph(gnp_random_graph(n, p, seed))",
+      "n": 2400,
+      "p": 0.0045,
+      "seed": 23
+    },
+    "head": "bb37f5f2d8e6d9ee4c56ec6356aa2fabe2b41b0b",
+    "head_short": "bb37f5f2d docs(perf): record star certificate validation",
+    "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/franken_networkx",
+    "workload": "[list(G.neighbors(n)) for n in G.nodes()]"
+  },
+  "output_sha256": "b99171852c6eeb1d713fec332be3c5adae9270e08127abedd6b2ac02014954f4",
+  "seconds_per_loop": 0.0010026032181816515
+}

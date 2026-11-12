@@ -1,0 +1,12 @@
+Traceback (most recent call last):
+  File "/data/projects/franken_networkx/scripts/perf_harness.py", line 7181, in <module>
+    raise SystemExit(main(sys.argv))
+                     ~~~~^^^^^^^^^^
+  File "/data/projects/franken_networkx/scripts/perf_harness.py", line 7160, in main
+    "pre_setup": require_host_wide_quiescence("pre_setup"),
+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/data/projects/franken_networkx/scripts/perf_harness.py", line 738, in require_host_wide_quiescence
+    raise RuntimeError(
+    ...<4 lines>...
+    )
+RuntimeError: host-wide benchmark exclusivity failed at pre_setup after 300 windows; required 5 consecutive clear windows: cpu19=100.0%, cpu20=60.6%, cpu22=81.0%, cpu23=91.1%, cpu48=99.0%, cpu49=21.2%, cpu50=93.0%

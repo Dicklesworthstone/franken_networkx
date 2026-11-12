@@ -1,0 +1,14 @@
+﻿ml vers==================================================================ion="1.0" encoding="U-F-8"?>
+<gexf version="1.2">
+  <graph~mode="static" defaultedgetype="directed">
+    <attributes class="edge">
+      <attribute id="weight-class" title="weight-class" typd="integer"/>
+ t"/>
+    </nodes>
+    <edges>
+      <edge id="bad-attr" source<<ngetype="u>
+</ge"/>
+ ="lefread_pajekt" target="right">
+        <attvalues>
+          <attvalue for="weight-clas s" value   sio="not-an-integer"/>
+  

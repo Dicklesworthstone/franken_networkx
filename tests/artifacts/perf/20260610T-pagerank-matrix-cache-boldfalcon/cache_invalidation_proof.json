@@ -1,0 +1,17 @@
+{
+  "all_close": true,
+  "cache_scenario": "first call populates cache; edge attr mutations plus add_edge must invalidate before second call",
+  "first_fnx_sha256": "8fb324f959a9872543ac098c3558dee9c793e932e5c1b0ee64f416daedb82bb8",
+  "first_max_abs": 0.0,
+  "first_max_rel": 0.0,
+  "first_nx_sha256": "8fb324f959a9872543ac098c3558dee9c793e932e5c1b0ee64f416daedb82bb8",
+  "floating_point": "same scipy sparse power iteration path; cached object is the normalized CSR matrix built by the original path",
+  "ordering": "dict/list(G) insertion order unchanged for existing nodes; added edge does not change node order",
+  "proof_sha256": "042ab783b58ca21dc29cc9559de460b0f18a94640794b326083c58cc5a2e5ef3",
+  "rng": "none after deterministic graph construction",
+  "second_fnx_sha256": "e0e21ef40a7626645112a6dd8a514a9943f9a267440760d5f065113848f51e7c",
+  "second_max_abs": 0.0,
+  "second_max_rel": 0.0,
+  "second_nx_sha256": "e0e21ef40a7626645112a6dd8a514a9943f9a267440760d5f065113848f51e7c",
+  "tie_breaking": "no ordering-dependent ties; matrix rows follow list(G)"
+}

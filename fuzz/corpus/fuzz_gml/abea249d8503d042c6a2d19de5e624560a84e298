@@ -1,0 +1,5 @@
+graph [
+write_edode;[ id 0 label5"a" ]
+  edge [ source 0 ]
+  e(ge [ target 0 ]
+]

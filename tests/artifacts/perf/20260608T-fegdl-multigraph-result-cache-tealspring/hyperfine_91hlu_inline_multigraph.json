@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "python3 -c \"import franken_networkx as fnx; N=1200; D=5; P=3; G=fnx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [fnx.to_dict_of_dicts(G) for _ in range(80)]\"",
+      "mean": 0.5640221405400001,
+      "stddev": 0.018042071156553957,
+      "median": 0.56268296604,
+      "user": 4.6357672,
+      "system": 0.10177467999999998,
+      "min": 0.54299617604,
+      "max": 0.59214769304,
+      "times": [
+        0.59214769304,
+        0.54299617604,
+        0.57680977204,
+        0.5768336160399999,
+        0.58566481704,
+        0.56230493904,
+        0.56306099304,
+        0.5464776810399999,
+        0.54879690004,
+        0.54512881804
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 -c \"import networkx as nx; N=1200; D=5; P=3; G=nx.MultiGraph(); G.add_nodes_from(range(N)); [G.add_edge(u,(u+off)%N,key=(off,k),weight=(u*17+((u+off)%N)*31+k)%97) for u in range(N) for off in range(1,D+1) for k in range(P)]; [nx.to_dict_of_dicts(G) for _ in range(80)]\"",
+      "mean": 0.23659262214000001,
+      "stddev": 0.013532067188692987,
+      "median": 0.23539368254,
+      "user": 0.18541539999999995,
+      "system": 0.05011048,
+      "min": 0.21186781204,
+      "max": 0.25485980204,
+      "times": [
+        0.25485980204,
+        0.23886227404000002,
+        0.22691825504,
+        0.25477535104000004,
+        0.24907148004,
+        0.21186781204,
+        0.23653497804,
+        0.23148808304000001,
+        0.23425238704,
+        0.22729579904
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

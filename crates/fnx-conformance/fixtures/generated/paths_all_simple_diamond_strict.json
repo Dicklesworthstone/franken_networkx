@@ -1,0 +1,71 @@
+{
+  "suite": "paths_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d",
+      "attrs": {}
+    },
+    {
+      "op": "all_simple_paths_query",
+      "source": "a",
+      "target": "d"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "all_simple_paths": [
+      ["a", "b", "d"],
+      ["a", "c", "d"]
+    ]
+  }
+}

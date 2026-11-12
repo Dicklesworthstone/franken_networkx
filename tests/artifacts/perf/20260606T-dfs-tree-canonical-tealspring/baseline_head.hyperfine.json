@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/.scratch/franken_networkx-dfs-tree-baseline-tealspring-20260606T0246/python .venv/bin/python tests/artifacts/perf/20260606T-dfs-tree-canonical-tealspring/dfs_tree_perf.py bench",
+      "mean": 5.86364194788,
+      "stddev": 0.8682971175436108,
+      "median": 6.01889310678,
+      "user": 8.39448294,
+      "system": 0.08659128,
+      "min": 4.36444787778,
+      "max": 6.91612289278,
+      "times": [
+        4.36444787778,
+        4.728732766779999,
+        6.69195518178,
+        6.53123397178,
+        6.91612289278,
+        6.51979317178,
+        6.27952776178,
+        5.485356954779999,
+        5.36099044778,
+        5.75825845178
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

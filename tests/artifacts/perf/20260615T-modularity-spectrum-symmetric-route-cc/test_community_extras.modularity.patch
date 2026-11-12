@@ -1,0 +1,18 @@
+diff --git a/tests/python/test_community_extras.py b/tests/python/test_community_extras.py
+index 70e7d55f9..a3ab06c27 100644
+--- a/tests/python/test_community_extras.py
++++ b/tests/python/test_community_extras.py
+@@ -107,7 +107,12 @@ def test_modularity_spectrum_matches_networkx():
+     expected = nx.modularity_spectrum(nx_graph)
+ 
+     assert len(result) == len(expected)
+-    assert np.allclose(result, expected)
++    assert result.dtype == expected.dtype  # complex128
++    # Solver order is unstable (LAPACK/QR Schur deflation order is not
++    # portable); compare sorted values, matching the adjacency_spectrum
++    # contract. fnx routes the symmetric undirected case through the native
++    # safe-Rust eigensolver, whose order differs from scipy's general dgeev.
++    assert np.allclose(np.sort_complex(result), np.sort_complex(expected))
+ 
+ 
+ def test_label_propagation_communities_matches_networkx():

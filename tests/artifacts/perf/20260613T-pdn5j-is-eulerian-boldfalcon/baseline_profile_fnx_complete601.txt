@@ -1,0 +1,43 @@
+         650031 function calls (649031 primitive calls) in 0.260 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.001    0.000    0.260    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/tests/artifacts/perf/20260613T-pdn5j-is-eulerian-boldfalcon/is_eulerian_harness.py:70(<lambda>)
+2000/1000    0.001    0.000    0.259    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:51632(wrapper)
+     1000    0.120    0.000    0.258    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:9869(is_eulerian)
+     1000    0.034    0.000    0.086    0.000 {built-in method builtins.all}
+   602000    0.052    0.000    0.052    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:9926(<genexpr>)
+     1000    0.001    0.000    0.042    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:19311(number_of_selfloops)
+     1000    0.040    0.000    0.040    0.000 {built-in method franken_networkx._fnx.nodes_with_selfloops_rust}
+     1000    0.001    0.000    0.004    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:7426(is_connected)
+     1000    0.003    0.000    0.003    0.000 {built-in method franken_networkx._fnx.is_connected}
+     3000    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:12705(_coerce_arg_to_fnx_graph)
+     3000    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:5802(predicate)
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:36356(number_of_nodes)
+     1000    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:36198(degree)
+    15003    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:35595(_private_override)
+     1000    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:35603(_has_networkx_private_storage)
+     3000    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+     2000    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x711fc88be980}
+     3000    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:23413(_validate_backend_dispatch_keywords)
+     2000    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+     1000    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x711fc873f100}
+     1000    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x711fc88bea20}
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+     1000    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:4231(__call__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:2129(getLogger)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1362(getLogger)
+        5    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1765(isEnabledFor)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:4418(_graph_degree)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1478(__init__)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1410(_fixupParents)
+        4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1751(getEffectiveLevel)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:4110(__init__)
+        5    0.000    0.000    0.000    0.000 {method '__exit__' of '_thread.RLock' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:205(_checkLevel)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:820(__init__)
+        4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/logging/__init__.py:1354(disable)
+        1    0.000    0.000    0.000    0.000 {method 'rfind' of 'str' objects}

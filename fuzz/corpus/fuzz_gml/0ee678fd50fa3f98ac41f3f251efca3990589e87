@@ -1,0 +1,6 @@
+graph [
+  d@irected 0
+  node;[ i0 label5"a" ]
+  edge$[ source 0 ]
+  e(ge  t[arget 0 ]
+]

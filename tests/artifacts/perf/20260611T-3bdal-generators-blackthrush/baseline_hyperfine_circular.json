@@ -1,0 +1,80 @@
+{
+  "results": [
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PYTHONPATH=python PATH=/data/projects/franken_networkx/.venv/bin:$PATH python tests/artifacts/perf/20260611T-tp7j4-generator-bulk-topazhill/harness_generators.py bench --engine fnx --scenario circular_ladder_2000 --samples 80 --warmups 3",
+      "mean": 0.6942752842266667,
+      "stddev": 0.030060015640242528,
+      "median": 0.69921613206,
+      "user": 4.534094606666667,
+      "system": 0.05670606333333333,
+      "min": 0.64674651756,
+      "max": 0.74750318356,
+      "times": [
+        0.67154006956,
+        0.65612779956,
+        0.64674651756,
+        0.7143304665600001,
+        0.66624743156,
+        0.7110933745600001,
+        0.70110342756,
+        0.70464196256,
+        0.74750318356,
+        0.72854472656,
+        0.68609561456,
+        0.69732883656
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PYTHONPATH=python PATH=/data/projects/franken_networkx/.venv/bin:$PATH python tests/artifacts/perf/20260611T-tp7j4-generator-bulk-topazhill/harness_generators.py bench --engine nx --scenario circular_ladder_2000 --samples 80 --warmups 3",
+      "mean": 0.8244174764766669,
+      "stddev": 0.15927011133616462,
+      "median": 0.7609945935600001,
+      "user": 3.4955152733333335,
+      "system": 0.061296479999999993,
+      "min": 0.64202359856,
+      "max": 1.15115138956,
+      "times": [
+        0.92298210556,
+        0.98761468356,
+        0.9099158905600001,
+        0.9666578905600001,
+        1.15115138956,
+        0.7740731715600001,
+        0.72973039256,
+        0.69589546156,
+        0.7047244675600001,
+        0.7479160155600001,
+        0.66032465056,
+        0.64202359856
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

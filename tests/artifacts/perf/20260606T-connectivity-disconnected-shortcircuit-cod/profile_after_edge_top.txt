@@ -1,0 +1,120 @@
+{
+  "bead": "br-r37-c1-c1gz0",
+  "elapsed_seconds": 0.00023536605294793844,
+  "iterations": 20,
+  "mode": "after-edge",
+  "result": 0,
+  "seconds_per_call": 1.1768302647396922e-05
+}
+         390595 function calls (383863 primitive calls) in 0.373 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       47    0.004    0.000    1.192    0.025 __init__.py:1(<module>)
+    471/1    0.003    0.000    0.374    0.374 {built-in method builtins.exec}
+        1    0.001    0.001    0.374    0.374 connectivity_shortcircuit.py:1(<module>)
+    523/8    0.002    0.000    0.363    0.045 <frozen importlib._bootstrap>:1349(_find_and_load)
+    503/8    0.002    0.000    0.362    0.045 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    489/8    0.004    0.000    0.361    0.045 <frozen importlib._bootstrap>:911(_load_unlocked)
+    462/8    0.001    0.000    0.361    0.045 <frozen importlib._bootstrap_external>:1020(exec_module)
+  1091/16    0.001    0.000    0.351    0.022 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+   444/39    0.001    0.000    0.288    0.007 {built-in method builtins.__import__}
+   533/80    0.001    0.000    0.287    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        2    0.000    0.000    0.152    0.076 nx_pylab.py:1(<module>)
+        2    0.000    0.000    0.151    0.075 layout.py:1(<module>)
+      462    0.003    0.000    0.072    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.070    0.070 __config__.py:1(<module>)
+        1    0.000    0.000    0.065    0.065 _arraypad_impl.py:1(<module>)
+        1    0.000    0.000    0.065    0.065 _index_tricks_impl.py:1(<module>)
+        1    0.000    0.000    0.062    0.062 defmatrix.py:1(<module>)
+        1    0.000    0.000    0.061    0.061 _linalg.py:1(<module>)
+  265/139    0.003    0.000    0.051    0.000 typing.py:426(inner)
+      462    0.005    0.000    0.043    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      462    0.037    0.000    0.037    0.000 {built-in method marshal.loads}
+      204    0.001    0.000    0.035    0.000 typing.py:1423(__init__)
+      499    0.002    0.000    0.031    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+        1    0.001    0.001    0.029    0.029 __init__.py:45016(_bulk_add_backend_dispatch_kwargs)
+        1    0.000    0.000    0.027    0.027 _char_codes.py:1(<module>)
+       50    0.000    0.000    0.027    0.001 typing.py:580(__getitem__)
+      481    0.000    0.000    0.026    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+       50    0.000    0.000    0.026    0.001 typing.py:812(Literal)
+      208    0.022    0.000    0.026    0.000 typing.py:260(_collect_type_parameters)
+      481    0.001    0.000    0.026    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+      350    0.001    0.000    0.024    0.000 function_base.py:490(add_newdoc)
+      678    0.005    0.000    0.023    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.000    0.000    0.022    0.022 backends.py:1(<module>)
+      373    0.007    0.000    0.022    0.000 inspect.py:891(cleandoc)
+      350    0.000    0.000    0.021    0.000 function_base.py:474(_add_docstring)
+     1333    0.007    0.000    0.020    0.000 backends.py:218(__new__)
+  583/568    0.006    0.000    0.019    0.000 {built-in method builtins.__build_class__}
+      489    0.001    0.000    0.019    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+      609    0.000    0.000    0.018    0.000 inspect.py:3373(signature)
+      609    0.000    0.000    0.017    0.000 inspect.py:3094(from_callable)
+      462    0.001    0.000    0.017    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+  613/609    0.002    0.000    0.017    0.000 inspect.py:2487(_signature_from_callable)
+        1    0.000    0.000    0.017    0.017 multiarray.py:1(<module>)
+        1    0.000    0.000    0.016    0.016 _add_newdocs.py:1(<module>)
+        1    0.000    0.000    0.016    0.016 _array_like.py:1(<module>)
+   101/31    0.000    0.000    0.014    0.000 typing.py:1452(__getitem__)
+    73/71    0.000    0.000    0.014    0.000 typing.py:574(__getitem__)
+       71    0.001    0.000    0.014    0.000 typing.py:753(Union)
+     1264    0.003    0.000    0.013    0.000 decorators.py:762(__call__)
+      597    0.005    0.000    0.013    0.000 inspect.py:2383(_signature_from_function)
+      509    0.003    0.000    0.013    0.000 __init__.py:45336(_make_wrapper)
+     1117    0.005    0.000    0.012    0.000 <frozen importlib._bootstrap>:304(acquire)
+24454/24245    0.012    0.000    0.012    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.012    0.012 _dtype_like.py:1(<module>)
+     1889    0.001    0.000    0.011    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+        1    0.000    0.000    0.011    0.011 _add_newdocs_scalars.py:1(<module>)
+        2    0.000    0.000    0.011    0.005 backends.py:45(_get_backends)
+     1912    0.011    0.000    0.011    0.000 {built-in method posix.stat}
+        1    0.000    0.000    0.011    0.011 einsumfunc.py:1(<module>)
+       27    0.000    0.000    0.010    0.000 _add_newdocs_scalars.py:76(add_newdoc_for_scalar_type)
+        1    0.000    0.000    0.010    0.010 numeric.py:1(<module>)
+        9    0.000    0.000    0.010    0.001 <frozen importlib._bootstrap_external>:1318(create_module)
+        1    0.000    0.000    0.010    0.010 connectivity_shortcircuit.py:102(main)
+        9    0.010    0.001    0.010    0.001 {built-in method _imp.create_dynamic}
+      271    0.000    0.000    0.010    0.000 __init__.py:330(_compile)
+      613    0.001    0.000    0.009    0.000 <frozen importlib._bootstrap>:463(_lock_unlock_module)
+   101/31    0.000    0.000    0.009    0.000 typing.py:1483(_determine_new_args)
+   101/31    0.001    0.000    0.009    0.000 typing.py:1512(_make_substitution)
+       40    0.000    0.000    0.009    0.000 _compiler.py:743(compile)
+      9/8    0.000    0.000    0.009    0.001 <frozen importlib._bootstrap_external>:1326(exec_module)
+      9/8    0.006    0.001    0.009    0.001 {built-in method _imp.exec_dynamic}
+       42    0.000    0.000    0.009    0.000 __init__.py:287(compile)
+        1    0.001    0.001    0.008    0.008 connectivity_shortcircuit.py:20(disconnected_selfloop_graph)
+        1    0.000    0.000    0.008    0.008 backends.py:118(_set_configs_from_environment)
+      504    0.000    0.000    0.008    0.000 <frozen importlib._bootstrap>:416(__enter__)
+    27082    0.006    0.000    0.008    0.000 {built-in method builtins.getattr}
+      264    0.001    0.000    0.008    0.000 overrides.py:145(decorator)
+       53    0.000    0.000    0.008    0.000 _add_newdocs.py:3381(_array_method_doc)
+      462    0.007    0.000    0.007    0.000 {method 'read' of '_io.BufferedReader' objects}
+        1    0.000    0.000    0.007    0.007 shape_base.py:1(<module>)
+      489    0.001    0.000    0.007    0.000 <frozen importlib._bootstrap>:733(_init_module_attrs)
+      462    0.007    0.000    0.007    0.000 {built-in method _io.open_code}
+      924    0.002    0.000    0.007    0.000 <frozen importlib._bootstrap_external>:513(cache_from_source)
+       24    0.000    0.000    0.007    0.000 typing.py:1446(__or__)
+        2    0.000    0.000    0.007    0.003 __init__.py:999(entry_points)
+        1    0.000    0.000    0.007    0.007 _internal.py:1(<module>)
+       46    0.000    0.000    0.007    0.000 __init__.py:1008(<genexpr>)
+        1    0.000    0.000    0.007    0.007 fromnumeric.py:1(<module>)
+     4534    0.004    0.000    0.006    0.000 <frozen importlib._bootstrap_external>:131(_path_join)
+        1    0.000    0.000    0.006    0.006 traveling_salesman.py:1(<module>)
+     2887    0.003    0.000    0.006    0.000 inspect.py:2754(__init__)
+     1431    0.005    0.000    0.006    0.000 typing.py:1368(__setattr__)
+      205    0.002    0.000    0.006    0.000 typing.py:1307(__init__)
+      833    0.000    0.000    0.006    0.000 inspect.py:412(isgeneratorfunction)
+      833    0.001    0.000    0.005    0.000 inspect.py:399(_has_code_flag)
+     1117    0.001    0.000    0.005    0.000 <frozen importlib._bootstrap>:162(__enter__)
+        1    0.000    0.000    0.005    0.005 _methods.py:1(<module>)
+       40    0.000    0.000    0.005    0.000 _parser.py:970(parse)
+      933    0.000    0.000    0.005    0.000 <frozen importlib._bootstrap>:632(cached)
+     1110    0.004    0.000    0.005    0.000 inspect.py:3042(__init__)
+    84/40    0.000    0.000    0.005    0.000 _parser.py:451(_parse_sub)
+    41169    0.005    0.000    0.005    0.000 {built-in method builtins.isinstance}
+     1201    0.001    0.000    0.005    0.000 __init__.py:2256(add_edge)
+      471    0.001    0.000    0.005    0.000 <frozen importlib._bootstrap_external>:642(_get_cached)
+        1    0.003    0.003    0.005    0.005 pickle.py:1(<module>)
+   107/43    0.002    0.000    0.005    0.000 _parser.py:511(_parse)
+       31    0.000    0.000    0.004    0.000 typing.py:1762(copy_with)

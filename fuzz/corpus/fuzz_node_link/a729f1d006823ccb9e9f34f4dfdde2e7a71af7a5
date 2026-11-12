@@ -1,0 +1,1 @@
+{"mode":"strict","directed":false,"multigraPh":true,"graph_attrs":{},"nodes":["a","b"],"edges":[{"left":"a","right":"b","attrs":{"w":1}},{"lfet":"a","right":"bwrite_pajek","attrs":{"w":2}}]}

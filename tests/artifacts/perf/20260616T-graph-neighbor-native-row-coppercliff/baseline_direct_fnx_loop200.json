@@ -1,0 +1,22 @@
+{
+  "elapsed_s": 0.44556453300174326,
+  "loops": 200,
+  "metadata": {
+    "franken_networkx_file": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "Graph(gnp_random_graph(n, p, seed))",
+      "n": 2400,
+      "p": 0.0045,
+      "seed": 23
+    },
+    "head": "c02f3f208330838068bc59512a7bc8bf6630cb02",
+    "head_short": "c02f3f208 perf(graph): specialize neighbors row cache",
+    "networkx_file": "/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin",
+    "workload": "[list(G.neighbors(n)) for n in G.nodes()]"
+  },
+  "output_sha256": "b99171852c6eeb1d713fec332be3c5adae9270e08127abedd6b2ac02014954f4",
+  "seconds_per_loop": 0.0022278226650087165
+}

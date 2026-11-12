@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib complete_bipartite_graph_batch_ab -- --ignored --nocapture
+
+BIPARTITE_BATCH_AB K150_150 rounds=61 (>1 = batch faster)
+BIPARTITE_BATCH_AB BATCH_vs_string: median=31.6498x win_rate=61/61 p5_p95=[22.2190,43.0384]
+BIPARTITE_BATCH_AB NULL_batch_vs_batch: median=0.9919x win_rate=29/61 p5_p95=[0.7781,1.2432]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 989 filtered out; finished in 2.12s
+
+Marker BIPARTITE_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) on K_{150,150} passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib complete_bipartite -- --nocapture
+test tests::test_complete_bipartite_graph ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~33919-33934 / test ~69073-69163)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

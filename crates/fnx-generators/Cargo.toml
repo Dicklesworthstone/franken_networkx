@@ -1,0 +1,16 @@
+[package]
+name = "fnx-generators"
+version = "0.3.0"
+edition = "2024"
+description = "Graph generator implementations for FrankenNetworkX"
+license-file = "../../LICENSE"
+repository.workspace = true
+
+[dependencies]
+fnx-classes = { version = "0.4.0", path = "../fnx-classes" }
+fnx-runtime = { version = "0.4.0", path = "../fnx-runtime" }
+mt19937 = "3.3.0"
+rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng"] }
+
+[dev-dependencies]
+proptest = "1.11.0"

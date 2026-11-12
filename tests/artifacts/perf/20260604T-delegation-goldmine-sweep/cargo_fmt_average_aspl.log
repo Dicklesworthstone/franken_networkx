@@ -1,0 +1,12 @@
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:15463:
+     fn accumulate_weighted_average_shortest_path_length_rejects_disconnected_sources() {
+         let sources = vec!["a", "b"];
+         let result = accumulate_weighted_average_shortest_path_length(&sources, 3, |_source| {
+[31m-            Ok(vec![
+[m[31m-                ("a".to_owned(), 0.0),
+[m[31m-                ("b".to_owned(), 1.0),
+[m[31m-            ])
+[m[32m+            Ok(vec![("a".to_owned(), 0.0), ("b".to_owned(), 1.0)])
+[m         });
+ 
+         assert_eq!(result, Err(AverageShortestPathLengthFailure::Disconnected));

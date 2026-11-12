@@ -1,0 +1,43 @@
+{
+  "bead": "br-r37-c1-bwizc",
+  "case": "fnx.normalized_laplacian_spectrum(fnx.complete_graph(399))",
+  "dtype": "float64",
+  "first_sorted_values_q9": [
+    0.0,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563
+  ],
+  "fnx_mean_seconds": 0.0003096967935562134,
+  "fnx_median_seconds": 0.00035284896148368716,
+  "fnx_seconds": [
+    0.0004143550177104771,
+    0.00035284896148368716,
+    0.0003598819603212178,
+    0.0002461459953337908,
+    0.00017525203293189406
+  ],
+  "fnx_sorted_sha256_q9_canonical": "1b6d151ae1e0aaa7d8cfa14f0ab12b5d04c8e38ae1b02d1c5c0378c351013d59",
+  "last_sorted_values_q9": [
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563,
+    1.002512563
+  ],
+  "max_sorted_abs_delta": 5.551115123125783e-15,
+  "nx_sorted_sha256_q9_canonical": "1b6d151ae1e0aaa7d8cfa14f0ab12b5d04c8e38ae1b02d1c5c0378c351013d59",
+  "raw_sha_matches": true,
+  "samples": 5,
+  "sorted_values_match": true,
+  "zero_normalized_fnx_sorted_sha256_q9_canonical": "1b6d151ae1e0aaa7d8cfa14f0ab12b5d04c8e38ae1b02d1c5c0378c351013d59",
+  "zero_normalized_nx_sorted_sha256_q9_canonical": "1b6d151ae1e0aaa7d8cfa14f0ab12b5d04c8e38ae1b02d1c5c0378c351013d59",
+  "zero_normalized_sha_matches": true
+}

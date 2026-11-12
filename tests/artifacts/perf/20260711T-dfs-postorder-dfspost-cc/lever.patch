@@ -1,0 +1,208 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index cef877ce1..55155c32e 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -19746,16 +19746,70 @@ pub fn dfs_preorder_nodes_directed(
+ #[must_use]
+ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usize>) -> Vec<String> {
+     let max_depth = depth_limit.unwrap_or(usize::MAX);
+-    let mut visited: HashSet<&str> = HashSet::new();
+     let mut postorder: Vec<String> = Vec::new();
+ 
+-    if !graph.has_node(source) {
++    let Some(source_idx) = graph.get_node_index(source) else {
+         return postorder;
++    };
++    let nodes = graph.nodes_ordered();
++    let n = nodes.len();
++
++    // br-r37-c1-dfspost (cc): iterative DFS on integer adjacency. The old kernel kept
++    // `visited` as a `HashSet<&str>` and called `graph.neighbors(node)` (a `Vec<&str>`
++    // alloc per pop) with String `contains` probes. Use a `Vec<bool>` visited mark
++    // array and walk `graph.neighbors_indices(node)` (zero-alloc `&[usize]`).
++    // Byte-identical: the DFS pushes neighbours in the SAME adjacency order reversed,
++    // the backtrack markers and depth-limit cutoff are unchanged, and `visited` has
++    // the same semantics, so the postorder node sequence is identical.
++    let mut visited = vec![false; n];
++    let mut stack: Vec<(usize, bool, usize)> = vec![(source_idx, false, 0)];
++
++    while let Some((node, backtrack, depth)) = stack.pop() {
++        if backtrack {
++            postorder.push(nodes[node].to_owned());
++            continue;
++        }
++        if visited[node] {
++            continue;
++        }
++        visited[node] = true;
++        // NetworkX emits a special reverse-depth_limit event for cutoff nodes.
++        // Those nodes appear in preorder but not in postorder, except for the
++        // root which still closes with a normal reverse event.
++        if node == source_idx || depth < max_depth {
++            stack.push((node, true, depth));
++        }
++
++        if depth < max_depth
++            && let Some(neighbors) = graph.neighbors_indices(node)
++        {
++            for &neighbor in neighbors.iter().rev() {
++                if !visited[neighbor] {
++                    stack.push((neighbor, false, depth + 1));
++                }
++            }
++        }
+     }
+ 
+-    // Iterative DFS with backtrack markers for postorder.
+-    let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
++    postorder
++}
+ 
++/// br-r37-c1-dfspost A/B baseline: the pre-lever iterative DFS postorder that kept
++/// `visited` as a `HashSet<&str>` and called `graph.neighbors(node)` (`Vec<&str>`
++/// alloc per pop). Test-only; byte-identical to `dfs_postorder_nodes`.
++#[cfg(test)]
++fn dfs_postorder_nodes_orig_string(
++    graph: &Graph,
++    source: &str,
++    depth_limit: Option<usize>,
++) -> Vec<String> {
++    let max_depth = depth_limit.unwrap_or(usize::MAX);
++    let mut visited: HashSet<&str> = HashSet::new();
++    let mut postorder: Vec<String> = Vec::new();
++    if !graph.has_node(source) {
++        return postorder;
++    }
++    let mut stack: Vec<(&str, bool, usize)> = vec![(source, false, 0)];
+     while let Some((node, backtrack, depth)) = stack.pop() {
+         if backtrack {
+             postorder.push(node.to_owned());
+@@ -19765,13 +19819,9 @@ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usiz
+             continue;
+         }
+         visited.insert(node);
+-        // NetworkX emits a special reverse-depth_limit event for cutoff nodes.
+-        // Those nodes appear in preorder but not in postorder, except for the
+-        // root which still closes with a normal reverse event.
+         if node == source || depth < max_depth {
+             stack.push((node, true, depth));
+         }
+-
+         if depth < max_depth
+             && let Some(neighbors) = graph.neighbors(node)
+         {
+@@ -19782,7 +19832,6 @@ pub fn dfs_postorder_nodes(graph: &Graph, source: &str, depth_limit: Option<usiz
+             }
+         }
+     }
+-
+     postorder
+ }
+ 
+@@ -49232,6 +49281,106 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-dfspost: paired-interleaved median A/B for the integer-adjacency
++    /// iterative DFS `dfs_postorder_nodes` vs the old `HashSet<&str>` +
++    /// `graph.neighbors()` (`Vec<&str>`) baseline, in ONE binary / ONE worker with a
++    /// NULL control. `#[ignore]` (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib dfs_postorder_dfspost_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn dfs_postorder_dfspost_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Connected pseudo-random ~10-degree graph on 3000 nodes: one full DFS pops
++        // ~V nodes and scans ~E edges, so the per-pop `Vec<&str>` alloc + `visited`
++        // String-set probes (baseline) vs the zero-alloc integer walk + O(1) mark
++        // probe (lever) dominate.
++        let n = 3000usize;
++        let deg = 10usize;
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n.saturating_sub(1) {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++
++        // Byte-exact parity: integer DFS postorder == String baseline (both depth-
++        // limited and unlimited).
++        for dl in [None, Some(7usize)] {
++            assert_eq!(
++                super::dfs_postorder_nodes(&g, "n0", dl),
++                super::dfs_postorder_nodes_orig_string(&g, "n0", dl),
++                "integer dfs_postorder_nodes must equal the String baseline"
++            );
++        }
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::dfs_postorder_nodes(&g, "n0", None));
++                } else {
++                    black_box(super::dfs_postorder_nodes_orig_string(&g, "n0", None));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 121usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "DFSPOST_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("DFSPOST_AB n={n} deg={deg} rounds={rounds} (>1 = integer faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

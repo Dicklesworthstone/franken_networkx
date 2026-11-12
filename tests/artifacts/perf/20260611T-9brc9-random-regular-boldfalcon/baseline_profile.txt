@@ -1,0 +1,48 @@
+         408392 function calls (408387 primitive calls) in 0.449 seconds
+
+   Ordered by: cumulative time
+   List reduced from 103 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.030    0.000    0.449    0.004 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:48584(random_regular_graph)
+      100    0.047    0.000    0.296    0.003 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:2694(add_edges_from)
+      100    0.215    0.002    0.215    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      100    0.103    0.001    0.103    0.001 {built-in method franken_networkx._fnx.random_regular_edges_pyset}
+   400111    0.035    0.000    0.035    0.000 {method 'append' of 'list' objects}
+      100    0.000    0.000    0.014    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:50398(wrapper)
+      100    0.000    0.000    0.014    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:18237(empty_graph)
+      100    0.000    0.000    0.010    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45989(_add_nodes_in_order)
+      100    0.000    0.000    0.010    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:2411(add_nodes_from)
+      100    0.009    0.000    0.009    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      100    0.001    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:24337(_generator_random_state)
+      200    0.000    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45961(_classic_default_graph_type)
+      100    0.000    0.000    0.002    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      100    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      100    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45870(_checked_create_using)
+      100    0.001    0.000    0.001    0.000 {built-in method builtins.__build_class__}
+      100    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      100    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45926(_nodes_or_number_local)
+      100    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:128(seed)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:349(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45974(_classic_graph_from_create_using)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+      100    0.000    0.000    0.000    0.000 {function Random.seed at 0x7d6c52949f80}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+      200    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:5754(predicate)
+     1528    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:5638(clear)
+      200    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:3350(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45757(_empty_graph_from_create_using)
+      400    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:45877(<genexpr>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-9brc9-boldfalcon-20260611T2130/python/franken_networkx/__init__.py:24341(_NumpyRandIntAdapter)
+      405    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+
+

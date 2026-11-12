@@ -1,0 +1,30 @@
+{
+  "contracts": {
+    "directed": "NetworkXNotImplemented",
+    "multigraph": "NetworkXNotImplemented",
+    "stretch0": "ValueError",
+    "empty": "ValueError",
+    "submodule_routed": true
+  },
+  "validity": {
+    "checks": 285,
+    "invalid": 0
+  },
+  "speedup": {
+    "n400": {
+      "inproc_ms": 8.14,
+      "genuine_nx_ms": 13.66,
+      "vs_nx": 1.68
+    },
+    "n800": {
+      "inproc_ms": 17.73,
+      "genuine_nx_ms": 29.54,
+      "vs_nx": 1.67
+    },
+    "n1500": {
+      "inproc_ms": 38.23,
+      "genuine_nx_ms": 62.47,
+      "vs_nx": 1.63
+    }
+  }
+}

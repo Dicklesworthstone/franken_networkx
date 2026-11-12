@@ -1,0 +1,224 @@
+"""Tests for graph6, sparse6, and weighted edgelist wrappers."""
+
+import builtins
+from io import BytesIO
+from pathlib import Path
+
+import networkx as nx
+import pytest
+
+import franken_networkx as fnx
+
+
+def _path_graph():
+    graph = fnx.path_graph(4)
+    return graph
+
+
+def test_graph6_byte_and_parse_round_trip():
+    graph = _path_graph()
+
+    encoded = fnx.to_graph6_bytes(graph, header=False)
+    parsed = fnx.readwrite.parse_graph6(encoded.decode("ascii"))
+    restored = fnx.from_graph6_bytes(encoded)
+
+    assert parsed.number_of_nodes() == 4
+    assert parsed.number_of_edges() == 3
+    assert restored.number_of_nodes() == 4
+    assert restored.number_of_edges() == 3
+
+
+def test_sparse6_byte_and_parse_round_trip():
+    graph = _path_graph()
+
+    encoded = fnx.to_sparse6_bytes(graph, header=False)
+    parsed = fnx.readwrite.parse_sparse6(encoded.decode("ascii"))
+    restored = fnx.from_sparse6_bytes(encoded)
+
+    assert parsed.number_of_nodes() == 4
+    assert parsed.number_of_edges() == 3
+    assert restored.number_of_nodes() == 4
+    assert restored.number_of_edges() == 3
+
+
+def test_graph6_and_sparse6_file_round_trip(tmp_path: Path):
+    graph = _path_graph()
+    graph6_path = tmp_path / "graph.g6"
+    sparse6_path = tmp_path / "graph.s6"
+
+    fnx.write_graph6(graph, graph6_path)
+    fnx.write_sparse6(graph, sparse6_path)
+
+    graph6_loaded = fnx.read_graph6(graph6_path)
+    sparse6_loaded = fnx.read_sparse6(sparse6_path)
+
+    assert graph6_loaded.number_of_nodes() == 4
+    assert graph6_loaded.number_of_edges() == 3
+    assert sparse6_loaded.number_of_nodes() == 4
+    assert sparse6_loaded.number_of_edges() == 3
+
+
+def test_graph6_known_networkx_encodings():
+    assert fnx.to_graph6_bytes(fnx.Graph()) == b">>graph6<<?\n"
+    assert fnx.to_graph6_bytes(fnx.path_graph(2)) == b">>graph6<<A_\n"
+    assert fnx.to_graph6_bytes(fnx.complete_graph(4)) == b">>graph6<<C~\n"
+    assert fnx.to_graph6_bytes(fnx.complete_graph(4), header=False) == b"C~\n"
+
+
+def test_sparse6_known_networkx_encodings():
+    assert fnx.to_sparse6_bytes(fnx.Graph()) == b">>sparse6<<:?\n"
+    assert fnx.to_sparse6_bytes(fnx.path_graph(2)) == b">>sparse6<<:An\n"
+    assert fnx.to_sparse6_bytes(fnx.complete_graph(4)) == b">>sparse6<<:CcKI\n"
+    assert fnx.to_sparse6_bytes(fnx.complete_graph(4), header=False) == b":CcKI\n"
+
+
+def test_sparse6_directed_graph_bytes_match_networkx():
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    expected = nx.DiGraph([(0, 1), (1, 2), (2, 0)])
+
+    assert fnx.to_sparse6_bytes(graph) == nx.to_sparse6_bytes(expected)
+    assert fnx.to_sparse6_bytes(graph, header=False) == nx.to_sparse6_bytes(
+        expected, header=False
+    )
+
+
+def test_sparse6_directed_multigraph_bytes_match_networkx():
+    graph = fnx.MultiDiGraph()
+    expected = nx.MultiDiGraph()
+    for target in (graph, expected):
+        target.add_edges_from([(0, 1), (1, 0), (1, 0), (1, 2)])
+
+    assert fnx.to_sparse6_bytes(graph) == nx.to_sparse6_bytes(expected)
+
+
+def test_write_sparse6_undirected_graphs_match_networkx(tmp_path: Path):
+    cases = []
+
+    graph = fnx.Graph([(2, 0), (0, 1)])
+    expected = nx.Graph([(2, 0), (0, 1)])
+    cases.append((graph, expected))
+
+    multigraph = fnx.MultiGraph()
+    multi_expected = nx.MultiGraph()
+    for target in (multigraph, multi_expected):
+        target.add_edges_from([("b", "a"), ("b", "a"), ("a", "c")])
+    cases.append((multigraph, multi_expected))
+
+    for index, (graph, expected) in enumerate(cases):
+        fnx_path = tmp_path / f"fnx-{index}.s6"
+        nx_path = tmp_path / f"nx-{index}.s6"
+
+        fnx.write_sparse6(graph, fnx_path, header=False)
+        nx.write_sparse6(expected, nx_path, header=False)
+
+        assert fnx_path.read_bytes() == nx_path.read_bytes()
+
+
+@pytest.mark.parametrize(
+    "fnx_cls,nx_cls",
+    [(fnx.DiGraph, nx.DiGraph), (fnx.MultiDiGraph, nx.MultiDiGraph)],
+)
+def test_write_sparse6_rejects_directed_graphs_like_networkx(fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    for target in (graph, expected):
+        target.add_edges_from([(0, 1), (1, 2)])
+
+    with pytest.raises(fnx.NetworkXNotImplemented) as fnx_exc:
+        fnx.write_sparse6(graph, BytesIO())
+    with pytest.raises(nx.NetworkXNotImplemented) as nx_exc:
+        nx.write_sparse6(expected, BytesIO())
+
+    assert str(fnx_exc.value) == str(nx_exc.value)
+
+
+def test_graph6_sparse6_nodes_filter_matches_networkx():
+    graph = fnx.Graph()
+    graph.add_nodes_from([2, 1, 0, 3])
+    graph.add_edges_from([(2, 1), (1, 0), (0, 3), (2, 3)])
+
+    expected = nx.Graph()
+    expected.add_nodes_from([2, 1, 0, 3])
+    expected.add_edges_from([(2, 1), (1, 0), (0, 3), (2, 3)])
+
+    node_cases = ([1, 2, 0], [3, 0, 2], [1, 1, 2], [99, 1, 2], [99])
+    for nodes in node_cases:
+        assert fnx.to_graph6_bytes(graph, nodes=nodes, header=False) == nx.to_graph6_bytes(
+            expected, nodes=nodes, header=False
+        )
+        assert fnx.to_sparse6_bytes(graph, nodes=nodes, header=False) == nx.to_sparse6_bytes(
+            expected, nodes=nodes, header=False
+        )
+
+
+def test_sparse6_duplicate_edges_return_multigraph():
+    graph = fnx.from_sparse6_bytes(b":A_")
+
+    assert graph.is_multigraph()
+    assert graph.number_of_nodes() == 2
+    assert graph.number_of_edges() == 3
+    assert list(graph.edges()) == [(0, 1), (0, 1), (0, 1)]
+
+
+def test_sparse6_direct_bytes_keep_trailing_newline_payload():
+    graph = fnx.from_sparse6_bytes(b":@\n")
+    expected = nx.from_sparse6_bytes(b":@\n")
+
+    assert graph.number_of_nodes() == expected.number_of_nodes() == 1
+    assert graph.number_of_edges() == expected.number_of_edges() == 1
+    assert list(graph.edges()) == list(expected.edges()) == [(0, 0)]
+
+
+def test_sparse6_direct_bytes_do_not_reject_high_byte_upfront():
+    with pytest.raises(IndexError, match="list index out of range"):
+        fnx.from_sparse6_bytes(b":\x7f")
+    with pytest.raises(IndexError, match="list index out of range"):
+        nx.from_sparse6_bytes(b":\x7f")
+
+    with pytest.raises(ValueError, match="must be in range"):
+        fnx.from_graph6_bytes(b"\x7f")
+
+
+def test_graph6_and_sparse6_read_multiple_graphs_from_binary_stream():
+    graph6_graphs = fnx.read_graph6(BytesIO(b"A_\nC~\n\n"))
+    sparse6_graphs = fnx.read_sparse6(BytesIO(b":An\n:CcKI\n\n"))
+
+    assert [graph.number_of_edges() for graph in graph6_graphs] == [1, 6]
+    assert [graph.number_of_edges() for graph in sparse6_graphs] == [1, 6]
+
+
+def test_graph6_sparse6_do_not_import_networkx(monkeypatch):
+    original_import = builtins.__import__
+
+    def guarded_import(name, *args, **kwargs):
+        if name == "networkx" or name.startswith("networkx."):
+            raise AssertionError(f"unexpected NetworkX import: {name}")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+    graph = fnx.path_graph(3)
+    assert fnx.from_graph6_bytes(fnx.to_graph6_bytes(graph)).number_of_edges() == 2
+    assert fnx.read_sparse6(BytesIO(fnx.to_sparse6_bytes(graph))).number_of_edges() == 2
+
+
+def test_graph6_rejects_directed_and_multigraph_writes():
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for directed type"):
+        fnx.to_graph6_bytes(fnx.DiGraph())
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for multigraph type"):
+        fnx.to_graph6_bytes(fnx.MultiGraph())
+    with pytest.raises(fnx.NetworkXNotImplemented, match="not implemented for multigraph type"):
+        fnx.to_graph6_bytes(fnx.MultiDiGraph())
+
+
+def test_weighted_edgelist_round_trip(tmp_path: Path):
+    graph = fnx.Graph()
+    graph.add_edge("a", "b", weight=2.5)
+    graph.add_edge("b", "c", weight=1.5)
+    path = tmp_path / "weighted.edgelist"
+
+    fnx.write_weighted_edgelist(graph, path)
+    restored = fnx.read_weighted_edgelist(path)
+
+    assert restored["a"]["b"]["weight"] == 2.5
+    assert restored["b"]["c"]["weight"] == 1.5

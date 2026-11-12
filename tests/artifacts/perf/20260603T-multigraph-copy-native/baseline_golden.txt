@@ -1,0 +1,5 @@
+  SUBGRAPH MISMATCH MultiGraph s=1 selfloops=True
+  SUBGRAPH MISMATCH MultiGraph s=1 selfloops=False
+  SUBGRAPH MISMATCH MultiGraph s=2 selfloops=True
+  SUBGRAPH MISMATCH MultiGraph s=2 selfloops=False
+  SUBGRAPH MISMATCH MultiGraph s=3 selfloops=True

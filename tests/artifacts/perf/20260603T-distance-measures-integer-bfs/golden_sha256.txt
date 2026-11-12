@@ -1,0 +1,2 @@
+DM_GOLDEN (fnx == networkx; diameter/radius/eccentricity/center/periphery; 4 BA sizes; pre==post)
+1732156e35a1e36dff16127eca34ddc89d763f2646891daf24b1a73426cef998

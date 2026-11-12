@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b">
+      <data key="NONEXISTENT_KEY">some_value</data>
+    </node>
+    <edge source="a" target="MISSING_NODE"/>
+    <edge source="a"/>
+    <edge target="b"/>
+    <node>
+    </node>
+    <!-- unclosed tags below -->
+    <node id="c"
+</graphml>

@@ -1,0 +1,48 @@
+         271980 function calls (268650 primitive calls) in 0.095 seconds
+
+   Ordered by: cumulative time
+   List reduced from 320 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.095    0.095 louvain_pass1_harness.py:219(run)
+        1    0.000    0.000    0.095    0.095 louvain_pass1_harness.py:194(bench)
+        3    0.000    0.000    0.090    0.030 louvain_pass1_harness.py:87(_run_variant)
+        3    0.000    0.000    0.090    0.030 community.py:225(louvain_communities)
+     52/8    0.001    0.000    0.079    0.010 backends.py:554(_call_if_any_backends_installed)
+     52/8    0.000    0.000    0.079    0.010 backends.py:1484(_call_with_backend)
+        3    0.000    0.000    0.076    0.025 <class 'networkx.utils.decorators.argmap'> compilation 22:1(argmap_louvain_communities_18)
+        3    0.000    0.000    0.076    0.025 louvain.py:14(louvain_communities)
+       12    0.000    0.000    0.075    0.006 louvain.py:133(louvain_partitions)
+       12    0.014    0.001    0.032    0.003 louvain.py:227(_one_level)
+      9/2    0.000    0.000    0.027    0.013 decorators.py:783(func)
+6343/3169    0.004    0.000    0.023    0.000 {built-in method builtins.sum}
+       12    0.000    0.000    0.020    0.002 <class 'networkx.utils.decorators.argmap'> compilation 35:1(argmap_modularity_32)
+       12    0.000    0.000    0.020    0.002 quality.py:144(modularity)
+        3    0.000    0.000    0.014    0.005 __init__.py:6370(_networkx_graph_for_parity)
+        3    0.004    0.001    0.013    0.004 backend.py:606(_fnx_to_nx)
+     1137    0.002    0.000    0.013    0.000 quality.py:246(community_contribution)
+        9    0.004    0.000    0.013    0.001 louvain.py:352(_gen_graph)
+       10    0.007    0.001    0.011    0.001 graph.py:986(add_edges_from)
+     4056    0.002    0.000    0.011    0.000 reportviews.py:531(__iter__)
+     5967    0.008    0.000    0.008    0.000 louvain.py:335(_neighbor_weights)
+    17736    0.006    0.000    0.008    0.000 reportviews.py:856(__iter__)
+     3207    0.002    0.000    0.007    0.000 quality.py:248(<genexpr>)
+    28956    0.004    0.000    0.006    0.000 reportviews.py:540(<genexpr>)
+        3    0.000    0.000    0.006    0.002 graph.py:1067(add_weighted_edges_from)
+     3612    0.003    0.000    0.005    0.000 graph.py:917(add_edge)
+        1    0.000    0.000    0.005    0.005 louvain_pass1_harness.py:67(_case_ws_300)
+    39450    0.004    0.000    0.004    0.000 {method 'get' of 'dict' objects}
+     1149    0.001    0.000    0.003    0.000 reportviews.py:1102(__call__)
+        8    0.002    0.000    0.003    0.000 graph.py:584(add_nodes_from)
+        1    0.000    0.000    0.003    0.003 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_watts_strogatz_graph_1)
+        1    0.000    0.000    0.003    0.003 random_graphs.py:388(watts_strogatz_graph)
+     1149    0.001    0.000    0.003    0.000 reportviews.py:771(__init__)
+        3    0.000    0.000    0.003    0.001 graph.py:1918(size)
+    21590    0.003    0.000    0.003    0.000 {method 'update' of 'dict' objects}
+      903    0.000    0.000    0.003    0.000 graph.py:1954(<genexpr>)
+     8418    0.002    0.000    0.002    0.000 <frozen _collections_abc>:897(__iter__)
+        1    0.000    0.000    0.002    0.002 louvain_pass1_harness.py:41(_graph_pair)
+     2703    0.001    0.000    0.002    0.000 graph.py:1115(<genexpr>)
+    15984    0.002    0.000    0.002    0.000 {method 'items' of 'dict' objects}
+
+

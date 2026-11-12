@@ -1,0 +1,10 @@
+  [2m2026-07-11T06:53:48.901126Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib is_tournament -- --include-ignored --nocapture[0m
+test tests::test_is_tournament ... ok
+test tests::test_is_tournament_empty_is_true ... ok
+test tests::test_is_tournament_not ... ok
+TOURN_AB n=300 (transitive tournament) rounds=61 (>1 = snapshot faster)
+TOURN_AB SNAP_vs_string: median=17.3681x win_rate=61/61 p5_p95=[13.5239,21.6971]
+TOURN_AB NULL_snap_vs_snap: median=1.0177x win_rate=38/61 p5_p95=[0.8260,1.2045]
+test tests::is_tournament_tourn_ab ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 948 filtered out; finished in 4.83s
+AB loop ended

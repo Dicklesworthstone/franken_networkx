@@ -1,0 +1,8 @@
+<="http://graphml.grandirected">
+   =o2 <ddie "a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <data key"=>5.d"05</data>
+    </edge>
+  </graph>
+</graphml>

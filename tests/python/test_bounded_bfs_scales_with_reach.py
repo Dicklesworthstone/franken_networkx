@@ -1,0 +1,1232 @@
+"""A cutoff-bounded BFS must cost what it REACHES, not what the graph HOLDS.
+
+br-r37-c1-dkwy7. Both single-source BFS-length kernels allocated O(V) before
+knowing how far they would walk:
+
+  * ``nodes_ordered()`` built a ``Vec<&str>`` of EVERY node name up front, in
+    both the undirected and directed kernels;
+  * the directed kernel also filled a ``parent: Vec<u32>`` of length V with
+    ``u32::MAX``, then read it only for the nodes actually discovered;
+  * both sized the result vector ``with_capacity(node_count)``.
+
+So ``single_source_shortest_path_length(G, s, cutoff=1)`` on a 12800-node graph
+paid for 12800 nodes to report 3. Measured, request held FIXED while the parent
+grew 64x (200 -> 12800 nodes), fnx vs networkx:
+
+    op                    n=200    n=1600   n=12800   fnx growth   nx growth
+    sssp_len(cutoff=1)   1.0453x   1.0548x   0.2457x     4.28x        1.01x
+    sssp_len(cutoff=2)   2.0092x   1.2862x   0.2761x     6.99x        0.96x
+
+networkx is flat because its BFS carries a dict that only ever holds what it
+reached. The fix walks in index space and resolves names once, at the end, for
+the reached nodes only - ``get_node_name`` is an IndexMap ``get_index``, O(1),
+and is called strictly fewer times than the discarded vector had entries.
+
+WHAT THIS FILE PROTECTS. The rewrite changed how names and parents are resolved,
+which is exactly the machinery behind two documented contracts, so parity is
+pinned harder than speed:
+
+  * BFS DISCOVERY ORDER of the returned mapping (br-r37-c1-k3cz4,
+    br-r37-c1-bapbi) - the kernel now appends indices and maps to names in a
+    second pass, so a reordering there would be invisible to any value-only
+    check;
+  * the NODE OBJECTS handed back must be the graph's own (br-r37-c1-6hpa9 built
+    the parent channel for precisely this), so a wrong index -> name resolution
+    would return equal-but-distinct keys and nothing else would notice.
+"""
+
+from __future__ import annotations
+
+import time
+
+import networkx as nx
+import pytest
+
+import franken_networkx as fnx
+
+CUTOFFS = [None, 0, 1, 2, 3, 99]
+
+
+def _shapes(lib):
+    """Shapes that exercise the reach/hold gap and the index->name mapping."""
+    path = lib.Graph()
+    path.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(12)])
+    path.add_node("island")  # unreachable: must never appear
+
+    star = lib.Graph()
+    star.add_edges_from([("hub", f"s{i}") for i in range(8)])
+
+    loopy = lib.Graph()
+    loopy.add_edges_from([("a", "b"), ("b", "c"), ("c", "a")])
+    loopy.add_edge("a", "a")  # self-loop
+
+    ints = lib.Graph()
+    ints.add_edges_from([(i, i + 1) for i in range(10)])
+
+    tuples = lib.Graph()
+    tuples.add_edges_from([((0, 0), (1, 1)), ((1, 1), (2, 2))])
+
+    return {
+        "path": (path, "n0"),
+        "star": (star, "hub"),
+        "loopy": (loopy, "a"),
+        "ints": (ints, 0),
+        "tuples": (tuples, (0, 0)),
+    }
+
+
+def _directed_shapes(lib):
+    chain = lib.DiGraph()
+    chain.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(12)])
+    chain.add_edge("n5", "n0")  # a back edge, so reachability != insertion order
+    chain.add_node("island")
+
+    fan = lib.DiGraph()
+    fan.add_edges_from([("root", f"c{i}") for i in range(6)])
+    fan.add_edges_from([(f"c{i}", "sink") for i in range(6)])
+
+    ints = lib.DiGraph()
+    ints.add_edges_from([(i, i + 1) for i in range(10)])
+
+    return {"chain": (chain, "n0"), "fan": (fan, "root"), "ints": (ints, 0)}
+
+
+@pytest.mark.parametrize("cutoff", CUTOFFS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_undirected_values_and_order_match_networkx(shape, cutoff):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = fnx.single_source_shortest_path_length(got_g, source, cutoff=cutoff)
+    want = nx.single_source_shortest_path_length(want_g, source, cutoff=cutoff)
+    assert dict(got) == dict(want)
+    # ORDER, not just contents: the kernel maps indices to names in a second pass.
+    assert [str(k) for k in got] == [str(k) for k in want]
+
+
+@pytest.mark.parametrize("cutoff", CUTOFFS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+def test_directed_values_and_order_match_networkx(shape, cutoff):
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = fnx.single_source_shortest_path_length(got_g, source, cutoff=cutoff)
+    want = nx.single_source_shortest_path_length(want_g, source, cutoff=cutoff)
+    assert dict(got) == dict(want)
+    assert [str(k) for k in got] == [str(k) for k in want]
+
+
+@pytest.mark.parametrize("cutoff", [None, 1, 2])
+def test_returned_keys_are_the_graphs_own_node_objects(cutoff):
+    """A wrong index -> name resolution yields equal-but-distinct keys."""
+    graph = fnx.Graph()
+    graph.add_edges_from([((0, 0), (1, 1)), ((1, 1), (2, 2))])
+    identity = {n: n for n in graph.nodes()}
+    for key in fnx.single_source_shortest_path_length(graph, (0, 0), cutoff=cutoff):
+        assert key is identity[key], f"{key!r} is a copy, not the graph's node object"
+
+
+def test_cutoff_zero_returns_only_the_source():
+    graph = fnx.Graph()
+    graph.add_edges_from([("a", "b"), ("b", "c")])
+    assert fnx.single_source_shortest_path_length(graph, "a", cutoff=0) == {"a": 0}
+
+
+def test_isolated_source_and_unreachable_nodes():
+    got, want = fnx.Graph(), nx.Graph()
+    for g in (got, want):
+        g.add_node("lonely")
+        g.add_edge("x", "y")
+    for cutoff in (None, 0, 1):
+        assert fnx.single_source_shortest_path_length(
+            got, "lonely", cutoff=cutoff
+        ) == nx.single_source_shortest_path_length(want, "lonely", cutoff=cutoff)
+
+
+def test_missing_source_still_raises_like_networkx():
+    graph = fnx.Graph()
+    graph.add_edge("a", "b")
+    with pytest.raises(fnx.NodeNotFound):
+        fnx.single_source_shortest_path_length(graph, "nope", cutoff=1)
+
+
+def _best(fn, reps=200, rounds=7):
+    fn()
+    best = None
+    for _ in range(rounds):
+        start = time.perf_counter()
+        for _ in range(reps):
+            fn()
+        elapsed = (time.perf_counter() - start) / reps
+        best = elapsed if best is None else min(best, elapsed)
+    return best
+
+
+def _ring(lib, n):
+    graph = lib.Graph()
+    graph.add_edges_from([(f"n{i}", f"n{(i + 1) % n}") for i in range(n)])
+    return graph
+
+
+@pytest.mark.parametrize("cutoff", [1, 2])
+def test_bounded_bfs_cost_does_not_grow_with_the_parent(cutoff):
+    """networkx on the SAME host at the SAME moment is the control.
+
+    Timing is the only instrument that can see this - the whole cost is inside
+    the native kernel, so counting Python calls shows nothing. Comparing fnx's
+    growth to networkx's growth rather than to an absolute bound makes the
+    assertion self-calibrating: load that inflates one arm inflates both.
+
+    THE 2.5x BOUND IS CALIBRATED, not guessed. The defect shows growth of 3.48x
+    (bfs_edges), 4.28x (cutoff=1) and 6.99x (cutoff=2) against networkx's ~1.0x,
+    and a fixed-cost kernel should show ~1.0x. My first draft used 6x and the
+    bfs_edges case XPASSED on the broken kernel - a threshold loose enough to
+    accept the bug it exists to catch. Every one of these must fail on today's
+    unbuilt tree, which is the only proof they test anything.
+    """
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: fnx.single_source_shortest_path_length(
+            _ring_cache_fnx[large], "n0", cutoff=cutoff
+        )
+    ) / _best(
+        lambda: fnx.single_source_shortest_path_length(
+            _ring_cache_fnx[small], "n0", cutoff=cutoff
+        )
+    )
+    nx_growth = _best(
+        lambda: nx.single_source_shortest_path_length(
+            _ring_cache_nx[large], "n0", cutoff=cutoff
+        )
+    ) / _best(
+        lambda: nx.single_source_shortest_path_length(
+            _ring_cache_nx[small], "n0", cutoff=cutoff
+        )
+    )
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"cutoff={cutoff}: a {large // small}x bigger parent made fnx "
+        f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
+        f"{nx_growth:.2f}x; the O(V) allocation is back"
+    )
+
+
+_ring_cache_fnx = {n: _ring(fnx, n) for n in (200, 12800)}
+_ring_cache_nx = {n: _ring(nx, n) for n in (200, 12800)}
+
+
+# ---------------------------------------------------------------------------
+# bfs_edges: the same defect, in three more kernels
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. ``bfs_edges``, ``bfs_edges_directed`` and
+# ``bfs_edges_directed_reverse`` each built the same whole-graph name vector.
+# Measured, request fixed, parent grown 64x: fnx 3.48x growth against networkx's
+# 1.02x, i.e. 1.309x of nx at n=200 falling to 0.3839x at n=12800.
+#
+# These kernels differ from the length kernels in one way that matters here:
+# they resolve names INSIDE the walk (each emitted edge needs both endpoints,
+# and the CGSE decision sink is fed the same pair), so the lookup order had to
+# change too. A name is now resolved BEFORE its node is marked visited, so the
+# unreachable None case cannot mark a node seen and then fail to emit it.
+
+DEPTHS = [None, 0, 1, 2, 99]
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_bfs_edges_undirected_sequence_matches_networkx(shape, depth):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = [(str(u), str(v)) for u, v in fnx.bfs_edges(got_g, source, depth_limit=depth)]
+    want = [(str(u), str(v)) for u, v in nx.bfs_edges(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: BFS edge SEQUENCE diverged"
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_bfs_edges_directed_sequence_matches_networkx(shape, depth, reverse):
+    """``reverse=True`` is a third kernel walking predecessors."""
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = [
+        (str(u), str(v))
+        for u, v in fnx.bfs_edges(got_g, source, reverse=reverse, depth_limit=depth)
+    ]
+    want = [
+        (str(u), str(v))
+        for u, v in nx.bfs_edges(want_g, source, reverse=reverse, depth_limit=depth)
+    ]
+    assert got == want, f"{shape}/reverse={reverse}/depth={depth}: sequence diverged"
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_bfs_edges_endpoints_are_the_graphs_own_node_objects(reverse):
+    """Name resolution moved; equal-but-distinct endpoints would pass a str check."""
+    graph = fnx.DiGraph()
+    graph.add_edges_from([((0, 0), (1, 1)), ((1, 1), (2, 2))])
+    identity = {n: n for n in graph.nodes()}
+    source = (0, 0) if not reverse else (2, 2)
+    for u, v in fnx.bfs_edges(graph, source, reverse=reverse):
+        assert u is identity[u], f"{u!r} is a copy, not the graph's node object"
+        assert v is identity[v], f"{v!r} is a copy, not the graph's node object"
+
+
+def test_bfs_edges_depth_zero_emits_nothing():
+    graph = fnx.Graph()
+    graph.add_edges_from([("a", "b"), ("b", "c")])
+    assert list(fnx.bfs_edges(graph, "a", depth_limit=0)) == []
+
+
+def test_bfs_edges_cost_does_not_grow_with_the_parent():
+    """networkx on the same host at the same moment is the control."""
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: list(fnx.bfs_edges(_ring_cache_fnx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(fnx.bfs_edges(_ring_cache_fnx[small], "n0", depth_limit=1)))
+    nx_growth = _best(
+        lambda: list(nx.bfs_edges(_ring_cache_nx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(nx.bfs_edges(_ring_cache_nx[small], "n0", depth_limit=1)))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx bfs_edges {fnx_growth:.2f}x "
+        f"slower for the SAME request while networkx moved {nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# single_source_shortest_path: the same defect, one layer up
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. The path kernels were ALREADY index-space, yet still sized
+# three structures to the whole graph. The dominant term was a
+# ``vec![None; n]`` predecessor tree - ``Option<usize>`` is 16 bytes, so a
+# cutoff=1 query on 12800 nodes wrote 200KB to report three paths. Measured:
+# undirected 12.11x growth vs networkx's 1.00x (1.1706x -> 0.0969x), directed
+# 4.88x (0.8180x -> 0.1696x).
+#
+# The predecessor array was removed outright rather than made sparse: a node's
+# parent is always discovered BEFORE it, so its POSITION in the discovery vector
+# is known at push time. Reconstruction is then index arithmetic over a vector
+# sized to the reach. That rewrote the path-building loop, so these tests pin
+# PATH CONTENTS, not just which nodes were reached.
+
+
+@pytest.mark.parametrize("cutoff", CUTOFFS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_sssp_paths_undirected_match_networkx(shape, cutoff):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = fnx.single_source_shortest_path(got_g, source, cutoff=cutoff)
+    want = nx.single_source_shortest_path(want_g, source, cutoff=cutoff)
+    assert {str(k): [str(n) for n in v] for k, v in got.items()} == {
+        str(k): [str(n) for n in v] for k, v in want.items()
+    }
+    assert [str(k) for k in got] == [str(k) for k in want], "discovery order diverged"
+
+
+@pytest.mark.parametrize("cutoff", CUTOFFS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+def test_sssp_paths_directed_match_networkx(shape, cutoff):
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = fnx.single_source_shortest_path(got_g, source, cutoff=cutoff)
+    want = nx.single_source_shortest_path(want_g, source, cutoff=cutoff)
+    assert {str(k): [str(n) for n in v] for k, v in got.items()} == {
+        str(k): [str(n) for n in v] for k, v in want.items()
+    }
+    assert [str(k) for k in got] == [str(k) for k in want], "discovery order diverged"
+
+
+def test_sssp_paths_are_real_walks_of_the_graph():
+    """Position-based reconstruction could mis-link a parent and still look sane.
+
+    Every consecutive pair in every returned path must be an actual edge, and
+    every path must start at the source and end at its key. A wrong parent
+    position yields a well-formed list that is not a path in the graph.
+    """
+    graph = fnx.Graph()
+    graph.add_edges_from(
+        [("a", "b"), ("b", "c"), ("c", "d"), ("a", "e"), ("e", "d"), ("d", "f")]
+    )
+    for cutoff in (None, 1, 2, 3):
+        for target, path in fnx.single_source_shortest_path(
+            graph, "a", cutoff=cutoff
+        ).items():
+            assert path[0] == "a", f"path to {target} does not start at the source"
+            assert path[-1] == target, f"path to {target} does not end at {target}"
+            for left, right in zip(path, path[1:]):
+                assert graph.has_edge(left, right), (
+                    f"path to {target} traverses {left}->{right}, which is not an edge"
+                )
+
+
+@pytest.mark.parametrize("cutoff", [1, 2])
+def test_sssp_path_depth_never_exceeds_the_cutoff(cutoff):
+    graph = fnx.Graph()
+    graph.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(20)])
+    for _target, path in fnx.single_source_shortest_path(
+        graph, "n0", cutoff=cutoff
+    ).items():
+        assert len(path) - 1 <= cutoff, f"path {path} is deeper than cutoff {cutoff}"
+
+
+def test_sssp_path_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: fnx.single_source_shortest_path(_ring_cache_fnx[large], "n0", cutoff=1)
+    ) / _best(
+        lambda: fnx.single_source_shortest_path(_ring_cache_fnx[small], "n0", cutoff=1)
+    )
+    nx_growth = _best(
+        lambda: nx.single_source_shortest_path(_ring_cache_nx[large], "n0", cutoff=1)
+    ) / _best(
+        lambda: nx.single_source_shortest_path(_ring_cache_nx[small], "n0", cutoff=1)
+    )
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx single_source_shortest_path "
+        f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
+        f"{nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# dfs_edges: the bfs_edges defect, in the depth-first pair
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. Measured 5.17x growth undirected and 5.28x directed against
+# networkx's 1.00x - 1.1058x of nx at n=200 down to 0.2130x at n=12800. Same
+# whole-graph name vector, plus stack and result vectors reserved for the whole
+# graph on a bounded walk.
+#
+# DFS is order-sensitive in a way BFS is not: nx pushes neighbours in REVERSE so
+# they pop in insertion order, and it always visits immediate neighbours at
+# depth 1 regardless of depth_limit. These tests pin the emitted sequence, which
+# is where a mis-resolved parent or a reordered push would show.
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_dfs_edges_undirected_sequence_matches_networkx(shape, depth):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = [(str(u), str(v)) for u, v in fnx.dfs_edges(got_g, source, depth_limit=depth)]
+    want = [(str(u), str(v)) for u, v in nx.dfs_edges(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: DFS edge SEQUENCE diverged"
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+def test_dfs_edges_directed_sequence_matches_networkx(shape, depth):
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = [(str(u), str(v)) for u, v in fnx.dfs_edges(got_g, source, depth_limit=depth)]
+    want = [(str(u), str(v)) for u, v in nx.dfs_edges(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: directed DFS sequence diverged"
+
+
+def test_dfs_edges_branching_order_is_networkxs():
+    """A wide branching node is where a reordered push would surface."""
+    got, want = fnx.Graph(), nx.Graph()
+    for g in (got, want):
+        g.add_edges_from([("r", "a"), ("r", "b"), ("r", "c")])
+        g.add_edges_from([("a", "a1"), ("a", "a2"), ("b", "b1"), ("c", "c1")])
+    for depth in (None, 1, 2, 3):
+        assert [
+            (str(u), str(v)) for u, v in fnx.dfs_edges(got, "r", depth_limit=depth)
+        ] == [(str(u), str(v)) for u, v in nx.dfs_edges(want, "r", depth_limit=depth)]
+
+
+def test_dfs_edges_endpoints_are_the_graphs_own_node_objects():
+    graph = fnx.Graph()
+    graph.add_edges_from([((0, 0), (1, 1)), ((1, 1), (2, 2))])
+    identity = {n: n for n in graph.nodes()}
+    for u, v in fnx.dfs_edges(graph, (0, 0)):
+        assert u is identity[u] and v is identity[v]
+
+
+def test_dfs_edges_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: list(fnx.dfs_edges(_ring_cache_fnx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(fnx.dfs_edges(_ring_cache_fnx[small], "n0", depth_limit=1)))
+    nx_growth = _best(
+        lambda: list(nx.dfs_edges(_ring_cache_nx[large], "n0", depth_limit=1))
+    ) / _best(lambda: list(nx.dfs_edges(_ring_cache_nx[small], "n0", depth_limit=1)))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx dfs_edges {fnx_growth:.2f}x "
+        f"slower for the SAME request while networkx moved {nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# dfs_postorder_nodes: the last O(V) term is the name vector alone
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. Here `visited` is one calloc and both output vectors already
+# started empty, so the whole-graph name vector was the entire defect: 8.39x
+# growth against networkx's 0.99x, 1.9093x of nx down to 0.2244x.
+#
+# The postorder contract is subtle and worth pinning precisely: networkx emits a
+# reverse-depth_limit event for cutoff nodes, so a node at exactly the depth
+# limit appears in PREORDER but NOT in postorder - except the root, which still
+# closes normally. That asymmetry lives in the loop whose emit site just moved.
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["path", "star", "loopy", "ints", "tuples"])
+def test_dfs_postorder_undirected_matches_networkx(shape, depth):
+    got_g, source = _shapes(fnx)[shape]
+    want_g, _ = _shapes(nx)[shape]
+    got = [str(n) for n in fnx.dfs_postorder_nodes(got_g, source, depth_limit=depth)]
+    want = [str(n) for n in nx.dfs_postorder_nodes(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: postorder sequence diverged"
+
+
+@pytest.mark.parametrize("depth", DEPTHS)
+@pytest.mark.parametrize("shape", ["chain", "fan", "ints"])
+def test_dfs_postorder_directed_matches_networkx(shape, depth):
+    got_g, source = _directed_shapes(fnx)[shape]
+    want_g, _ = _directed_shapes(nx)[shape]
+    got = [str(n) for n in fnx.dfs_postorder_nodes(got_g, source, depth_limit=depth)]
+    want = [str(n) for n in nx.dfs_postorder_nodes(want_g, source, depth_limit=depth)]
+    assert got == want, f"{shape}/depth={depth}: directed postorder diverged"
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3])
+def test_dfs_postorder_cutoff_node_omission_matches_networkx(depth):
+    """The reverse-depth_limit asymmetry: cutoff nodes are omitted, the root is not."""
+    got, want = fnx.Graph(), nx.Graph()
+    for g in (got, want):
+        g.add_edges_from([("r", "a"), ("a", "b"), ("b", "c"), ("r", "d"), ("d", "e")])
+    got_seq = [str(n) for n in fnx.dfs_postorder_nodes(got, "r", depth_limit=depth)]
+    want_seq = [str(n) for n in nx.dfs_postorder_nodes(want, "r", depth_limit=depth)]
+    assert got_seq == want_seq
+    assert "r" in got_seq, "the root must still close with a normal reverse event"
+
+
+def test_dfs_postorder_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: list(
+            fnx.dfs_postorder_nodes(_ring_cache_fnx[large], "n0", depth_limit=1)
+        )
+    ) / _best(
+        lambda: list(
+            fnx.dfs_postorder_nodes(_ring_cache_fnx[small], "n0", depth_limit=1)
+        )
+    )
+    nx_growth = _best(
+        lambda: list(nx.dfs_postorder_nodes(_ring_cache_nx[large], "n0", depth_limit=1))
+    ) / _best(
+        lambda: list(nx.dfs_postorder_nodes(_ring_cache_nx[small], "n0", depth_limit=1))
+    )
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx dfs_postorder_nodes "
+        f"{fnx_growth:.2f}x slower for the SAME request while networkx moved "
+        f"{nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# bidirectional_shortest_path: the algorithm whose whole point is stopping early
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. Two-way BFS meets in the middle and touches a neighbourhood,
+# not a graph - yet it allocated two whole-graph parent arrays before the first
+# expansion (Option<usize> is 16 bytes, so 32 bytes per node in the graph to
+# answer a query that meets in two hops). Measured 9.41x growth against
+# networkx's 0.99x: 2.0786x of nx at n=200 down to 0.2185x at n=12800.
+#
+# The parent maps are sparse now; the two `seen` marks stay dense because they
+# are probed on every neighbour of every expansion. Reconstruction reads the
+# parent maps by node index, and a missing key means exactly what None meant, so
+# these tests pin the RECONSTRUCTED PATH rather than merely its endpoints.
+#
+# NOTE: the live binding is bidirectional_shortest_path_index_meta, NOT the
+# `pub fn bidirectional_shortest_path` in the same crate - that one still builds
+# nodes_ordered() and is off the Python path entirely.
+
+
+def _bidir_shapes(lib):
+    grid = lib.Graph()
+    for i in range(5):
+        for j in range(5):
+            if i < 4:
+                grid.add_edge((i, j), (i + 1, j))
+            if j < 4:
+                grid.add_edge((i, j), (i, j + 1))
+    two_routes = lib.Graph()
+    two_routes.add_edges_from(
+        [("s", "a"), ("a", "t"), ("s", "b"), ("b", "c"), ("c", "t")]
+    )
+    disconnected = lib.Graph()
+    disconnected.add_edges_from([("x", "y"), ("p", "q")])
+    return {"grid": grid, "two_routes": two_routes, "disconnected": disconnected}
+
+
+@pytest.mark.parametrize(
+    "shape,src,dst",
+    [
+        ("grid", (0, 0), (4, 4)),
+        ("grid", (0, 0), (0, 0)),
+        ("grid", (2, 2), (2, 3)),
+        ("two_routes", "s", "t"),
+        ("two_routes", "s", "s"),
+    ],
+)
+def test_bidirectional_path_matches_networkx(shape, src, dst):
+    got = fnx.bidirectional_shortest_path(_bidir_shapes(fnx)[shape], src, dst)
+    want = nx.bidirectional_shortest_path(_bidir_shapes(nx)[shape], src, dst)
+    assert [str(n) for n in got] == [str(n) for n in want]
+
+
+def test_bidirectional_path_is_a_real_walk_of_the_graph():
+    """Sparse parents are read by index; a wrong lookup yields a plausible list.
+
+    Deliberately NOT an object-identity test. The other kernels here do assert
+    identity, but bidirectional_shortest_path cannot: measured on a tuple-keyed
+    grid, NETWORKX ITSELF returns a mix of the graph's own node objects and
+    equal-but-distinct ones ([False, True, False, False, False] over a 5-node
+    path), so identity is not a contract either library offers on this call and
+    asserting it would pin an accident. What IS checkable is that the path is a
+    genuine walk - a mis-read parent map produces a well-formed list of real
+    nodes that is not connected end to end.
+    """
+    graph = _bidir_shapes(fnx)["grid"]
+    path = fnx.bidirectional_shortest_path(graph, (0, 0), (4, 4))
+    assert path[0] == (0, 0) and path[-1] == (4, 4)
+    assert len(path) == len(set(path)), "the path revisits a node"
+    for left, right in zip(path, path[1:]):
+        assert graph.has_edge(left, right), f"{left}->{right} is not an edge"
+    want = nx.bidirectional_shortest_path(_bidir_shapes(nx)["grid"], (0, 0), (4, 4))
+    assert len(path) == len(want), "path length differs from networkx's"
+
+
+def test_bidirectional_no_path_still_raises_like_networkx():
+    got, want = _bidir_shapes(fnx)["disconnected"], _bidir_shapes(nx)["disconnected"]
+    with pytest.raises(Exception) as got_exc:
+        fnx.bidirectional_shortest_path(got, "x", "q")
+    with pytest.raises(Exception) as want_exc:
+        nx.bidirectional_shortest_path(want, "x", "q")
+    assert type(got_exc.value).__name__ == type(want_exc.value).__name__
+
+
+def test_bidirectional_directed_respects_orientation():
+    got, want = fnx.DiGraph(), nx.DiGraph()
+    for g in (got, want):
+        g.add_edges_from([("a", "b"), ("b", "c"), ("c", "d")])
+    assert [str(n) for n in fnx.bidirectional_shortest_path(got, "a", "d")] == [
+        str(n) for n in nx.bidirectional_shortest_path(want, "a", "d")
+    ]
+    with pytest.raises(Exception):
+        fnx.bidirectional_shortest_path(got, "d", "a")
+
+
+def test_bidirectional_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    fnx_growth = _best(
+        lambda: fnx.bidirectional_shortest_path(_ring_cache_fnx[large], "n0", "n2")
+    ) / _best(
+        lambda: fnx.bidirectional_shortest_path(_ring_cache_fnx[small], "n0", "n2")
+    )
+    nx_growth = _best(
+        lambda: nx.bidirectional_shortest_path(_ring_cache_nx[large], "n0", "n2")
+    ) / _best(lambda: nx.bidirectional_shortest_path(_ring_cache_nx[small], "n0", "n2"))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx bidirectional_shortest_path "
+        f"{fnx_growth:.2f}x slower for a two-hop query while networkx moved "
+        f"{nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The MULTIGRAPH mirrors, which were far worse than the simple-graph originals
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7. The multigraph bidirectional helpers built a HashMap of EVERY
+# node name -> index on every call - hashing the whole node set before a two-hop
+# query could start - on top of the same dense parent arrays. Measured growth
+# 200 -> 12800 nodes, against networkx's 0.98x:
+#
+#     MultiGraph    bidirectional_shortest_path   67.39x   0.6388x -> 0.0093x
+#     MultiDiGraph  bidirectional_shortest_path   68.01x   0.5988x -> 0.0088x
+#     MultiGraph    single_source_shortest_path   44.22x   0.7135x -> 0.0158x
+#     MultiDiGraph  single_source_shortest_path   81.30x   0.3236x -> 0.0040x
+#
+# The graph classes already carry the map the helpers rebuilt: get_node_index is
+# an IndexMap lookup, so a neighbour costs the same single hash it cost through
+# the temporary, without the O(V) build in front of it. Parallel edges are the
+# thing to pin here - a multigraph neighbour row repeats a node once per parallel
+# edge, so a per-neighbour index lookup runs more often than the old map build
+# did, and any divergence would show up as a duplicated or reordered path node.
+
+MULTI = ["MultiGraph", "MultiDiGraph"]
+
+
+def _multi_with_parallel_edges(lib, cls):
+    graph = getattr(lib, cls)()
+    graph.add_edge("s", "a")
+    graph.add_edge("s", "a")          # parallel
+    graph.add_edge("a", "t")
+    graph.add_edge("s", "b")
+    graph.add_edge("b", "c")
+    graph.add_edge("c", "t")
+    graph.add_edge("t", "t")          # self-loop
+    return graph
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bidirectional_path_matches_networkx(cls):
+    got = _multi_with_parallel_edges(fnx, cls)
+    want = _multi_with_parallel_edges(nx, cls)
+    for src, dst in (("s", "t"), ("s", "s"), ("s", "a"), ("a", "t")):
+        assert [str(n) for n in fnx.bidirectional_shortest_path(got, src, dst)] == [
+            str(n) for n in nx.bidirectional_shortest_path(want, src, dst)
+        ], f"{cls}: {src}->{dst} diverged"
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bidirectional_path_is_a_real_walk(cls):
+    graph = _multi_with_parallel_edges(fnx, cls)
+    path = fnx.bidirectional_shortest_path(graph, "s", "t")
+    assert len(path) == len(set(path)), f"{cls}: parallel edges duplicated a node"
+    for left, right in zip(path, path[1:]):
+        assert graph.has_edge(left, right), f"{cls}: {left}->{right} is not an edge"
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bounded_traversals_match_networkx(cls):
+    """The other multigraph mirrors on this bead, pinned at the public API."""
+    got = _multi_with_parallel_edges(fnx, cls)
+    want = _multi_with_parallel_edges(nx, cls)
+    for cutoff in (None, 0, 1, 2):
+        assert dict(
+            fnx.single_source_shortest_path_length(got, "s", cutoff=cutoff)
+        ) == dict(nx.single_source_shortest_path_length(want, "s", cutoff=cutoff))
+        assert {
+            str(k): [str(x) for x in v]
+            for k, v in fnx.single_source_shortest_path(got, "s", cutoff=cutoff).items()
+        } == {
+            str(k): [str(x) for x in v]
+            for k, v in nx.single_source_shortest_path(want, "s", cutoff=cutoff).items()
+        }
+        assert [
+            (str(u), str(v))
+            for u, v in fnx.bfs_edges(got, "s", depth_limit=cutoff)
+        ] == [
+            (str(u), str(v)) for u, v in nx.bfs_edges(want, "s", depth_limit=cutoff)
+        ]
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_bidirectional_cost_does_not_grow_with_the_parent(cls):
+    small, large = 200, 12800
+    rings = {
+        n: (_multi_ring(fnx, cls, n), _multi_ring(nx, cls, n)) for n in (small, large)
+    }
+    fnx_growth = _best(
+        lambda: fnx.bidirectional_shortest_path(rings[large][0], "n0", "n2")
+    ) / _best(lambda: fnx.bidirectional_shortest_path(rings[small][0], "n0", "n2"))
+    nx_growth = _best(
+        lambda: nx.bidirectional_shortest_path(rings[large][1], "n0", "n2")
+    ) / _best(lambda: nx.bidirectional_shortest_path(rings[small][1], "n0", "n2"))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"{cls}: a {large // small}x bigger parent made fnx {fnx_growth:.2f}x "
+        f"slower for a two-hop query while networkx moved {nx_growth:.2f}x"
+    )
+
+
+def _multi_ring(lib, cls, n):
+    graph = getattr(lib, cls)()
+    graph.add_edges_from([(f"n{i}", f"n{(i + 1) % n}") for i in range(n)])
+    return graph
+
+
+# br-r37-c1-dkwy7. The multigraph sssp helpers: MultiGraph hashed every node name
+# into a temporary index map per call (44.22x growth, 0.7135x -> 0.0158x), and
+# MultiDiGraph found its source by LINEAR SCAN over every node name with string
+# comparison (81.30x growth, 0.3236x -> 0.0040x - 250x slower than networkx at
+# 12800 nodes). Both now use get_node_index.
+#
+# THAT SUBSTITUTION HAS A PRECONDITION worth testing rather than trusting:
+# get_node_index must index the SAME order nodes_ordered() yields, because the
+# returned source_idx is used against a `nodes` vector built from the latter. If
+# the two ever disagreed - most plausibly after node removals renumber storage -
+# the BFS would start from the WRONG NODE and return a confident, wrong answer.
+
+
+@pytest.mark.parametrize("cls", MULTI + ["Graph", "DiGraph"])
+def test_source_index_survives_node_removal_renumbering(cls):
+    """Removals are where an index/order disagreement would surface."""
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    for g in (got, want):
+        g.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(12)])
+        g.add_edge("last", "n0")
+        g.remove_node("n3")
+        g.remove_node("n7")
+        g.add_edge("fresh", "n11")
+
+    for source in ("n0", "last", "fresh", "n11"):
+        assert dict(fnx.single_source_shortest_path_length(got, source)) == dict(
+            nx.single_source_shortest_path_length(want, source)
+        ), f"{cls}: length from {source} diverged after removals"
+        assert {
+            str(k): [str(x) for x in v]
+            for k, v in fnx.single_source_shortest_path(got, source).items()
+        } == {
+            str(k): [str(x) for x in v]
+            for k, v in nx.single_source_shortest_path(want, source).items()
+        }, f"{cls}: paths from {source} diverged after removals"
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_last_inserted_node_as_source(cls):
+    """A linear scan and an index map differ most obviously at the far end."""
+    got, want = getattr(fnx, cls)(), getattr(nx, cls)()
+    for g in (got, want):
+        g.add_edges_from([(f"n{i}", f"n{i + 1}") for i in range(30)])
+        g.add_edge("omega", "n30")
+    for cutoff in (None, 1, 2):
+        assert dict(
+            fnx.single_source_shortest_path_length(got, "omega", cutoff=cutoff)
+        ) == dict(nx.single_source_shortest_path_length(want, "omega", cutoff=cutoff))
+
+
+@pytest.mark.parametrize("cls", MULTI)
+def test_multigraph_sssp_path_cost_does_not_grow_with_the_parent(cls):
+    small, large = 200, 12800
+    rings = {
+        n: (_multi_ring(fnx, cls, n), _multi_ring(nx, cls, n)) for n in (small, large)
+    }
+    fnx_growth = _best(
+        lambda: fnx.single_source_shortest_path(rings[large][0], "n0", cutoff=1)
+    ) / _best(lambda: fnx.single_source_shortest_path(rings[small][0], "n0", cutoff=1))
+    nx_growth = _best(
+        lambda: nx.single_source_shortest_path(rings[large][1], "n0", cutoff=1)
+    ) / _best(lambda: nx.single_source_shortest_path(rings[small][1], "n0", cutoff=1))
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"{cls}: a {large // small}x bigger parent made fnx "
+        f"single_source_shortest_path {fnx_growth:.2f}x slower for a one-hop "
+        f"request while networkx moved {nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Weighted: cutoff-bounded Dijkstra
+# ---------------------------------------------------------------------------
+# br-r37-c1-dkwy7, the worst row on the bead and the one I would not write blind
+# under the throttle. single_source_dijkstra_path_length(cutoff=1) grew 39.37x
+# between 200 and 12800 nodes against networkx's 0.99x - 0.9324x of the incumbent
+# down to 0.0235x, i.e. 42x SLOWER than networkx - because the bounded search
+# materialised the ENTIRE weighted graph first (every node, every edge, an
+# attribute lookup per edge) and then allocated four dense O(V) arrays.
+#
+# The bounded path now expands rows lazily with sparse state. The unbounded path
+# is untouched: a search that may settle every node is entitled to dense arrays.
+#
+# THIS IS CORRECTNESS-CRITICAL IN A WAY THE BFS KERNELS WERE NOT - a wrong
+# Dijkstra returns wrong DISTANCES, not merely slow ones. So the invariants are
+# pinned by name:
+#   * key order is FINALIZATION order, which is networkx's dict order;
+#   * integer weights must yield integer distances (the all_int propagation);
+#   * ties must break the way networkx's heap breaks them;
+#   * the cutoff is inclusive and applied before relaxation.
+
+
+def _weighted(lib, directed=False, floats=False):
+    graph = lib.DiGraph() if directed else lib.Graph()
+    w = (lambda x: x + 0.5) if floats else (lambda x: x)
+    graph.add_edge("s", "a", weight=w(1))
+    graph.add_edge("a", "b", weight=w(1))
+    graph.add_edge("b", "c", weight=w(1))
+    graph.add_edge("s", "d", weight=w(2))
+    graph.add_edge("d", "c", weight=w(1))
+    graph.add_edge("s", "z", weight=w(9))
+    graph.add_edge("c", "e", weight=0)          # zero-weight edge
+    graph.add_node("island")                    # unreachable
+    return graph
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("floats", [False, True])
+@pytest.mark.parametrize("cutoff", [None, 0, 1, 2, 3, 100])
+def test_dijkstra_cutoff_distances_and_order_match_networkx(directed, floats, cutoff):
+    got = fnx.single_source_dijkstra_path_length(
+        _weighted(fnx, directed, floats), "s", cutoff=cutoff
+    )
+    want = nx.single_source_dijkstra_path_length(
+        _weighted(nx, directed, floats), "s", cutoff=cutoff
+    )
+    assert dict(got) == dict(want), f"directed={directed} floats={floats} cutoff={cutoff}"
+    assert [str(k) for k in got] == [str(k) for k in want], (
+        "key order is finalization order and is networkx's dict order"
+    )
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("cutoff", [None, 2, 3])
+def test_integer_weights_keep_integer_distance_types(directed, cutoff):
+    """The all_int propagation: a float here is a silent type regression."""
+    got = fnx.single_source_dijkstra_path_length(
+        _weighted(fnx, directed, floats=False), "s", cutoff=cutoff
+    )
+    want = nx.single_source_dijkstra_path_length(
+        _weighted(nx, directed, floats=False), "s", cutoff=cutoff
+    )
+    for key, distance in got.items():
+        reference = want[key]
+        assert isinstance(distance, type(reference)) or (
+            isinstance(distance, (int, float)) and isinstance(reference, (int, float))
+            and isinstance(distance, int) == isinstance(reference, int)
+        ), f"{key}: fnx {distance!r} ({type(distance).__name__}) vs nx {reference!r}"
+
+
+@pytest.mark.parametrize("cutoff", [None, 1, 2])
+def test_equal_weight_ties_break_like_networkx(cutoff):
+    """Two equal-cost routes: which parent wins is the heap's tie-break."""
+    got, want = fnx.Graph(), nx.Graph()
+    for g in (got, want):
+        g.add_edge("s", "p", weight=1)
+        g.add_edge("s", "q", weight=1)
+        g.add_edge("p", "t", weight=1)
+        g.add_edge("q", "t", weight=1)
+    assert dict(
+        fnx.single_source_dijkstra_path_length(got, "s", cutoff=cutoff)
+    ) == dict(nx.single_source_dijkstra_path_length(want, "s", cutoff=cutoff))
+    assert [
+        str(k) for k in fnx.single_source_dijkstra_path_length(got, "s", cutoff=cutoff)
+    ] == [
+        str(k) for k in nx.single_source_dijkstra_path_length(want, "s", cutoff=cutoff)
+    ]
+
+
+def test_dijkstra_cutoff_is_inclusive_and_excludes_beyond():
+    graph, reference = _weighted(fnx), _weighted(nx)
+    for cutoff in (1, 2, 3):
+        got = fnx.single_source_dijkstra_path_length(graph, "s", cutoff=cutoff)
+        assert got == nx.single_source_dijkstra_path_length(
+            reference, "s", cutoff=cutoff
+        )
+        assert all(d <= cutoff for d in got.values()), f"cutoff={cutoff} leaked"
+    assert "z" not in fnx.single_source_dijkstra_path_length(graph, "s", cutoff=3)
+    assert "z" in fnx.single_source_dijkstra_path_length(graph, "s", cutoff=9)
+
+
+def test_dijkstra_disconnected_and_missing_source():
+    graph, reference = _weighted(fnx), _weighted(nx)
+    for cutoff in (None, 1):
+        assert "island" not in fnx.single_source_dijkstra_path_length(
+            graph, "s", cutoff=cutoff
+        )
+        assert dict(
+            fnx.single_source_dijkstra_path_length(graph, "island", cutoff=cutoff)
+        ) == dict(
+            nx.single_source_dijkstra_path_length(reference, "island", cutoff=cutoff)
+        )
+    with pytest.raises(fnx.NodeNotFound):
+        fnx.single_source_dijkstra_path_length(graph, "absent", cutoff=1)
+
+
+def test_dijkstra_cutoff_cost_does_not_grow_with_the_parent():
+    small, large = 200, 12800
+    rings = {}
+    for n in (small, large):
+        gf, gx = fnx.Graph(), nx.Graph()
+        for g in (gf, gx):
+            g.add_edges_from(
+                [(f"n{i}", f"n{(i + 1) % n}", {"weight": 1}) for i in range(n)]
+            )
+        rings[n] = (gf, gx)
+    fnx_growth = _best(
+        lambda: fnx.single_source_dijkstra_path_length(rings[large][0], "n0", cutoff=1)
+    ) / _best(
+        lambda: fnx.single_source_dijkstra_path_length(rings[small][0], "n0", cutoff=1)
+    )
+    nx_growth = _best(
+        lambda: nx.single_source_dijkstra_path_length(rings[large][1], "n0", cutoff=1)
+    ) / _best(
+        lambda: nx.single_source_dijkstra_path_length(rings[small][1], "n0", cutoff=1)
+    )
+    assert fnx_growth < 2.5 * max(nx_growth, 1.0), (
+        f"a {large // small}x bigger parent made fnx dijkstra {fnx_growth:.2f}x "
+        f"slower for a cutoff=1 request while networkx moved {nx_growth:.2f}x"
+    )
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-qnj0n: the rest of the vein
+# ---------------------------------------------------------------------------
+# A sweep holding the request fixed (a 10-node weighted path) beside a
+# DISCONNECTED ring grown 1k -> 32k found these still paying for the whole
+# graph per call - a nodes_ordered() name table, V-sized arrays (a Vec of Vecs
+# for predecessor lists, 24-byte Option pairs for A*), a degree Vec of every
+# node, a rebuild of every adjacency row - 36 us to 1.5 ms at 32k against
+# networkx's 4-15 us. Each graph below carries a REMOVED node, so node storage
+# is non-dense and every position -> name / row lookup is exercised.
+
+
+def _beside_ring(lib, ring, directed):
+    graph = lib.DiGraph() if directed else lib.Graph()
+    graph.add_node("gone")
+    graph.add_edges_from((i, i + 1, {"weight": 1 + i % 3}) for i in range(9))
+    graph.add_edges_from([(0, 2, {"weight": 2}), (2, 5, {"weight": 1}), (6, 3, {"weight": 1})])
+    graph.add_edges_from((100 + i, 100 + (i + 1) % ring, {"weight": 1}) for i in range(ring))
+    graph.remove_node("gone")
+    return graph
+
+
+_BESIDE = {
+    (lib.__name__, ring, directed): _beside_ring(lib, ring, directed)
+    for lib in (fnx, nx)
+    for ring in (200, 12800)
+    for directed in (False, True)
+}
+
+_QNJ0N_CALLS = {
+    "dijkstra_path": (False, lambda m, g: m.dijkstra_path(g, 0, 5)),
+    "dijkstra_path_dir": (True, lambda m, g: m.dijkstra_path(g, 0, 5)),
+    "bidirectional_dijkstra": (False, lambda m, g: m.bidirectional_dijkstra(g, 0, 5)),
+    "bidirectional_dijkstra_dir": (True, lambda m, g: m.bidirectional_dijkstra(g, 0, 5)),
+    "astar_path": (False, lambda m, g: m.astar_path(g, 0, 5)),
+    "astar_path_dir": (True, lambda m, g: m.astar_path(g, 0, 5)),
+    "all_shortest_paths": (False, lambda m, g: list(m.all_shortest_paths(g, 0, 5))),
+    "all_shortest_paths_dir": (True, lambda m, g: list(m.all_shortest_paths(g, 0, 5))),
+    "node_boundary": (False, lambda m, g: m.node_boundary(g, [0, 1])),
+    "node_boundary_dir": (True, lambda m, g: m.node_boundary(g, [0, 1])),
+    "node_connected_component": (False, lambda m, g: m.node_connected_component(g, 0)),
+    "bfs_layers": (False, lambda m, g: list(m.bfs_layers(g, [0]))),
+    "bfs_layers_dir": (True, lambda m, g: list(m.bfs_layers(g, [0]))),
+    "chain_decomposition_root": (False, lambda m, g: list(m.chain_decomposition(g, root=0))),
+    "sssp_cutoff_dir": (True, lambda m, g: m.single_source_shortest_path(g, 0, cutoff=2)),
+    "shortest_path_source_dir": (True, lambda m, g: m.shortest_path(g, 0)),
+    "stsp_length_dir": (True, lambda m, g: m.single_target_shortest_path_length(g, 5, cutoff=2)),
+    "shortest_path_length": (False, lambda m, g: m.shortest_path_length(g, 0, 5)),
+    "shortest_path_length_dir": (True, lambda m, g: m.shortest_path_length(g, 0, 5)),
+    "preferential_attachment": (
+        False,
+        lambda m, g: list(m.preferential_attachment(g, [(0, 2), (1, 3)])),
+    ),
+    "square_clustering_nodes": (False, lambda m, g: m.square_clustering(g, [0, 1, 2])),
+    "bellman_ford_path_length": (
+        False,
+        lambda m, g: m.single_source_bellman_ford_path_length(g, 0),
+    ),
+    "bellman_ford_path_dir": (True, lambda m, g: m.bellman_ford_path(g, 0, 5)),
+    # br-r37-c1-m0cj7: the multi-source kernel allocated for the whole graph
+    # and ran unbounded, the cutoff applied afterwards in Python.
+    "multi_source_dijkstra_cutoff": (
+        False,
+        lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
+    ),
+    "multi_source_dijkstra_cutoff_dir": (
+        True,
+        lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
+    ),
+    "multi_source_dijkstra_path_length": (
+        False,
+        lambda m, g: m.multi_source_dijkstra_path_length(g, [0, 1], cutoff=2),
+    ),
+    "multi_source_dijkstra_path_length_dir": (
+        True,
+        lambda m, g: m.multi_source_dijkstra_path_length(g, [0, 1], cutoff=2),
+    ),
+}
+
+
+@pytest.mark.parametrize("label", sorted(_QNJ0N_CALLS))
+def test_bounded_request_equals_networkx_and_does_not_grow_with_the_parent(label):
+    directed, call = _QNJ0N_CALLS[label]
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _BESIDE[(lib.__name__, 200, directed)]
+        large = _BESIDE[(lib.__name__, 12800, directed)]
+        results[lib.__name__] = call(lib, large)
+        growth[lib.__name__] = _best(lambda: call(lib, large), reps=20) / _best(
+            lambda: call(lib, small), reps=20
+        )
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
+
+
+def _component_of_300(lib, directed, seed):
+    """300 connected-ish nodes with ties and a removed node - large enough that
+    the reach-sized tables promote from sparse to dense mid-search."""
+    import random
+
+    rng = random.Random(seed)
+    graph = lib.DiGraph() if directed else lib.Graph()
+    graph.add_node("gone")
+    for u in range(300):
+        for v in rng.sample(range(300), 3):
+            if u != v:
+                graph.add_edge(u, v, weight=rng.choice([1, 1, 2, 3]))
+    graph.remove_node("gone")
+    return graph
+
+
+_PROMOTING_CALLS = {
+    "dijkstra_path": lambda m, g: m.dijkstra_path(g, 0, 250),
+    "bidirectional_dijkstra": lambda m, g: m.bidirectional_dijkstra(g, 0, 250),
+    "astar_path": lambda m, g: m.astar_path(g, 0, 250),
+    "all_shortest_paths": lambda m, g: list(m.all_shortest_paths(g, 0, 250)),
+    "node_boundary": lambda m, g: m.node_boundary(g, range(0, 300, 2)),
+    "bfs_layers": lambda m, g: list(m.bfs_layers(g, [0, 7])),
+    "shortest_path_length": lambda m, g: m.shortest_path_length(g, 0, 250),
+    "shortest_path_source": lambda m, g: m.shortest_path(g, 0),
+    "bellman_ford": lambda m, g: m.single_source_bellman_ford(g, 0),
+}
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("label", sorted(_PROMOTING_CALLS))
+def test_reach_sized_state_past_promotion_equals_networkx(label, seed, directed):
+    call = _PROMOTING_CALLS[label]
+    try:
+        expected = call(nx, _component_of_300(nx, directed, seed))
+    except nx.NetworkXNoPath:
+        with pytest.raises(nx.NetworkXNoPath):
+            call(fnx, _component_of_300(fnx, directed, seed))
+        return
+    assert call(fnx, _component_of_300(fnx, directed, seed)) == expected
+
+
+@pytest.mark.parametrize("seed", range(3))
+def test_undirected_only_calls_past_promotion_equal_networkx(seed):
+    graphs = {lib.__name__: _component_of_300(lib, False, seed) for lib in (fnx, nx)}
+    for call in (
+        lambda m, g: m.node_connected_component(g, 0),
+        lambda m, g: list(m.chain_decomposition(g, root=0)),
+        lambda m, g: m.square_clustering(g, list(range(0, 300, 3))),
+    ):
+        assert call(fnx, graphs["franken_networkx"]) == call(nx, graphs["networkx"])
+
+
+# ---------------------------------------------------------------------------
+# br-r37-c1-svsam: the next query after a write
+# ---------------------------------------------------------------------------
+# The directed traversal kernels read DiGraph::csr(), a snapshot keyed by the
+# graph's revision, so the first query after ANY write rebuilt it over every
+# node and edge: single_source_shortest_path_length(cutoff=2) beside a 32k ring
+# cost ~250 us per write-then-query against networkx's few us. They now read
+# the successor / predecessor rows by position, as the lazy Dijkstra kernels
+# do. Each step below toggles one edge inside the ring the query never reaches.
+
+_AFTER_A_WRITE = {
+    "sssp_length_cutoff": lambda m, g: m.single_source_shortest_path_length(g, 0, cutoff=2),
+    "bfs_edges_depth": lambda m, g: list(m.bfs_edges(g, 0, depth_limit=2)),
+    "bfs_edges_reverse": lambda m, g: list(m.bfs_edges(g, 5, reverse=True, depth_limit=2)),
+    "dfs_edges_depth": lambda m, g: list(m.dfs_edges(g, 0, depth_limit=2)),
+    "descendants": lambda m, g: m.descendants(g, 0),
+    "shortest_path_to_target": lambda m, g: m.shortest_path(g, target=5),
+}
+
+
+def _write_then(lib, graph, call):
+    toggled = [False]
+
+    def step():
+        if toggled[0]:
+            graph.remove_edge(100, 102)
+        else:
+            graph.add_edge(100, 102)
+        toggled[0] = not toggled[0]
+        return call(lib, graph)
+
+    return step
+
+
+@pytest.mark.parametrize("label", sorted(_AFTER_A_WRITE))
+def test_directed_query_after_a_write_does_not_grow_with_the_parent(label):
+    call = _AFTER_A_WRITE[label]
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _write_then(lib, _beside_ring(lib, 200, True), call)
+        large = _write_then(lib, _beside_ring(lib, 12800, True), call)
+        results[lib.__name__] = large()
+        growth[lib.__name__] = _best(large, reps=20) / _best(small, reps=20)
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
+
+
+# The weighted searches asked the delegation gate first, and the gate's O(E)
+# weight scan is cached by revision - so after one write, dijkstra_path beside
+# a 32k ring cost 18 ms against networkx's 13 us. On a cache miss the search
+# now checks only the rows it expands (see test_weighted_path_adversarial_parity
+# for the hostile-weight side of that).
+
+_WEIGHTED_AFTER_A_WRITE = {
+    "dijkstra_path": lambda m, g: m.dijkstra_path(g, 0, 5),
+    "dijkstra_path_length": lambda m, g: m.dijkstra_path_length(g, 0, 5),
+    "single_source_dijkstra_cutoff": lambda m, g: m.single_source_dijkstra(g, 0, cutoff=2),
+    "ss_dijkstra_path_length_cutoff": lambda m, g: m.single_source_dijkstra_path_length(
+        g, 0, cutoff=2
+    ),
+    "bidirectional_dijkstra": lambda m, g: m.bidirectional_dijkstra(g, 0, 5),
+    "astar_path": lambda m, g: m.astar_path(g, 0, 5),
+    "bellman_ford_path": lambda m, g: m.bellman_ford_path(g, 0, 5),
+    "bellman_ford_path_length": lambda m, g: m.bellman_ford_path_length(g, 0, 5),
+    "shortest_path_weighted": lambda m, g: m.shortest_path(g, 0, 5, weight="weight"),
+    "multi_source_dijkstra_cutoff": lambda m, g: m.multi_source_dijkstra(g, [0, 1], cutoff=2),
+    "multi_source_dijkstra_target": lambda m, g: m.multi_source_dijkstra(g, [0, 1], target=5),
+    "single_source_bellman_ford_path_length": lambda m, g: m.single_source_bellman_ford_path_length(
+        g, 0
+    ),
+}
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("label", sorted(_WEIGHTED_AFTER_A_WRITE))
+def test_weighted_query_after_a_write_does_not_grow_with_the_parent(label, directed):
+    call = _WEIGHTED_AFTER_A_WRITE[label]
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _write_then(lib, _beside_ring(lib, 200, directed), call)
+        large = _write_then(lib, _beside_ring(lib, 12800, directed), call)
+        results[lib.__name__] = large()
+        growth[lib.__name__] = _best(large, reps=20) / _best(small, reps=20)
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), (label, growth)
+
+
+# bellman_ford_path_length re-summed its path through G[u][v]. Reading an edge
+# dict that way marks the store dirty, so the NEXT weighted call resynced and
+# rescanned every weight: a repeated query on an UNCHANGED graph paid 17 ms at
+# 32k. It now takes the length and its int / float type from the kernel.
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_repeated_bellman_ford_path_length_does_not_grow_with_the_parent(directed):
+    results, growth = {}, {}
+    for lib in (fnx, nx):
+        small = _BESIDE[(lib.__name__, 200, directed)]
+        large = _BESIDE[(lib.__name__, 12800, directed)]
+        results[lib.__name__] = lib.bellman_ford_path_length(large, 0, 5)
+        growth[lib.__name__] = _best(
+            lambda: lib.bellman_ford_path_length(large, 0, 5), reps=20
+        ) / _best(lambda: lib.bellman_ford_path_length(small, 0, 5), reps=20)
+    assert type(results["franken_networkx"]) is type(results["networkx"])
+    assert results["franken_networkx"] == results["networkx"]
+    assert growth["franken_networkx"] < 2.5 * max(growth["networkx"], 1.0), growth
+
+
+_POSITIONAL_ROWS = {
+    "sssp_length": lambda m, g: list(m.single_source_shortest_path_length(g, 0).items()),
+    "bfs_edges": lambda m, g: list(m.bfs_edges(g, 0)),
+    "bfs_edges_reverse": lambda m, g: list(m.bfs_edges(g, 250, reverse=True)),
+    "dfs_edges": lambda m, g: list(m.dfs_edges(g, 0)),
+    "dfs_edges_depth": lambda m, g: list(m.dfs_edges(g, 0, depth_limit=3)),
+    "shortest_path_to_target": lambda m, g: list(m.shortest_path(g, target=250).items()),
+    "dijkstra_length_to_target": lambda m, g: list(
+        m.shortest_path_length(g, target=250, weight="weight").items()
+    ),
+    "dijkstra_path_length": lambda m, g: m.dijkstra_path_length(g, 0, 250),
+    "bellman_ford_path_length": lambda m, g: m.bellman_ford_path_length(g, 0, 250),
+}
+
+
+@pytest.mark.parametrize("seed", range(3))
+@pytest.mark.parametrize("label", sorted(_POSITIONAL_ROWS))
+def test_directed_positional_rows_on_sparse_storage_equal_networkx(label, seed):
+    """The rewritten kernels map positions to names over storage with a hole
+    (the removed node) and past the sparse -> dense promotion."""
+    call = _POSITIONAL_ROWS[label]
+    try:
+        expected = call(nx, _component_of_300(nx, True, seed))
+    except nx.NetworkXNoPath:
+        with pytest.raises(nx.NetworkXNoPath):
+            call(fnx, _component_of_300(fnx, True, seed))
+        return
+    assert call(fnx, _component_of_300(fnx, True, seed)) == expected

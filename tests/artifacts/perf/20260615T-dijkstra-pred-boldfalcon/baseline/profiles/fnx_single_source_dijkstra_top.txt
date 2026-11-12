@@ -1,0 +1,31 @@
+         32042 function calls in 0.059 seconds
+
+   Ordered by: cumulative time
+   List reduced from 31 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.059    0.059 dijkstra_family_pass.py:272(repeated)
+       15    0.000    0.000    0.059    0.004 dijkstra_family_pass.py:175(<lambda>)
+       15    0.000    0.000    0.059    0.004 __init__.py:52975(wrapper)
+       15    0.001    0.000    0.059    0.004 __init__.py:18344(single_source_dijkstra)
+       15    0.047    0.003    0.047    0.003 {built-in method franken_networkx._fnx.single_source_dijkstra}
+       15    0.000    0.000    0.004    0.000 __init__.py:7012(_should_delegate_dijkstra_to_networkx)
+       15    0.004    0.000    0.004    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+       15    0.003    0.000    0.004    0.000 __init__.py:18246(_sp_coerce_dist_to_int)
+       15    0.000    0.000    0.001    0.000 __init__.py:18252(_reorder_by_distance)
+       15    0.001    0.000    0.001    0.000 {built-in method builtins.sorted}
+    10500    0.001    0.000    0.001    0.000 {method 'is_integer' of 'float' objects}
+    10500    0.001    0.000    0.001    0.000 __init__.py:18267(<lambda>)
+    10620    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 __init__.py:18178(_sp_edge_weights_all_int)
+       30    0.000    0.000    0.000    0.000 __init__.py:6169(predicate)
+       15    0.000    0.000    0.000    0.000 __init__.py:37013(__contains__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       15    0.000    0.000    0.000    0.000 __init__.py:13126(_coerce_arg_to_fnx_graph)
+       15    0.000    0.000    0.000    0.000 __init__.py:36440(_private_override)
+       30    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7ffabe474ea0}
+       15    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+       15    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.graph_edge_weights_all_int}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       15    0.000    0.000    0.000    0.000 __init__.py:24179(_validate_backend_dispatch_keywords)

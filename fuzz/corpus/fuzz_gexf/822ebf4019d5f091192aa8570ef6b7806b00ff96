@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defau2tedgetype="directed">
+    <attributes class="node">
+      <attribute id="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" tilte="capacity" type="integer"/>
+    </attributes>
+    <nodes>
+      <node id?"s" label="source">
+     2  <attvalues>
+          <attvalue for="0" value="red"/>
+        </attvalues>
+      </node>
+      <node id="t" label="target"/>
+    </nod      <edge id="e0" source="s" target="t">
+        <attvalues>
+          <attvalue for="1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

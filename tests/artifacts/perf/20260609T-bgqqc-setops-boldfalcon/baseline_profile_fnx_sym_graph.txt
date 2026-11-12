@@ -1,0 +1,48 @@
+         1673878 function calls in 0.724 seconds
+
+   Ordered by: cumulative time
+   List reduced from 64 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.023    0.023    0.724    0.724 harness_setops.py:81(timing)
+       40    0.017    0.000    0.448    0.011 __init__.py:47644(wrapper)
+       40    0.159    0.004    0.431    0.011 __init__.py:12489(symmetric_difference)
+      240    0.104    0.000    0.348    0.001 __init__.py:2670(add_edges_from)
+       40    0.001    0.000    0.253    0.006 harness_setops.py:18(build_graph)
+      240    0.158    0.001    0.158    0.001 {function Graph.add_edges_from at 0x7e39258927a0}
+      160    0.023    0.000    0.120    0.001 __init__.py:2408(add_nodes_from)
+       40    0.000    0.000    0.109    0.003 __init__.py:17759(create_empty_copy)
+    64000    0.018    0.000    0.081    0.000 __init__.py:2376(add_node)
+    64000    0.060    0.000    0.060    0.000 {function Graph.add_node at 0x7e3925891da0}
+   362720    0.038    0.000    0.038    0.000 {method 'add' of 'set' objects}
+   597440    0.038    0.000    0.038    0.000 {built-in method builtins.hash}
+   235883    0.016    0.000    0.016    0.000 {built-in method builtins.isinstance}
+   235722    0.015    0.000    0.015    0.000 {built-in method builtins.len}
+    21400    0.012    0.000    0.012    0.000 __init__.py:12550(<genexpr>)
+       80    0.012    0.000    0.012    0.000 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+    32040    0.010    0.000    0.010    0.000 __init__.py:12549(<genexpr>)
+      160    0.007    0.000    0.007    0.000 __init__.py:33336(__iter__)
+      120    0.006    0.000    0.006    0.000 harness_setops.py:14(_edge_pairs)
+    53400    0.005    0.000    0.005    0.000 {method 'append' of 'list' objects}
+      160    0.001    0.000    0.002    0.000 __init__.py:33389(edges)
+       40    0.002    0.000    0.002    0.000 {method 'symmetric_difference' of 'set' objects}
+      160    0.000    0.000    0.001    0.000 weakref.py:164(__setitem__)
+      160    0.001    0.000    0.001    0.000 __init__.py:697(wrapped)
+      880    0.000    0.000    0.001    0.000 __init__.py:32842(_private_override)
+      160    0.000    0.000    0.001    0.000 __init__.py:32850(_has_networkx_private_storage)
+      240    0.000    0.000    0.000    0.000 __init__.py:5712(predicate)
+     1080    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      160    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+      120    0.000    0.000    0.000    0.000 __init__.py:3308(__init__)
+       40    0.000    0.000    0.000    0.000 __init__.py:33369(nodes)
+      160    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+     1080    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       40    0.000    0.000    0.000    0.000 __init__.py:33594(number_of_nodes)
+       80    0.000    0.000    0.000    0.000 __init__.py:12038(_coerce_arg_to_fnx_graph)
+       40    0.000    0.000    0.000    0.000 __init__.py:12013(_concrete_class_for)
+      160    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       40    0.000    0.000    0.000    0.000 __init__.py:943(wrapped)
+       80    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+
+

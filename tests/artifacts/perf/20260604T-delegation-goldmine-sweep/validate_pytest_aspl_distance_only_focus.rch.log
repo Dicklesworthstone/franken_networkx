@@ -1,0 +1,8 @@
+  [2m2026-06-04T02:33:29.946459Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_shortest_path.py tests/python/test_dijkstra_finalize_order_parity.py tests/python/test_weighted_sensitivity_parity.py tests/python/test_edge_attr_post_mutation_sync.py -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+........................................................................ [ 29%]
+........................................................................ [ 59%]
+........................................................................ [ 89%]
+.........................                                                [100%]
+241 passed in 1.64s

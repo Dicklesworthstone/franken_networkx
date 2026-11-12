@@ -1,0 +1,136 @@
+{
+  "direct_timing": {
+    "expression_includes_graph_construction": true,
+    "fnx": {
+      "mean_seconds": 0.21559491526180258,
+      "median_seconds": 0.21255605097394437,
+      "min_seconds": 0.20818508096272126,
+      "p95_seconds": 0.23011541599407792,
+      "p99_seconds": 0.23011541599407792,
+      "samples": 15,
+      "seconds": [
+        0.21255605097394437,
+        0.220579654967878,
+        0.2150249420083128,
+        0.21532611397560686,
+        0.20930769003462046,
+        0.20980926102492958,
+        0.20943933899980038,
+        0.20818508096272126,
+        0.20910936302971095,
+        0.20978757902048528,
+        0.21130678994813934,
+        0.23011541599407792,
+        0.22929583198856562,
+        0.22319930099183694,
+        0.22088131500640884
+      ],
+      "warmups": 3
+    },
+    "fnx_vs_networkx_median_ratio": 6.6433872216586,
+    "networkx": {
+      "mean_seconds": 0.03199893525646379,
+      "median_seconds": 0.03199513198342174,
+      "min_seconds": 0.030950181011576205,
+      "p95_seconds": 0.03388481499860063,
+      "p99_seconds": 0.03388481499860063,
+      "samples": 15,
+      "seconds": [
+        0.03199513198342174,
+        0.030972613021731377,
+        0.03158662695204839,
+        0.030950181011576205,
+        0.03108120895922184,
+        0.03223090898245573,
+        0.03219868801534176,
+        0.03268319700146094,
+        0.03388481499860063,
+        0.031593059946317226,
+        0.03147833200637251,
+        0.032036189979407936,
+        0.03146404499420896,
+        0.03258495102636516,
+        0.03324407996842638
+      ],
+      "warmups": 3
+    }
+  },
+  "environment": {
+    "cwd": "/data/projects/franken_networkx",
+    "fnx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "fnx_version": "0.1.0",
+    "git_head": "d39edc252189b9539ae4d7ef20dd5d358afc3eaa",
+    "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "numpy_version": "2.4.6",
+    "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.42",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "target_expression": "fnx.laplacian_spectrum(fnx.star_graph(798))",
+    "thread_env": {
+      "MKL_NUM_THREADS": "1",
+      "NUMEXPR_NUM_THREADS": "1",
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1"
+    }
+  },
+  "parity": {
+    "allclose_fnx_closed_form_1e_8": true,
+    "allclose_fnx_networkx_1e_8": true,
+    "expected_multiplicities": {
+      "0.0": 1,
+      "1.0": 797,
+      "799.0": 1
+    },
+    "expression": "fnx.laplacian_spectrum(fnx.star_graph(798))",
+    "fnx_dtype": "float64",
+    "fnx_first5_sorted": [
+      -3.098529106768588e-15,
+      0.9999999999999897,
+      0.9999999999999911,
+      0.9999999999999916,
+      0.9999999999999921
+    ],
+    "fnx_last5_sorted": [
+      1.0000000000000067,
+      1.0000000000000095,
+      1.0000000000000118,
+      1.0000000000000147,
+      799.0
+    ],
+    "fnx_shape": [
+      799
+    ],
+    "max_sorted_delta_fnx_vs_closed_form": 1.4654943925052066e-14,
+    "max_sorted_delta_fnx_vs_networkx": 7.327994793612726e-15,
+    "n_nodes": 799,
+    "n_spokes": 798,
+    "networkx_dtype": "float64",
+    "networkx_first5_sorted": [
+      4.229465686844138e-15,
+      0.9999999999999881,
+      0.9999999999999929,
+      0.9999999999999947,
+      0.9999999999999954
+    ],
+    "networkx_last5_sorted": [
+      1.0000000000000098,
+      1.0000000000000107,
+      1.0000000000000169,
+      1.0000000000000189,
+      799.0
+    ],
+    "networkx_shape": [
+      799
+    ],
+    "q9_sorted_payload_file": "q9_sorted_payload.json",
+    "q9_sorted_sha256": "375fa52a42b6385d40091801807090bb18b6061ea6d5584bec0005bad4e5415e",
+    "sorted_value_order": "ascending"
+  },
+  "profile": {
+    "elapsed_seconds": 1.1128928959951736,
+    "loops": 5,
+    "profile_file": "cprofile_fnx_top.txt",
+    "seconds_per_call": 0.22257857919903473,
+    "sort": "cumtime"
+  }
+}

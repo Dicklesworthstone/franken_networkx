@@ -1,0 +1,5 @@
+{"perf.profile.span_summary":true,"span":"full_evaluate_at","iterations":2500000,"elapsed_ms":941.913229,"checksum":"bf89e327cda8d484"}
+{"perf.profile.span_summary":true,"span":"runtime_policy_new_action_for","iterations":2500000,"elapsed_ms":18.025002,"checksum":"11a7c744d87f23a5"}
+{"perf.profile.span_summary":true,"span":"operation_string_format","iterations":2500000,"elapsed_ms":233.394888,"checksum":"bf89e327cda8d484"}
+{"perf.profile.span_summary":true,"span":"rationale_format","iterations":2500000,"elapsed_ms":492.633188,"checksum":"b10f8076e96e7a85"}
+{"perf.profile.span_summary":true,"span":"evidence_vec_owned_strings","iterations":2500000,"elapsed_ms":38.144728,"checksum":"abf31b5d65f1aea3"}

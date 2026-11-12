@@ -1,0 +1,163 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 72587aeca..da454a5a9 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -34007,25 +34007,28 @@ pub fn complete_multipartite_graph(block_sizes: &[usize]) -> Result<Graph, Strin
+ #[must_use]
+ pub fn grid_2d_graph(m: usize, n: usize) -> Graph {
+     let mut g = Graph::strict();
++    // br-r37-c1-grid2dbatch (cc): batch both phases. Nodes "r,c" are added r-major so node (r,c) lands
++    // at index r*n+c; build them all with one extend_nodes_unrecorded, then collect the right/down edges
++    // as (i, j) INDEX pairs (i = r*n+c) + one extend_existing_index_edges_unrecorded — which drops the
++    // per-edge format! label allocs (node/right/down) + the name→index hashes + the policy record. Every
++    // edge has source<target (right: +1, down: +n), so all are unique with no self-loop; the helper
++    // canonicalizes by node NAME + pushes adjacency exactly as add_edge in the identical order →
++    // byte-identical.
+     // Nodes labeled as "row,col"
++    let _ = g.extend_nodes_unrecorded((0..m).flat_map(|r| (0..n).map(move |c| format!("{r},{c}"))));
++    let mut edges: Vec<(usize, usize)> = Vec::new();
+     for r in 0..m {
+         for c in 0..n {
+-            g.add_node(format!("{r},{c}").as_str());
+-        }
+-    }
+-    for r in 0..m {
+-        for c in 0..n {
+-            let node = format!("{r},{c}");
++            let idx = r * n + c;
+             if c + 1 < n {
+-                let right = format!("{r},{}", c + 1);
+-                let _ = g.add_edge(&node, &right);
++                edges.push((idx, idx + 1));
+             }
+             if r + 1 < m {
+-                let down = format!("{},{c}", r + 1);
+-                let _ = g.add_edge(&node, &down);
++                edges.push((idx, idx + n));
+             }
+         }
+     }
++    let _ = g.extend_existing_index_edges_unrecorded(edges);
+     g
+ }
+ 
+@@ -69934,6 +69937,119 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-grid2dbatch: paired-interleaved median A/B for grid_2d_graph — inline per-node/per-edge
++    /// baseline (format! labels + add_node/add_edge) vs the shipped batch (extend_nodes_unrecorded +
++    /// index-pair extend), one binary / one worker with a NULL control. A 200x200 grid has 40000 nodes
++    /// and ~79600 edges; the batch drops the per-edge format! label allocs + name hashes + policy records.
++    /// Parity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib grid_2d_graph_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn grid_2d_graph_batch_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let (m, n) = (200usize, 200usize);
++
++        let build = |m: usize, n: usize, batch: bool| -> Graph {
++            let mut g = Graph::strict();
++            if batch {
++                let _ = g.extend_nodes_unrecorded(
++                    (0..m).flat_map(|r| (0..n).map(move |c| format!("{r},{c}"))),
++                );
++                let mut edges: Vec<(usize, usize)> = Vec::new();
++                for r in 0..m {
++                    for c in 0..n {
++                        let idx = r * n + c;
++                        if c + 1 < n {
++                            edges.push((idx, idx + 1));
++                        }
++                        if r + 1 < m {
++                            edges.push((idx, idx + n));
++                        }
++                    }
++                }
++                let _ = g.extend_existing_index_edges_unrecorded(edges);
++            } else {
++                for r in 0..m {
++                    for c in 0..n {
++                        g.add_node(format!("{r},{c}").as_str());
++                    }
++                }
++                for r in 0..m {
++                    for c in 0..n {
++                        let node = format!("{r},{c}");
++                        if c + 1 < n {
++                            let right = format!("{r},{}", c + 1);
++                            let _ = g.add_edge(&node, &right);
++                        }
++                        if r + 1 < m {
++                            let down = format!("{},{c}", r + 1);
++                            let _ = g.add_edge(&node, &down);
++                        }
++                    }
++                }
++            }
++            g
++        };
++
++        let old = build(m, n, false);
++        let new = build(m, n, true);
++        assert_eq!(
++            old.edges_ordered_borrowed(),
++            new.edges_ordered_borrowed(),
++            "batch grid_2d_graph must equal the per-edge baseline"
++        );
++        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(m, n, batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "GRID2D_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("GRID2D_BATCH_AB grid200x200 rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

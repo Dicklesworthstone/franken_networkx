@@ -1,0 +1,866 @@
+"""Tests for parse/generate I/O wrapper variants."""
+
+from pathlib import Path
+from unittest import mock
+
+import franken_networkx as fnx
+import franken_networkx._fnx as _fnx
+import networkx as nx
+import pytest
+
+
+def test_parse_and_generate_adjlist_round_trip():
+    graph = fnx.path_graph(4)
+    lines = list(fnx.generate_adjlist(graph))
+    parsed = fnx.parse_adjlist(lines)
+
+    assert parsed.number_of_nodes() == graph.number_of_nodes()
+    assert parsed.number_of_edges() == graph.number_of_edges()
+
+
+def _adjlist_shapes(mod, cls_name):
+    """Graph builders whose adjlist output stresses the native line builder."""
+    cls = getattr(mod, cls_name)
+
+    def build(nodes=(), edges=(), post=None):
+        graph = cls()
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(edges)
+        if post is not None:
+            post(graph)
+        return graph
+
+    ring = [(0, 1), (1, 2), (2, 0), (0, 3)]
+    return {
+        "plain": build(range(5), ring),
+        "empty": build(),
+        "isolates": build(range(4)),
+        "self_loops": build(range(3), [(0, 0), (0, 1), (2, 2)]),
+        "str_nodes": build(("a", "b", "c"), [("a", "b"), ("b", "c")]),
+        "tuple_nodes": build([(1, 2), (3, 4)], [((1, 2), (3, 4))]),
+        "bool_nodes": build([True, False, 2], [(True, False), (False, 2)]),
+        # canonical-string collision hazards: the native builder formats from
+        # canonical strings, so 1 / 1.0 / True / "1" must still display as the
+        # object networkx would str().
+        "int_vs_float": build([1, 1.0, 2], [(1, 2)]),
+        "bool_vs_int": build([1, True, 2], [(1, 2)]),
+        "float_keys": build([1.5, 2.5], [(1.5, 2.5)]),
+        "str_vs_int": build([1, "1", 2], [(1, 2), ("1", 2)]),
+        "big_ints": build([-1, 2**70], [(-1, 2**70)]),
+        # display strings that collide with, or are emptied by, the delimiter
+        "space_in_name": build(["a b", "c"], [("a b", "c")]),
+        "empty_str_node": build(["", "x"], [("", "x")]),
+        "parallel": build(range(3), [(0, 1), (0, 1), (1, 2), (0, 1)]),
+        # node order after a removal is observable in the emitted line order
+        "remove_readd": build(
+            range(5),
+            ring,
+            post=lambda g: (g.remove_node(1), g.add_node(1), g.add_edge(1, 4)),
+        ),
+    }
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("delimiter", [" ", ",", "\t", "::", "|", ""])
+def test_generate_adjlist_matches_networkx_exactly(cls_name, delimiter):
+    """generate_adjlist is byte-identical to networkx for every graph class.
+
+    br-r37-c1-genadjdi: Graph and DiGraph both route to a native Rust line
+    builder that formats node keys from canonical strings rather than calling
+    Python's ``str()`` per key, so the two implementations can only be trusted
+    to agree if they are compared as EXACT line lists. Before this test the only
+    adjlist coverage was an undirected round-trip that never involved networkx,
+    which left the entire directed path unguarded.
+    """
+    expected = _adjlist_shapes(nx, cls_name)
+    actual = _adjlist_shapes(fnx, cls_name)
+
+    for name in expected:
+        assert list(fnx.generate_adjlist(actual[name], delimiter)) == list(
+            nx.generate_adjlist(expected[name], delimiter)
+        ), f"{cls_name}/{name} diverged for delimiter {delimiter!r}"
+
+
+@pytest.mark.parametrize("delimiter", [" ", ","])
+def test_generate_adjlist_on_views_matches_networkx(delimiter):
+    """Views must fall back to the filtered walk, never the native builder.
+
+    A filtered SubgraphView subclasses Graph and reports ``__name__ ==
+    "Graph"`` while keeping an empty native inner, so an identity gate that
+    accepted subclasses would emit the PARENT's adjacency for a subgraph.
+    """
+
+    def views(mod):
+        directed = mod.DiGraph()
+        directed.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+        undirected = mod.Graph()
+        undirected.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2)])
+        return {
+            "digraph_subgraph": directed.subgraph([0, 1, 2]),
+            "digraph_edge_subgraph": directed.edge_subgraph([(0, 1), (1, 2)]),
+            "digraph_reverse_view": directed.reverse(copy=False),
+            "digraph_reverse_copy": directed.reverse(copy=True),
+            "digraph_to_undirected": directed.to_undirected(),
+            "digraph_copy": directed.copy(),
+            "graph_subgraph": undirected.subgraph([0, 1, 2]),
+            "graph_to_directed": undirected.to_directed(),
+        }
+
+    expected = views(nx)
+    actual = views(fnx)
+    for name in expected:
+        assert list(fnx.generate_adjlist(actual[name], delimiter)) == list(
+            nx.generate_adjlist(expected[name], delimiter)
+        ), f"view {name} diverged for delimiter {delimiter!r}"
+
+
+def test_generate_adjlist_uses_the_native_builder_for_all_native_classes():
+    """The native fast path must actually be REACHED, not merely present.
+
+    A native method that no caller dispatches to is invisible to timing: the
+    row would keep the Python cost and the helper would look landed. Every
+    native graph class must consume it; multigraph builders additionally retain
+    parallel-edge multiplicity rather than using a key-only row.
+    """
+    for cls_name, should_use in (
+        ("Graph", True),
+        ("DiGraph", True),
+        ("MultiGraph", True),
+        ("MultiDiGraph", True),
+    ):
+        graph = getattr(fnx, cls_name)()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0)])
+        native = getattr(graph, "_native_generate_adjlist_lines", None)
+        assert (native is not None) is should_use, (
+            f"{cls_name} native builder presence should be {should_use}"
+        )
+        calls = []
+        real = native
+
+        def spy(delimiter, _real=real, _calls=calls):
+            _calls.append(delimiter)
+            return _real(delimiter)
+
+        with mock.patch.object(graph, "_native_generate_adjlist_lines", spy):
+            lines = list(fnx.generate_adjlist(graph, "|"))
+        assert calls == ["|"], f"{cls_name} did not dispatch to the native builder"
+        assert lines == list(
+            nx.generate_adjlist(_as_networkx(cls_name, [(0, 1), (1, 2), (2, 0)]), "|")
+        )
+
+
+@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+def test_generate_adjlist_native_multigraph_builder_expands_parallel_edges(cls_name):
+    """A key-only native builder is wrong: every parallel edge emits a token."""
+    graph = getattr(fnx, cls_name)()
+    graph.add_edges_from([("u", "v"), ("u", "v"), ("u", "v")])
+
+    lines = list(fnx.generate_adjlist(graph, "|"))
+
+    assert lines == ["u|v|v|v", "v"]
+    expected = _as_networkx(cls_name, [("u", "v"), ("u", "v"), ("u", "v")])
+    assert lines == list(nx.generate_adjlist(expected, "|"))
+
+
+def _as_networkx(cls_name, edges):
+    graph = getattr(nx, cls_name)()
+    graph.add_edges_from(edges)
+    return graph
+
+
+@pytest.mark.parametrize(
+    ("lines", "kwargs"),
+    [
+        (["bad 2"], {"nodetype": int}),
+        (["1 bad"], {"nodetype": int}),
+        (["1\t2\t"], {"delimiter": "\t", "nodetype": int}),
+    ],
+)
+def test_parse_adjlist_nodetype_errors_match_networkx(lines, kwargs):
+    with pytest.raises(TypeError) as nx_error:
+        nx.parse_adjlist(lines, **kwargs)
+
+    with pytest.raises(TypeError) as fnx_error:
+        fnx.parse_adjlist(lines, **kwargs)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+def test_parse_adjlist_preserves_trailing_empty_neighbor_like_networkx():
+    lines = ["1\t2\t"]
+    kwargs = {"delimiter": "\t", "nodetype": str}
+
+    expected = nx.parse_adjlist(lines, **kwargs)
+    actual = fnx.parse_adjlist(lines, **kwargs)
+
+    assert sorted(actual.nodes()) == sorted(expected.nodes())
+    assert sorted(actual.edges()) == sorted(expected.edges())
+
+
+def test_parse_multiline_adjlist_typed_edge_data_matches_networkx():
+    lines = ["1 1", "2 3.5"]
+    kwargs = {"nodetype": int, "edgetype": float}
+
+    expected = nx.parse_multiline_adjlist(iter(lines), **kwargs)
+    actual = fnx.parse_multiline_adjlist(iter(lines), **kwargs)
+
+    assert sorted(actual.nodes()) == sorted(expected.nodes())
+    assert sorted(actual.edges(data="weight")) == sorted(
+        expected.edges(data="weight")
+    )
+
+
+@pytest.mark.parametrize(
+    ("lines", "kwargs"),
+    [
+        (["1 1", "2"], {"nodetype": int, "edgetype": float}),
+        (["1 1", "2 {}"], {"comments": None, "nodetype": int}),
+    ],
+)
+def test_parse_multiline_adjlist_error_paths_match_networkx(lines, kwargs):
+    with pytest.raises(TypeError) as nx_error:
+        nx.parse_multiline_adjlist(iter(lines), **kwargs)
+
+    with pytest.raises(TypeError) as fnx_error:
+        fnx.parse_multiline_adjlist(iter(lines), **kwargs)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+def test_parse_and_generate_edgelist_round_trip_with_attrs():
+    graph = fnx.Graph()
+    graph.add_edge("a", "b", weight=2.5)
+    graph.add_edge("b", "c", weight=1.5)
+
+    lines = list(fnx.generate_edgelist(graph, data=["weight"]))
+    parsed = fnx.parse_edgelist(lines, data=[("weight", float)])
+
+    assert parsed["a"]["b"]["weight"] == 2.5
+    assert parsed["b"]["c"]["weight"] == 1.5
+
+
+def test_parse_edgelist_dict_literal_attrs_uses_safe_literal_parser():
+    parsed = fnx.parse_edgelist(["a b {'weight': 2.5, 'color': 'blue'}"], data=True)
+
+    assert parsed["a"]["b"]["weight"] == 2.5
+    assert parsed["a"]["b"]["color"] == "blue"
+
+
+def test_parse_edgelist_explicit_delimiter_preserves_trailing_empty_field_without_fallback(
+    monkeypatch,
+):
+    lines = ["1\t2\t3", "2\t3\t", "3\t4\t3.0"]
+    expected = sorted(
+        nx.parse_edgelist(
+            lines, delimiter="\t", nodetype=int, data=[("value", str)]
+        ).edges(data="value")
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "parse_edgelist",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX parse_edgelist fallback was used")
+        ),
+    )
+
+    actual = sorted(
+        fnx.parse_edgelist(
+            lines, delimiter="\t", nodetype=int, data=[("value", str)]
+        ).edges(data="value")
+    )
+
+    assert actual == expected
+
+
+def test_parse_edgelist_typed_data_rejects_arity_mismatch_like_networkx():
+    lines = ["1 2 3 4"]
+    data = [("weight", float)]
+
+    with pytest.raises(IndexError) as nx_error:
+        nx.parse_edgelist(lines, nodetype=int, data=data)
+
+    with pytest.raises(IndexError) as fnx_error:
+        fnx.parse_edgelist(lines, nodetype=int, data=data)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+@pytest.mark.parametrize(
+    ("lines", "kwargs"),
+    [
+        (["1 2 3"], {"nodetype": int, "data": True}),
+        (["1 2 [1,2]"], {"nodetype": int, "data": True}),
+        (["1 2 x"], {"nodetype": int, "data": [("weight", float)]}),
+    ],
+)
+def test_parse_edgelist_invalid_edge_data_errors_match_networkx(lines, kwargs):
+    with pytest.raises((TypeError, IndexError)) as nx_error:
+        nx.parse_edgelist(lines, **kwargs)
+
+    with pytest.raises(type(nx_error.value)) as fnx_error:
+        fnx.parse_edgelist(lines, **kwargs)
+
+    assert str(fnx_error.value) == str(nx_error.value)
+
+
+def test_parse_and_generate_gml_round_trip():
+    graph = fnx.Graph()
+    graph.add_node("a", label="A")
+    graph.add_edge("a", "b", weight=3)
+
+    lines = list(fnx.generate_gml(graph))
+    with mock.patch.object(
+        nx,
+        "parse_gml",
+        side_effect=AssertionError("NetworkX parse_gml fallback used"),
+    ):
+        parsed = fnx.parse_gml(lines)
+
+    assert parsed.number_of_nodes() == 2
+    assert parsed.number_of_edges() == 1
+
+
+def test_generate_gml_matches_networkx_without_fallback(monkeypatch):
+    class Token:
+        def __str__(self):
+            return "token-value"
+
+    def stringizer(value):
+        if isinstance(value, str):
+            return value
+        if isinstance(value, Token):
+            return str(value)
+        raise ValueError
+
+    graph = fnx.MultiDiGraph()
+    graph.graph["name"] = "demo"
+    graph.graph["flags"] = ["a", "b"]
+    graph.add_node(("left", 1), color="red", nested={"score": 2})
+    graph.add_node("right", empty=[])
+    graph.add_edge(("left", 1), "right", key=3, weight=1.5, custom=Token())
+
+    expected_graph = nx.MultiDiGraph()
+    expected_graph.graph.update(graph.graph)
+    expected_graph.add_node(("left", 1), color="red", nested={"score": 2})
+    expected_graph.add_node("right", empty=[])
+    expected_graph.add_edge(("left", 1), "right", key=3, weight=1.5, custom=Token())
+    expected = list(nx.generate_gml(expected_graph, stringizer=stringizer))
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "generate_gml", fail)
+
+    assert list(fnx.generate_gml(graph, stringizer=stringizer)) == expected
+
+
+def test_graphml_variant_writers_delegate_to_core_writer(tmp_path: Path):
+    graph = fnx.path_graph(3)
+    xml_path = tmp_path / "graph_xml.graphml"
+    lxml_path = tmp_path / "graph_lxml.graphml"
+
+    fnx.write_graphml_xml(graph, xml_path)
+    fnx.write_graphml_lxml(graph, lxml_path)
+
+    assert "<graphml" in xml_path.read_text(encoding="utf-8")
+    assert "<graphml" in lxml_path.read_text(encoding="utf-8")
+
+
+def test_parse_and_generate_graphml_honor_networkx_kwargs(tmp_path: Path):
+    graph_nx = nx.path_graph(3)
+    path = tmp_path / "typed.graphml"
+    nx.write_graphml(graph_nx, path)
+
+    graphml = path.read_text(encoding="utf-8")
+    with mock.patch.object(
+        nx,
+        "parse_graphml",
+        side_effect=AssertionError("NetworkX parse_graphml fallback used"),
+    ):
+        parsed = fnx.parse_graphml(graphml, node_type=int)
+    graph = fnx.path_graph(2)
+    generated = list(fnx.generate_graphml(graph, prettyprint=False, named_key_ids=True))
+    expected = list(nx.generate_graphml(nx.path_graph(2), prettyprint=False, named_key_ids=True))
+
+    assert list(parsed.nodes()) == [0, 1, 2]
+    assert generated == expected
+
+
+def test_generate_graphml_does_not_delegate_to_networkx(monkeypatch):
+    from networkx.readwrite import graphml as nx_graphml
+
+    graph = fnx.path_graph(2)
+    expected = list(
+        nx.generate_graphml(nx.path_graph(2), prettyprint=False, named_key_ids=True)
+    )
+
+    def fail(*args, **kwargs):
+        raise AssertionError("networkx fallback was used")
+
+    monkeypatch.setattr(nx, "generate_graphml", fail)
+    monkeypatch.setattr(nx_graphml, "GraphMLWriter", fail)
+
+    generated = list(fnx.generate_graphml(graph, prettyprint=False, named_key_ids=True))
+    assert generated == expected
+
+
+def test_rust_read_gml_preserves_graph_attrs(tmp_path: Path):
+    path = tmp_path / "graph.gml"
+    path.write_text(
+        'graph [\n'
+        '  directed 0\n'
+        '  label "demo"\n'
+        '  owner "qa"\n'
+        '  node [ id 0 label "a" ]\n'
+        '  node [ id 1 label "b" ]\n'
+        '  edge [ source 0 target 1 ]\n'
+        ']\n',
+        encoding="utf-8",
+    )
+
+    graph = fnx.read_gml(path)
+
+    assert dict(graph.graph) == {"label": "demo", "owner": "qa"}
+
+
+def test_read_gml_preserves_networkx_typed_scalars(tmp_path: Path):
+    import networkx as nx
+
+    path = tmp_path / "typed.gml"
+    path.write_text(
+        'graph [\n'
+        '  directed 0\n'
+        '  count 3\n'
+        '  ratio 1.5\n'
+        '  node [ id 0 label "a" weight 7 score 2.25 quoted "01" ]\n'
+        '  node [ id 1 label "b" ]\n'
+        '  edge [ source 0 target 1 weight 4 ]\n'
+        ']\n',
+        encoding="utf-8",
+    )
+
+    actual = fnx.read_gml(path)
+    expected = nx.read_gml(path)
+
+    assert dict(actual.graph) == dict(expected.graph)
+    assert dict(actual.nodes["a"]) == dict(expected.nodes["a"])
+    assert dict(actual["a"]["b"]) == dict(expected["a"]["b"])
+
+
+def test_read_gml_honors_label_and_destringizer_kwargs(tmp_path: Path):
+    import networkx as nx
+
+    path = tmp_path / "ids.gml"
+    path.write_text(
+        'graph [\n'
+        '  directed 0\n'
+        '  node [ id 0 label "10" ]\n'
+        '  node [ id 1 label "20" ]\n'
+        '  edge [ source 0 target 1 ]\n'
+        ']\n',
+        encoding="utf-8",
+    )
+
+    actual_by_id = fnx.read_gml(path, label=None)
+    expected_by_id = nx.read_gml(path, label=None)
+    assert list(actual_by_id.nodes()) == list(expected_by_id.nodes()) == [0, 1]
+
+    actual_destringized = fnx.read_gml(path, destringizer=int)
+    expected_destringized = nx.read_gml(path, destringizer=int)
+    assert list(actual_destringized.nodes()) == list(expected_destringized.nodes()) == [10, 20]
+
+
+def test_rust_read_graphml_preserves_graph_attrs(tmp_path: Path):
+    path = tmp_path / "graph.graphml"
+    path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">\n'
+        '  <key id="g0" for="graph" attr.name="name" attr.type="string"/>\n'
+        '  <key id="g1" for="graph" attr.name="version" attr.type="int"/>\n'
+        '  <graph id="G" edgedefault="undirected">\n'
+        '    <data key="g0">demo</data>\n'
+        '    <data key="g1">3</data>\n'
+        '    <node id="a"/>\n'
+        '    <node id="b"/>\n'
+        '    <edge source="a" target="b"/>\n'
+        '  </graph>\n'
+        '</graphml>\n',
+        encoding="utf-8",
+    )
+
+    graph = fnx.read_graphml(path)
+
+    assert graph.graph["name"] == "demo"
+    assert graph.graph["version"] == 3
+
+
+def test_rust_write_gml_preserves_graph_attrs(tmp_path: Path):
+    graph = fnx.Graph()
+    graph.add_edge("a", "b")
+    graph.graph["label"] = "demo"
+    graph.graph["owner"] = "qa"
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path)
+
+    content = path.read_text(encoding="utf-8")
+    assert 'label "demo"' in content
+    if 'owner "qa"' not in content:
+        raise AssertionError(content)
+
+
+def test_write_gml_matches_networkx_bytes(tmp_path: Path):
+    # br-r37-c1-qqvu4: write_gml now routes through nx so the on-disk
+    # GML format matches nx byte-for-byte. nx assigns sequential int
+    # IDs and stores the original node value in 'label'; the previous
+    # Rust fast path used the raw node value as 'id', diverging from
+    # nx and breaking cross-library roundtrips.
+    graph = fnx.path_graph(4)
+    nx_graph = nx.path_graph(4)
+    path = tmp_path / "graph.gml"
+    nx_path = tmp_path / "graph_nx.gml"
+
+    fnx.write_gml(graph, path)
+    nx.write_gml(nx_graph, nx_path)
+
+    assert path.read_bytes() == nx_path.read_bytes()
+
+    parsed = nx.read_gml(path)
+    assert sorted(parsed.edges()) == [("0", "1"), ("1", "2"), ("2", "3")]
+
+
+def test_write_gml_int_noattr_native_route_matches_networkx_bytes(tmp_path: Path):
+    graph = fnx.Graph([(10, 9), (9, 11), (42, 9)])
+    nx_graph = nx.Graph([(10, 9), (9, 11), (42, 9)])
+    path = tmp_path / "graph.gml"
+    nx_path = tmp_path / "graph_nx.gml"
+
+    fnx.write_gml(graph, path)
+    nx.write_gml(nx_graph, nx_path)
+
+    assert path.read_bytes() == nx_path.read_bytes()
+
+
+def test_write_gml_int_noattr_native_route_does_not_delegate(monkeypatch, tmp_path: Path):
+    graph = fnx.Graph([(10, 9)])
+    path = tmp_path / "graph.gml"
+
+    def fail(*args, **kwargs):
+        raise AssertionError("native int/noattr GML route should not call NetworkX")
+
+    monkeypatch.setattr(nx, "write_gml", fail)
+
+    fnx.write_gml(graph, path)
+
+    assert path.read_text(encoding="utf-8") == (
+        "graph [\n"
+        "  node [\n"
+        "    id 0\n"
+        "    label \"10\"\n"
+        "  ]\n"
+        "  node [\n"
+        "    id 1\n"
+        "    label \"9\"\n"
+        "  ]\n"
+        "  edge [\n"
+        "    source 0\n"
+        "    target 1\n"
+        "  ]\n"
+        "]\n"
+    )
+
+
+def test_write_gml_int_edge_attrs_native_route_matches_networkx_bytes(monkeypatch, tmp_path: Path):
+    graph = fnx.Graph()
+    nx_graph = nx.Graph()
+    edges = [(node, node + 1, {"weight": node % 7}) for node in range(12)]
+    graph.add_edges_from(edges)
+    nx_graph.add_edges_from(edges)
+    path = tmp_path / "graph.gml"
+    nx_path = tmp_path / "graph_nx.gml"
+
+    def fail(*args, **kwargs):
+        raise AssertionError("native int edge-attr GML route should not call NetworkX")
+
+    monkeypatch.setattr(nx, "write_gml", fail)
+    fnx.write_gml(graph, path)
+    monkeypatch.undo()
+    nx.write_gml(nx_graph, nx_path)
+
+    assert path.read_bytes() == nx_path.read_bytes()
+
+
+def test_write_gml_stringizer_stays_delegated(monkeypatch, tmp_path: Path):
+    observed = {}
+
+    def fake_delegate(G, path, *, stringizer=None):
+        observed.update({"graph": G, "stringizer": stringizer})
+        path.write_text("delegated\n", encoding="utf-8")
+
+    def stringizer(value):
+        return str(value)
+
+    graph = fnx.path_graph(2)
+    monkeypatch.setattr(fnx, "_write_gml_via_nx", fake_delegate)
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path, stringizer=stringizer)
+
+    assert path.read_text(encoding="utf-8") == "delegated\n"
+    assert observed == {"graph": graph, "stringizer": stringizer}
+
+
+def test_write_gml_networkx_graph_stays_delegated(monkeypatch, tmp_path: Path):
+    observed = {}
+
+    def fake_delegate(G, path, *, stringizer=None):
+        observed.update({"graph": G, "stringizer": stringizer})
+        path.write_text("delegated\n", encoding="utf-8")
+
+    graph = nx.path_graph(2)
+    monkeypatch.setattr(fnx, "_write_gml_via_nx", fake_delegate)
+    path = tmp_path / "graph.gml"
+
+    fnx.write_gml(graph, path)
+
+    assert path.read_text(encoding="utf-8") == "delegated\n"
+    assert observed == {"graph": graph, "stringizer": None}
+
+
+def test_write_graphml_preserves_graph_attrs(tmp_path: Path):
+    """br-r37-c1-wgml-parity: previously fnx's `write_graphml` used a
+    Rust fast path whose XML output diverged byte-wise from nx's
+    writer (XML decl quoting, `<graph id="G">`, self-closing-tag
+    spacing). Now `write_graphml` always delegates to nx for
+    byte-exact parity. This test confirms graph-level attrs survive
+    the delegation; type tags match nx's wording (e.g. `long` for
+    int rather than the prior Rust path's `int`)."""
+    graph = fnx.Graph()
+    graph.add_edge("a", "b")
+    graph.graph["name"] = "demo"
+    graph.graph["version"] = 3
+    graph.graph["public"] = True
+    path = tmp_path / "graph.graphml"
+
+    fnx.write_graphml(graph, path)
+
+    content = path.read_text(encoding="utf-8")
+    # Attribute names + types are preserved (nx wording).
+    assert 'for="graph" attr.name="name" attr.type="string"' in content
+    assert 'for="graph" attr.name="version" attr.type="long"' in content
+    assert 'for="graph" attr.name="public" attr.type="boolean"' in content
+    # Data values present (key prefix may differ; check value text).
+    assert ">demo</data>" in content
+    assert ">3</data>" in content
+    assert ">True</data>" in content
+
+
+def test_raw_write_graphml_string_preserves_graph_attrs_and_compact_mode():
+    graph = fnx.Graph()
+    graph.graph["label"] = "demo"
+    graph.graph["version"] = 3
+    graph.add_node("a", score=3)
+    graph.add_node("b")
+    graph.add_edge("a", "b", eid="E1", weight=2)
+
+    xml = _fnx.write_graphml_string_rust(
+        graph,
+        prettyprint=False,
+        named_key_ids=True,
+        edge_id_from_attribute="eid",
+    )
+
+    assert 'for="graph" attr.name="label"' in xml
+    assert 'for="graph" attr.name="version"' in xml
+    assert '<data key="label">demo</data>' in xml
+    assert '<data key="version">3</data>' in xml
+    assert 'id="E1"' in xml
+    assert "\n" not in xml
+
+
+def test_raw_write_graphml_string_fails_closed_for_multigraphs():
+    multigraph = fnx.MultiGraph()
+    multigraph.add_edge("a", "b", key=0, weight=1)
+    multigraph.add_edge("a", "b", key=1, weight=2)
+
+    with pytest.raises(TypeError, match="does not support MultiGraph"):
+        _fnx.write_graphml_string_rust(multigraph)
+
+    multidigraph = fnx.MultiDiGraph()
+    multidigraph.add_edge("a", "b", key=0, weight=1)
+    multidigraph.add_edge("a", "b", key=1, weight=2)
+
+    with pytest.raises(TypeError, match="does not support .*MultiDiGraph"):
+        _fnx.write_graphml_string_rust(multidigraph)
+
+
+def test_raw_node_link_data_preserves_graph_attrs_and_directed_flag():
+    graph = fnx.DiGraph()
+    graph.add_edge("a", "b")
+    graph.graph["name"] = "demo"
+    graph.graph["version"] = 3
+
+    payload = _fnx.node_link_data(graph)
+
+    assert payload["directed"] is True
+    assert payload["graph_attrs"] == {"name": "demo", "version": 3}
+
+
+def test_raw_node_link_graph_preserves_directed_type_and_graph_attrs():
+    payload = {
+        "mode": "strict",
+        "directed": True,
+        "graph_attrs": {"name": "demo", "version": 3},
+        "nodes": ["a", "b"],
+        "edges": [{"left": "a", "right": "b", "attrs": {}}],
+    }
+
+    graph = _fnx.node_link_graph(payload)
+
+    assert graph.is_directed()
+    assert dict(graph.graph) == {"name": "demo", "version": 3}
+
+
+def test_raw_serializers_fail_closed_for_multigraphs(tmp_path: Path):
+    graph = fnx.MultiGraph()
+    graph.add_edge("a", "b")
+    graph.add_edge("a", "b")
+
+    with pytest.raises(TypeError):
+        _fnx.node_link_data(graph)
+
+    with pytest.raises(TypeError):
+        _fnx.write_gml(graph, tmp_path / "graph.gml")
+
+    with pytest.raises(TypeError):
+        _fnx.write_graphml(graph, tmp_path / "graph.graphml")
+
+
+def test_raw_node_link_graph_fails_closed_for_multigraph_payload():
+    payload = {
+        "mode": "strict",
+        "directed": False,
+        "multigraph": True,
+        "graph_attrs": {},
+        "nodes": ["a", "b"],
+        "edges": [
+            {"left": "a", "right": "b", "attrs": {"w": 1}},
+            {"left": "a", "right": "b", "attrs": {"w": 2}},
+        ],
+    }
+
+    with pytest.raises(TypeError):
+        _fnx.node_link_graph(payload)
+
+
+def test_raw_node_link_graph_rejects_non_bool_flags():
+    payload = {
+        "mode": "strict",
+        "directed": "yes",
+        "multigraph": False,
+        "graph_attrs": {},
+        "nodes": ["a", "b"],
+        "edges": [{"left": "a", "right": "b", "attrs": {}}],
+    }
+
+    with pytest.raises(TypeError):
+        _fnx.node_link_graph(payload)
+
+
+def test_raw_read_graphml_detects_directed_with_single_quotes(tmp_path: Path):
+    path = tmp_path / "directed.graphml"
+    path.write_text(
+        "<?xml version='1.0' encoding='UTF-8'?>\n"
+        "<graphml xmlns='http://graphml.graphdrawing.org/xmlns'>\n"
+        "  <graph id='G' edgedefault='directed'>\n"
+        "    <node id='a'/>\n"
+        "    <node id='b'/>\n"
+        "    <edge source='a' target='b'/>\n"
+        "  </graph>\n"
+        "</graphml>\n",
+        encoding="utf-8",
+    )
+
+    graph = _fnx.read_graphml(path)
+
+    assert graph.is_directed()
+    assert graph.has_edge("a", "b")
+
+
+def test_raw_read_gml_ignores_directed_text_in_graph_attrs(tmp_path: Path):
+    path = tmp_path / "graph.gml"
+    path.write_text(
+        'graph [\n'
+        '  label "mentions directed 1"\n'
+        "  directed 0\n"
+        '  node [ id 0 label "a" ]\n'
+        '  node [ id 1 label "b" ]\n'
+        "  edge [ source 0 target 1 ]\n"
+        "]\n",
+        encoding="utf-8",
+    )
+
+    graph = _fnx.read_gml(path)
+
+    assert not graph.is_directed()
+    assert graph.has_edge("a", "b")
+
+
+def test_weighted_degree_matches_networkx_float_compensation():
+    """Weighted degree must use a COMPENSATED sum, exactly as networkx does.
+
+    br-r37-c1-outdegsum: several weighted-degree paths folded with a running
+    ``total += ...`` where networkx writes ``sum(...)``. CPython's builtins.sum
+    is Neumaier-compensated and a naive left-to-right fold is not, so the two
+    disagree by the whole compensation term.
+
+    The fixture is chosen to DISCRIMINATE rather than to be representative:
+
+        sum([1e16, 1.0, -1e16]) == 1.0      naive fold == 0.0
+
+    so a regression here changes the answer from 1.0 to 0.0, not by an ulp. The
+    assertion below pins that the weights actually behave that way, which is
+    what stops this test passing vacuously if the fixture is ever edited.
+    """
+    triple = [1e16, 1.0, -1e16]
+    naive = 0.0
+    for value in triple:
+        naive += value
+    assert sum(triple) == 1.0 and naive == 0.0, (
+        "fixture no longer discriminates compensated from naive summation"
+    )
+
+    def build(mod, cls, shape):
+        graph = getattr(mod, cls)()
+        if shape == "fanout":
+            for index, value in enumerate(triple):
+                graph.add_edge(0, index + 1, weight=value)
+        elif shape == "fanin":
+            for index, value in enumerate(triple):
+                graph.add_edge(index + 1, 0, weight=value)
+        elif shape == "parallel":
+            for value in triple:
+                graph.add_edge(0, 1, weight=value)
+        return graph
+
+    for cls in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"):
+        shapes = ["fanout", "fanin"]
+        if cls.startswith("Multi"):
+            shapes.append("parallel")
+        for shape in shapes:
+            expected, actual = build(nx, cls, shape), build(fnx, cls, shape)
+            for container in ("plain", "subgraph"):
+                if container == "subgraph":
+                    expected = expected.subgraph(list(expected.nodes))
+                    actual = actual.subgraph(list(actual.nodes))
+                assert actual.degree(0, weight="weight") == expected.degree(
+                    0, weight="weight"
+                ), f"{cls}/{shape}/{container} degree"
+                if cls.endswith("DiGraph"):
+                    assert actual.in_degree(0, weight="weight") == expected.in_degree(
+                        0, weight="weight"
+                    ), f"{cls}/{shape}/{container} in_degree"
+                    assert actual.out_degree(0, weight="weight") == expected.out_degree(
+                        0, weight="weight"
+                    ), f"{cls}/{shape}/{container} out_degree"

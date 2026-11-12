@@ -1,0 +1,44 @@
+checksum=75000
+         1255937 function calls (1255910 primitive calls) in 0.415 seconds
+
+   Ordered by: cumulative time
+   List reduced from 131 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    0.414    0.414 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py:148(_run_loop)
+        1    0.000    0.000    0.289    0.289 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py:48(_target_graphs)
+      4/1    0.000    0.000    0.278    0.278 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.277    0.277 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_gnp_random_graph_1)
+      3/1    0.000    0.000    0.277    0.277 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      3/1    0.000    0.000    0.277    0.277 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.152    0.152    0.277    0.277 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/generators/random_graphs.py:122(gnp_random_graph)
+     5000    0.002    0.000    0.124    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py:53(_call)
+     5000    0.003    0.000    0.123    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:16522(local_node_connectivity)
+     5000    0.116    0.000    0.116    0.000 {built-in method franken_networkx._fnx.approx_local_node_connectivity_undirected_rust}
+  1124250    0.098    0.000    0.098    0.000 {method 'random' of '_random.Random' objects}
+    11174    0.019    0.000    0.025    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:917(add_edge)
+        1    0.000    0.000    0.011    0.011 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py:41(_fnx_from_nx)
+        1    0.002    0.002    0.008    0.008 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2961(add_edges_from)
+     5000    0.002    0.000    0.004    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:36329(_raw_neighbors_dispatch)
+        1    0.001    0.001    0.003    0.003 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2643(add_nodes_from)
+    11175    0.002    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/misc.py:645(_clear_cache)
+    11175    0.003    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+     1500    0.000    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2609(add_node)
+        1    0.002    0.002    0.002    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+     1500    0.002    0.000    0.002    0.000 {function Graph.add_node at 0x79d1ce5528e0}
+        1    0.000    0.000    0.002    0.002 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+        1    0.000    0.000    0.002    0.002 <class 'networkx.utils.decorators.argmap'> compilation 13:1(argmap_empty_graph_10)
+        1    0.000    0.000    0.002    0.002 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/generators/classic.py:564(empty_graph)
+    12683    0.002    0.000    0.002    0.000 {method 'update' of 'dict' objects}
+     5000    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:36311(_has_networkx_private_storage)
+    11195    0.002    0.000    0.002    0.000 {method 'get' of 'dict' objects}
+        1    0.001    0.001    0.001    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+    11231    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+        4    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+    11191    0.001    0.000    0.001    0.000 {built-in method builtins.getattr}
+    10133    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      5/4    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+     5000    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+
+

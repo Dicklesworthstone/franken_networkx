@@ -1,0 +1,135 @@
+"""Conformance tests: distance measure algorithms — fnx vs nx oracle."""
+
+import pytest
+from conftest import assert_sets_equal
+
+
+@pytest.mark.conformance
+class TestDistance:
+    def test_density(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        assert abs(fnx.density(G_fnx) - nx.density(G_nx)) < 1e-9
+
+    def test_density_complete(self, fnx, nx, complete_graph):
+        G_fnx, G_nx = complete_graph
+        assert abs(fnx.density(G_fnx) - 1.0) < 1e-9
+        assert abs(fnx.density(G_fnx) - nx.density(G_nx)) < 1e-9
+
+    def test_diameter(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        assert fnx.diameter(G_fnx) == nx.diameter(G_nx)
+
+    def test_radius(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        assert fnx.radius(G_fnx) == nx.radius(G_nx)
+
+    def test_center(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        assert_sets_equal(fnx.center(G_fnx), nx.center(G_nx), label="center")
+
+    def test_periphery(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        assert_sets_equal(fnx.periphery(G_fnx), nx.periphery(G_nx), label="periphery")
+
+    def test_eccentricity(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        fnx_ecc = fnx.eccentricity(G_fnx)
+        nx_ecc = nx.eccentricity(G_nx)
+        for node in nx_ecc:
+            assert fnx_ecc[node] == nx_ecc[node], f"eccentricity[{node}]"
+
+    def test_eccentricity_argument_weight_and_sp(self, fnx, nx):
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for graph in (G_fnx, G_nx):
+            graph.add_edge(0, 1, w=2)
+            graph.add_edge(1, 2, w=5)
+            graph.add_edge(0, 2, w=10)
+            graph.add_edge(2, 3, w=1)
+
+        assert fnx.eccentricity(G_fnx, v=2) == nx.eccentricity(G_nx, v=2)
+        assert fnx.eccentricity(G_fnx, v=[0, 3]) == nx.eccentricity(G_nx, v=[0, 3])
+
+        shortest_paths = dict(nx.shortest_path_length(G_nx))
+        assert fnx.eccentricity(G_fnx, sp=shortest_paths) == nx.eccentricity(
+            G_nx,
+            sp=shortest_paths,
+        )
+
+        assert fnx.eccentricity(G_fnx, weight="w") == nx.eccentricity(G_nx, weight="w")
+
+    def test_eccentricity_error_contract(self, fnx, nx, disconnected_graph):
+        G_fnx, G_nx = disconnected_graph
+
+        with pytest.raises(nx.NetworkXError) as expected:
+            nx.eccentricity(G_nx)
+        with pytest.raises(fnx.NetworkXError) as actual:
+            fnx.eccentricity(G_fnx)
+        assert str(actual.value) == str(expected.value)
+
+        assert fnx.eccentricity(fnx.Graph()) == nx.eccentricity(nx.Graph()) == {}
+
+    def test_disconnected_raises(self, fnx, disconnected_graph):
+        G_fnx, _ = disconnected_graph
+        with pytest.raises(fnx.NetworkXError):
+            fnx.diameter(G_fnx)
+
+    def test_tree_broadcast_example_tree(self, fnx, nx):
+        edge_list = [
+            (0, 1),
+            (1, 2),
+            (2, 7),
+            (3, 4),
+            (5, 4),
+            (4, 7),
+            (6, 7),
+            (7, 9),
+            (8, 9),
+            (9, 13),
+            (13, 14),
+            (14, 15),
+            (14, 16),
+            (14, 17),
+            (13, 11),
+            (11, 10),
+            (11, 12),
+            (13, 18),
+            (18, 19),
+            (18, 20),
+        ]
+        G_fnx = fnx.Graph()
+        G_nx = nx.Graph()
+        for u, v in edge_list:
+            G_fnx.add_edge(u, v)
+            G_nx.add_edge(u, v)
+
+        fnx_time, fnx_center = fnx.tree_broadcast_center(G_fnx)
+        nx_time, nx_center = nx.tree_broadcast_center(G_nx)
+
+        assert fnx_time == nx_time
+        assert_sets_equal(fnx_center, nx_center, label="tree_broadcast_center")
+        assert fnx.tree_broadcast_time(G_fnx) == nx.tree_broadcast_time(G_nx)
+        assert fnx.tree_broadcast_time(G_fnx, 17) == nx.tree_broadcast_time(G_nx, 17)
+        assert fnx.tree_broadcast_time(G_fnx, 3) == nx.tree_broadcast_time(G_nx, 3)
+
+    def test_distance_measures_with_precomputed_e(self, fnx, nx, path_graph):
+        G_fnx, G_nx = path_graph
+        fe = fnx.eccentricity(G_fnx)
+        ne = nx.eccentricity(G_nx)
+        assert fnx.diameter(G_fnx, e=fe) == nx.diameter(G_nx, e=ne)
+        assert fnx.radius(G_fnx, e=fe) == nx.radius(G_nx, e=ne)
+        assert fnx.center(G_fnx, e=fe) == nx.center(G_nx, e=ne)
+        assert fnx.periphery(G_fnx, e=fe) == nx.periphery(G_nx, e=ne)
+
+    def test_distance_measures_empty_graph(self, fnx, nx):
+        for G_fnx, G_nx in [(fnx.Graph(), nx.Graph()), (fnx.DiGraph(), nx.DiGraph())]:
+            for fn_name in ["diameter", "radius", "periphery", "center"]:
+                fn_fnx = getattr(fnx, fn_name)
+                fn_nx = getattr(nx, fn_name)
+                with pytest.raises(Exception) as exc_expected:
+                    fn_nx(G_nx)
+                with pytest.raises(Exception) as exc_actual:
+                    fn_fnx(G_fnx)
+                assert type(exc_actual.value) is type(exc_expected.value)
+                assert str(exc_actual.value) == str(exc_expected.value)
+

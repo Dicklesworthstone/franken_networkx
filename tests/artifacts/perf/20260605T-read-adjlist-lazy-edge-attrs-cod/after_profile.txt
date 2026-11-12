@@ -1,0 +1,35 @@
+         256 function calls in 1.679 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.314    0.314    1.678    1.678 adjlist_lazy_attrs.py:322(run)
+       10    0.000    0.000    1.364    0.136 __init__.py:45322(wrapper)
+       10    0.000    0.000    1.364    0.136 __init__.py:16343(read_adjlist)
+       10    0.002    0.000    1.364    0.136 __init__.py:175(_read_adjlist_via_nx)
+       10    1.362    0.136    1.362    0.136 {built-in method franken_networkx._fnx.read_adjlist_simple}
+       10    0.000    0.000    0.000    0.000 __init__.py:31655(number_of_edges)
+       10    0.000    0.000    0.000    0.000 __init__.py:30996(_has_networkx_private_storage)
+       40    0.000    0.000    0.000    0.000 __init__.py:30988(_private_override)
+       10    0.000    0.000    0.000    0.000 __init__.py:295(number_of_edges)
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       10    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x78aa5e32b420}
+       10    0.000    0.000    0.000    0.000 _local.py:227(__str__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 _local.py:289(drive)
+       40    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 _local.py:257(_parse_path)
+       10    0.000    0.000    0.000    0.000 __init__.py:20347(_validate_backend_dispatch_keywords)
+       10    0.000    0.000    0.000    0.000 {method 'endswith' of 'str' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 _local.py:277(_raw_path)
+        3    0.000    0.000    0.000    0.000 {built-in method sys.intern}
+        1    0.000    0.000    0.000    0.000 _local.py:237(_format_parsed_parts)
+        1    0.000    0.000    0.000    0.000 {built-in method posix._path_splitroot_ex}
+        1    0.000    0.000    0.000    0.000 {method 'split' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 {method 'join' of 'str' objects}
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.000    0.000 _local.py:298(root)
+        1    0.000    0.000    0.000    0.000 _local.py:307(_tail)
+
+

@@ -1,0 +1,93 @@
+profile which=nx family=chorded_cycle size=16 repeats=1
+fnx_file=/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/python/franken_networkx/__init__.py
+nx_file=/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py
+nx_version=3.6.1
+
+Tue Jun  9 14:36:00 2026    /data/tmp/tmpn_kiw1eg
+
+         6480549 function calls (6477985 primitive calls) in 1.885 seconds
+
+   Ordered by: cumulative time
+   List reduced from 275 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.885    1.885 /data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/tests/artifacts/perf/20260609T-k-components-jfsyo-boldfalcon/harness_kcomponents_residual.py:26(genuine_nx_k_components)
+        1    0.000    0.000    1.885    1.885 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:20(k_components)
+       59    0.406    0.007    1.870    0.032 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:25(all_node_cuts)
+   260896    0.361    0.000    1.013    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:939(antichains)
+   638762    0.112    0.000    0.324    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+   637142    0.157    0.000    0.253    0.000 <frozen _collections_abc>:815(__contains__)
+  1281203    0.213    0.000    0.231    0.000 {method 'update' of 'set' objects}
+   641512    0.174    0.000    0.213    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+ 1319/150    0.009    0.000    0.166    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+ 1319/150    0.001    0.000    0.165    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+       18    0.000    0.000    0.129    0.007 <class 'networkx.utils.decorators.argmap'> compilation 75:1(argmap_transitive_closure_72)
+       18    0.001    0.000    0.129    0.007 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:717(transitive_closure)
+      877    0.015    0.000    0.125    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/digraph.py:748(add_edges_from)
+     7522    0.009    0.000    0.103    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:804(<genexpr>)
+   647713    0.097    0.000    0.097    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:53(__getitem__)
+    16763    0.025    0.000    0.076    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:20(edge_bfs)
+   522680    0.054    0.000    0.054    0.000 {method 'pop' of 'list' objects}
+   641558    0.039    0.000    0.039    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:44(__init__)
+   260878    0.035    0.000    0.035    0.000 {method 'issubset' of 'set' objects}
+     8262    0.006    0.000    0.033    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:127(edges_from)
+     6097    0.004    0.000    0.029    0.000 {built-in method builtins.any}
+   266647    0.029    0.000    0.029    0.000 {method 'append' of 'list' objects}
+    31917    0.010    0.000    0.025    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:195(<genexpr>)
+    23/11    0.000    0.000    0.021    0.002 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+    77614    0.014    0.000    0.020    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:190(__getitem__)
+     8320    0.005    0.000    0.019    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:1102(__call__)
+   137344    0.018    0.000    0.018    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:192(<genexpr>)
+       37    0.000    0.000    0.016    0.000 <class 'networkx.utils.decorators.argmap'> compilation 67:1(argmap_edmonds_karp_64)
+       37    0.000    0.000    0.015    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:120(edmonds_karp)
+       37    0.002    0.000    0.015    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:94(edmonds_karp_impl)
+     8300    0.007    0.000    0.014    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:771(__init__)
+        1    0.000    0.000    0.013    0.013 <class 'networkx.utils.decorators.argmap'> compilation 38:1(argmap_node_connectivity_35)
+        1    0.000    0.000    0.013    0.013 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:209(node_connectivity)
+    29855    0.010    0.000    0.013    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:799(<genexpr>)
+       13    0.000    0.000    0.010    0.001 <class 'networkx.utils.decorators.argmap'> compilation 59:1(argmap_local_node_connectivity_56)
+20849/20833    0.004    0.000    0.010    0.000 {built-in method builtins.iter}
+       13    0.000    0.000    0.010    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/connectivity.py:35(local_node_connectivity)
+       13    0.000    0.000    0.010    0.001 <class 'networkx.utils.decorators.argmap'> compilation 63:1(argmap_maximum_flow_value_60)
+       13    0.000    0.000    0.009    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/flow/maxflow.py:171(maximum_flow_value)
+       18    0.000    0.000    0.009    0.001 <class 'networkx.utils.decorators.argmap'> compilation 111:1(argmap_transitive_closure_dag_107)
+       18    0.000    0.000    0.009    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:809(transitive_closure_dag)
+       37    0.000    0.000    0.009    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:11(edmonds_karp_core)
+    79611    0.007    0.000    0.007    0.000 {built-in method builtins.isinstance}
+     8840    0.004    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:2013(nbunch_iter)
+      576    0.001    0.000    0.006    0.000 <class 'networkx.utils.decorators.argmap'> compilation 79:1(argmap_edge_bfs_76)
+       23    0.000    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+     8300    0.004    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:798(__iter__)
+       23    0.000    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      227    0.000    0.000    0.006    0.000 <class 'networkx.utils.decorators.argmap'> compilation 115:1(argmap_descendants_at_distance_112)
+       36    0.000    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:1592(copy)
+       18    0.000    0.000    0.006    0.000 <class 'networkx.utils.decorators.argmap'> compilation 84:1(argmap_condensation_80)
+      104    0.002    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:40(bidirectional_bfs)
+       18    0.000    0.000    0.005    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/components/strongly_connected.py:277(condensation)
+      227    0.000    0.000    0.004    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/breadth_first_search.py:539(descendants_at_distance)
+    26052    0.004    0.000    0.004    0.000 {method 'add' of 'set' objects}
+    23698    0.003    0.000    0.004    0.000 {method 'update' of 'dict' objects}
+    30/23    0.000    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+20573/20529    0.002    0.000    0.003    0.000 {built-in method builtins.len}
+       80    0.001    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/flow/edmondskarp.py:19(augment)
+       23    0.000    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+       23    0.002    0.000    0.002    0.000 {built-in method builtins.compile}
+     6180    0.001    0.000    0.002    0.000 <frozen _collections_abc>:916(__iter__)
+     8262    0.002    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:779(<lambda>)
+       56    0.002    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/digraph.py:500(add_nodes_from)
+     4793    0.001    0.000    0.002    0.000 <frozen _collections_abc>:897(__iter__)
+      227    0.000    0.000    0.002    0.000 <class 'networkx.utils.decorators.argmap'> compilation 119:1(argmap_bfs_layers_116)
+      245    0.001    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/components/strongly_connected.py:15(strongly_connected_components)
+    45/23    0.000    0.000    0.002    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+    45/23    0.000    0.000    0.002    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+    45/23    0.000    0.000    0.002    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+    11274    0.002    0.000    0.002    0.000 {method 'get' of 'dict' objects}
+     9822    0.002    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:473(__contains__)
+    16187    0.002    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:787(<lambda>)
+    11764    0.001    0.000    0.001    0.000 {method 'items' of 'dict' objects}
+       22    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:503(__signature__)
+    16187    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:156(edge_id)
+     8262    0.001    0.000    0.001    0.000 {built-in method fromkeys}
+        2    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 47:1(argmap_build_auxiliary_node_connectivity_44)
+      601    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/breadth_first_search.py:405(bfs_layers)
+        2    0.000    0.000    0.001    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/utils.py:10(build_auxiliary_node_connectivity)

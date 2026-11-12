@@ -1,0 +1,6 @@
+graph [
+  directed 5
+  nRame "with attrs"
+  + [
+  d 0
+  name'RR RRR"

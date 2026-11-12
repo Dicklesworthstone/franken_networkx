@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260609T-k-components-blockgraph-boldfalcon/harness_blockgraph_k_components.py time --n 100 --repeats 5 --which fnx",
+      "mean": 0.3295496266,
+      "stddev": 0.010510913258853987,
+      "median": 0.3297951162,
+      "user": 3.9976275200000004,
+      "system": 0.05752952,
+      "min": 0.3178817112,
+      "max": 0.3459801242,
+      "times": [
+        0.3178817112,
+        0.3236386102,
+        0.3297951162,
+        0.3459801242,
+        0.3304525712
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

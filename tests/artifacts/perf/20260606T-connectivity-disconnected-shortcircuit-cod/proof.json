@@ -1,0 +1,76 @@
+{
+  "bead": "br-r37-c1-c1gz0",
+  "rows": [
+    {
+      "case": "node_connectivity:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "node_connectivity:flow_func:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:flow_func:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:cutoff:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "node_connectivity:local:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:local:undirected",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "node_connectivity:directed",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "node_connectivity:flow_func:directed",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:directed",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:flow_func:directed",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:cutoff:directed",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "node_connectivity:local:directed",
+      "fnx": 0,
+      "nx": 0
+    },
+    {
+      "case": "edge_connectivity:local:directed",
+      "fnx": 0,
+      "nx": 0
+    }
+  ],
+  "sha256": "14afbdbb9531c559af9f6936d5fc271c84c2f1f2bbf0fa36960438345d2fd781"
+}

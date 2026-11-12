@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260606T-connectivity-disconnected-shortcircuit-cod/connectivity_shortcircuit.py --mode before-edge --iterations 200",
+      "mean": 3.8097627602428576,
+      "stddev": 0.2033826369602212,
+      "median": 3.8109005541000003,
+      "user": 7.019254337142856,
+      "system": 0.12597086857142856,
+      "min": 3.5251944021,
+      "max": 4.0873663560999995,
+      "times": [
+        3.8549380341000004,
+        3.6189747621,
+        3.5251944021,
+        4.0873663560999995,
+        3.8109005541000003,
+        4.0273186470999995,
+        3.7436465661000002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260606T-connectivity-disconnected-shortcircuit-cod/connectivity_shortcircuit.py --mode after-edge --iterations 200",
+      "mean": 0.33025144124285716,
+      "stddev": 0.043016843890195305,
+      "median": 0.33479477310000005,
+      "user": 3.2553150514285716,
+      "system": 0.05882715428571428,
+      "min": 0.2583204161,
+      "max": 0.4025985691,
+      "times": [
+        0.3244466541,
+        0.4025985691,
+        0.31084192810000005,
+        0.33497899210000004,
+        0.33479477310000005,
+        0.34577875610000003,
+        0.2583204161
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

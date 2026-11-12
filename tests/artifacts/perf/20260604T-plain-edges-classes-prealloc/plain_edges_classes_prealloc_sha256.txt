@@ -1,0 +1,2 @@
+0201666acaf2841cd166ed51509732fb6168b0005e529d0c12fb01ea229b0372  tests/artifacts/perf/20260604T-plain-edges-classes-prealloc/after_plain_edges_int.jsonl
+adebeb87671dac47fc0c07315898f12b4530c9051e273cf82b232a5dc81362c3  tests/artifacts/perf/20260604T-plain-edges-classes-prealloc/plain_edges_valid_semantics_golden.jsonl

@@ -1,0 +1,39 @@
+{
+  "routing": {
+    "pagerank": true,
+    "hits": true,
+    "google_matrix": true
+  },
+  "parity": {
+    "pagerank_n500": {
+      "sha_match": true
+    },
+    "hits_n500": {
+      "sha_match": true
+    },
+    "google_matrix_n500": {
+      "sha_match": true
+    },
+    "pagerank_n1000": {
+      "sha_match": true
+    },
+    "hits_n1000": {
+      "sha_match": true
+    },
+    "google_matrix_n1000": {
+      "sha_match": true
+    }
+  },
+  "speedup": {
+    "google_matrix": {
+      "routed_ms": 7.849,
+      "before_raw_nx_ms": 15.489,
+      "speedup": 1.97
+    },
+    "pagerank": {
+      "routed_ms": 0.329,
+      "before_raw_nx_ms": 0.387,
+      "speedup": 1.18
+    }
+  }
+}

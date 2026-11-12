@@ -1,0 +1,41 @@
+         215530 function calls (208659 primitive calls) in 0.245 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1342 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       29    0.000    0.000    0.306    0.011 __init__.py:1(<module>)
+        1    0.000    0.000    0.245    0.245 laplacian_spectrum_harness.py:122(bench_once)
+        2    0.000    0.000    0.230    0.115 laplacian_spectrum_harness.py:125(<lambda>)
+      6/2    0.000    0.000    0.230    0.115 __init__.py:53083(wrapper)
+        2    0.000    0.000    0.230    0.115 __init__.py:22546(laplacian_spectrum)
+        2    0.000    0.000    0.129    0.064 __init__.py:22348(laplacian_matrix)
+    175/1    0.001    0.000    0.125    0.125 <frozen importlib._bootstrap>:1349(_find_and_load)
+    171/1    0.001    0.000    0.125    0.125 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    409/3    0.000    0.000    0.125    0.042 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    167/2    0.000    0.000    0.125    0.062 <frozen importlib._bootstrap>:911(_load_unlocked)
+    149/2    0.000    0.000    0.125    0.062 <frozen importlib._bootstrap_external>:1020(exec_module)
+    159/8    0.001    0.000    0.125    0.016 {built-in method builtins.exec}
+        2    0.000    0.000    0.106    0.053 _base.py:1(<module>)
+        1    0.000    0.000    0.105    0.105 _sputils.py:1(<module>)
+        1    0.000    0.000    0.105    0.105 _util.py:1(<module>)
+    60/20    0.000    0.000    0.104    0.005 {built-in method builtins.__import__}
+        1    0.000    0.000    0.104    0.104 _array_api.py:1(<module>)
+        2    0.101    0.050    0.101    0.050 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+    96/20    0.000    0.000    0.097    0.005 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        3    0.000    0.000    0.080    0.027 _internal.py:56(clone_module)
+2297/1745    0.000    0.000    0.079    0.000 {built-in method builtins.hasattr}
+       11    0.000    0.000    0.079    0.007 __init__.py:704(__getattr__)
+        1    0.000    0.000    0.051    0.051 f2py2e.py:1(<module>)
+      236    0.001    0.000    0.043    0.000 __init__.py:330(_compile)
+        1    0.000    0.000    0.043    0.043 capi_maps.py:1(<module>)
+       75    0.000    0.000    0.042    0.001 __init__.py:287(compile)
+       80    0.000    0.000    0.042    0.001 _compiler.py:743(compile)
+        1    0.000    0.000    0.040    0.040 crackfortran.py:1(<module>)
+       80    0.000    0.000    0.025    0.000 _parser.py:970(parse)
+   462/80    0.006    0.000    0.025    0.000 _parser.py:451(_parse_sub)
+   612/80    0.007    0.000    0.024    0.000 _parser.py:511(_parse)
+      149    0.001    0.000    0.019    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       80    0.000    0.000    0.016    0.000 _compiler.py:576(_code)
+        1    0.001    0.001    0.015    0.015 laplacian_spectrum_harness.py:28(make_pair)
+  1124/80    0.008    0.000    0.015    0.000 _compiler.py:37(_compile)

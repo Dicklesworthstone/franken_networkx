@@ -1,0 +1,326 @@
+//! Python bindings for the Canonical Graph Semantics Engine (CGSE).
+//!
+//! Exposes:
+//! - `TieBreakPolicy`: The 13 canonical tie-break orderings
+//! - `ComplexityWitness`: Per-execution proof of tie-break decisions
+//! - `collect_witnesses()`: Wrapper for running algorithms with witness collection
+
+use fnx_cgse::{
+    ComplexityWitness, ReferenceAlgorithm, TieBreakPolicy, WitnessSink, v1_policy_registry,
+};
+use pyo3::prelude::*;
+use pyo3::types::PyDict;
+
+/// Observe binding-local kernels, including their early returns, without
+/// rerouting them to a different reference implementation or ordering policy.
+pub(crate) struct WitnessRun {
+    reference: ReferenceAlgorithm,
+    n: usize,
+    m: usize,
+    pub(crate) sink: Option<WitnessSink>,
+}
+
+impl WitnessRun {
+    pub(crate) fn new(reference: ReferenceAlgorithm, n: usize, m: usize) -> Self {
+        Self {
+            reference,
+            n,
+            m,
+            sink: fnx_cgse::witness_collection_enabled()
+                .then(|| WitnessSink::new(reference.policy())),
+        }
+    }
+
+    pub(crate) fn record(&mut self, chosen: &str, rejected: &str) {
+        if let Some(sink) = self.sink.as_mut() {
+            sink.record_decision(chosen, rejected);
+        }
+    }
+}
+
+impl Drop for WitnessRun {
+    fn drop(&mut self) {
+        if let Some(sink) = self.sink.take() {
+            let witness = sink.finalize(self.n, self.m, self.reference.dominant_complexity(), None);
+            // Collection is optional and reentrant ledger borrows deliberately
+            // return None; never change the algorithm's result for telemetry.
+            let _ = fnx_cgse::with_ledger(|ledger| ledger.append(witness));
+        }
+    }
+}
+
+/// The 13 canonical tie-break orderings that NetworkX algorithms exhibit.
+#[pyclass(name = "TieBreakPolicy")]
+#[derive(Debug, Clone)]
+pub struct PyTieBreakPolicy(pub TieBreakPolicy);
+
+#[pymethods]
+impl PyTieBreakPolicy {
+    /// Lexicographically smallest node/edge label wins.
+    #[staticmethod]
+    fn lex_min() -> Self {
+        Self(TieBreakPolicy::LexMin)
+    }
+
+    /// Lexicographically largest node/edge label wins.
+    #[staticmethod]
+    fn lex_max() -> Self {
+        Self(TieBreakPolicy::LexMax)
+    }
+
+    /// First-inserted candidate wins (adjacency-list order).
+    #[staticmethod]
+    fn insertion_order() -> Self {
+        Self(TieBreakPolicy::InsertionOrder)
+    }
+
+    /// Last-inserted candidate wins (reverse adjacency-list order).
+    #[staticmethod]
+    fn reverse_insertion_order() -> Self {
+        Self(TieBreakPolicy::ReverseInsertionOrder)
+    }
+
+    /// Primary: weight ascending; secondary: lex-min label.
+    #[staticmethod]
+    fn weight_then_lex() -> Self {
+        Self(TieBreakPolicy::WeightThenLex)
+    }
+
+    /// Primary: weight ascending; secondary: insertion order (FIFO).
+    /// This is what fnx's Dijkstra actually uses to match NetworkX's
+    /// heapq + itertools.count() byte-for-byte.
+    #[staticmethod]
+    fn weight_then_insertion_order() -> Self {
+        Self(TieBreakPolicy::WeightThenInsertionOrder)
+    }
+
+    /// Primary: lex-min label; secondary: weight ascending.
+    #[staticmethod]
+    fn lex_then_weight() -> Self {
+        Self(TieBreakPolicy::LexThenWeight)
+    }
+
+    /// Deterministic hash of (seed, label).
+    #[staticmethod]
+    fn deterministic_hash(seed: u64) -> Self {
+        Self(TieBreakPolicy::DeterministicHash { seed })
+    }
+
+    /// Minimum-degree node wins; ties broken by lex-min label.
+    #[staticmethod]
+    fn degree_min_then_lex() -> Self {
+        Self(TieBreakPolicy::DegreeMinThenLex)
+    }
+
+    /// Maximum-degree node wins; ties broken by lex-min label.
+    #[staticmethod]
+    fn degree_max_then_lex() -> Self {
+        Self(TieBreakPolicy::DegreeMaxThenLex)
+    }
+
+    /// DFS pre-order traversal order.
+    #[staticmethod]
+    fn dfs_preorder() -> Self {
+        Self(TieBreakPolicy::DfsPreorder)
+    }
+
+    /// BFS level order, within-level lex-min.
+    #[staticmethod]
+    fn bfs_level_lex() -> Self {
+        Self(TieBreakPolicy::BfsLevelLex)
+    }
+
+    /// Edge key lex-min (for multigraph algorithms).
+    #[staticmethod]
+    fn edge_key_lex() -> Self {
+        Self(TieBreakPolicy::EdgeKeyLex)
+    }
+
+    /// Short stable identifier string.
+    fn id(&self) -> &'static str {
+        self.0.id()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("TieBreakPolicy.{}", self.0.id())
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+/// A per-execution record emitted by CGSE-instrumented algorithms.
+#[pyclass(name = "ComplexityWitness")]
+#[derive(Debug, Clone)]
+pub struct PyComplexityWitness(pub ComplexityWitness);
+
+#[pymethods]
+impl PyComplexityWitness {
+    /// Serialize a receipt using the same schema as the Rust witness ledger.
+    fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+    }
+
+    /// Restore a receipt for replay/validation, not proof that a kernel ran.
+    #[staticmethod]
+    fn from_json(receipt: &str) -> PyResult<Self> {
+        serde_json::from_str(receipt)
+            .map(Self)
+            .map_err(|error| pyo3::exceptions::PyValueError::new_err(error.to_string()))
+    }
+
+    /// Apply the existing Rust bound checker, rejecting unknown complexity terms.
+    fn verify_complexity_bound(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let result = fnx_cgse::verify_complexity_bound(&self.0).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "unknown complexity term: {}",
+                self.0.dominant_term
+            ))
+        })?;
+        let report = PyDict::new(py);
+        report.set_item("within_bounds", result.within_bounds)?;
+        report.set_item("observed_count", result.observed_count)?;
+        report.set_item("upper_bound", result.upper_bound)?;
+        report.set_item("dominant_term", result.dominant_term)?;
+        report.set_item("formula", result.formula)?;
+        Ok(report.unbind())
+    }
+
+    /// Number of nodes in the input graph.
+    #[getter]
+    fn n(&self) -> usize {
+        self.0.n
+    }
+
+    /// Number of edges in the input graph.
+    #[getter]
+    fn m(&self) -> usize {
+        self.0.m
+    }
+
+    /// Dominant complexity term symbol (e.g., "n_log_n", "n_m").
+    #[getter]
+    fn dominant_term(&self) -> &str {
+        &self.0.dominant_term
+    }
+
+    /// Observed operation count (tie-break decisions).
+    #[getter]
+    fn observed_count(&self) -> u64 {
+        self.0.observed_count
+    }
+
+    /// Which tie-break policy governed this execution.
+    #[getter]
+    fn policy(&self) -> PyTieBreakPolicy {
+        PyTieBreakPolicy(self.0.policy)
+    }
+
+    /// Optional RNG seed (for randomized algorithms).
+    #[getter]
+    fn seed(&self) -> Option<u64> {
+        self.0.seed
+    }
+
+    /// Blake3 hash over the ordered sequence of tie-break decisions, as hex.
+    #[getter]
+    fn decision_path_hash(&self) -> String {
+        hex::encode(self.0.decision_path_blake3)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ComplexityWitness(n={}, m={}, policy={}, observed_count={}, hash={}...)",
+            self.0.n,
+            self.0.m,
+            self.0.policy.id(),
+            self.0.observed_count,
+            hex::encode(&self.0.decision_path_blake3[..4])
+        )
+    }
+}
+
+/// Get the canonical policy for a reference algorithm.
+#[pyfunction]
+pub fn algorithm_policy(algorithm: &str) -> PyResult<Option<PyTieBreakPolicy>> {
+    Ok(ReferenceAlgorithm::from_algorithm_id(algorithm).map(|alg| PyTieBreakPolicy(alg.policy())))
+}
+
+/// Get the full V1 policy registry as a dict.
+#[pyfunction]
+pub fn policy_registry(py: Python<'_>) -> PyResult<Py<PyDict>> {
+    let registry = v1_policy_registry();
+    let dict = PyDict::new(py);
+    for entry in registry {
+        let inner = PyDict::new(py);
+        inner.set_item("family", entry.family)?;
+        inner.set_item("policy", entry.policy.id())?;
+        inner.set_item("dominant_complexity", entry.dominant_complexity)?;
+        dict.set_item(entry.algorithm, inner)?;
+    }
+    Ok(dict.into())
+}
+
+/// List all reference algorithm IDs.
+#[pyfunction]
+pub fn reference_algorithms() -> Vec<&'static str> {
+    ReferenceAlgorithm::ALL
+        .into_iter()
+        .map(|alg| alg.algorithm())
+        .collect()
+}
+
+/// Run ``func()`` with CGSE witness collection enabled on the calling thread
+/// and return ``(result, witnesses)``.
+///
+/// ``witnesses`` holds one [`ComplexityWitness`] per CGSE-instrumented kernel
+/// execution that happened inside ``func`` (the V1 reference algorithms:
+/// BFS/DFS edges, connected and strongly connected components, Dijkstra,
+/// Bellman-Ford, Kruskal/Prim, Eulerian circuit, matching, topological sort).
+/// Kernels outside that set emit nothing, so an empty list is a valid answer.
+/// Nested calls share one ledger and only the outermost drains it. A Python
+/// exception raised by ``func`` propagates unchanged.
+///
+/// Algorithm kernels release the GIL but stay on this OS thread, so the
+/// thread-local ledger sees them; witnesses produced by *other* Python threads
+/// are not collected here.
+#[pyfunction]
+pub fn collect_witnesses(
+    func: Bound<'_, PyAny>,
+) -> PyResult<(Py<PyAny>, Vec<PyComplexityWitness>)> {
+    let (result, witnesses) = fnx_cgse::collect_witnesses(|| func.call0());
+    let result = result?;
+    Ok((
+        result.unbind(),
+        witnesses.into_iter().map(PyComplexityWitness).collect(),
+    ))
+}
+
+/// Whether CGSE witness collection is armed on the current thread. Exposed so the
+/// Python public API can route to the eager instrumented kernel under collection.
+#[pyfunction]
+pub fn witness_collection_enabled() -> bool {
+    fnx_cgse::witness_collection_enabled()
+}
+
+pub fn register_module(parent: &Bound<'_, PyModule>) -> PyResult<()> {
+    let m = PyModule::new(parent.py(), "cgse")?;
+    m.add_class::<PyTieBreakPolicy>()?;
+    m.add_class::<PyComplexityWitness>()?;
+    m.add_function(wrap_pyfunction!(algorithm_policy, &m)?)?;
+    m.add_function(wrap_pyfunction!(policy_registry, &m)?)?;
+    m.add_function(wrap_pyfunction!(reference_algorithms, &m)?)?;
+    m.add_function(wrap_pyfunction!(collect_witnesses, &m)?)?;
+    m.add_function(wrap_pyfunction!(witness_collection_enabled, &m)?)?;
+    parent.add_submodule(&m)?;
+    Ok(())
+}

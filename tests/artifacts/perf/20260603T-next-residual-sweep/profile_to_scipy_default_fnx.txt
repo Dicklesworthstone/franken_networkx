@@ -1,0 +1,86 @@
+         4399791 function calls in 2.866 seconds
+
+   Ordered by: cumulative time
+   List reduced from 109 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.002    0.000    2.866    0.573 __init__.py:42651(wrapper)
+        5    0.292    0.058    2.865    0.573 __init__.py:39073(to_scipy_sparse_array)
+   399845    0.091    0.000    1.626    0.000 __init__.py:993(<genexpr>)
+   359840    0.070    0.000    1.191    0.000 __init__.py:1041(_atlas)
+   319840    0.090    0.000    1.184    0.000 __init__.py:1050(__getitem__)
+   359840    0.977    0.000    1.121    0.000 __init__.py:1113(<lambda>)
+    40005    0.038    0.000    0.488    0.000 __init__.py:978(_adjacency_view_items)
+    40005    0.107    0.000    0.446    0.000 {built-in method builtins.__build_class__}
+    40000    0.326    0.000    0.351    0.000 __init__.py:1103(__getitem__)
+    40005    0.029    0.000    0.318    0.000 <frozen abc>:105(__new__)
+    40005    0.251    0.000    0.251    0.000 {built-in method __new__ of type object at 0xa15020}
+   679705    0.176    0.000    0.176    0.000 {method 'get' of 'dict' objects}
+   399845    0.071    0.000    0.161    0.000 __init__.py:1085(_atlas)
+    40005    0.017    0.000    0.138    0.000 __init__.py:992(__iter__)
+    40000    0.016    0.000    0.117    0.000 __init__.py:1047(__iter__)
+   959525    0.093    0.000    0.093    0.000 {method 'append' of 'list' objects}
+   399845    0.090    0.000    0.090    0.000 __init__.py:1228(<lambda>)
+        5    0.000    0.000    0.042    0.008 _coo.py:32(__init__)
+    40005    0.038    0.000    0.038    0.000 {built-in method _abc._abc_init}
+       30    0.023    0.001    0.023    0.001 {built-in method numpy.array}
+    40005    0.022    0.000    0.022    0.000 __init__.py:988(_AdjItemsView)
+       35    0.017    0.000    0.017    0.000 {built-in method numpy.asarray}
+       15    0.000    0.000    0.014    0.001 _coo.py:62(<genexpr>)
+       20    0.000    0.000    0.009    0.000 _base.py:1525(_get_index_dtype)
+       20    0.000    0.000    0.009    0.000 _sputils.py:264(get_index_dtype)
+        5    0.000    0.000    0.009    0.002 _sputils.py:142(getdata)
+       10    0.000    0.000    0.009    0.001 _sputils.py:372(isshape)
+        5    0.000    0.000    0.009    0.002 _sputils.py:350(isintlike)
+        5    0.000    0.000    0.009    0.002 fromnumeric.py:3482(ndim)
+        5    0.006    0.001    0.006    0.001 __init__.py:28984(__iter__)
+    40005    0.005    0.000    0.005    0.000 {built-in method builtins.iter}
+    40000    0.005    0.000    0.005    0.000 {built-in method builtins.hash}
+        5    0.000    0.000    0.005    0.001 _base.py:451(asformat)
+        5    0.000    0.000    0.005    0.001 _coo.py:349(tocsr)
+    40000    0.004    0.000    0.004    0.000 __init__.py:1038(__init__)
+        5    0.000    0.000    0.004    0.001 _coo.py:383(_coo_to_compressed)
+        5    0.000    0.000    0.004    0.001 __init__.py:1091(__iter__)
+        5    0.004    0.001    0.004    0.001 {built-in method fromkeys}
+        5    0.003    0.001    0.003    0.001 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+    40005    0.003    0.000    0.003    0.000 __init__.py:989(__init__)
+        5    0.000    0.000    0.001    0.000 _coo.py:204(_check)
+       20    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       10    0.000    0.000    0.000    0.000 {method 'max' of 'numpy.ndarray' objects}
+        5    0.000    0.000    0.000    0.000 _compressed.py:30(__init__)
+       10    0.000    0.000    0.000    0.000 _methods.py:39(_amax)
+        5    0.000    0.000    0.000    0.000 _compressed.py:1063(sum_duplicates)
+        5    0.000    0.000    0.000    0.000 _compressed.py:1034(has_canonical_format)
+        5    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.csr_has_canonical_format}
+       10    0.000    0.000    0.000    0.000 _data.py:21(__init__)
+       10    0.000    0.000    0.000    0.000 _base.py:138(__init__)
+       10    0.000    0.000    0.000    0.000 {method 'min' of 'numpy.ndarray' objects}
+       10    0.000    0.000    0.000    0.000 _methods.py:43(_amin)
+       35    0.000    0.000    0.000    0.000 _base.py:365(nnz)
+        5    0.000    0.000    0.000    0.000 _compressed.py:166(check_format)
+       10    0.000    0.000    0.000    0.000 numeric.py:1975(isscalar)
+       10    0.000    0.000    0.000    0.000 _sputils.py:444(check_shape)
+       40    0.000    0.000    0.000    0.000 getlimits.py:412(__init__)
+      205    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      115    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 _coo.py:167(_getnnz)
+        5    0.000    0.000    0.000    0.000 _compressed.py:1118(prune)
+       10    0.000    0.000    0.000    0.000 __init__.py:28994(__len__)
+        5    0.000    0.000    0.000    0.000 _sputils.py:112(getdtype)
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+       20    0.000    0.000    0.000    0.000 __init__.py:5059(predicate)
+       15    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+       30    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:645(parent)
+       20    0.000    0.000    0.000    0.000 __init__.py:28584(_private_override)
+       15    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+        5    0.000    0.000    0.000    0.000 __init__.py:29370(<lambda>)
+       30    0.000    0.000    0.000    0.000 _sputils.py:472(<genexpr>)
+        5    0.000    0.000    0.000    0.000 __init__.py:28646(_private_adj_mapping)
+        5    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+       20    0.000    0.000    0.000    0.000 getlimits.py:423(min)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       30    0.000    0.000    0.000    0.000 {method 'rpartition' of 'str' objects}
+        5    0.000    0.000    0.000    0.000 _base.py:118(_csr_container)
+       10    0.000    0.000    0.000    0.000 _util.py:154(_prune_array)
+       25    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

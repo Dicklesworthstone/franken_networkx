@@ -1,0 +1,199 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "asupersync-final-evidence-pack-v1",
+  "generated_at_utc": "2026-02-16T22:27:00Z",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.2.0",
+  "evidence_inventory": {
+    "contract_artifacts": [
+      "artifacts/asupersync/v1/asupersync_capability_matrix_v1.json",
+      "artifacts/asupersync/v1/asupersync_adapter_state_machine_v1.json",
+      "artifacts/asupersync/v1/asupersync_fault_injection_suite_v1.json",
+      "artifacts/asupersync/v1/asupersync_performance_characterization_v1.json"
+    ],
+    "implementation_artifacts": [
+      "crates/fnx-runtime/src/lib.rs",
+      "crates/fnx-runtime/Cargo.toml",
+      "crates/fnx-conformance/tests/asupersync_capability_matrix_gate.rs",
+      "crates/fnx-conformance/tests/asupersync_adapter_state_machine_gate.rs",
+      "crates/fnx-conformance/tests/asupersync_fault_injection_gate.rs",
+      "crates/fnx-conformance/tests/asupersync_performance_gate.rs",
+      "scripts/run_phase2c_readiness_e2e.sh"
+    ],
+    "test_artifacts": {
+      "unit": [
+        {
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -q -p fnx-runtime asupersync_adapter_ -- --nocapture"
+        }
+      ],
+      "differential": [
+        {
+          "evidence_path": "crates/fnx-conformance/tests/asupersync_performance_gate.rs",
+          "replay_command": "rch exec -- cargo test -q -p fnx-conformance --test asupersync_performance_gate -- --nocapture"
+        }
+      ],
+      "e2e": [
+        {
+          "evidence_path": "artifacts/e2e/latest/e2e_script_pack_gate_report_v1.json",
+          "replay_command": "bash ./scripts/run_phase2c_readiness_e2e.sh"
+        }
+      ],
+      "perf": [
+        {
+          "evidence_path": "artifacts/asupersync/v1/asupersync_performance_characterization_v1.json",
+          "replay_command": "rch exec -- cargo test -q -p fnx-conformance --test asupersync_performance_gate -- --nocapture"
+        }
+      ]
+    },
+    "risk_artifacts": [
+      "EXHAUSTIVE_LEGACY_ANALYSIS.md",
+      "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+      "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+      "artifacts/asupersync/v1/asupersync_operational_runbook_v1.md"
+    ]
+  },
+  "durability_artifacts": {
+    "sidecar_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json",
+    "recovered_output_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.recovered.json",
+    "scrub_report_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1_scrub_report.json",
+    "generate_command": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- generate artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json asupersync-final-evidence-pack-v1 asupersync_final_evidence_bundle 1400 6",
+    "scrub_command": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- scrub artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json",
+    "decode_drill_command": "rch exec -- cargo run -q -p fnx-durability --bin fnx-durability -- decode-drill artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.recovered.json",
+    "source_hash": "pending",
+    "scrub_status": "pending",
+    "decode_proof_count": 0
+  },
+  "operational_runbook_path": "artifacts/asupersync/v1/asupersync_operational_runbook_v1.md",
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "idle",
+      "capability_check",
+      "syncing",
+      "verifying_checksum",
+      "failed_closed",
+      "completed"
+    ],
+    "actions": [
+      "start_sync",
+      "resume_sync",
+      "commit_chunk",
+      "verify_checksum",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected replay divergence and integrity loss while preserving deterministic fail-closed semantics.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_replay_loss": 0.0,
+      "max_data_loss": 0.0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "max_retry_count": 3,
+        "max_conflict_events": 1,
+        "max_checksum_mismatch": 1,
+        "max_latency_tail_regression_pct": 5.0
+      },
+      "fallback_action": "halt remote sync path and require audited replay + durability scrub before resuming",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "alien_uplift_contract_card": {
+    "card_id": "ASUP-F-Uplift-Card-001",
+    "baseline_comparator": "legacy_networkx/main@python3.12 + asupersync@0.2.0",
+    "ev_score": 2.37,
+    "selected_uplift": "evidence-first fail-closed ASUP operationalization with deterministic durability replay",
+    "fallback_if_rejected": "retain previous ASUP A-E artifacts and block readiness sign-off until runbook/durability linkage is restored"
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_steps_v1.jsonl",
+    "artifacts/clean/latest/clean_compliance_audit_log_v1.json"
+  ],
+  "residual_risk_register": [
+    {
+      "risk_id": "ASUP-RISK-001",
+      "severity": "medium",
+      "status": "mitigated",
+      "symptom": "Worker queue jitter inflates raw pipeline latency tails.",
+      "mitigation": "ASUP-E stable-window policy gates on deterministic steady-state runs and keeps fail-closed fallback for threshold breaches.",
+      "verification_artifacts": [
+        "artifacts/asupersync/v1/asupersync_performance_characterization_v1.json"
+      ]
+    },
+    {
+      "risk_id": "ASUP-RISK-002",
+      "severity": "high",
+      "status": "mitigated",
+      "symptom": "Artifact corruption or drift can invalidate readiness evidence.",
+      "mitigation": "RaptorQ sidecar + scrub + decode-drill are required before final sign-off.",
+      "verification_artifacts": [
+        "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json"
+      ]
+    }
+  ],
+  "signoff_checklist": [
+    {
+      "requirement": "contract_implementation_test_perf_risk_bundle_complete",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/asupersync/v1/asupersync_capability_matrix_v1.json",
+        "artifacts/asupersync/v1/asupersync_adapter_state_machine_v1.json",
+        "artifacts/asupersync/v1/asupersync_fault_injection_suite_v1.json",
+        "artifacts/asupersync/v1/asupersync_performance_characterization_v1.json",
+        "artifacts/asupersync/v1/asupersync_operational_runbook_v1.md"
+      ]
+    },
+    {
+      "requirement": "durability_sidecar_scrub_decode_attached",
+      "status": "pending",
+      "evidence_refs": [
+        "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json",
+        "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1_scrub_report.json"
+      ]
+    },
+    {
+      "requirement": "operator_runbook_includes_triage_replay_escalation",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/asupersync/v1/asupersync_operational_runbook_v1.md"
+      ]
+    },
+    {
+      "requirement": "reviewer_signoff_package_complete",
+      "status": "pending",
+      "evidence_refs": [
+        "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json"
+      ]
+    }
+  ],
+  "reviewer_validation_package": {
+    "signoff_ready": false,
+    "review_scope": [
+      "ASUP capability contract",
+      "adapter implementation + fail-closed state machine",
+      "fault + replay determinism",
+      "performance safety gate",
+      "durability sidecar and decode proof"
+    ],
+    "independent_replay_command": "bash ./scripts/run_phase2c_readiness_e2e.sh",
+    "independent_review_steps": [
+      "Run ASUP-specific conformance tests with rch offload.",
+      "Recreate sidecar/scrub/decode outputs for final evidence artifact.",
+      "Confirm signoff checklist entries are all pass and evidence paths exist."
+    ],
+    "traceability_proof_refs": [
+      "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json",
+      "artifacts/asupersync/v1/asupersync_operational_runbook_v1.md"
+    ]
+  }
+}

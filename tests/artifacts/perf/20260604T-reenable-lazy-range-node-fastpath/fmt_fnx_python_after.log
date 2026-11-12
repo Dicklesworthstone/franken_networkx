@@ -1,0 +1,29 @@
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:2819:
+     match outcome {
+         fnx_algorithms::BidirectionalDijkstraOutcome::Found(length, all_int, path) => {
+             let py_path: Vec<PyObject> = path.iter().map(|n| gr.py_node_key(py, n)).collect();
+[31m-            Ok((length, all_int, py_path.into_pyobject(py)?.into_any().unbind()))
+[m[32m+            Ok((
+[m[32m+                length,
+[m[32m+                all_int,
+[m[32m+                py_path.into_pyobject(py)?.into_any().unbind(),
+[m[32m+            ))
+[m         }
+         fnx_algorithms::BidirectionalDijkstraOutcome::NoPath => Err(NetworkXNoPath::new_err(
+             format!("No path between {} and {}.", source_str, target_str),
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:2827:
+         fnx_algorithms::BidirectionalDijkstraOutcome::Contradiction => Err(PyValueError::new_err(
+             "Contradictory paths found: negative weights?",
+         )),
+[31m-        fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing => Err(NodeNotFound::new_err(
+[m[31m-            format!("Either source {} or target {} is not in G", source_str, target_str),
+[m[31m-        )),
+[m[32m+        fnx_algorithms::BidirectionalDijkstraOutcome::NodeMissing => {
+[m[32m+            Err(NodeNotFound::new_err(format!(
+[m[32m+                "Either source {} or target {} is not in G",
+[m[32m+                source_str, target_str
+[m[32m+            )))
+[m[32m+        }
+[m     }
+ }
+ 

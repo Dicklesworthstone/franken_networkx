@@ -1,0 +1,40 @@
+1000000
+         122145 function calls in 0.099 seconds
+
+   Ordered by: internal time
+   List reduced from 47 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.054    0.054    0.054    0.054 {function Graph.add_edges_from at 0x762ae9a96980}
+        1    0.014    0.014    0.082    0.082 __init__.py:2670(add_edges_from)
+       50    0.010    0.000    0.010    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+    20001    0.008    0.000    0.008    0.000 adj_dict_mirror_harness.py:27(<genexpr>)
+        1    0.005    0.005    0.099    0.099 adj_dict_mirror_harness.py:184(run_loop)
+    40101    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+    20000    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+    20101    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+    20056    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+        1    0.001    0.001    0.083    0.083 adj_dict_mirror_harness.py:24(build_hub_graph)
+       50    0.000    0.000    0.010    0.000 __init__.py:31526(_cached_adj_row_key_iter)
+       50    0.000    0.000    0.000    0.000 __init__.py:1196(__getitem__)
+      250    0.000    0.000    0.000    0.000 __init__.py:31433(_private_override)
+        1    0.000    0.000    0.000    0.000 {function Graph.add_node at 0x762ae9a95f80}
+      100    0.000    0.000    0.000    0.000 __init__.py:1330(<lambda>)
+        1    0.000    0.000    0.000    0.000 __init__.py:1478(__init__)
+       50    0.000    0.000    0.000    0.000 __init__.py:31441(_has_networkx_private_storage)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       50    0.000    0.000    0.000    0.000 __init__.py:1391(_graph_getitem_from_adj)
+      350    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       50    0.000    0.000    0.000    0.000 __init__.py:31495(_private_adj_mapping)
+       50    0.000    0.000    0.010    0.000 __init__.py:1127(__iter__)
+      100    0.000    0.000    0.000    0.000 __init__.py:1178(_atlas)
+       50    0.000    0.000    0.000    0.000 __init__.py:1207(<lambda>)
+       50    0.000    0.000    0.000    0.000 __init__.py:1124(__len__)
+       50    0.000    0.000    0.000    0.000 __init__.py:1311(_accessor)
+       50    0.000    0.000    0.000    0.000 __init__.py:32264(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       50    0.000    0.000    0.000    0.000 __init__.py:1121(_atlas)
+        1    0.000    0.000    0.000    0.000 __init__.py:1362(getLogger)
+
+
+

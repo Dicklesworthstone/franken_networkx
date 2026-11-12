@@ -1,0 +1,26 @@
+{
+  "all_exact": true,
+  "cases": {
+    "MultiDiGraph": {
+      "edge_count": 4048,
+      "exact_order_match": true,
+      "floating_point": "N/A",
+      "fnx_sha": "da2ad4452e92ba1763c3423b473ff4c1b4bfa8dac23b9c8c744b09da7697813c",
+      "node_count": 1800,
+      "nx_sha": "da2ad4452e92ba1763c3423b473ff4c1b4bfa8dac23b9c8c744b09da7697813c",
+      "rng": "N/A"
+    },
+    "MultiGraph": {
+      "edge_count": 4048,
+      "exact_order_match": true,
+      "floating_point": "N/A",
+      "fnx_sha": "788e924b61cee40bc29d25ab46fc9844431bbf14b511bd280c368f5325ef3dd9",
+      "node_count": 1800,
+      "nx_sha": "788e924b61cee40bc29d25ab46fc9844431bbf14b511bd280c368f5325ef3dd9",
+      "rng": "N/A"
+    }
+  },
+  "n": 1800,
+  "op": "symmetric_difference",
+  "parallel": 3
+}

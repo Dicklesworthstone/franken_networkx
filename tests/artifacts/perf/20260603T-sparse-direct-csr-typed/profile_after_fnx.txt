@@ -1,0 +1,88 @@
+         2398 function calls (2390 primitive calls) in 0.146 seconds
+
+   Ordered by: cumulative time
+   List reduced from 107 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.146    0.146 bench_sparse_dtype_none.py:57(measure)
+        8    0.000    0.000    0.146    0.018 bench_sparse_dtype_none.py:29(<lambda>)
+     16/8    0.006    0.000    0.146    0.018 __init__.py:42890(wrapper)
+        8    0.000    0.000    0.146    0.018 __init__.py:16213(adjacency_matrix)
+        8    0.002    0.000    0.139    0.017 __init__.py:39271(to_scipy_sparse_array)
+        8    0.076    0.010    0.076    0.010 {built-in method franken_networkx._fnx.adjacency_default_order_typed_arrays}
+       75    0.027    0.000    0.027    0.000 {built-in method numpy.asarray}
+        8    0.000    0.000    0.018    0.002 __init__.py:6028(_sync_rust_edge_attrs)
+        8    0.018    0.002    0.018    0.002 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+        8    0.009    0.001    0.009    0.001 __init__.py:29118(__iter__)
+        8    0.000    0.000    0.005    0.001 _base.py:451(asformat)
+        8    0.000    0.000    0.005    0.001 _coo.py:349(tocsr)
+        8    0.000    0.000    0.004    0.000 _coo.py:383(_coo_to_compressed)
+        8    0.004    0.000    0.004    0.000 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+        8    0.000    0.000    0.002    0.000 _coo.py:32(__init__)
+        8    0.000    0.000    0.001    0.000 _coo.py:204(_check)
+        1    0.000    0.000    0.001    0.001 bench_sparse_dtype_none.py:45(sparse_digest)
+       32    0.001    0.000    0.001    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       32    0.000    0.000    0.001    0.000 _base.py:1525(_get_index_dtype)
+        5    0.001    0.000    0.001    0.000 {method 'update' of '_hashlib.HASH' objects}
+        8    0.000    0.000    0.000    0.000 _compressed.py:1063(sum_duplicates)
+        8    0.000    0.000    0.000    0.000 _compressed.py:1034(has_canonical_format)
+        8    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.csr_has_canonical_format}
+       32    0.000    0.000    0.000    0.000 _sputils.py:264(get_index_dtype)
+       16    0.000    0.000    0.000    0.000 {method 'max' of 'numpy.ndarray' objects}
+       16    0.000    0.000    0.000    0.000 _methods.py:39(_amax)
+        8    0.000    0.000    0.000    0.000 _compressed.py:30(__init__)
+       16    0.000    0.000    0.000    0.000 _data.py:21(__init__)
+       16    0.000    0.000    0.000    0.000 _base.py:138(__init__)
+       16    0.000    0.000    0.000    0.000 {method 'min' of 'numpy.ndarray' objects}
+       16    0.000    0.000    0.000    0.000 _methods.py:43(_amin)
+       16    0.000    0.000    0.000    0.000 _sputils.py:444(check_shape)
+       56    0.000    0.000    0.000    0.000 _base.py:365(nnz)
+      330    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        8    0.000    0.000    0.000    0.000 _compressed.py:166(check_format)
+       16    0.000    0.000    0.000    0.000 numeric.py:1975(isscalar)
+       24    0.000    0.000    0.000    0.000 _coo.py:167(_getnnz)
+      176    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       64    0.000    0.000    0.000    0.000 getlimits.py:412(__init__)
+       64    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+       16    0.000    0.000    0.000    0.000 __init__.py:29128(__len__)
+        8    0.000    0.000    0.000    0.000 _compressed.py:1118(prune)
+       16    0.000    0.000    0.000    0.000 _sputils.py:372(isshape)
+        8    0.000    0.000    0.000    0.000 _sputils.py:142(getdata)
+        8    0.000    0.000    0.000    0.000 _sputils.py:112(getdtype)
+       24    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+       48    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:645(parent)
+       24    0.000    0.000    0.000    0.000 __init__.py:5172(predicate)
+        8    0.000    0.000    0.000    0.000 _sputils.py:350(isintlike)
+       24    0.000    0.000    0.000    0.000 __init__.py:28718(_private_override)
+        4    0.000    0.000    0.000    0.000 {method 'tobytes' of 'numpy.ndarray' objects}
+       24    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+       24    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       48    0.000    0.000    0.000    0.000 _sputils.py:472(<genexpr>)
+        8    0.000    0.000    0.000    0.000 _sparse.py:10(issparse)
+        8    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+       24    0.000    0.000    0.000    0.000 _coo.py:62(<genexpr>)
+       48    0.000    0.000    0.000    0.000 {built-in method numpy.array}
+        1    0.000    0.000    0.000    0.000 {built-in method _hashlib.openssl_sha256}
+       32    0.000    0.000    0.000    0.000 getlimits.py:423(min)
+        8    0.000    0.000    0.000    0.000 _base.py:118(_csr_container)
+       48    0.000    0.000    0.000    0.000 {method 'rpartition' of 'str' objects}
+       72    0.000    0.000    0.000    0.000 _coo.py:170(<genexpr>)
+        8    0.000    0.000    0.000    0.000 {built-in method numpy.empty}
+       24    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       32    0.000    0.000    0.000    0.000 _compressed.py:118(_getnnz)
+       33    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+       16    0.000    0.000    0.000    0.000 _util.py:154(_prune_array)
+       24    0.000    0.000    0.000    0.000 _base.py:98(_shape_as_2d)
+        8    0.000    0.000    0.000    0.000 _compressed.py:1057(has_canonical_format)
+       72    0.000    0.000    0.000    0.000 _coo.py:174(<genexpr>)
+       24    0.000    0.000    0.000    0.000 _coo.py:217(<genexpr>)
+       32    0.000    0.000    0.000    0.000 getlimits.py:436(max)
+       24    0.000    0.000    0.000    0.000 _base.py:94(ndim)
+       16    0.000    0.000    0.000    0.000 {method 'astype' of 'numpy.ndarray' objects}
+        8    0.000    0.000    0.000    0.000 _sputils.py:96(to_native)
+        8    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7ce003db0a40}
+        8    0.000    0.000    0.000    0.000 fromnumeric.py:3482(ndim)
+       16    0.000    0.000    0.000    0.000 __init__.py:18896(_validate_backend_dispatch_keywords)
+
+

@@ -1,0 +1,45 @@
+         1446264 function calls in 1.042 seconds
+
+   Ordered by: cumulative time
+   List reduced from 62 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.047    0.047    1.042    1.042 multigraph_keydict_harness.py:67(run_case)
+       80    0.296    0.004    0.584    0.007 __init__.py:43620(to_dict_of_dicts)
+        1    0.045    0.045    0.280    0.280 multigraph_keydict_harness.py:41(canonicalize)
+   480080    0.263    0.000    0.263    0.000 __init__.py:42358(__init__)
+        1    0.013    0.013    0.131    0.131 multigraph_keydict_harness.py:27(build_graph)
+    18001    0.011    0.000    0.113    0.000 __init__.py:2504(add_edge)
+    18001    0.011    0.000    0.102    0.000 __init__.py:2273(add_edge)
+    18001    0.087    0.000    0.087    0.000 {function MultiDiGraph.add_edge at 0x7ba5d0977560}
+    36002    0.032    0.000    0.076    0.000 __init__.py:1129(__getitem__)
+    24002    0.032    0.000    0.052    0.000 __init__.py:1187(__getitem__)
+    42003    0.008    0.000    0.051    0.000 __init__.py:1112(_atlas)
+   186007    0.047    0.000    0.047    0.000 {method '_native_successor_row' of 'franken_networkx.MultiDiGraph' objects}
+    24002    0.006    0.000    0.045    0.000 __init__.py:1050(<genexpr>)
+    42003    0.016    0.000    0.043    0.000 __init__.py:1198(<lambda>)
+    66005    0.012    0.000    0.042    0.000 __init__.py:1169(_atlas)
+    66005    0.014    0.000    0.030    0.000 __init__.py:1413(<lambda>)
+    24002    0.019    0.000    0.030    0.000 __init__.py:1405(_multidigraph_getitem_from_native_row)
+     6001    0.002    0.000    0.029    0.000 __init__.py:42379(items)
+     6001    0.004    0.000    0.024    0.000 __init__.py:42364(_current)
+     6001    0.002    0.000    0.023    0.000 __init__.py:1048(__iter__)
+    54003    0.013    0.000    0.021    0.000 multigraph_keydict_harness.py:50(<genexpr>)
+     6001    0.004    0.000    0.021    0.000 __init__.py:1118(__iter__)
+    97206    0.011    0.000    0.011    0.000 {built-in method builtins.repr}
+        1    0.000    0.000    0.011    0.011 __init__.py:183(dumps)
+        1    0.000    0.000    0.011    0.011 encoder.py:183(encode)
+        1    0.011    0.011    0.011    0.011 encoder.py:205(iterencode)
+     6001    0.009    0.000    0.009    0.000 {built-in method builtins.iter}
+   104407    0.008    0.000    0.008    0.000 {built-in method builtins.hash}
+        1    0.001    0.001    0.005    0.005 __init__.py:2408(add_nodes_from)
+     1200    0.001    0.000    0.004    0.000 __init__.py:2376(add_node)
+     1200    0.003    0.000    0.003    0.000 {function MultiDiGraph.add_node at 0x7ba5d0977060}
+    25202    0.003    0.000    0.003    0.000 {method 'append' of 'list' objects}
+    24002    0.003    0.000    0.003    0.000 __init__.py:1106(__init__)
+    24002    0.003    0.000    0.003    0.000 __init__.py:1164(__init__)
+     6001    0.002    0.000    0.002    0.000 __init__.py:1097(_adjacency_view_items)
+
+
+
+RESULT {"alias_pairs": 0, "degree": 5, "directed": true, "edge_count": 18001, "elapsed": 0.6305759550305083, "live_mutations": 18001, "module": "fnx", "node_count": 1200, "nodes": 1200, "parallel": 3, "repeats": 80, "row_count": 6001, "sha256": "f390ad0dd5b62afcea49a121448d11f13954103ea0bb8bc164092a25e38ae759"}

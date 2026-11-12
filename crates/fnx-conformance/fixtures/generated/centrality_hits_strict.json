@@ -1,0 +1,87 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "hits_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "hits_hubs": [
+      {
+        "node": "a",
+        "score": 0.3090169943352216
+      },
+      {
+        "node": "b",
+        "score": 0.3090169943352216
+      },
+      {
+        "node": "c",
+        "score": 0.1909830056647784
+      },
+      {
+        "node": "d",
+        "score": 0.1909830056647784
+      }
+    ],
+    "hits_authorities": [
+      {
+        "node": "a",
+        "score": 0.309016994478951
+      },
+      {
+        "node": "b",
+        "score": 0.309016994478951
+      },
+      {
+        "node": "c",
+        "score": 0.190983005521049
+      },
+      {
+        "node": "d",
+        "score": 0.190983005521049
+      }
+    ]
+  }
+}

@@ -1,0 +1,3 @@
+  [2m2026-06-03T19:16:40.089479Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py profile --engine fnx-native --n 400 --edge-count 1600 --output tests/artifacts/perf/20260603T-dag-longest-path-native/cprofile_native.txt[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

@@ -1,0 +1,34 @@
+{
+  "suite": "readwrite_v1",
+  "mode": "hardened",
+  "operations": [
+    {
+      "op": "read_edgelist",
+      "input": "x y -\nmalformed\ny z -"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "x",
+        "y",
+        "z"
+      ],
+      "edges": [
+        {
+          "left": "x",
+          "right": "y",
+          "attrs": {}
+        },
+        {
+          "left": "y",
+          "right": "z",
+          "attrs": {}
+        }
+      ]
+    },
+    "warnings_contains": [
+      "line 2 malformed"
+    ]
+  }
+}

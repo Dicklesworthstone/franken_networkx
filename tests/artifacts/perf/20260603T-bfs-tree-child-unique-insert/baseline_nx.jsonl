@@ -1,0 +1,1 @@
+{"graph_seed": 42, "impl": "nx", "m": 4, "max_seconds": 0.007031460991129279, "mean_seconds": 0.004935632842243649, "min_seconds": 0.004106854001292959, "n": 3000, "op": "bfs_tree", "p50_seconds": 0.004750382999191061, "repeat": 50, "sha256": "5a16c0c6b529b4abf6a1e8e95a7b383d81f8b9f586357b010ec92697613cdc64"}

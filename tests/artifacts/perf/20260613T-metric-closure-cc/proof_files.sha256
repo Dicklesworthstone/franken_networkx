@@ -1,0 +1,5 @@
+976ad0c9b909c92a5f47b7194e6f9c25362714dd43862311a35080b5cb185849  tests/artifacts/perf/20260613T-metric-closure-cc/proof.py
+95b07d06866f9179a964ff91f4a944605083268692af4afaf9b320147b19106f  tests/artifacts/perf/20260613T-metric-closure-cc/harness.py
+0983194cc1e34482a440d174e2fea05df30895ba18aa1a7c114b01c3e78516a5  tests/artifacts/perf/20260613T-metric-closure-cc/baseline_proof.json
+0983194cc1e34482a440d174e2fea05df30895ba18aa1a7c114b01c3e78516a5  tests/artifacts/perf/20260613T-metric-closure-cc/after_proof.json
+c2d23cfadd63df914ec4dae34926eb86d508db368ed94043e8b5c892a4092f79  tests/artifacts/perf/20260613T-metric-closure-cc/report.md

@@ -1,0 +1,11 @@
+*Vertices 4
+1 :
+3 "sin{"
+4 2
+1 "left"
+2 "righ
+1 "left"-e"
+*Edges
+1 2 /
+3 "extra"
+ -23 1 0

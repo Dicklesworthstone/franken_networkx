@@ -1,0 +1,2 @@
+  [2m2026-06-02T18:30:14.778894Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m py_compile python/franken_networkx/backend.py tests/python/test_fnx_to_nx_bulk_conversion_parity.py tests/artifacts/perf/20260602T-fnx-to-nx-bulk/bench_fnx_to_nx_bulk.py[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

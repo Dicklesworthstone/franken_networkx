@@ -1,0 +1,52 @@
+         968401 function calls (968161 primitive calls) in 0.665 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      120    0.000    0.000    0.665    0.006 harness_generators.py:69(build)
+      120    0.000    0.000    0.664    0.006 harness_generators.py:30(<lambda>)
+  360/120    0.003    0.000    0.664    0.006 __init__.py:50175(wrapper)
+      120    0.000    0.000    0.664    0.006 __init__.py:22976(circular_ladder_graph)
+      120    0.008    0.000    0.663    0.006 __init__.py:22994(ladder_graph)
+      360    0.087    0.000    0.548    0.002 __init__.py:2694(add_edges_from)
+      360    0.391    0.001    0.391    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      120    0.000    0.000    0.103    0.001 __init__.py:18167(empty_graph)
+      120    0.095    0.001    0.095    0.001 {built-in method franken_networkx._fnx.empty_graph}
+   719880    0.054    0.000    0.054    0.000 {method 'append' of 'list' objects}
+   240120    0.016    0.000    0.016    0.000 __init__.py:23007(<genexpr>)
+      120    0.004    0.000    0.004    0.000 __init__.py:45715(_nodes_or_number_local)
+      120    0.000    0.000    0.003    0.000 __init__.py:45750(_classic_default_graph_type)
+      120    0.000    0.000    0.002    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      120    0.001    0.000    0.002    0.000 backends.py:554(_call_if_any_backends_installed)
+      240    0.000    0.000    0.001    0.000 __init__.py:2313(add_edge)
+      240    0.001    0.000    0.001    0.000 {function Graph.add_edge at 0x76f1170a5ee0}
+     1200    0.000    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      120    0.000    0.000    0.001    0.000 graph.py:349(__init__)
+      120    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+      120    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+      120    0.000    0.000    0.000    0.000 backends.py:1484(_call_with_backend)
+      120    0.000    0.000    0.000    0.000 __init__.py:5754(predicate)
+      120    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+      120    0.000    0.000    0.000    0.000 graph.py:345(__new__)
+      480    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      120    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+      120    0.000    0.000    0.000    0.000 graph.py:63(__set__)
+      120    0.000    0.000    0.000    0.000 configs.py:162(get)
+      120    0.000    0.000    0.000    0.000 graph.py:38(__set__)
+      480    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+      120    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      120    0.000    0.000    0.000    0.000 backends.py:1052(_will_call_mutate_input)
+      360    0.000    0.000    0.000    0.000 __init__.py:22448(_validate_backend_dispatch_keywords)
+      120    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x76f1170b62a0}
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      120    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 {method 'discard' of 'set' objects}
+      120    0.000    0.000    0.000    0.000 {method 'endswith' of 'str' objects}
+      120    0.000    0.000    0.000    0.000 backends.py:1099(_can_backend_run)
+      120    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+      120    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+      120    0.000    0.000    0.000    0.000 graph.py:1584(is_multigraph)
+      120    0.000    0.000    0.000    0.000 graph.py:1588(is_directed)

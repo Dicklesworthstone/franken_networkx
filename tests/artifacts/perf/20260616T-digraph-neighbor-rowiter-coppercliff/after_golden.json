@@ -1,0 +1,74 @@
+{
+  "fixture": {
+    "nodes": 1800,
+    "probability": 0.006,
+    "seed": 15
+  },
+  "golden_sha256": "839111081a858a447f2c14d220ba01d7db8e97fd6b561d6b6da4a997e2210517",
+  "missing": {
+    "fnx_predecessors": {
+      "message": "The node missing is not in the digraph.",
+      "type": "NetworkXError"
+    },
+    "fnx_successors": {
+      "message": "The node missing is not in the digraph.",
+      "type": "NetworkXError"
+    },
+    "nx_predecessors": {
+      "message": "The node missing is not in the digraph.",
+      "type": "NetworkXError"
+    },
+    "nx_successors": {
+      "message": "The node missing is not in the digraph.",
+      "type": "NetworkXError"
+    }
+  },
+  "mutation": {
+    "fnx_predecessors": {
+      "message": "dictionary changed size during iteration",
+      "type": "RuntimeError"
+    },
+    "fnx_successors": {
+      "message": "dictionary changed size during iteration",
+      "type": "RuntimeError"
+    },
+    "nx_predecessors": {
+      "message": "dictionary changed size during iteration",
+      "type": "RuntimeError"
+    },
+    "nx_successors": {
+      "message": "dictionary changed size during iteration",
+      "type": "RuntimeError"
+    }
+  },
+  "predecessors": {
+    "fnx_sha256": "8fb592ebe26699c141d47eba2a9e6c543dd985794e3b0708d6be5cb89770ebda",
+    "match": true,
+    "nx_sha256": "8fb592ebe26699c141d47eba2a9e6c543dd985794e3b0708d6be5cb89770ebda",
+    "rows": 1800
+  },
+  "successors": {
+    "fnx_sha256": "0e02f02397dbe4d298ed6a9750fc369e986684930fd419a386104db60321997a",
+    "match": true,
+    "nx_sha256": "0e02f02397dbe4d298ed6a9750fc369e986684930fd419a386104db60321997a",
+    "rows": 1800
+  },
+  "unhashable": {
+    "fnx_predecessors": {
+      "message": "unhashable type: 'list'",
+      "type": "TypeError"
+    },
+    "fnx_successors": {
+      "message": "unhashable type: 'list'",
+      "type": "TypeError"
+    },
+    "nx_predecessors": {
+      "message": "unhashable type: 'list'",
+      "type": "TypeError"
+    },
+    "nx_successors": {
+      "message": "unhashable type: 'list'",
+      "type": "TypeError"
+    }
+  }
+}

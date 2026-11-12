@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-lazy-weight-prescan/bench_dijkstra_lazy_prescan.py --mode bench --reps 400 --disable-cache
+  Time (mean ± σ):      1.765 s ±  0.543 s    [User: 5.460 s, System: 0.082 s]
+  Range (min … max):    1.291 s …  3.106 s    10 runs
+ 

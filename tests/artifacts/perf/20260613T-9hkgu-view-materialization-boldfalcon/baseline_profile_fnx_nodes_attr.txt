@@ -1,0 +1,56 @@
+         4061456 function calls (4061429 primitive calls) in 1.098 seconds
+
+   Ordered by: cumulative time
+   List reduced from 156 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.023    0.023    1.098    1.098 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/tests/artifacts/perf/20260613T-9hkgu-view-materialization-boldfalcon/view_materialization_pass1.py:63(exercise)
+     1000    0.001    0.000    0.644    0.001 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:869(__iter__)
+     1000    0.226    0.000    0.643    0.001 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:858(_materialize)
+   800000    0.300    0.000    0.347    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:5102(__getitem__)
+     1000    0.153    0.000    0.261    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/tests/artifacts/perf/20260613T-9hkgu-view-materialization-boldfalcon/view_materialization_pass1.py:48(normalize_pairs)
+     1000    0.002    0.000    0.147    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/tests/artifacts/perf/20260613T-9hkgu-view-materialization-boldfalcon/view_materialization_pass1.py:58(digest_payload)
+     1000    0.002    0.000    0.136    0.000 /usr/lib/python3.13/json/__init__.py:183(dumps)
+     1000    0.002    0.000    0.133    0.000 /usr/lib/python3.13/json/encoder.py:183(encode)
+     1000    0.131    0.000    0.131    0.000 /usr/lib/python3.13/json/encoder.py:205(iterencode)
+   804924    0.071    0.000    0.071    0.000 {method 'get' of 'dict' objects}
+   802457    0.057    0.000    0.057    0.000 {method 'append' of 'list' objects}
+   803213    0.052    0.000    0.052    0.000 {built-in method builtins.isinstance}
+   801600    0.047    0.000    0.047    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.017    0.017 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/tests/artifacts/perf/20260613T-9hkgu-view-materialization-boldfalcon/view_materialization_pass1.py:37(make_graphs)
+      4/1    0.000    0.000    0.013    0.013 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.012    0.012 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_watts_strogatz_graph_1)
+      3/1    0.000    0.000    0.012    0.012 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      3/1    0.000    0.000    0.012    0.012 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.001    0.001    0.012    0.012 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:388(watts_strogatz_graph)
+     1000    0.008    0.000    0.008    0.000 {built-in method _hashlib.openssl_sha256}
+        3    0.006    0.002    0.008    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+     1000    0.002    0.000    0.003    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:975(wrapped)
+        1    0.001    0.001    0.002    0.002 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:2456(add_nodes_from)
+     1000    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:36099(nodes)
+        1    0.000    0.000    0.002    0.002 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:2739(add_edges_from)
+      800    0.000    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:2422(add_node)
+        1    0.000    0.000    0.002    0.002 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+        4    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      800    0.001    0.000    0.001    0.000 {function Graph.add_node at 0x7f8789ddba60}
+     1000    0.001    0.000    0.001    0.000 {method 'hexdigest' of '_hashlib.HASH' objects}
+     6911    0.001    0.000    0.001    0.000 {method 'update' of 'dict' objects}
+        1    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 13:1(argmap_empty_graph_10)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/classic.py:564(empty_graph)
+     7423    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:35563(_private_override)
+        1    0.001    0.001    0.001    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+      502    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:917(add_edge)
+      5/4    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+     2401    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+     1000    0.001    0.000    0.001    0.000 {method 'encode' of 'str' objects}
+      505    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:345(choice)
+        4    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:872(__len__)
+        1    0.001    0.001    0.001    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+     1000    0.001    0.000    0.001    0.000 /usr/lib/python3.13/json/encoder.py:105(__init__)
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)

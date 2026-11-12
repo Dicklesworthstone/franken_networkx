@@ -1,0 +1,41 @@
+Benchmark 1: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multigraph --operation gu --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     446.6 ms ±  37.9 ms    [User: 3904.8 ms, System: 79.0 ms]
+  Range (min … max):   401.1 ms … 509.7 ms    7 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multigraph --operation guv --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     414.2 ms ±  28.4 ms    [User: 4156.2 ms, System: 76.6 ms]
+  Range (min … max):   388.9 ms … 469.2 ms    7 runs
+ 
+Benchmark 3: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multidigraph --operation gu --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     406.7 ms ±  35.5 ms    [User: 4296.0 ms, System: 81.1 ms]
+  Range (min … max):   358.5 ms … 456.3 ms    7 runs
+ 
+Benchmark 4: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multidigraph --operation guv --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     418.6 ms ±  32.4 ms    [User: 4044.7 ms, System: 76.7 ms]
+  Range (min … max):   380.8 ms … 471.5 ms    7 runs
+ 
+Benchmark 5: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multigraph --operation gu --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     320.8 ms ±  24.9 ms    [User: 4180.4 ms, System: 57.2 ms]
+  Range (min … max):   290.1 ms … 368.5 ms    7 runs
+ 
+Benchmark 6: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multigraph --operation guv --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     326.6 ms ±  22.2 ms    [User: 4181.5 ms, System: 67.3 ms]
+  Range (min … max):   281.8 ms … 350.3 ms    7 runs
+ 
+Benchmark 7: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multidigraph --operation gu --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     319.9 ms ±  21.8 ms    [User: 4268.3 ms, System: 54.8 ms]
+  Range (min … max):   294.3 ms … 347.1 ms    7 runs
+ 
+Benchmark 8: python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multidigraph --operation guv --loops 10 --samples 3 > /dev/null
+  Time (mean ± σ):     324.0 ms ±  21.8 ms    [User: 4197.7 ms, System: 60.1 ms]
+  Range (min … max):   298.1 ms … 365.0 ms    7 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multidigraph --operation gu --loops 10 --samples 3 > /dev/null ran
+    1.00 ± 0.10 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multigraph --operation gu --loops 10 --samples 3 > /dev/null
+    1.01 ± 0.10 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multidigraph --operation guv --loops 10 --samples 3 > /dev/null
+    1.02 ± 0.10 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multigraph --operation guv --loops 10 --samples 3 > /dev/null
+    1.27 ± 0.14 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multidigraph --operation gu --loops 10 --samples 3 > /dev/null
+    1.29 ± 0.13 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multigraph --operation guv --loops 10 --samples 3 > /dev/null
+    1.31 ± 0.14 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multidigraph --operation guv --loops 10 --samples 3 > /dev/null
+    1.40 ± 0.15 times faster than python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multigraph --operation gu --loops 10 --samples 3 > /dev/null

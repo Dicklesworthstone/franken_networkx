@@ -1,0 +1,36 @@
+         4113801 function calls in 1.537 seconds
+
+   Ordered by: internal time
+   List reduced from 47 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.424    0.000    1.261    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29953(_path_normalized_laplacian_spectrum_sorted_value_safe)
+   399000    0.317    0.000    0.503    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37877(neighbors)
+     2000    0.240    0.000    0.240    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+   806000    0.093    0.000    0.093    0.000 {method 'get' of 'dict' objects}
+   798000    0.088    0.000    0.088    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+     1000    0.079    0.000    0.264    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29922(_star_normalized_laplacian_spectrum_sorted_value_safe)
+   416000    0.054    0.000    0.054    0.000 {built-in method builtins.vars}
+   400000    0.051    0.000    0.051    0.000 {method 'append' of 'list' objects}
+   399000    0.051    0.000    0.051    0.000 {method 'pop' of 'list' objects}
+   398000    0.049    0.000    0.049    0.000 {method 'add' of 'set' objects}
+   401000    0.042    0.000    0.042    0.000 {built-in method builtins.iter}
+     2000    0.005    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:746(wrapped)
+     2000    0.003    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+     9000    0.003    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37005(_has_networkx_private_storage)
+    14000    0.003    0.000    0.008    0.000 {built-in method builtins.len}
+     1000    0.003    0.000    1.535    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29852(normalized_laplacian_spectrum)
+     2000    0.002    0.000    0.009    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37603(edges)
+     1000    0.002    0.000    0.002    0.000 {built-in method numpy.arange}
+     2000    0.002    0.000    0.005    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+     2000    0.002    0.000    0.248    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+     4000    0.002    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37560(__len__)
+     3000    0.002    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37817(number_of_edges)
+     4000    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36997(_private_override)
+     2000    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37650(degree)
+     1000    0.002    0.000    1.537    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53667(wrapper)
+     2000    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:497(__init__)
+     2000    0.001    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+     1000    0.001    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29880(_edgeless_normalized_laplacian_spectrum_sorted_value_safe)
+     1000    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29892(_complete_normalized_laplacian_spectrum_sorted_value_safe)
+     6000    0.001    0.000    0.001    0.000 {method 'pop' of 'dict' objects}

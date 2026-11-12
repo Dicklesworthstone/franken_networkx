@@ -1,0 +1,9 @@
+  [2m2026-07-12T23:45:10.544614Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib find_cliques_recursive -- --include-ignored --nocapture[0m
+test tests::test_find_cliques_recursive_matches_find_cliques ... ok
+test tests::test_find_cliques_recursive_k4 ... ok
+test tests::test_find_cliques_recursive_triangle ... ok
+BKRPIVOTDEG_AB find_cliques_recursive 8xK40 rounds=61 (>1 = precompute faster)
+BKRPIVOTDEG_AB PRECOMPUTE_vs_recompute: median=1.7493x win_rate=61/61 p5_p95=[1.5422,1.9888]
+BKRPIVOTDEG_AB NULL_precompute_vs_precompute: median=0.9986x win_rate=30/61 p5_p95=[0.8796,1.1543]
+test tests::find_cliques_recursive_pivot_ab ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1028 filtered out; finished in 2.07s

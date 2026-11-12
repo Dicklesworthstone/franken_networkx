@@ -1,0 +1,63 @@
+         8588 function calls (8582 primitive calls) in 0.004 seconds
+
+   Ordered by: cumulative time
+   List reduced from 124 to 55 due to restriction <55>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.004    0.004 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-rpt-backbone-batch-boldfalcon/random_powerlaw_tree_harness.py:73(<lambda>)
+        1    0.000    0.000    0.004    0.004 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:49191(random_powerlaw_tree)
+      3/2    0.000    0.000    0.004    0.002 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:51834(wrapper)
+        1    0.001    0.001    0.002    0.002 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:49204(random_powerlaw_tree_sequence)
+        1    0.000    0.000    0.001    0.001 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:27636(degree_sequence_tree)
+     1300    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:766(paretovariate)
+        2    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2760(add_edges_from)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:18990(empty_graph)
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47383(_classic_default_graph_type)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+        2    0.000    0.000    0.000    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      149    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+     1300    0.000    0.000    0.000    0.000 {built-in method builtins.round}
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+     1300    0.000    0.000    0.000    0.000 {method 'random' of '_random.Random' objects}
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+     1300    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+     1300    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+      137    0.000    0.000    0.000    0.000 {method 'extend' of 'list' objects}
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+      2/1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:503(__signature__)
+       32    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:336(randint)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+       32    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:295(randrange)
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2466(add_nodes_from)
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.sum}
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47292(_checked_create_using)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2383(_signature_from_function)
+        1    0.000    0.000    0.000    0.000 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:25273(_generator_random_state)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.sorted}
+        3    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:849(_name)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+       32    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+      298    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:27675(<genexpr>)
+        3    0.000    0.000    0.000    0.000 {method 'join' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:47411(_add_nodes_in_order)
+      301    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:49219(<genexpr>)
+      301    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:27655(<genexpr>)
+        4    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:1195(_indent)
+      168    0.000    0.000    0.000    0.000 {method 'pop' of 'list' objects}
+        3    0.000    0.000    0.000    0.000 /usr/lib/python3.13/re/__init__.py:183(sub)
+        4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2754(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+        1    0.000    0.000    0.000    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      137    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:27666(<genexpr>)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      6/4    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:1165(_flatten)
+        3    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:5821(predicate)
+
+

@@ -1,0 +1,22 @@
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":100,"total_ms":103.7481,"per_iter_ms":1.0375,"checksum":100.000000}
+pprof_top_inclusive:
+1	51	__rust_begin_short_backtrace<fn(), ()>
+2	51	_start
+3	51	call_once<fn(), ()>
+4	51	main
+5	51	pagerank
+6	51	pagerank_with_params<fnx_classes::Graph>
+7	51	pagerank_with_weight<fnx_classes::Graph>
+8	51	run_once
+9	10	call_mut<fn(&&str, &&str) -> bool, (&&str, &&str)>
+10	10	cmp
+11	10	cmp<u8>
+12	10	compare<u8>
+13	10	lt<str, str>
+14	10	partial_cmp
+15	10	sort<&str, fn(&&str, &&str) -> bool>
+16	10	sort_unstable<&str>
+17	7	get<&str, usize, std::hash::random::RandomState, alloc::alloc::Global, str>
+18	7	hash_one<std::hash::random::RandomState, &str>
+19	7	insert_tail<&str, fn(&&str, &&str) -> bool>
+20	7	insertion_sort_shift_left<&str, fn(&&str, &&str) -> bool>

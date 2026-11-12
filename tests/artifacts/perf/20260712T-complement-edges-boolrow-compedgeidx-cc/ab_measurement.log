@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib complement_edges_idx_ab -- --ignored --nocapture
+
+COMPEDGE_IDX_AB circ2500_d1600 rounds=61 (>1 = boolrow faster)
+COMPEDGE_IDX_AB BOOLROW_vs_hasedge: median=3.6188x win_rate=61/61 p5_p95=[3.1859,4.1786]
+COMPEDGE_IDX_AB NULL_boolrow_vs_boolrow: median=0.9991x win_rate=30/61 p5_p95=[0.8819,1.2272]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1011 filtered out; finished in 59.17s
+
+Marker COMPEDGE_IDX_AB + test name confirmed (fresh binary). Output-list parity (old
+has_edge scan vs new bool-row, exact Vec equality on a 2500-node dense circulant)
+asserted before timing.
+
+$ cargo test --release -p fnx-algorithms --lib complement -- --nocapture
+9 complement tests pass (complement_path/empty/triangle/involution/simple/...).
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~21571-21595 / test ~72066-72185)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

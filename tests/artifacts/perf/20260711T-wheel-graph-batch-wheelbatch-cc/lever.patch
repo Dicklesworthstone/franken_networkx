@@ -1,0 +1,181 @@
+diff --git a/crates/fnx-generators/src/lib.rs b/crates/fnx-generators/src/lib.rs
+index 7d71a022c..c81f2f21f 100644
+--- a/crates/fnx-generators/src/lib.rs
++++ b/crates/fnx-generators/src/lib.rs
+@@ -549,45 +549,29 @@ impl GraphGenerator {
+ 
+     pub fn wheel_graph(&mut self, n: usize) -> Result<GenerationReport, GenerationError> {
+         let (n, warnings) = self.validate_n("wheel_graph", n, MAX_N_GENERIC)?;
+-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
++        // br-r37-c1-wheelbatch (cc): hub (node 0) → each rim node, then the rim cycle, all with
++        // pre-existing nodes by KNOWN INDEX — collect the (left, right) index pairs in the SAME order
++        // (hub spokes, then rim path, then the closing rim edge) and batch-insert instead of per-edge
++        // add_edge (2 clones + 2 name hashes + policy each). Hub spokes (0,i) are disjoint from the
++        // rim edges (which never touch 0); the rim path + closing edge form a simple cycle → all
++        // pairs unique, no self-loops. `extend_existing_index_edges_unrecorded` matches add_edge's
++        // endpoint canonicalization + adj_indices order → byte-identical.
++        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
+ 
+         if n > 1 {
+-            let hub = node_labels[0].clone();
+-            for rim_label in node_labels.iter().skip(1) {
+-                graph
+-                    .add_edge(hub.clone(), rim_label.clone())
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation: "wheel_graph",
+-                        reason: err.to_string(),
+-                    })?;
++            let mut edges: Vec<(usize, usize)> = Vec::new();
++            for rim in 1..n {
++                edges.push((0, rim));
+             }
+-
+             if n == 3 {
+-                graph
+-                    .add_edge(node_labels[1].clone(), node_labels[2].clone())
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation: "wheel_graph",
+-                        reason: err.to_string(),
+-                    })?;
++                edges.push((1, 2));
+             } else if n > 3 {
+                 for rim_index in 1..(n - 1) {
+-                    graph
+-                        .add_edge(
+-                            node_labels[rim_index].clone(),
+-                            node_labels[rim_index + 1].clone(),
+-                        )
+-                        .map_err(|err| GenerationError::FailClosed {
+-                            operation: "wheel_graph",
+-                            reason: err.to_string(),
+-                        })?;
++                    edges.push((rim_index, rim_index + 1));
+                 }
+-                graph
+-                    .add_edge(node_labels[1].clone(), node_labels[n - 1].clone())
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation: "wheel_graph",
+-                        reason: err.to_string(),
+-                    })?;
++                edges.push((1, n - 1));
+             }
++            let _ = graph.extend_existing_index_edges_unrecorded(edges);
+         }
+ 
+         self.record(
+@@ -8253,6 +8237,115 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-wheelbatch: paired-interleaved median A/B for wheel_graph edge insertion —
++    /// batch-by-index vs the per-edge `add_edge`, one binary / one worker with a NULL control. Wheel =
++    /// hub (node 0) + rim cycle; deterministic, ~2n edges. Byte-identity checked via parity asserts.
++    /// `#[ignore]`; run with
++    /// `cargo test --release -p fnx-generators --lib wheel_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn wheel_batch_ab() {
++        use super::graph_with_n_nodes;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let collect_pairs = |n: usize| -> Vec<(usize, usize)> {
++            let mut edges: Vec<(usize, usize)> = Vec::new();
++            if n > 1 {
++                for rim in 1..n {
++                    edges.push((0, rim));
++                }
++                if n == 3 {
++                    edges.push((1, 2));
++                } else if n > 3 {
++                    for rim_index in 1..(n - 1) {
++                        edges.push((rim_index, rim_index + 1));
++                    }
++                    edges.push((1, n - 1));
++                }
++            }
++            edges
++        };
++
++        let build_string = |n: usize| {
++            let (mut g, node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
++            for &(l, r) in &collect_pairs(n) {
++                let _ = g.add_edge(node_labels[l].clone(), node_labels[r].clone());
++            }
++            g
++        };
++        let build_batch = |n: usize| {
++            let (mut g, _node_labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
++            let _ = g.extend_existing_index_edges_unrecorded(collect_pairs(n));
++            g
++        };
++
++        // Byte-identity across the branch cases (construction only, no timing).
++        for &n in &[2usize, 3, 4, 100, 100000] {
++            let gs = build_string(n);
++            let gb = build_batch(n);
++            assert_eq!(
++                gs.edges_ordered_borrowed(),
++                gb.edges_ordered_borrowed(),
++                "batch-by-index wheel(n={n}) must equal the per-edge add_edge baseline"
++            );
++            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes wheel(n={n})");
++        }
++
++        // wheel(100000): 100000 nodes, 2*100000 - 2 = 199998 edges.
++        let n = 100000usize;
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            if batch {
++                black_box(build_batch(n));
++            } else {
++                black_box(build_string(n));
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round % 2 == 0 {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "WHEEL_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("WHEEL_BATCH_AB n={n} rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     fn packet_007_forensics_bundle(
+         run_id: &str,
+         test_id: &str,

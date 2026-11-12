@@ -1,0 +1,2303 @@
+
+# Algorithm functions — path validation
+from franken_networkx._fnx import is_simple_path as _raw_is_simple_path
+
+
+def is_simple_path(G, nodes):
+    """Return True iff ``nodes`` is a simple path in *G*.
+
+    Second parameter renamed from the Rust binding's ``path`` to match
+    networkx's public signature ``is_simple_path(G, nodes)``.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    if isinstance(nodes, (list, tuple)):
+        return _raw_is_simple_path(G, nodes)
+
+    # br-r37-c1-oe0kq: PyO3's Vec extractor requires a Sequence, while
+    # NetworkX accepts any sized iterable for paths longer than one node.
+    # Replay NetworkX's observable operation order for non-list containers.
+    # In particular, a singleton set must still raise its native
+    # "'set' object is not subscriptable" TypeError at nodes[0].
+    if len(nodes) == 0:
+        return False
+    if len(nodes) == 1:
+        return nodes[0] in G
+    if not all(node in G for node in nodes):
+        return False
+    if len(set(nodes)) != len(nodes):
+        return False
+    return all(v in G[u] for u, v in _itertools.pairwise(nodes))
+
+
+def _matching_dict_to_set(matching):
+    edges = set()
+    for edge in matching.items():
+        u, v = edge
+        if (v, u) in edges or edge in edges:
+            continue
+        if u == v:
+            raise NetworkXError(f"Selfloops cannot appear in matchings {edge}")
+        edges.add(edge)
+    return edges
+
+
+def is_matching(G, matching):
+    """Return True if ``matching`` is a valid matching of ``G``.
+
+    networkx's exact loop for every graph type. nro4w.7: the native
+    simple-graph validator skipped the 2-tuple check (a 3-tuple counted, a
+    1-tuple raised IndexError), validated every node before the loop (so a
+    missing node raised where networkx returns False on an earlier overlap),
+    leaked canonical keys ("str:1:a") into messages, and skipped
+    matching_dict_to_set's self-loop error.
+    """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+    return True
+
+
+def is_maximal_matching(G, matching):
+    """Return True if ``matching`` is a maximal matching of ``G``.
+
+    See :func:`is_matching`.
+    """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    edges = set()
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+        edges.add(edge)
+        edges.add((v, u))
+    for u, v in G.edges:
+        if (u, v) not in edges:
+            if u not in nodes and v not in nodes and u != v:
+                return False
+    return True
+
+
+def is_perfect_matching(G, matching):
+    """Return True if ``matching`` is a perfect matching of ``G``.
+
+    See :func:`is_matching`.
+    """
+    # br-r37-c1-0555d: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
+    if isinstance(matching, dict):
+        matching = _matching_dict_to_set(matching)
+    nodes = set()
+    for edge in matching:
+        if len(edge) != 2:
+            raise NetworkXError(f"matching has non-2-tuple edge {edge}")
+        u, v = edge
+        if u not in G or v not in G:
+            raise NetworkXError(f"matching contains edge {edge} with node not in G")
+        if u == v:
+            return False
+        if not G.has_edge(u, v):
+            return False
+        if u in nodes or v in nodes:
+            return False
+        nodes.update(edge)
+    return len(nodes) == len(G)
+
+
+class _MinDegreeHeuristic:
+    def __init__(self, graph):
+        self._update_nodes = []
+        self._degreeq = []
+        self._counter = _count()
+        for node in graph:
+            self._degreeq.append((len(graph[node]), next(self._counter), node))
+        import heapq
+
+        heapq.heapify(self._degreeq)
+
+    def best_node(self, graph):
+        for node in self._update_nodes:
+            _heappush(self._degreeq, (len(graph[node]), next(self._counter), node))
+
+        while self._degreeq:
+            min_degree, _, elim_node = _heappop(self._degreeq)
+            if elim_node not in graph or len(graph[elim_node]) != min_degree:
+                continue
+            if min_degree == len(graph) - 1:
+                return None
+
+            self._update_nodes = list(graph[elim_node])
+            return elim_node
+
+        return None
+
+
+def _treewidth_decomp(graph, heuristic):
+    graph_dict = {node: set(graph[node]) - {node} for node in graph}
+    node_stack = []
+
+    elim_node = heuristic(graph_dict)
+    while elim_node is not None:
+        nbrs = graph_dict[elim_node]
+        for u, v in _itertools.permutations(nbrs, 2):
+            if v not in graph_dict[u]:
+                graph_dict[u].add(v)
+
+        node_stack.append((elim_node, set(nbrs)))
+
+        for node in graph_dict[elim_node]:
+            graph_dict[node].remove(elim_node)
+        del graph_dict[elim_node]
+        elim_node = heuristic(graph_dict)
+
+    first_bag = frozenset(graph_dict.keys())
+    treewidth = len(first_bag) - 1
+
+    # br-r37-c1-twdecomp (cc): scan bags via a plain Python list in insertion order (==
+    # decomp node order) instead of ``for bag in decomp`` (iterating the fnx Graph crosses
+    # PyO3 per node, O(V^2)), and collect the decomp edges to build the result Graph in ONE
+    # add_edges_from at the end instead of per-bag add_edge. Same first-match bag + same
+    # node/edge insertion order, so the decomposition is byte-identical.
+    decomp_bags = [first_bag]
+    decomp_edges = []
+
+    while node_stack:
+        curr_node, nbrs = node_stack.pop()
+        old_bag = None
+        for bag in decomp_bags:
+            if nbrs <= bag:
+                old_bag = bag
+                break
+
+        if old_bag is None:
+            old_bag = first_bag
+
+        nbrs.add(curr_node)
+        new_bag = frozenset(nbrs)
+        treewidth = max(treewidth, len(new_bag) - 1)
+        decomp_edges.append((old_bag, new_bag))
+        decomp_bags.append(new_bag)
+
+    decomp = Graph()
+    decomp.add_node(first_bag)
+    decomp.add_edges_from(decomp_edges)
+
+    return treewidth, decomp
+
+
+def _treewidth_min_degree(G):
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    heuristic = _MinDegreeHeuristic(G)
+    return _treewidth_decomp(G, lambda graph: heuristic.best_node(graph))
+
+
+def _min_fill_in_heuristic(graph_dict):
+    if len(graph_dict) == 0:
+        return None
+
+    min_fill_in_node = None
+    min_fill_in = float("inf")
+
+    nodes_by_degree = sorted(graph_dict, key=lambda x: len(graph_dict[x]))
+    min_degree = len(graph_dict[nodes_by_degree[0]])
+
+    if min_degree == len(graph_dict) - 1:
+        return None
+
+    for node in nodes_by_degree:
+        num_fill_in = 0
+        nbrs = graph_dict[node]
+        for nbr in nbrs:
+            num_fill_in += len(nbrs - graph_dict[nbr]) - 1
+            if num_fill_in >= 2 * min_fill_in:
+                break
+
+        num_fill_in /= 2
+
+        if num_fill_in < min_fill_in:
+            if num_fill_in == 0:
+                return node
+            min_fill_in = num_fill_in
+            min_fill_in_node = node
+
+    return min_fill_in_node
+
+
+def _treewidth_min_fill_in(G):
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+
+    return _treewidth_decomp(G, _min_fill_in_heuristic)
+
+
+def _ramsey_r2_adj(nodes, adj):
+    if not nodes:
+        return set(), set()
+
+    node = nodes[0]
+    node_nbrs = adj[node]
+    nbr_nodes = [v for v in nodes[1:] if v in node_nbrs]
+    nnbr_nodes = [v for v in nodes[1:] if v not in node_nbrs]
+    c_1, i_1 = _ramsey_r2_adj(nbr_nodes, adj)
+    c_2, i_2 = _ramsey_r2_adj(nnbr_nodes, adj)
+
+    c_1.add(node)
+    i_2.add(node)
+    return max(c_1, c_2, key=len), max(i_1, i_2, key=len)
+
+
+def _clique_removal_from_adj(nodes, adj):
+    c_i, i_i = _ramsey_r2_adj(nodes, adj)
+    cliques = [c_i]
+    isets = [i_i]
+    while nodes:
+        nodes = [v for v in nodes if v not in c_i]
+        c_i, i_i = _ramsey_r2_adj(nodes, adj)
+        if c_i:
+            cliques.append(c_i)
+        if i_i:
+            isets.append(i_i)
+    maxiset = max(isets, key=len)
+    return maxiset, cliques
+
+
+def _approx_swap_node_partition(cut, node):
+    return cut - {node} if node in cut else cut.union({node})
+
+
+def _approx_remove_nonterminal_leaves(G, terminals):
+    terminal_set = set(terminals)
+    leaves = {n for n in G if len(set(G[n]) - {n}) == 1}
+    nonterminal_leaves = leaves - terminal_set
+
+    while nonterminal_leaves:
+        candidate_leaves = set.union(*(set(G[n]) for n in nonterminal_leaves))
+        candidate_leaves -= nonterminal_leaves | terminal_set
+        G.remove_nodes_from(nonterminal_leaves)
+        leaves = {n for n in candidate_leaves if len(set(G[n]) - {n}) == 1}
+        nonterminal_leaves = leaves - terminal_set
+
+
+def _approx_mehlhorn_steiner_tree(G, terminal_nodes, weight):
+    distances, paths = multi_source_dijkstra(G, terminal_nodes, weight=weight)
+
+    d_1 = {}
+    s = {}
+    for v in G.nodes():
+        s[v] = paths[v][0]
+        d_1[(v, s[v])] = distances[v]
+
+    G_1_prime = Graph()
+    for u, v, data in G.edges(data=True):
+        su, sv = s[u], s[v]
+        weight_here = d_1[(u, su)] + data.get(weight, 1) + d_1[(v, sv)]
+        if not G_1_prime.has_edge(su, sv):
+            G_1_prime.add_edge(su, sv, weight_d1=weight_here)
+        else:
+            new_weight = min(weight_here, G_1_prime[su][sv]["weight_d1"])
+            G_1_prime.add_edge(su, sv, weight_d1=new_weight)
+
+    G_2 = minimum_spanning_edges(G_1_prime, data=True, weight="weight_d1")
+
+    G_3 = Graph()
+    for u, v, _ in G_2:
+        path = shortest_path(G, u, v, weight=weight)
+        for n1, n2 in _itertools.pairwise(path):
+            G_3.add_edge(n1, n2, weight=G[n1][n2].get(weight, 1))
+
+    G_3_mst = list(minimum_spanning_edges(G_3, data=False, weight=weight))
+    if G.is_multigraph():
+        G_3_mst = [
+            (u, v, min(G[u][v], key=lambda k: G[u][v][k].get(weight, 1)))
+            for u, v in G_3_mst
+        ]
+    G_4 = edge_subgraph(G, G_3_mst).copy()
+    _approx_remove_nonterminal_leaves(G_4, terminal_nodes)
+    return list(G_4.edges())
+
+
+def _approx_kou_steiner_tree(G, terminal_nodes, weight):
+    H = Graph()
+    unvisited_terminals = set(terminal_nodes)
+
+    u = unvisited_terminals.pop()
+    distances, paths = single_source_dijkstra(G, source=u, weight=weight)
+    if len(G) != len(distances):
+        raise NetworkXError("G is not a connected graph.")
+    for v in unvisited_terminals:
+        H.add_edge(u, v, distance=distances[v], path=paths[v])
+
+    for u in unvisited_terminals.copy():
+        distances, paths = single_source_dijkstra(G, source=u, weight=weight)
+        unvisited_terminals.remove(u)
+        for v in unvisited_terminals:
+            H.add_edge(u, v, distance=distances[v], path=paths[v])
+
+    mst_edges = minimum_spanning_edges(H, weight="distance", data=True)
+
+    mst_all_edges = list(
+        _itertools.chain.from_iterable(
+            _itertools.pairwise(d["path"]) for u, v, d in mst_edges
+        )
+    )
+    if G.is_multigraph():
+        mst_all_edges = [
+            (u, v, min(G[u][v], key=lambda k: G[u][v][k].get(weight, 1)))
+            for u, v in mst_all_edges
+        ]
+
+    G_S = edge_subgraph(G, mst_all_edges).copy()
+    T_S = list(minimum_spanning_edges(G_S, weight="weight", data=False))
+    if G.is_multigraph():
+        T_S = [
+            (u, v, min(G[u][v], key=lambda k: G[u][v][k].get(weight, 1)))
+            for u, v in T_S
+        ]
+
+    T_H = edge_subgraph(G, T_S).copy()
+    _approx_remove_nonterminal_leaves(T_H, terminal_nodes)
+
+    return list(T_H.edges())
+
+
+class _ApproxBinaryHeap:
+    def __init__(self):
+        self._dict = {}
+        self._heap = []
+        self._count = _count()
+
+    def pop(self):
+        d = self._dict
+        if not d:
+            raise NetworkXError("heap is empty")
+        heap = self._heap
+        while True:
+            value, _, key = _heappop(heap)
+            if key in d and value == d[key]:
+                break
+        del d[key]
+        return key, value
+
+    def insert(self, key, value, allow_increase=False):
+        d = self._dict
+        if key in d:
+            old_value = d[key]
+            if value < old_value or (allow_increase and value > old_value):
+                d[key] = value
+                _heappush(self._heap, (value, next(self._count), key))
+                return value < old_value
+            return False
+        d[key] = value
+        _heappush(self._heap, (value, next(self._count), key))
+        return True
+
+
+def _approx_greedy_plus_plus(G, iterations):
+    if G.number_of_edges() == 0:
+        return 0.0, set()
+    if iterations < 1:
+        raise ValueError(
+            f"The number of iterations must be an integer >= 1. Provided: {iterations}"
+        )
+
+    loads = {node: 0 for node in G.nodes}
+    best_density = 0.0
+    best_subgraph = set()
+
+    for _ in range(iterations):
+        heap = _ApproxBinaryHeap()
+        for node, degree in G.degree:
+            heap.insert(node, loads[node] + degree)
+        remaining_nodes = set(G.nodes)
+        num_edges = G.number_of_edges()
+        current_degrees = dict(G.degree)
+
+        while remaining_nodes:
+            num_nodes = len(remaining_nodes)
+            current_density = num_edges / num_nodes
+            if current_density > best_density:
+                best_density = current_density
+                best_subgraph = set(remaining_nodes)
+
+            node, _ = heap.pop()
+            if node not in remaining_nodes:
+                continue
+
+            loads[node] += current_degrees[node]
+            for neighbor in G.neighbors(node):
+                if neighbor in remaining_nodes:
+                    current_degrees[neighbor] -= 1
+                    num_edges -= 1
+                    heap.insert(neighbor, loads[neighbor] + current_degrees[neighbor])
+
+            remaining_nodes.remove(node)
+
+    return best_density, best_subgraph
+
+
+def _approx_fractional_peeling(G, b, x, node_to_idx, edge_to_idx):
+    heap = _ApproxBinaryHeap()
+    remaining_nodes = set(G.nodes)
+    for idx, node in enumerate(G):
+        heap.insert(node, b[idx])
+
+    num_edges = G.number_of_edges()
+    best_density = 0.0
+    best_subgraph = set()
+
+    while remaining_nodes:
+        num_nodes = len(remaining_nodes)
+        current_density = num_edges / num_nodes
+        if current_density > best_density:
+            best_density = current_density
+            best_subgraph = set(remaining_nodes)
+
+        node, _ = heap.pop()
+        while node not in remaining_nodes:
+            node, _ = heap.pop()
+
+        for neighbor in G.neighbors(node):
+            if neighbor in remaining_nodes:
+                neighbor_idx = node_to_idx[neighbor]
+                b[neighbor_idx] -= x[edge_to_idx[(neighbor, node)]]
+                num_edges -= 1
+                heap.insert(neighbor, b[neighbor_idx])
+
+        remaining_nodes.remove(node)
+
+    return best_density, best_subgraph
+
+
+def _approx_fista(G, iterations):
+    if G.number_of_edges() == 0:
+        return 0.0, set()
+    if iterations < 1:
+        raise ValueError(
+            f"The number of iterations must be an integer >= 1. Provided: {iterations}"
+        )
+    import numpy as np
+
+    node_to_idx = {node: idx for idx, node in enumerate(G)}
+    num_nodes = G.number_of_nodes()
+    num_undirected_edges = G.number_of_edges()
+
+    bidirectional_edges = [(u, v) for u, v in G.edges] + [(v, u) for u, v in G.edges]
+    edge_to_idx = {edge: idx for idx, edge in enumerate(bidirectional_edges)}
+    num_edges = len(bidirectional_edges)
+
+    reverse_edge_idx = np.empty(num_edges, dtype=np.int32)
+    for idx in range(num_undirected_edges):
+        reverse_edge_idx[idx] = num_undirected_edges + idx
+    for idx in range(num_undirected_edges, 2 * num_undirected_edges):
+        reverse_edge_idx[idx] = idx - num_undirected_edges
+
+    x = np.full(num_edges, 0.5, dtype=np.float32)
+    y = x.copy()
+    z = np.zeros(num_edges, dtype=np.float32)
+    b = np.zeros(num_nodes, dtype=np.float32)
+    tk = 1.0
+
+    edge_src_indices = np.array(
+        [node_to_idx[u] for u, _ in bidirectional_edges], dtype=np.int32
+    )
+    max_degree = max(deg for _, deg in G.degree)
+    learning_rate = 0.9 / max_degree
+
+    for _ in range(iterations):
+        b[:] = 0.0
+        np.add.at(b, edge_src_indices, y)
+        z = y - 2.0 * learning_rate * b[edge_src_indices]
+        tknew = (1.0 + _math.sqrt(1 + 4.0 * tk**2)) / 2.0
+        new_xuv = (z - z[reverse_edge_idx] + 1.0) / 2.0
+        clamped_x = np.clip(new_xuv, 0.0, 1.0)
+        y = (
+            clamped_x
+            + ((tk - 1.0) / tknew) * (clamped_x - x)
+            + (tk / tknew) * (clamped_x - y)
+        )
+        x = clamped_x
+        tk = tknew
+
+    b[:] = 0.0
+    np.add.at(b, edge_src_indices, x)
+    return _approx_fractional_peeling(G, b, x, node_to_idx, edge_to_idx)
+
+
+def _approx_swap_two_nodes(soln, seed):
+    a, b = seed.sample(range(1, len(soln) - 1), k=2)
+    soln[a], soln[b] = soln[b], soln[a]
+    return soln
+
+
+def _approx_move_one_node(soln, seed):
+    a, b = seed.sample(range(1, len(soln) - 1), k=2)
+    soln.insert(b, soln.pop(a))
+    return soln
+
+
+class _ApproximationNamespace:
+    def treewidth_min_degree(self, G, *, backend=None, **backend_kwargs):
+        # br-r37-c1-bk-submod: nx's @_dispatchable adds the backend
+        # surface; the fnx native re-export had bare ``(G)``.
+        _validate_backend_dispatch_keywords(
+            "treewidth_min_degree", backend, backend_kwargs
+        )
+        return _treewidth_min_degree(G)
+
+    def treewidth_min_fill_in(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "treewidth_min_fill_in", backend, backend_kwargs
+        )
+        return _treewidth_min_fill_in(G)
+
+    def ramsey_R2(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("ramsey_R2", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nodes = list(G)
+        adj = {u: set(G[u]) - {u} for u in nodes}
+        return _ramsey_r2_adj(nodes, adj)
+
+    def clique_removal(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("clique_removal", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nodes = list(G)
+        adj = {u: set(G[u]) - {u} for u in nodes}
+        return _clique_removal_from_adj(nodes, adj)
+
+    def maximum_independent_set(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "maximum_independent_set", backend, backend_kwargs
+        )
+        iset, _ = self.clique_removal(G)
+        return iset
+
+    def max_clique(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("max_clique", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nodes = list(G)
+        all_nodes = set(nodes)
+        comp_adj = {u: all_nodes - set(G[u]) - {u} for u in nodes}
+        iset, _ = _clique_removal_from_adj(nodes, comp_adj)
+        return iset
+
+    def one_exchange(
+        self,
+        G,
+        initial_cut=None,
+        seed=None,
+        weight=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("one_exchange", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        rng = _generator_random_state(seed)
+        if initial_cut is None:
+            initial_cut = set()
+        cut = set(initial_cut)
+        current_cut_size = cut_size(G, cut, weight=weight)
+        while True:
+            nodes = list(G.nodes())
+            rng.shuffle(nodes)
+            best_node_to_swap = max(
+                nodes,
+                key=lambda v: cut_size(
+                    G, _approx_swap_node_partition(cut, v), weight=weight
+                ),
+                default=None,
+            )
+            potential_cut = _approx_swap_node_partition(cut, best_node_to_swap)
+            potential_cut_size = cut_size(G, potential_cut, weight=weight)
+            if potential_cut_size > current_cut_size:
+                cut = potential_cut
+                current_cut_size = potential_cut_size
+            else:
+                break
+        partition = (cut, set(G.nodes()) - cut)
+        return current_cut_size, partition
+
+    def steiner_tree(
+        self,
+        G,
+        terminal_nodes,
+        weight="weight",
+        method=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("steiner_tree", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if method is None:
+            method = "mehlhorn"
+        if method == "kou":
+            edges = _approx_kou_steiner_tree(G, terminal_nodes, weight)
+        elif method == "mehlhorn":
+            edges = _approx_mehlhorn_steiner_tree(G, terminal_nodes, weight)
+        else:
+            raise ValueError(f"{method} is not a valid choice for an algorithm.")
+        if G.is_multigraph():
+            edges = [
+                (u, v, min(G[u][v], key=lambda k: G[u][v][k][weight]))
+                for u, v in edges
+            ]
+        return edge_subgraph(G, edges).copy()
+
+    def densest_subgraph(
+        self,
+        G,
+        iterations=1,
+        *,
+        method="fista",
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("densest_subgraph", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        if method == "greedy++":
+            return _approx_greedy_plus_plus(G, iterations)
+        if method == "fista":
+            return _approx_fista(G, iterations)
+        raise ValueError(f"{method} is not a valid choice for an algorithm.")
+
+    def christofides(
+        self, G, weight="weight", tree=None, *, backend=None, **backend_kwargs
+    ):
+        _validate_backend_dispatch_keywords("christofides", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        loop_nodes = nodes_with_selfloops(G)
+        try:
+            node = next(loop_nodes)
+        except StopIteration:
+            pass
+        else:
+            G = G.copy()
+            G.remove_edge(node, node)
+            G.remove_edges_from((n, n) for n in loop_nodes)
+        N = len(G) - 1
+        if any(len(nbrdict) != N for n, nbrdict in G.adj.items()):
+            raise NetworkXError("G must be a complete graph.")
+        if tree is None:
+            tree = minimum_spanning_tree(G, weight=weight)
+        else:
+            tree = _coerce_arg_to_fnx_graph(tree)
+        L = G.copy()
+        L.remove_nodes_from([v for v, degree in tree.degree if not (degree % 2)])
+        MG = MultiGraph()
+        MG.add_edges_from(tree.edges)
+        edges = min_weight_matching(L, weight=weight)
+        MG.add_edges_from(edges)
+        circuit = eulerian_circuit(MG)
+        nodes = []
+        for u, v in circuit:
+            if v in nodes:
+                continue
+            if not nodes:
+                nodes.append(u)
+            nodes.append(v)
+        nodes.append(nodes[0])
+        return nodes
+
+    def traveling_salesman_problem(
+        self,
+        G,
+        weight="weight",
+        nodes=None,
+        cycle=True,
+        method=None,
+        *,
+        backend=None,
+        **kwargs,
+    ):
+        _validate_backend_dispatch_keywords(
+            "traveling_salesman_problem", backend, {}
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if method is None:
+            if G.is_directed():
+                method = self.asadpour_atsp
+            else:
+                method = self.christofides
+        if nodes is None:
+            nodes = list(G.nodes)
+
+        dist = {}
+        path = {}
+        for n, (d, p) in all_pairs_dijkstra(G, weight=weight):
+            dist[n] = d
+            path[n] = p
+
+        if G.is_directed():
+            if not is_strongly_connected(G):
+                raise NetworkXError("G is not strongly connected")
+            GG = DiGraph()
+        else:
+            GG = Graph()
+        for u in nodes:
+            for v in nodes:
+                if u == v:
+                    continue
+                GG.add_edge(u, v, **{weight: dist[u][v]})
+
+        best_GG = method(GG, weight=weight, **kwargs)
+
+        if not cycle:
+            (u, v) = max(_itertools.pairwise(best_GG), key=lambda x: dist[x[0]][x[1]])
+            pos = best_GG.index(u) + 1
+            while best_GG[pos] != v:
+                pos = best_GG[pos:].index(u) + 1
+            best_GG = best_GG[pos:-1] + best_GG[:pos]
+
+        best_path = []
+        for u, v in _itertools.pairwise(best_GG):
+            best_path.extend(path[u][v][:-1])
+        best_path.append(v)
+        return best_path
+
+    def asadpour_atsp(
+        self,
+        G,
+        weight="weight",
+        seed=None,
+        source=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords("asadpour_atsp", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if not G.is_directed():
+            raise NetworkXNotImplemented("not implemented for undirected type")
+        N = len(G) - 1
+        if N < 1:
+            raise NetworkXError("G must have at least two nodes")
+        if any(len(nbrdict) - (n in nbrdict) != N for n, nbrdict in G.adj.items()):
+            raise NetworkXError("G is not a complete DiGraph")
+        if source is not None and source not in G.nodes:
+            raise NetworkXError("Given source node not in G.")
+        if N == 1:
+            if source is None:
+                return list(G)
+            return [source, next(n for n in G if n != source)]
+        return _nx.approximation.asadpour_atsp(
+            _networkx_graph_for_parity(G),
+            weight=weight,
+            seed=seed,
+            source=source,
+            backend="networkx",
+        )
+
+    def k_components(
+        self, G, min_density=0.95, *, backend=None, **backend_kwargs
+    ):
+        _validate_backend_dispatch_keywords("k_components", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+
+        def _same(measure, tol=0):
+            vals = set(measure.values())
+            return (max(vals) - min(vals)) <= tol
+
+        def _cliques_heuristic(G_sub, H_sub, k_val, min_dens):
+            h_cnumber = core_number(H_sub)
+            for i, c_value in enumerate(
+                sorted(set(h_cnumber.values()), reverse=True)
+            ):
+                cands = {n for n, c in h_cnumber.items() if c == c_value}
+                if i == 0:
+                    overlap = False
+                else:
+                    overlap = set.intersection(
+                        *[{x for x in H_sub[n] if x not in cands} for n in cands]
+                    )
+                if overlap and len(overlap) < k_val:
+                    SH = H_sub.subgraph(cands | overlap)
+                else:
+                    SH = H_sub.subgraph(cands)
+                sh_cnumber = core_number(SH)
+                SG_inner = k_core(G_sub.subgraph(SH), k_val)
+                while not (_same(sh_cnumber) and density(SH) >= min_dens):
+                    SH = H_sub.subgraph(SG_inner).copy()
+                    if len(SH) <= k_val:
+                        break
+                    sh_cnumber = core_number(SH)
+                    sh_deg = dict(SH.degree())
+                    min_deg = min(sh_deg.values())
+                    SH.remove_nodes_from(
+                        n for n, d in sh_deg.items() if d == min_deg
+                    )
+                    SG_inner = k_core(G_sub.subgraph(SH), k_val)
+                else:
+                    yield SG_inner
+
+        result = _defaultdict(list)
+        for component in connected_components(G):
+            comp = set(component)
+            if len(comp) > 1:
+                result[1].append(comp)
+        for bicomponent in biconnected_components(G):
+            bicomp = set(bicomponent)
+            if len(bicomp) > 2:
+                result[2].append(bicomp)
+        if len(G) == 0:
+            return result
+        g_cnumber = core_number(G)
+        max_core = max(g_cnumber.values()) if g_cnumber else 0
+        for k in range(3, max_core + 1):
+            C = k_core(G, k, core_number=g_cnumber)
+            for nodes in biconnected_components(C):
+                if len(nodes) < k:
+                    continue
+                SG = G.subgraph(nodes)
+                H = Graph()
+                H.add_nodes_from(SG.nodes())
+                for u, v in _itertools.combinations(SG, 2):
+                    K = self.local_node_connectivity(SG, u, v, cutoff=k)
+                    if K >= k:
+                        H.add_edge(u, v)
+                for h_nodes in biconnected_components(H):
+                    if len(h_nodes) <= k:
+                        continue
+                    SH = H.subgraph(h_nodes)
+                    for Gc in _cliques_heuristic(SG, SH, k, min_density):
+                        for k_nodes in biconnected_components(Gc):
+                            Gk = k_core(SG.subgraph(k_nodes), k)
+                            if len(Gk) <= k:
+                                continue
+                            result[k].append(set(Gk))
+        return result
+
+    def min_weighted_vertex_cover(self, G, weight=None, *, backend=None, **backend_kwargs):
+        # br-vcnative: the generic __getattr__ wrapper round-trips the graph
+        # through ``_networkx_graph_for_parity`` (an O(n^2) fnx->nx conversion)
+        # and runs nx's pure-Python local-ratio loop over the slow fnx views --
+        # ~28x slower than nx at n=1500. The native Rust kernel replicates nx's
+        # edge-order greedy exactly (incl. weight=None => unit weights), so route
+        # straight to it with no conversion.
+        _validate_backend_dispatch_keywords(
+            "min_weighted_vertex_cover", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            # networkx iterates the DIRECTED edges of a DiGraph here, so run the
+            # exact local-ratio greedy directly over G.nodes and G.edges with
+            # 0 NetworkX conversion or frames.
+            cost = dict(G.nodes(data=weight, default=1))
+            cover = set()
+            for u, v in G.edges():
+                if u in cover or v in cover:
+                    continue
+                if cost[u] <= cost[v]:
+                    cover.add(u)
+                    cost[v] -= cost[u]
+                else:
+                    cover.add(v)
+                    cost[u] -= cost[v]
+            return cover
+        if weight is not None:
+            # br-r37-c1-303zo: node-view writes mutate the live Python mirrors,
+            # while the native kernel reads the typed AttrMap store. Flush those
+            # mirrors while holding the GIL before the binding releases it; the
+            # sync replaces (rather than merges) each map, so deleted attrs do
+            # not survive as stale native costs.
+            _sync_rust_edge_attrs(G)
+        return _raw_min_weighted_vertex_cover(G, weight)
+
+    def min_maximal_matching(self, G, *, backend=None, **backend_kwargs):
+        # br-vcnative: nx's min_maximal_matching(G) IS nx.maximal_matching(G);
+        # the generic wrapper round-trips through an O(n^2) fnx->nx conversion
+        # (~30x slower). Route to the native maximal_matching (parity-exact).
+        _validate_backend_dispatch_keywords(
+            "min_maximal_matching", backend, backend_kwargs
+        )
+        return maximal_matching(G)
+
+    def randomized_partitioning(self, G, seed=None, p=0.5, weight=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-wxy3x: nx's randomized_partitioning is a trivial coin-flip
+        # plus cut_size, but the generic __getattr__ wrapper round-tripped the
+        # graph through ``_networkx_graph_for_parity`` and ran nx's cut_size over
+        # the slow fnx adjacency views -- ~8x slower than nx for almost no work.
+        # De-delegate: draw the cut in-process with nx's EXACT RNG
+        # (create_py_random_state over ``G.nodes()`` order -> identical per-node
+        # ``seed.random()`` draws -> identical cut) and use the native ``cut_size``
+        # (order-insensitive). Byte-identical to nx (360 checks, native + weighted,
+        # 0 mismatches); 1.6x FASTER than nx, 12.7x self-speedup. Directed /
+        # multigraph raise as nx's @not_implemented_for decorators do.
+        _validate_backend_dispatch_keywords(
+            "randomized_partitioning", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        rng = _generator_random_state(seed)
+        cut = {node for node in G.nodes() if rng.random() < p}
+        cut_size_value = cut_size(G, cut, weight=weight)
+        return cut_size_value, (cut, set(G.nodes()) - cut)
+
+    def min_weighted_dominating_set(self, G, weight=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-wxy3x: nx's greedy builds neighborhoods from ``G[v]`` (slow
+        # fnx AtlasView) and calls ``_cost`` -> ``G.nodes[v]`` per candidate every
+        # iteration, and the generic __getattr__ wrapper converts fnx->nx first --
+        # ~1.7x slower than nx. De-delegate: snapshot closed neighborhoods via the
+        # native ``to_dict_of_lists`` (``list(G)`` order, so the ``min`` tie-break
+        # matches nx's ``neighborhoods.items()`` insertion order) and run nx's
+        # EXACT greedy on local dicts. Byte-identical to nx (31 checks incl
+        # weighted, 0 mismatches); 1.45x faster, 2.14x self-speedup. Directed
+        # raises like nx's @not_implemented_for; multigraph keeps nx's path.
+        _validate_backend_dispatch_keywords(
+            "min_weighted_dominating_set", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if len(G) == 0:
+            return set()
+        dom_set: set = set()
+        dod = to_dict_of_lists(G) if type(G) is Graph else {v: G[v] for v in G}
+        if weight is None:
+            node_w = {v: 1 for v in G}
+        else:
+            node_w = {v: G.nodes[v].get(weight, 1) for v in G}
+        neighborhoods = {v: {v} | set(dod[v]) for v in G}
+
+        def _cost(item):
+            v, neighborhood = item
+            return node_w[v] / len(neighborhood - dom_set)
+
+        vertices = set(G)
+        while vertices:
+            dom_node, min_set = min(neighborhoods.items(), key=_cost)
+            dom_set.add(dom_node)
+            del neighborhoods[dom_node]
+            vertices -= min_set
+        return dom_set
+
+    def min_edge_dominating_set(self, G, *, backend=None, **backend_kwargs):
+        # br-vcnative: nx's min_edge_dominating_set(G) returns maximal_matching(G)
+        # (raising ValueError on the empty graph). Same conversion-tax fix.
+        _validate_backend_dispatch_keywords(
+            "min_edge_dominating_set", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if len(G) == 0:
+            raise ValueError("Expected non-empty NetworkX graph!")
+        return maximal_matching(G)
+
+    def average_clustering(self, G, trials=1000, seed=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-2poe6: nx's Schank-Wagner sampler is cheap, but the generic
+        # __getattr__ converted fnx->nx and ran the trials loop's per-trial
+        # list(G[node]) / u in G[v] on slow fnx adjacency (~3x slower). Snapshot
+        # adjacency once via the bulk native G.adjacency() (order-preserving),
+        # then run nx's EXACT sampler — all int(seed.random()*n) indices first,
+        # then per-trial seed.sample(nbrs, 2) + membership — on local dicts.
+        # Byte-identical to the previous fnx result (0/60); parity with nx at
+        # common sizes. (Snapshot is O(V+E); for trials << |E| on huge graphs nx
+        # samples adjacency lazily — residual there, see bead.)
+        _validate_backend_dispatch_keywords(
+            "average_clustering", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        # br-r37-c1-approxacc: native byte-exact kernel reproduces nx's CPython
+        # random.Random(seed) draw sequence (node indices, then sample(nbrs, 2))
+        # over neighbors_indices — ~90x faster than the Python sampler below.
+        # Gated to the reproducible case: simple Graph, non-negative int seed,
+        # trials >= 1, |V| >= 1. Other shapes (multigraph / non-int or negative
+        # seed / seed=None / trials == 0 / empty) keep the Python path.
+        if (
+            type(G) is Graph
+            and isinstance(seed, int)
+            and not isinstance(seed, bool)
+            and seed >= 0
+            and trials >= 1
+            and len(G) >= 1
+        ):
+            _native_acc = getattr(_fnx, "approx_average_clustering", None)
+            if _native_acc is not None:
+                return _native_acc(G, trials, seed)
+        rng = _generator_random_state(seed)
+        nodes = list(G)
+        n = len(nodes)
+        trial_indices = [int(rng.random() * n) for _ in range(trials)]
+        raw_neighbors = _raw_neighbors_dispatch(G)
+        if raw_neighbors is not None and trials <= n:
+            sampled_neighbors = {}
+            sampled_neighbor_sets = {}
+            triangles = 0
+            for i in trial_indices:
+                node = nodes[i]
+                nbrs = sampled_neighbors.get(node)
+                if nbrs is None:
+                    nbrs = list(raw_neighbors(G, node))
+                    sampled_neighbors[node] = nbrs
+                if len(nbrs) < 2:
+                    continue
+                u, v = rng.sample(nbrs, 2)
+                v_nbrs = sampled_neighbor_sets.get(v)
+                if v_nbrs is None:
+                    v_cached = sampled_neighbors.get(v)
+                    if v_cached is None:
+                        v_cached = list(raw_neighbors(G, v))
+                        sampled_neighbors[v] = v_cached
+                    v_nbrs = set(v_cached)
+                    sampled_neighbor_sets[v] = v_nbrs
+                if u in v_nbrs:
+                    triangles += 1
+            return triangles / trials
+        adj = {u: list(nbrs) for u, nbrs in G.adjacency()}
+        adjset = {u: set(a) for u, a in adj.items()}
+        triangles = 0
+        for i in trial_indices:
+            nbrs = adj[nodes[i]]
+            if len(nbrs) < 2:
+                continue
+            u, v = rng.sample(nbrs, 2)
+            if u in adjset[v]:
+                triangles += 1
+        return triangles / trials
+
+    def diameter(self, G, seed=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-apxdiam: nx's undirected 2-sweep (Magnien-Latapy-Habib) is
+        # cheap, but the generic __getattr__ converts fnx->nx and runs nx's
+        # 2-sweep whose internal BFS dispatches BACK onto slow fnx adjacency
+        # (~37x slower than this native path; 12.8x vs nx). Reproduce the
+        # algorithm directly: seed.choice(list(G)) -> single-source BFS distances
+        # (fnx integer-CSR, nx-discovery-order) -> the last (farthest) node ->
+        # its eccentricity. Byte-identical to the previous fnx result (0/150) and
+        # faster than nx. Directed (2-dSweep) keeps the delegated path.
+        _validate_backend_dispatch_keywords("diameter", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if len(G) == 0:
+            raise NetworkXError("Expected non-empty NetworkX graph!")
+        if G.number_of_nodes() == 1:
+            return 0
+        if G.is_directed():
+            G_reversed = G.reverse()
+            rng = _generator_random_state(seed)
+            source = rng.choice(list(G))
+            forward_distances = single_source_shortest_path_length(G, source)
+            backward_distances = single_source_shortest_path_length(G_reversed, source)
+            n = len(G)
+            if len(forward_distances) != n or len(backward_distances) != n:
+                raise NetworkXError("DiGraph not strongly connected.")
+            *_, a_1 = forward_distances
+            *_, a_2 = backward_distances
+            return max(eccentricity(G_reversed, a_1), eccentricity(G, a_2))
+        rng = _generator_random_state(seed)
+        source = rng.choice(list(G))
+        distances = single_source_shortest_path_length(G, source)
+        if len(distances) != len(G):
+            raise NetworkXError("Graph not connected.")
+        *_, node = distances
+        return eccentricity(G, node)
+
+    def local_node_connectivity(self, G, source, target, cutoff=None, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "local_node_connectivity", backend, backend_kwargs
+        )
+        raw = _raw_neighbors_dispatch(G)
+        if (
+            raw is not None
+            and type(G) is Graph
+            and (cutoff is None or (isinstance(cutoff, int) and cutoff >= 0))
+        ):
+            return _raw_approx_local_node_connectivity_undirected(
+                G, source, target, cutoff
+            )
+        if raw is not None and not G.is_directed() and not G.is_multigraph():
+            return _approx_local_node_connectivity_undirected(
+                G, raw, source, target, cutoff
+            )
+        G = _coerce_arg_to_fnx_graph(G)
+        if target == source:
+            raise NetworkXError("source and target have to be different nodes.")
+        if G.is_directed():
+            possible = min(G.out_degree(source), G.in_degree(target))
+            Gpred = G.predecessors
+            Gsucc = G.successors
+        else:
+            possible = min(G.degree(source), G.degree(target))
+            Gpred = G.neighbors
+            Gsucc = G.neighbors
+        if not possible:
+            return 0
+        if cutoff is None:
+            cutoff = float("inf")
+        exclude = set()
+        K = 0
+        for _ in range(min(possible, cutoff)):
+            pred = {source: None}
+            succ = {target: None}
+            forward_fringe = [source]
+            reverse_fringe = [target]
+            level = 0
+            found = None
+            while forward_fringe and reverse_fringe and found is None:
+                level += 1
+                if level % 2 != 0:
+                    this_level = forward_fringe
+                    forward_fringe = []
+                    for v in this_level:
+                        for w in Gsucc(v):
+                            if w in exclude:
+                                continue
+                            if w not in pred:
+                                forward_fringe.append(w)
+                                pred[w] = v
+                            if w in succ:
+                                found = w
+                                break
+                        if found is not None:
+                            break
+                else:
+                    this_level = reverse_fringe
+                    reverse_fringe = []
+                    for v in this_level:
+                        for w in Gpred(v):
+                            if w in exclude:
+                                continue
+                            if w not in succ:
+                                succ[w] = v
+                                reverse_fringe.append(w)
+                            if w in pred:
+                                found = w
+                                break
+                        if found is not None:
+                            break
+            if found is None:
+                break
+            w = found
+            path = []
+            while w is not None:
+                path.append(w)
+                w = pred[w]
+            path.reverse()
+            w = succ[path[-1]]
+            while w is not None:
+                path.append(w)
+                w = succ[w]
+            exclude.update(set(path))
+            K += 1
+        return K
+
+    def node_connectivity(self, G, s=None, t=None, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "node_connectivity", backend, backend_kwargs
+        )
+        if (s is not None and t is None) or (s is None and t is not None):
+            raise NetworkXError("Both source and target must be specified.")
+        raw = _raw_neighbors_dispatch(G)
+        if raw is None or G.is_directed() or G.is_multigraph():
+            G = _coerce_arg_to_fnx_graph(G)
+            if s is not None and t is not None:
+                if s not in G:
+                    raise NetworkXError(f"node {s} not in graph")
+                if t not in G:
+                    raise NetworkXError(f"node {t} not in graph")
+                return self.local_node_connectivity(G, s, t)
+            if G.is_directed():
+                connected_func = is_weakly_connected
+                iter_func = _itertools.permutations
+
+                def _neighbors(v):
+                    return _itertools.chain(G.predecessors(v), G.successors(v))
+            else:
+                connected_func = is_connected
+                iter_func = _itertools.combinations
+                _neighbors = G.neighbors
+            if not connected_func(G):
+                return 0
+            v, minimum_degree = min(G.degree(), key=_operator.itemgetter(1))
+            K = minimum_degree
+            for w in set(G) - set(_neighbors(v)) - {v}:
+                K = min(K, self.local_node_connectivity(G, v, w, cutoff=K))
+            for x, y in iter_func(_neighbors(v), 2):
+                if y not in G[x] and x != y:
+                    K = min(K, self.local_node_connectivity(G, x, y, cutoff=K))
+            return K
+        # Local node connectivity.
+        if s is not None and t is not None:
+            if s not in G:
+                raise NetworkXError(f"node {s} not in graph")
+            if t not in G:
+                raise NetworkXError(f"node {t} not in graph")
+            return _approx_local_node_connectivity_undirected(G, raw, s, t, None)
+        # Global node connectivity.
+        if not is_connected(G):
+            return 0
+        # The global algorithm touches the whole graph (every non-neighbour of the
+        # min-degree node, plus its non-adjacent neighbour pairs), so snapshot the
+        # adjacency ONCE via the native key binding and run the BFS over plain
+        # Python dicts — the one-time O(V+E) snapshot amortizes and pure-dict
+        # traversal beats nx's AtlasView access (~0.7-0.8x vs nx). Fall back to the
+        # raw per-access path if the snapshot binding is unavailable.
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if nak is not None and type(G) is Graph:
+            adj = {node: list(nbrs) for node, nbrs in nak()}
+            deg = {node: len(nbrs) for node, nbrs in adj.items()}
+            # Min-degree node, first in node order on ties (== nx's
+            # ``min(G.degree(), key=itemgetter(1))``).
+            v = None
+            minimum_degree = None
+            for node, d in deg.items():
+                if minimum_degree is None or d < minimum_degree:
+                    minimum_degree = d
+                    v = node
+            K = minimum_degree
+            nbrs_v = set(adj[v])
+            for w in set(adj) - nbrs_v - {v}:
+                K = min(K, _approx_local_node_connectivity_dict(adj, deg, v, w, K))
+            nbr_list = list(nbrs_v)
+            nbr_sets = {x: set(adj[x]) for x in nbr_list}
+            for x, y in _itertools.combinations(nbr_list, 2):
+                if x != y and y not in nbr_sets[x]:
+                    K = min(
+                        K, _approx_local_node_connectivity_dict(adj, deg, x, y, K)
+                    )
+            return K
+        # Fallback: raw per-access path (no native snapshot binding).
+        v = None
+        minimum_degree = None
+        for node, d in G.degree():
+            if minimum_degree is None or d < minimum_degree:
+                minimum_degree = d
+                v = node
+        K = minimum_degree
+        nbrs_v = set(raw(G, v))
+        for w in set(G) - nbrs_v - {v}:
+            K = min(K, _approx_local_node_connectivity_undirected(G, raw, v, w, K))
+        nbr_list = list(nbrs_v)
+        nbr_sets = {x: set(raw(G, x)) for x in nbr_list}
+        for x, y in _itertools.combinations(nbr_list, 2):
+            if x != y and y not in nbr_sets[x]:
+                K = min(
+                    K, _approx_local_node_connectivity_undirected(G, raw, x, y, K)
+                )
+        return K
+
+    def all_pairs_node_connectivity(self, G, nbunch=None, cutoff=None, *, backend=None, **backend_kwargs):
+        # br-r37-c1-qango: the generic __getattr__ wrapper round-trips the graph
+        # through fnx->nx then runs nx's O(V^2) White-Newman pairwise loop on nx
+        # views (~parity, but every one of the V^2 local calls pays AtlasView
+        # access). Snapshot the adjacency ONCE via the native key binding and run
+        # every pair's bidirectional-BFS over plain Python dicts — pure-dict
+        # traversal beats nx's view access, so the whole O(V^2) sweep drops below
+        # nx. Directed graphs delegate (the dict path mirrors nx, but the existing
+        # top-level note records the Rust bulk helper over-reports directed
+        # connectivity; nx's own pairwise approximation is the reference here, so
+        # we simply keep directed/multigraph on the delegation path). Result is a
+        # dict-of-dicts; per-pair values are deterministic and key order mirrors
+        # nx's nbunch/combinations enumeration exactly.
+        _validate_backend_dispatch_keywords(
+            "all_pairs_node_connectivity", backend, backend_kwargs
+        )
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if (
+            nak is not None
+            and type(G) is Graph
+            and not G.is_directed()
+            and not G.is_multigraph()
+        ):
+            adj = {node: list(nbrs) for node, nbrs in nak()}
+            deg = {node: len(nbrs) for node, nbrs in adj.items()}
+            if nbunch is None:
+                nb = list(adj)
+                all_pairs = {n: {} for n in nb}
+                for u, v in _itertools.combinations(nb, 2):
+                    k = _approx_local_node_connectivity_dict(adj, deg, u, v, cutoff)
+                    all_pairs[u][v] = k
+                    all_pairs[v][u] = k
+                return all_pairs
+            nb = list(set(nbunch))
+            if all(n in adj for n in nb):
+                all_pairs = {n: {} for n in nb}
+                for u, v in _itertools.combinations(nb, 2):
+                    k = _approx_local_node_connectivity_dict(adj, deg, u, v, cutoff)
+                    all_pairs[u][v] = k
+                    all_pairs[v][u] = k
+                return all_pairs
+        G = _coerce_arg_to_fnx_graph(G)
+        nb_iter = G if nbunch is None else set(nbunch)
+        directed = G.is_directed()
+        iter_func = _itertools.permutations if directed else _itertools.combinations
+        all_pairs = {n: {} for n in nb_iter}
+        for u, v in iter_func(nb_iter, 2):
+            k = self.local_node_connectivity(G, u, v, cutoff=cutoff)
+            all_pairs[u][v] = k
+            if not directed:
+                all_pairs[v][u] = k
+        return all_pairs
+
+    def large_clique_size(self, G, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "large_clique_size", backend, backend_kwargs
+        )
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
+        nak = getattr(G, "_native_adjacency_keys", None)
+        if nak is not None and type(G) is Graph and number_of_selfloops(G) == 0:
+            adj = {node: set(nbrs) for node, nbrs in nak()}
+            degrees = {u: len(nbrs) for u, nbrs in adj.items()}
+        else:
+            adj = {node: set(G[node]) for node in G}
+            degrees = dict(G.degree())
+        deg_get = degrees.__getitem__
+
+        def _clique_heuristic(candidates, size, best_size):
+            while candidates:
+                u = max(candidates, key=deg_get)
+                candidates.remove(u)
+                n_prime = {v for v in adj[u] if degrees[v] >= best_size}
+                candidates = candidates & n_prime
+                size += 1
+            return max(best_size, size)
+
+        best_size = 0
+        for u in G:
+            if degrees[u] >= best_size:
+                neighbors = {v for v in adj[u] if degrees[v] >= best_size}
+                best_size = _clique_heuristic(neighbors, 1, best_size)
+        return best_size
+
+    def metric_closure(self, G, weight="weight", *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords(
+            "metric_closure", backend, backend_kwargs
+        )
+        import warnings
+
+        G = _coerce_arg_to_fnx_graph(G)
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        # The packed f64 kernel relies on Dijkstra's weight-domain guard:
+        # unsupported values would become unit weights or lose exact arithmetic.
+        # Keep those graphs on the public per-source route below.
+        if (
+            type(G) is Graph
+            and isinstance(weight, str)
+            and G.number_of_nodes() > 0
+            and not _should_delegate_dijkstra_to_networkx(G, weight)
+        ):
+            apd = _raw_all_pairs_dijkstra(G, weight=weight)
+            nodes = list(G)
+            first = nodes[0]
+            if len(apd[first][0]) != len(nodes):
+                raise NetworkXError(
+                    "G is not a connected graph. metric_closure is not defined."
+                )
+            warnings.warn(
+                "metric_closure is deprecated and will be removed in NetworkX 3.8.\n"
+                "Use nx.all_pairs_shortest_path_length instead.",
+                category=DeprecationWarning,
+                stacklevel=2,
+            )
+            M = Graph()
+            Gnodes = set(G)
+            Gnodes.remove(first)
+            dist0, path0 = apd[first]
+            edges = [
+                (first, v, {"distance": dist0[v], "path": path0[v]})
+                for v in Gnodes
+            ]
+            for u in nodes[1:]:
+                Gnodes.remove(u)
+                dist, path = apd[u]
+                edges.extend(
+                    (u, v, {"distance": dist[v], "path": path[v]})
+                    for v in Gnodes
+                )
+            M.add_edges_from(edges)
+            return M
+
+        warnings.warn(
+            "metric_closure is deprecated and will be removed in NetworkX 3.8.\n"
+            "Use nx.all_pairs_shortest_path_length instead.",
+            category=DeprecationWarning,
+            stacklevel=2,
+        )
+        M = Graph()
+        Gnodes = set(G)
+        all_paths_iter = iter(all_pairs_dijkstra(G, weight=weight))
+        u, (distance, path) = next(all_paths_iter)
+        if len(G) != len(distance):
+            raise NetworkXError(
+                "G is not a connected graph. metric_closure is not defined."
+            )
+        Gnodes.remove(u)
+        for v in Gnodes:
+            M.add_edge(u, v, distance=distance[v], path=path[v])
+        for u, (distance, path) in all_paths_iter:
+            Gnodes.remove(u)
+            for v in Gnodes:
+                M.add_edge(u, v, distance=distance[v], path=path[v])
+        return M
+
+    def greedy_tsp(self, G, weight="weight", source=None, *, backend=None, **backend_kwargs):
+        _validate_backend_dispatch_keywords("greedy_tsp", backend, backend_kwargs)
+        G = _coerce_arg_to_fnx_graph(G)
+        if type(G) in (Graph, DiGraph):
+            try:
+                tour = _fnx.greedy_tsp_native(G, weight, source)
+            except Exception:
+                tour = None
+            if tour is not None:
+                return tour
+            adj = {u: nbrs for u, nbrs in G.adjacency()}
+        else:
+            adj = {u: G[u] for u in G}
+        order = len(adj)
+        complete_degree = order - 1
+        for node, nbrdict in adj.items():
+            if len(nbrdict) - (node in nbrdict) != complete_degree:
+                raise NetworkXError("G must be a complete graph.")
+        if source is None:
+            source = _arbitrary_element_inproc(G)
+        if order == 2:
+            neighbor = next(iter(adj[source]))
+            return [source, neighbor, source]
+        nodeset = set(G)
+        nodeset.remove(source)
+        cycle = [source]
+        next_node = source
+        while nodeset:
+            nbrdict = adj[next_node]
+            next_node = min(nodeset, key=lambda n: nbrdict[n].get(weight, 1))
+            cycle.append(next_node)
+            nodeset.remove(next_node)
+        cycle.append(cycle[0])
+        return cycle
+
+    def _tsp_anneal_prep(self, G, init_cycle, weight, source, move):
+        # Shared fast-path setup for simulated_annealing_tsp /
+        # threshold_accepting_tsp. Returns (nodes, W, mv, cyc_idx, rng_seed) for
+        # the index-space vectorised loop, or ``None`` to signal the caller to
+        # fall back to the faithful nx delegation. nx's move functions swap
+        # CYCLE POSITIONS (their RNG draws depend only on len(cycle), not the
+        # node labels), so the loop runs in index space byte-identically, while
+        # the cycle cost becomes one vectorised numpy fancy-index sum instead of
+        # n per-edge Python dict lookups. We gate to the cases where this is
+        # provably == nx: simple Graph/DiGraph, an explicit init_cycle, a
+        # known move, n>=3, a COMPLETE graph, and INTEGER-valued weights (so the
+        # numpy pairwise sum equals nx's left-to-right Python sum exactly).
+        import numpy as _np
+
+        if type(G) not in (Graph, DiGraph):
+            return None
+        # br-cc-tspanngreedy: nx resolves init_cycle="greedy" by computing
+        # ``cycle = greedy_tsp(G, weight=weight, source=source)`` (a
+        # DETERMINISTIC, RNG-free step) and then annealing from that cycle.
+        # Previously we bailed to the full nx delegation for ANY str init_cycle
+        # (~0.66-0.86x on integer-weighted complete graphs). We now resolve
+        # "greedy" in-process with the byte-exact greedy_tsp so the explicit-cycle
+        # fast path below engages (greedy is RNG-free, so the annealing RNG stream
+        # is unchanged). The greedy COMPUTATION is deferred until after the
+        # integer/completeness gates pass, so the float/incomplete bail path does
+        # not pay for a wasted greedy_tsp call. Unknown strings -> bail so nx raises.
+        init_is_greedy = False
+        if isinstance(init_cycle, str):
+            if init_cycle != "greedy":
+                return None
+            init_is_greedy = True
+        if move == "1-1":
+            mv = _approx_swap_two_nodes
+        elif move == "1-0":
+            mv = _approx_move_one_node
+        else:
+            return None
+
+        nodes = list(G)
+        n = len(nodes)
+        if n < 3:
+            return None
+        idx = {node: i for i, node in enumerate(nodes)}
+
+        directed = type(G) is DiGraph
+        W = _np.full((n, n), _np.inf, dtype=_np.float64)
+        try:
+            for u, v, w in G.edges(data=weight, default=1):
+                if u == v:
+                    continue  # selfloops ignored, like nx's completeness check
+                if isinstance(w, bool) or not isinstance(w, (int, float)):
+                    return None
+                iw = int(w)
+                if w != iw:
+                    return None  # non-integer weight -> float-sum order matters
+                i, j = idx[u], idx[v]
+                W[i, j] = w
+                if not directed:
+                    W[j, i] = w
+        except (KeyError, TypeError, ValueError):
+            return None
+
+        # Completeness (mirror nx, ignoring selfloops): each node reaches every
+        # other. For directed this is the out-neighbour count.
+        finite = _np.isfinite(W)
+        if not bool((finite.sum(axis=1) == (n - 1)).all()):
+            return None
+
+        # Fast path is viable -> NOW resolve "greedy" (deferred to here so the
+        # bail paths above never pay for it). If greedy can't run (it won't here,
+        # the weights are numeric+complete) we still bail and nx reproduces it.
+        if init_is_greedy:
+            try:
+                init_cycle = self.greedy_tsp(G, weight=weight, source=source)
+            except Exception:
+                return None
+
+        # Validate the explicit init_cycle exactly as nx does; on any deviation
+        # fall back so nx raises the precise error.
+        cyc = list(init_cycle)
+        src = cyc[0] if source is None else source
+        if src != cyc[0] or cyc[0] != cyc[-1]:
+            return None
+        if len(cyc) - 1 != n:
+            return None
+        body = cyc[:-1]
+        if len(set(body)) != n or any(node not in idx for node in body):
+            return None
+
+        cyc_idx = [idx[node] for node in body] + [idx[cyc[-1]]]
+        return nodes, W, mv, cyc_idx
+
+    def simulated_annealing_tsp(
+        self,
+        G,
+        init_cycle,
+        weight="weight",
+        source=None,
+        temp=100,
+        move="1-1",
+        max_iterations=10,
+        N_inner=100,
+        alpha=0.01,
+        seed=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        # simulated_annealing_tsp delegates through __getattr__ at ~0.26x vs nx:
+        # the O(n^2) _networkx_graph_for_parity conversion dominates AND nx's
+        # inner loop recomputes the full O(n) cycle cost (per-edge Python dict
+        # lookups) N_inner*max_iterations times. De-delegate with an index-space
+        # loop reusing nx's exact move functions + RNG (byte-identical draws)
+        # and a vectorised numpy cycle cost. At nx's default config
+        # (N_inner=100) this is ~2x faster than nx; it strictly beats the old
+        # delegated path in every config. Falls back to nx for any case
+        # _tsp_anneal_prep can't prove byte-exact (see its doc-comment).
+        _validate_backend_dispatch_keywords(
+            "simulated_annealing_tsp", backend, backend_kwargs
+        )
+        if backend is None and not backend_kwargs:
+            prep = self._tsp_anneal_prep(G, init_cycle, weight, source, move)
+            if prep is not None:
+                import math as _math
+
+                nodes, W, mv, cyc = prep
+                rng = _generator_random_state(seed)
+                cost = float(W[cyc[:-1], cyc[1:]].sum())
+                best_cycle = cyc.copy()
+                best_cost = cost
+                count = 0
+                t = temp
+                while count <= max_iterations and t > 0:
+                    count += 1
+                    for _ in range(N_inner):
+                        # nx's move() mutates the cycle IN PLACE and nx passes
+                        # the live cycle, so a rejected move is NOT reverted —
+                        # only `cost` gates on acceptance. Mirror that exactly.
+                        mv(cyc, rng)
+                        adj_cost = float(W[cyc[:-1], cyc[1:]].sum())
+                        delta = adj_cost - cost
+                        if delta <= 0:
+                            cost = adj_cost
+                            if cost < best_cost:
+                                count = 0
+                                best_cycle = cyc.copy()
+                                best_cost = cost
+                        elif _math.exp(-delta / t) >= rng.random():
+                            cost = adj_cost
+                    t -= t * alpha
+                return [nodes[i] for i in best_cycle]
+        import math as _math
+
+        G = _coerce_arg_to_fnx_graph(G)
+        rng = _create_py_random_state(seed)
+        if move == "1-1":
+            mv_fn = _approx_swap_two_nodes
+        elif move == "1-0":
+            mv_fn = _approx_move_one_node
+        else:
+            mv_fn = move
+        if init_cycle == "greedy":
+            cycle = self.greedy_tsp(G, weight=weight, source=source)
+            if G.number_of_nodes() == 2:
+                return cycle
+        else:
+            cycle = list(init_cycle)
+            if source is None:
+                source = cycle[0]
+            elif source != cycle[0]:
+                raise NetworkXError("source must be first node in init_cycle")
+            if cycle[0] != cycle[-1]:
+                raise NetworkXError("init_cycle must be a cycle. (return to start)")
+            if len(cycle) - 1 != len(G) or len(set(G.nbunch_iter(cycle))) != len(G):
+                raise NetworkXError("init_cycle should be a cycle over all nodes in G.")
+            N = len(G) - 1
+            if any(len(nbrdict) - (n in nbrdict) != N for n, nbrdict in G.adj.items()):
+                raise NetworkXError("G must be a complete graph.")
+            if G.number_of_nodes() == 2:
+                neighbor = next(G.neighbors(source))
+                return [source, neighbor, source]
+        cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(cycle))
+        count = 0
+        best_cycle = cycle.copy()
+        best_cost = cost
+        while count <= max_iterations and temp > 0:
+            count += 1
+            for _ in range(N_inner):
+                adj_sol = mv_fn(cycle, rng)
+                adj_cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(adj_sol))
+                delta = adj_cost - cost
+                if delta <= 0:
+                    cycle = adj_sol
+                    cost = adj_cost
+                    if cost < best_cost:
+                        count = 0
+                        best_cycle = cycle.copy()
+                        best_cost = cost
+                else:
+                    p = _math.exp(-delta / temp)
+                    if p >= rng.random():
+                        cycle = adj_sol
+                        cost = adj_cost
+            temp -= temp * alpha
+        return best_cycle
+
+    def threshold_accepting_tsp(
+        self,
+        G,
+        init_cycle,
+        weight="weight",
+        source=None,
+        threshold=1,
+        move="1-1",
+        max_iterations=10,
+        N_inner=100,
+        alpha=0.1,
+        seed=None,
+        *,
+        backend=None,
+        **backend_kwargs,
+    ):
+        _validate_backend_dispatch_keywords(
+            "threshold_accepting_tsp", backend, backend_kwargs
+        )
+        if backend is None and not backend_kwargs:
+            prep = self._tsp_anneal_prep(G, init_cycle, weight, source, move)
+            if prep is not None:
+                nodes, W, mv, cyc = prep
+                rng = _generator_random_state(seed)
+                cost = float(W[cyc[:-1], cyc[1:]].sum())
+                best_cycle = cyc.copy()
+                best_cost = cost
+                count = 0
+                thr = threshold
+                while count <= max_iterations:
+                    count += 1
+                    accepted = False
+                    for _ in range(N_inner):
+                        mv(cyc, rng)
+                        adj_cost = float(W[cyc[:-1], cyc[1:]].sum())
+                        delta = adj_cost - cost
+                        if delta <= thr:
+                            accepted = True
+                            cost = adj_cost
+                            if cost < best_cost:
+                                count = 0
+                                best_cycle = cyc.copy()
+                                best_cost = cost
+                    if accepted:
+                        thr -= thr * alpha
+                return [nodes[i] for i in best_cycle]
+        G = _coerce_arg_to_fnx_graph(G)
+        rng = _create_py_random_state(seed)
+        if move == "1-1":
+            mv_fn = _approx_swap_two_nodes
+        elif move == "1-0":
+            mv_fn = _approx_move_one_node
+        else:
+            mv_fn = move
+        if init_cycle == "greedy":
+            cycle = self.greedy_tsp(G, weight=weight, source=source)
+            if G.number_of_nodes() == 2:
+                return cycle
+        else:
+            cycle = list(init_cycle)
+            if source is None:
+                source = cycle[0]
+            elif source != cycle[0]:
+                raise NetworkXError("source must be first node in init_cycle")
+            if cycle[0] != cycle[-1]:
+                raise NetworkXError("init_cycle must be a cycle. (return to start)")
+            if len(cycle) - 1 != len(G) or len(set(G.nbunch_iter(cycle))) != len(G):
+                raise NetworkXError("init_cycle is not all and only nodes.")
+            N = len(G) - 1
+            if any(len(nbrdict) - (n in nbrdict) != N for n, nbrdict in G.adj.items()):
+                raise NetworkXError("G must be a complete graph.")
+            if G.number_of_nodes() == 2:
+                neighbor = list(G.neighbors(source))[0]
+                return [source, neighbor, source]
+        cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(cycle))
+        count = 0
+        best_cycle = cycle.copy()
+        best_cost = cost
+        while count <= max_iterations:
+            count += 1
+            accepted = False
+            for _ in range(N_inner):
+                adj_sol = mv_fn(cycle, rng)
+                adj_cost = sum(G[u][v].get(weight, 1) for u, v in _itertools.pairwise(adj_sol))
+                delta = adj_cost - cost
+                if delta <= threshold:
+                    accepted = True
+                    cycle = adj_sol
+                    cost = adj_cost
+                    if cost < best_cost:
+                        count = 0
+                        best_cycle = cycle.copy()
+                        best_cost = cost
+            if accepted:
+                threshold -= threshold * alpha
+        return best_cycle
+
+    def __getattr__(self, name):
+        import importlib as _importlib
+
+        _child_modules = {
+            "clique",
+            "clustering_coefficient",
+            "connectivity",
+            "density",
+            "distance_measures",
+            "dominating_set",
+            "kcomponents",
+            "matching",
+            "maxcut",
+            "ramsey",
+            "steinertree",
+            "traveling_salesman",
+            "treewidth",
+            "vertex_cover",
+        }
+        if name in _child_modules:
+            return _importlib.import_module(f"networkx.algorithms.approximation.{name}")
+        raise AttributeError(f"module 'franken_networkx.approximation' has no attribute {name!r}")
+
+    def __dir__(self):
+        return sorted(set(dir(_nx.approximation)) | {"treewidth_min_degree"})
+
+
+_approx_ns = _ApproximationNamespace()
+approximation = _approx_ns
+
+
+def _approx_local_node_connectivity_undirected(G, raw, source, target, cutoff):
+    """In-process White & Newman greedy node-connectivity approximation for an
+    undirected simple graph, mirroring
+    ``networkx.algorithms.approximation.connectivity.local_node_connectivity``
+    EXACTLY (same level-alternating bidirectional BFS, same neighbour iteration
+    order via the raw binding, same exclude-set update) so the returned count is
+    byte-identical. ``raw(G, v)`` yields v's neighbours in G's adjacency order.
+    """
+    if target == source:
+        raise NetworkXError("source and target have to be different nodes.")
+    # Maximum possible node independent paths (undirected: min of the degrees).
+    possible = min(G.degree(source), G.degree(target))
+    if not possible:
+        return 0
+    if cutoff is None:
+        cutoff = float("inf")
+    exclude = set()
+    k = 0
+    for _i in range(min(possible, cutoff)):
+        path = _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude)
+        if path is None:
+            break
+        exclude.update(path)
+        k += 1
+    return k
+
+
+def _approx_local_node_connectivity_dict(adj, deg, source, target, cutoff):
+    """White & Newman greedy local node-connectivity over a plain Python int->list
+    adjacency snapshot (``adj``) and degree map (``deg``). Identical algorithm to
+    :func:`_approx_local_node_connectivity_undirected` but with zero PyO3 access —
+    used by the global node_connectivity loops where adjacency is touched many
+    times, so the one-time snapshot amortizes and pure-dict BFS beats nx's
+    AtlasView traversal."""
+    possible = min(deg[source], deg[target])
+    if not possible:
+        return 0
+    if cutoff is None:
+        cutoff = float("inf")
+    exclude = set()
+    k = 0
+    for _i in range(min(possible, cutoff)):
+        path = _approx_bbfs_dict(adj, source, target, exclude)
+        if path is None:
+            break
+        exclude.update(path)
+        k += 1
+    return k
+
+
+def _approx_bbfs_dict(adj, source, target, exclude):
+    """Level-alternating bidirectional BFS over a plain ``adj`` dict avoiding
+    ``exclude``; returns the path list or ``None`` (mirrors nx's
+    ``_bidirectional_pred_succ`` exactly)."""
+    pred = {source: None}
+    succ = {target: None}
+    forward_fringe = [source]
+    reverse_fringe = [target]
+    level = 0
+    found = None
+    while forward_fringe and reverse_fringe and found is None:
+        level += 1
+        if level % 2 != 0:
+            this_level = forward_fringe
+            forward_fringe = []
+            for v in this_level:
+                for w in adj[v]:
+                    if w in exclude:
+                        continue
+                    if w not in pred:
+                        forward_fringe.append(w)
+                        pred[w] = v
+                    if w in succ:
+                        found = w
+                        break
+                if found is not None:
+                    break
+        else:
+            this_level = reverse_fringe
+            reverse_fringe = []
+            for v in this_level:
+                for w in adj[v]:
+                    if w in exclude:
+                        continue
+                    if w not in succ:
+                        succ[w] = v
+                        reverse_fringe.append(w)
+                    if w in pred:
+                        found = w
+                        break
+                if found is not None:
+                    break
+    if found is None:
+        return None
+    w = found
+    path = []
+    while w is not None:
+        path.append(w)
+        w = pred[w]
+    path.reverse()
+    w = succ[path[-1]]
+    while w is not None:
+        path.append(w)
+        w = succ[w]
+    return path
+
+
+def _approx_bidirectional_shortest_path_excl(G, raw, source, target, exclude):
+    """Bidirectional BFS shortest path avoiding ``exclude`` nodes; returns the
+    path list or ``None`` (nx raises NetworkXNoPath). Level-alternates forward /
+    reverse exactly as nx's ``_bidirectional_pred_succ``."""
+    pred = {source: None}
+    succ = {target: None}
+    forward_fringe = [source]
+    reverse_fringe = [target]
+    level = 0
+    found = None
+    while forward_fringe and reverse_fringe and found is None:
+        level += 1
+        if level % 2 != 0:
+            this_level = forward_fringe
+            forward_fringe = []
+            for v in this_level:
+                for w in raw(G, v):
+                    if w in exclude:
+                        continue
+                    if w not in pred:
+                        forward_fringe.append(w)
+                        pred[w] = v
+                    if w in succ:
+                        found = w
+                        break
+                if found is not None:
+                    break
+        else:
+            this_level = reverse_fringe
+            reverse_fringe = []
+            for v in this_level:
+                for w in raw(G, v):
+                    if w in exclude:
+                        continue
+                    if w not in succ:
+                        succ[w] = v
+                        reverse_fringe.append(w)
+                    if w in pred:
+                        found = w
+                        break
+                if found is not None:
+                    break
+    if found is None:
+        return None
+    w = found
+    path = []
+    while w is not None:
+        path.append(w)
+        w = pred[w]
+    path.reverse()
+    w = succ[path[-1]]
+    while w is not None:
+        path.append(w)
+        w = succ[w]
+    return path
+
+
+# Algorithm functions — cycles
+from franken_networkx._fnx import (
+    find_cycle as _raw_find_cycle,
+    girth as _raw_girth,
+)
+
+
+def girth(G):
+    """Return the length of the shortest cycle in ``G``.
+
+    Matches nx contract (br-girthinf): acyclic graphs return
+    ``_math.inf`` (float), not ``None``, so ``girth(G) < k`` works
+    without TypeError.
+
+    br-r37-c1-tqimg: nx is @not_implemented_for('multigraph').
+    """
+    import math
+
+    # br-r37-c1-nwkg0: accept nx-typed inputs.
+    G = _coerce_arg_to_fnx_graph(G)
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+
+    value = _raw_girth(G)
+    if value is None:
+        return _math.inf
+    return value
+
+
+def find_negative_cycle(G, source, weight="weight"):
+    """Return a negative cycle reachable from ``source`` using Bellman-Ford.
+
+    Relaxations use the caller's current adjacency and weight dictionaries.
+    The shared owned detector preserves the reference predecessor ordering,
+    including when weight callbacks mutate edges between visits.
+    """
+    _HASH_PROBE.get(source)
+    if source not in G:
+        raise NodeNotFound(f"Source {source} not in G")
+    return _find_negative_cycle_inprocess(G, source, weight)
+
+
+def _find_negative_cycle_inprocess(G, source, weight):
+    """Reconstruct a cycle from the shared live Bellman-Ford detector."""
+    wt = _weight_function(G, weight)
+    pred = {source: []}
+    found = _inner_bellman_ford_inproc(G, [source], wt, pred)
+
+    if found is None:
+        raise NetworkXError("No negative cycles detected.")
+
+    # Walk the predecessor witness in its recorded order.
+    v = found
+    neg_cycle = []
+    stack = [(v, list(pred[v]))]
+    seen = {v}
+    while stack:
+        node, preds = stack[-1]
+        if v in preds:
+            neg_cycle.extend([node, v])
+            return list(reversed(neg_cycle))
+        if preds:
+            nbr = preds.pop()
+            if nbr not in seen:
+                stack.append((nbr, list(pred[nbr])))
+                neg_cycle.append(node)
+                seen.add(nbr)
+        else:
+            stack.pop()
+            if neg_cycle:
+                neg_cycle.pop()
+            elif v in G[v] and wt(v, v, G[v][v]) < 0:
+                return [v, v]
+            else:
+                raise NetworkXError("Negative cycle is detected but not found")
+    raise NetworkXUnbounded("negative cycle detected but not identified")
+
+# Algorithm functions — graph predicates
+from franken_networkx._fnx import (
+    is_graphical,
+    is_digraphical as _raw_is_digraphical,
+    is_multigraphical,
+    is_pseudographical,
+    is_k_regular as _raw_is_k_regular,
+    is_weighted,
+    is_negatively_weighted,
+    is_distance_regular as _raw_is_distance_regular,
+)
+
+
+def is_k_regular(G, k):
+    """Determines whether the graph ``G`` is a k-regular graph.
+
+    A k-regular graph is a graph where each vertex has degree k.
+
+    Parameters
+    ----------
+    G : NetworkX graph
+    k : int
+        Target degree.
+
+    Returns
+    -------
+    bool
+        Whether ``G`` is k-regular.
+
+    br-r37-c1-akzum: wraps the Rust binding so users get a help()
+    docstring matching nx.
+    """
+    G = _coerce_arg_to_fnx_graph(G)
+    return _raw_is_k_regular(G, k)
+
+
+def simple_cycles(G, length_bound=None):
+    """Yield simple cycles as lists of nodes.
+
+    Self-loops and undirected parallel-edge cycles read the caller's graph
+    while the generator is suspended. Longer-cycle searches then operate on
+    an owned structural snapshot, independent of later source mutations.
+    """
+    yield from _simple_cycles_structure_only_via_networkx(G, length_bound)
+
+
+class _SimpleCyclesNeighborhoodCache(dict):
+    def __init__(self, G):
+        self.G = G
+
+    def __missing__(self, v):
+        Gv = self[v] = list(self.G[v])
+        return Gv
+
+
+from collections import defaultdict as _sc_defaultdict
+
+
+def _johnson_cycle_search_fnx(G, path):
+    G = _SimpleCyclesNeighborhoodCache(G)
+    blocked = set(path)
+    B = _sc_defaultdict(set)
+    start = path[0]
+    stack = [iter(G[path[-1]])]
+    closed = [False]
+    while stack:
+        nbrs = stack[-1]
+        for w in nbrs:
+            if w == start:
+                yield path[:]
+                closed[-1] = True
+            elif w not in blocked:
+                path.append(w)
+                closed.append(False)
+                stack.append(iter(G[w]))
+                blocked.add(w)
+                break
+        else:
+            stack.pop()
+            v = path.pop()
+            if closed.pop():
+                if closed:
+                    closed[-1] = True
+                unblock_stack = {v}
+                while unblock_stack:
+                    u = unblock_stack.pop()
+                    if u in blocked:
+                        blocked.remove(u)
+                        unblock_stack.update(B[u])
+                        B[u].clear()
+            else:
+                for w in G[v]:
+                    B[w].add(v)
+
+
+def _bounded_cycle_search_fnx(G, path, length_bound):
+    G = _SimpleCyclesNeighborhoodCache(G)
+    lock = {v: 0 for v in path}
+    B = _sc_defaultdict(set)
+    start = path[0]
+    stack = [iter(G[path[-1]])]
+    blen = [length_bound]
+    while stack:
+        nbrs = stack[-1]
+        for w in nbrs:
+            if w == start:
+                yield path[:]
+                blen[-1] = 1
+            elif len(path) < lock.get(w, length_bound):
+                path.append(w)
+                blen.append(length_bound)
+                lock[w] = len(path)
+                stack.append(iter(G[w]))
+                break
+        else:
+            stack.pop()
+            v = path.pop()
+            bl = blen.pop()
+            if blen:
+                blen[-1] = min(blen[-1], bl)
+            if bl < length_bound:
+                relax_stack = [(bl, v)]
+                while relax_stack:
+                    bl, u = relax_stack.pop()
+                    if lock.get(u, length_bound) < length_bound - bl + 1:
+                        lock[u] = length_bound - bl + 1
+                        relax_stack.extend((bl + 1, w) for w in B[u].difference(path))
+            else:
+                for w in G[v]:
+                    B[w].add(v)
+
+
+def _simple_cycles_structure_only_via_networkx(G, length_bound):
+    # Early yields precede the structural snapshot below. Converting here
+    # would detach NetworkX inputs and views before those yields can resume.
+    if length_bound is not None:
+        if length_bound == 0:
+            return
+        elif length_bound < 0:
+            raise ValueError("length bound must be non-negative")
+
+    directed = G.is_directed()
+    yield from ([v] for v, Gv in G.adj.items() if v in Gv)
+
+    if length_bound is not None and length_bound == 1:
+        return
+
+    if G.is_multigraph() and not directed:
+        visited = set()
+        for u, Gu in G.adj.items():
+            multiplicity = ((v, len(Guv)) for v, Guv in Gu.items() if v in visited)
+            yield from ([u, v] for v, m in multiplicity if m > 1)
+            visited.add(u)
+
+    if directed:
+        H = DiGraph((u, v) for u, Gu in G.adj.items() for v in Gu if v != u)
+    else:
+        H = Graph((u, v) for u, Gu in G.adj.items() for v in Gu if v != u)
+
+    if length_bound is not None and length_bound == 2:
+        if directed:
+            visited = set()
+            for u, Hu in H.adj.items():
+                yield from (
+                    [v, u] for v in visited.intersection(Hu) if H.has_edge(v, u)
+                )
+                visited.add(u)
+        return
+
+    if directed:
+        components = [c for c in strongly_connected_components(H) if len(c) >= 2]
+        while components:
+            c = components.pop()
+            Hc = H.subgraph(c)
+            v = next(iter(c))
+            if length_bound is None:
+                yield from _johnson_cycle_search_fnx(Hc, [v])
+            else:
+                yield from _bounded_cycle_search_fnx(Hc, [v], length_bound)
+            H.remove_node(v)
+            components.extend(c for c in strongly_connected_components(Hc) if len(c) >= 2)
+    else:
+        components = [c for c in biconnected_components(H) if len(c) >= 3]
+        while components:
+            c = components.pop()
+            Hc = H.subgraph(c)
+            uv = list(next(iter(Hc.edges)))
+            H.remove_edge(*uv)
+            if length_bound is None:
+                yield from _johnson_cycle_search_fnx(Hc, uv)
+            else:
+                yield from _bounded_cycle_search_fnx(Hc, uv, length_bound)
+            components.extend(c for c in biconnected_components(Hc) if len(c) >= 3)

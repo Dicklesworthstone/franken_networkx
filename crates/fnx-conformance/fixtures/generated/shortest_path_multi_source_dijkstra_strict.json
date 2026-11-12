@@ -1,0 +1,38 @@
+{
+  "suite": "shortest_path_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {"weight": "2"}},
+    {"op": "add_edge", "left": "b", "right": "c", "attrs": {"weight": "3"}},
+    {"op": "add_edge", "left": "c", "right": "d", "attrs": {"weight": "1"}},
+    {"op": "add_edge", "left": "d", "right": "e", "attrs": {"weight": "4"}},
+    {"op": "add_edge", "left": "a", "right": "e", "attrs": {"weight": "10"}},
+    {"op": "multi_source_dijkstra_query", "sources": ["a", "d"], "weight_attr": "weight"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d", "e"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {"weight": "2"}},
+        {"left": "a", "right": "e", "attrs": {"weight": "10"}},
+        {"left": "b", "right": "c", "attrs": {"weight": "3"}},
+        {"left": "c", "right": "d", "attrs": {"weight": "1"}},
+        {"left": "d", "right": "e", "attrs": {"weight": "4"}}
+      ]
+    },
+    "multi_source_dijkstra_distances": [
+      {"node": "a", "distance": 0.0},
+      {"node": "b", "distance": 2.0},
+      {"node": "c", "distance": 1.0},
+      {"node": "d", "distance": 0.0},
+      {"node": "e", "distance": 4.0}
+    ],
+    "multi_source_dijkstra_predecessors": [
+      {"node": "a", "predecessor": null},
+      {"node": "b", "predecessor": "a"},
+      {"node": "c", "predecessor": "d"},
+      {"node": "d", "predecessor": null},
+      {"node": "e", "predecessor": "d"}
+    ]
+  }
+}

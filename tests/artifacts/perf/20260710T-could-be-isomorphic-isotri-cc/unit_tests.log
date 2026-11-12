@@ -1,0 +1,7 @@
+  [2m2026-07-11T03:19:46.587266Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib could_be_isomorphic[0m
+test tests::could_be_isomorphic_isotri_ab ... ignored, measurement; run with --release --ignored --nocapture
+test tests::test_could_be_isomorphic_no_different_degrees ... ok
+test tests::test_fast_could_be_isomorphic_basic ... ok
+test tests::test_faster_could_be_isomorphic_basic ... ok
+test tests::test_could_be_isomorphic_yes ... ok
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 931 filtered out; finished in 0.00s

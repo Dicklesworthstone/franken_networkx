@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python -c \"import franken_networkx as fnx; G=fnx.barabasi_albert_graph(20000,4,seed=1); r=fnx.pagerank(G, weight=None, max_iter=100, tol=1e-6); print(f\\\"{sum(r.values()):.12f}\\\")\"",
+      "mean": 0.95517912948,
+      "stddev": 0.026690380259660456,
+      "median": 0.95096371688,
+      "user": 4.78460104,
+      "system": 0.16059456,
+      "min": 0.92109713388,
+      "max": 0.98927818988,
+      "times": [
+        0.95096371688,
+        0.98927818988,
+        0.9414891538800001,
+        0.9730674528800001,
+        0.92109713388
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

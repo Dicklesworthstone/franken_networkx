@@ -1,0 +1,12 @@
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  - repo: local
+    hooks:
+      - id: perf-ledger-integrity
+        name: performance ledger integrity (REJECT null/mechanism, KEEP loaded ELF)
+        entry: python3 scripts/perf_ledger_preflight.py --check-staged
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

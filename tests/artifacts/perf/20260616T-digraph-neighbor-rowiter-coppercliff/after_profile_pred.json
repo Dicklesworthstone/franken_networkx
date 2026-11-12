@@ -1,0 +1,5 @@
+{
+  "kind": "pred",
+  "loops": 120,
+  "profile_text": "tests/artifacts/perf/20260616T-digraph-neighbor-rowiter-coppercliff/after_profile_pred.txt"
+}

@@ -1,0 +1,1 @@
+ab9ca8e7ce3f5ba397442be33404755c5c0a24b8ca8c8e6ac6124f4b5a04f765  parity_proof.py (tensor/strong/cartesian/lexicographic, 144 cases x4 graph types, 0 mismatches vs nx)

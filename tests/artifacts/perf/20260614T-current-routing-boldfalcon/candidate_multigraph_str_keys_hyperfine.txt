@@ -1,0 +1,11 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260614T-current-routing-boldfalcon/multigraph_str_key_batch.py bench --impl fnx --case string_keys_list --size 50000 --repeats 1
+  Time (mean ± σ):      1.494 s ±  0.045 s    [User: 5.642 s, System: 0.144 s]
+  Range (min … max):    1.429 s …  1.548 s    10 runs
+
+Benchmark 2: .venv/bin/python tests/artifacts/perf/20260614T-current-routing-boldfalcon/multigraph_str_key_batch.py bench --impl nx --case string_keys_list --size 50000 --repeats 1
+  Time (mean ± σ):     857.1 ms ±  17.8 ms    [User: 5059.4 ms, System: 106.6 ms]
+  Range (min … max):   821.3 ms … 872.9 ms    10 runs
+
+Summary
+  .venv/bin/python tests/artifacts/perf/20260614T-current-routing-boldfalcon/multigraph_str_key_batch.py bench --impl nx --case string_keys_list --size 50000 --repeats 1 ran
+    1.74 ± 0.06 times faster than .venv/bin/python tests/artifacts/perf/20260614T-current-routing-boldfalcon/multigraph_str_key_batch.py bench --impl fnx --case string_keys_list --size 50000 --repeats 1

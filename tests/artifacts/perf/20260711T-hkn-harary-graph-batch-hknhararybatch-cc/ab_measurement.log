@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib hkn_harary_batch_ab -- --ignored --nocapture
+
+HKN_HARARY_BATCH_AB k=200 n=2000 rounds=61 (>1 = batch faster)
+HKN_HARARY_BATCH_AB BATCH_vs_string: median=19.8551x win_rate=61/61 p5_p95=[14.5986,24.0025]
+HKN_HARARY_BATCH_AB NULL_batch_vs_batch: median=1.0233x win_rate=38/61 p5_p95=[0.8350,1.2380]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 205 filtered out; finished in 21.80s
+
+Gate: candidate p5 (14.5986) >> NULL p95 (1.2380); 61/61 rounds. Byte-identity parity asserts across
+6 branch configs (even-k/even-n, odd-k/even-n, odd-k/odd-n, even-k/odd-n, k=1 path, tiny) passed
+before timing. (This A/B ran before the clippy fix `n%2==0`->`.is_multiple_of(2)` in the test-only
+collect_pairs; that change is semantics-preserving and the timed even-k config never exercises it.)

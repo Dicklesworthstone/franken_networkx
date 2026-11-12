@@ -1,0 +1,5 @@
+== timings (min-of-9, warm) ==
+undir hub512/s32 : fnx   14.02ms  nx   62.12ms  4.430x  (32768 pairs)
+dir   fan512/f32  : fnx   16.12ms  nx   55.23ms  3.425x  (16384 pairs)
+== parity: 192 checks, 0 fails ==
+golden sha256: 9123af2d819efaf20f980cf86ecff6305d03beb0bfc62d7e22afd01c787a2e5e

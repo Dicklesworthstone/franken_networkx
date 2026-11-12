@@ -1,0 +1,659 @@
+  [2m2026-07-10T18:17:44.008968Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: ovh-a at ubuntu@51.222.245.56 (0 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:867 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:44.267022Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 5ed771bfef82b38f)[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:241 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:44.267120Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:263 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:46.547862Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mSyncing project to worker ovh-a...[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:323 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:46.547988Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:49.696548Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 3148ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:49.696653Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:50.215234Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 518ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:50.215349Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:50.838861Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 623ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:50.839018Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:51.376393Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 537ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:51.376501Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:51.887502Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 510ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:51.887640Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:52.547450Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 659ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:52.547566Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:53.050729Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 503ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:53.050879Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:53.545664Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 494ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:53.545794Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:54.234162Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 688ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:54.234308Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:54.734003Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 499ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:54.734144Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:55.222316Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 488ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:55.222450Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:55.749112Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 526ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:55.749253Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:56.206854Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 457ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:56.206905Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mSync complete: 87378 files, 4992275 bytes in 9650ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:486 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:57.688587Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo bench -p fnx-python --bench public_api_gauntlet -- 'shortest_path|dijkstra' --sample-size 10 --warm-up-time 0.3 --measurement-time 0.6[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:529 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:17:57.688688Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/projects/franken_networkx/target -> /data/projects/franken_networkx/.rch-target-ovh-a-pool-4a7eb17ce3437e25aacd2701aa3351d7[0m
+    [2;3mat[0m rch/src/transfer.rs:856 [2;3mon[0m ThreadId(1)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded alloca v0.4.0
+  Downloaded clap_lex v1.1.0
+  Downloaded anes v0.1.6
+  Downloaded bit-set v0.8.0
+  Downloaded arrayref v0.3.9
+  Downloaded cast v0.3.0
+  Downloaded unarray v0.1.4
+  Downloaded autocfg v1.5.0
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded anstyle v1.0.14
+  Downloaded either v1.15.0
+  Downloaded bit-vec v0.8.0
+  Downloaded rand_chacha v0.9.0
+  Downloaded once_cell v1.21.4
+  Downloaded pyo3-log v0.13.3
+  Downloaded bitflags v2.13.0
+  Downloaded plotters-svg v0.3.7
+  Downloaded arrayvec v0.7.6
+  Downloaded arc-swap v1.9.1
+  Downloaded rusty-fork v0.3.1
+  Downloaded indexmap v2.14.0
+  Downloaded criterion v0.8.2
+  Downloaded plotters v0.3.7
+  Downloaded regex v1.12.3
+  Downloaded serde_json v1.0.150
+  Downloaded aho-corasick v1.1.4
+  Downloaded errno v0.3.14
+  Downloaded inventory v0.3.24
+  Downloaded cc v1.2.61
+  Downloaded equivalent v1.0.2
+  Downloaded getrandom v0.4.2
+  Downloaded plotters-backend v0.3.7
+  Downloaded hashbrown v0.17.0
+  Downloaded ciborium-io v0.2.2
+  Downloaded itoa v1.0.18
+  Downloaded page_size v0.6.0
+  Downloaded constant_time_eq v0.4.2
+  Downloaded mwmatching v0.1.1
+  Downloaded chacha20 v0.10.0
+  Downloaded crossbeam-epoch v0.9.18
+  Downloaded ciborium-ll v0.2.2
+  Downloaded same-file v1.0.6
+  Downloaded fastrand v2.4.1
+  Downloaded crossbeam-deque v0.8.6
+  Downloaded blake3 v1.8.4
+  Downloaded mt19937 v3.3.0
+  Downloaded cfg-if v1.0.4
+  Downloaded rustc-hash v2.1.2
+  Downloaded criterion-plot v0.8.2
+  Downloaded shlex v1.3.0
+  Downloaded rand_xorshift v0.4.0
+  Downloaded clap v4.6.1
+  Downloaded half v2.7.1
+  Downloaded tinytemplate v1.2.1
+  Downloaded heck v0.5.0
+  Downloaded wait-timeout v0.2.1
+  Downloaded quote v1.0.45
+  Downloaded walkdir v2.5.0
+  Downloaded cpufeatures v0.3.0
+  Downloaded num-traits v0.2.19
+  Downloaded serde_core v1.0.228
+  Downloaded fnv v1.0.7
+  Downloaded quick-error v1.2.3
+  Downloaded hex v0.4.3
+  Downloaded pyo3-macros v0.28.3
+  Downloaded rand_core v0.9.5
+  Downloaded serde v1.0.228
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded getrandom v0.3.4
+  Downloaded zmij v1.0.21
+  Downloaded rustversion v1.0.22
+  Downloaded rand_core v0.10.1
+  Downloaded target-lexicon v0.13.5
+  Downloaded rand v0.9.4
+  Downloaded oorandom v11.1.5
+  Downloaded ciborium v0.2.2
+  Downloaded tempfile v3.27.0
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded log v0.4.29
+  Downloaded pyo3-ffi v0.28.3
+  Downloaded unicode-ident v1.0.24
+  Downloaded serde_derive v1.0.228
+  Downloaded rayon-core v1.13.0
+  Downloaded proc-macro2 v1.0.106
+  Downloaded pyo3-macros-backend v0.28.3
+  Downloaded pyo3-build-config v0.28.3
+  Downloaded memchr v2.8.2
+  Downloaded rand v0.10.1
+  Downloaded zerocopy-derive v0.8.48
+  Downloaded itertools v0.13.0
+  Downloaded proptest v1.11.0
+  Downloaded rayon v1.12.0
+  Downloaded clap_builder v4.6.0
+  Downloaded quick-xml v0.39.2
+  Downloaded syn v2.0.117
+  Downloaded zerocopy v0.8.48
+  Downloaded regex-syntax v0.8.10
+  Downloaded rustix v1.1.4
+  Downloaded regex-automata v0.4.14
+  Downloaded libc v0.2.186
+  Downloaded pyo3 v0.28.3
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.106
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling target-lexicon v0.13.5
+   Compiling serde_core v1.0.228
+   Compiling serde v1.0.228
+   Compiling zmij v1.0.21
+   Compiling memchr v2.8.2
+   Compiling serde_json v1.0.150
+   Compiling itoa v1.0.18
+   Compiling shlex v1.3.0
+   Compiling find-msvc-tools v0.1.9
+   Compiling crossbeam-utils v0.8.21
+   Compiling zerocopy v0.8.48
+   Compiling hashbrown v0.17.0
+   Compiling equivalent v1.0.2
+   Compiling rustc-hash v2.1.2
+   Compiling cc v1.2.61
+   Compiling cpufeatures v0.3.0
+   Compiling getrandom v0.3.4
+   Compiling autocfg v1.5.0
+   Compiling either v1.15.0
+   Compiling once_cell v1.21.4
+   Compiling rayon-core v1.13.0
+   Compiling rand_core v0.10.1
+   Compiling rustix v1.1.4
+   Compiling rustversion v1.0.22
+   Compiling heck v0.5.0
+   Compiling getrandom v0.4.2
+   Compiling bitflags v2.13.0
+   Compiling regex-syntax v0.8.10
+   Compiling num-traits v0.2.19
+   Compiling linux-raw-sys v0.12.1
+   Compiling constant_time_eq v0.4.2
+   Compiling arrayvec v0.7.6
+   Compiling arrayref v0.3.9
+   Compiling pyo3-build-config v0.28.3
+   Compiling chacha20 v0.10.0
+   Compiling crossbeam-epoch v0.9.18
+   Compiling indexmap v2.14.0
+   Compiling mt19937 v3.3.0
+   Compiling syn v2.0.117
+   Compiling clap_lex v1.1.0
+   Compiling anstyle v1.0.14
+   Compiling hex v0.4.3
+   Compiling crossbeam-deque v0.8.6
+   Compiling fastrand v2.4.1
+   Compiling plotters-backend v0.3.7
+   Compiling inventory v0.3.24
+   Compiling ciborium-io v0.2.2
+   Compiling arc-swap v1.9.1
+   Compiling clap_builder v4.6.0
+   Compiling rand v0.10.1
+   Compiling quick-xml v0.39.2
+   Compiling rand_core v0.9.5
+   Compiling plotters-svg v0.3.7
+   Compiling wait-timeout v0.2.1
+   Compiling blake3 v1.8.4
+   Compiling alloca v0.4.0
+   Compiling itertools v0.13.0
+   Compiling cast v0.3.0
+   Compiling rayon v1.12.0
+   Compiling quick-error v1.2.3
+   Compiling log v0.4.29
+   Compiling fnv v1.0.7
+   Compiling same-file v1.0.6
+   Compiling mwmatching v0.1.1
+   Compiling bit-vec v0.8.0
+   Compiling walkdir v2.5.0
+   Compiling plotters v0.3.7
+   Compiling rand v0.9.4
+   Compiling bit-set v0.8.0
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling pyo3-ffi v0.28.3
+   Compiling pyo3 v0.28.3
+   Compiling regex-automata v0.4.14
+   Compiling rand_xorshift v0.4.0
+   Compiling page_size v0.6.0
+   Compiling oorandom v11.1.5
+   Compiling tempfile v3.27.0
+   Compiling anes v0.1.6
+   Compiling unarray v0.1.4
+   Compiling rusty-fork v0.3.1
+   Compiling criterion-plot v0.8.2
+   Compiling clap v4.6.1
+   Compiling regex v1.12.3
+   Compiling serde_derive v1.0.228
+   Compiling zerocopy-derive v0.8.48
+   Compiling pyo3-macros v0.28.3
+   Compiling fnx-runtime v0.2.0 (/data/projects/franken_networkx/crates/fnx-runtime)
+   Compiling fnx-cgse v0.2.0 (/data/projects/franken_networkx/crates/fnx-cgse)
+   Compiling tinytemplate v1.2.1
+   Compiling fnx-classes v0.2.0 (/data/projects/franken_networkx/crates/fnx-classes)
+   Compiling fnx-dispatch v0.2.0 (/data/projects/franken_networkx/crates/fnx-dispatch)
+   Compiling half v2.7.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling proptest v1.11.0
+   Compiling fnx-convert v0.2.0 (/data/projects/franken_networkx/crates/fnx-convert)
+   Compiling fnx-algorithms v0.2.0 (/data/projects/franken_networkx/crates/fnx-algorithms)
+   Compiling fnx-generators v0.2.0 (/data/projects/franken_networkx/crates/fnx-generators)
+   Compiling fnx-views v0.2.0 (/data/projects/franken_networkx/crates/fnx-views)
+   Compiling fnx-readwrite v0.2.0 (/data/projects/franken_networkx/crates/fnx-readwrite)
+   Compiling criterion v0.8.2
+   Compiling pyo3-log v0.13.3
+   Compiling fnx-python v0.2.0 (/data/projects/franken_networkx/crates/fnx-python)
+    Finished `bench` profile [optimized] target(s) in 2m 10s
+     Running benches/public_api_gauntlet.rs (.rch-target-ovh-a-pool-4a7eb17ce3437e25aacd2701aa3351d7/release/deps/public_api_gauntlet-f3fd2d3cc0c8b9da)
+Gnuplot not found, using plotters backend
+fnx bench cpu: 15
+fnx bench extension: /data/projects/franken_networkx/.rch-target-ovh-a-pool-4a7eb17ce3437e25aacd2701aa3351d7/release/deps/lib_fnx.so sha256=3e1e9f8c95bd2f993fbde70862ed8b9f5d7c210db2cc3b792f92c482954e8498
+PROFILE_INTEGRITY scenario=multigraph_shortest_path_string_target_current host=fixmydocuments cpu=15 calls=64 self_s=0.005774152 self_pct=14.769105 checksum=5376.0
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.031999899 self_pct=81.849227 calls=64 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.005774152 self_pct=14.769105 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000179974 self_pct=0.460337 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000156514 self_pct=0.400331 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000151659 self_pct=0.387913 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8730:shortest_path'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000100462 self_pct=0.256961 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000085003 self_pct=0.217420 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000084225 self_pct=0.215430 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000078220 self_pct=0.200071 calls=704 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000071568 self_pct=0.183056 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000060249 self_pct=0.154105 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000051693 self_pct=0.132220 calls=320 code='<built-in method builtins.vars>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000042325 self_pct=0.108259 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1388:<lambda>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000040249 self_pct=0.102949 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:15019:_coerce_arg_to_fnx_graph'
+PROFILE_INTEGRITY scenario=multigraph_bidirectional_dijkstra_string_target_current host=fixmydocuments cpu=15 calls=64 self_s=0.005913514 self_pct=15.052733 checksum=10688.0
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.032443703 self_pct=82.584804 calls=64 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.005913514 self_pct=15.052733 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000181447 self_pct=0.461870 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000094688 self_pct=0.241026 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000090313 self_pct=0.229890 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000083044 self_pct=0.211387 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000074518 self_pct=0.189684 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000057685 self_pct=0.146836 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000056286 self_pct=0.143275 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1396:<lambda>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000047016 self_pct=0.119678 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_INTEGRITY scenario=multigraph_shortest_path_dispatch_candidate host=fixmydocuments cpu=15 calls=64 self_s=0.032093815 self_pct=81.475336 checksum=5376.0
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.032093815 self_pct=81.475336 calls=64 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.005888901 self_pct=14.949927 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000199030 self_pct=0.505270 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000169552 self_pct=0.430435 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8730:shortest_path'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000158526 self_pct=0.402444 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000096610 self_pct=0.245260 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000094371 self_pct=0.239576 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000086996 self_pct=0.220853 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000080518 self_pct=0.204408 calls=704 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000071458 self_pct=0.181408 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000066276 self_pct=0.168252 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000050382 self_pct=0.127903 calls=320 code='<built-in method builtins.vars>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000049184 self_pct=0.124862 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:15019:_coerce_arg_to_fnx_graph'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000042123 self_pct=0.106936 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1404:candidate_multigraph_shortest_path_dispatch_once'
+PROFILE_INTEGRITY scenario=multigraph_shortest_path_dispatch_orig host=fixmydocuments cpu=15 calls=128 self_s=0.063503012 self_pct=89.678691 checksum=5376.0
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.063503012 self_pct=89.678691 calls=128 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.005783488 self_pct=8.167418 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000215547 self_pct=0.304395 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1430:_orig_shortest_path_5abbfd8a4_template'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000184989 self_pct=0.261241 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000163883 self_pct=0.231435 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000107622 self_pct=0.151983 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000099983 self_pct=0.141196 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000089576 self_pct=0.126499 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000086917 self_pct=0.122744 calls=704 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000086832 self_pct=0.122624 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000076968 self_pct=0.108694 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+Benchmarking multigraph_shortest_path_string_target_ab/candidate_vs_frozen_5abbfd8a4
+Benchmarking multigraph_shortest_path_string_target_ab/candidate_vs_frozen_5abbfd8a4: Warming up for 300.00 ms
+Benchmarking multigraph_shortest_path_string_target_ab/candidate_vs_frozen_5abbfd8a4: Collecting 20 samples in estimated 615.30 ms (360 iterations)
+Benchmarking multigraph_shortest_path_string_target_ab/candidate_vs_frozen_5abbfd8a4: Analyzing
+multigraph_shortest_path_string_target_ab/candidate_vs_frozen_5abbfd8a4
+                        time:   [590.44 µs 591.27 µs 592.05 µs]
+                        change: [+0.9910% +1.3418% +1.7038%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+
+PAIRED_SHORTEST_AB comparison=frozen_5abbfd8a4 samples=20 candidate_mean_ns=591265.033 candidate_cv_pct=0.319214 comparison_mean_ns=1087422.703 comparison_cv_pct=0.471045 speedup_comparison_over_candidate=1.839146
+PAIRED_SHORTEST_AB_RAW comparison=frozen_5abbfd8a4 candidate_ns=[587426.2777777778, 589109.8888888889, 588791.6111111111, 588619.0555555555, 590613.2777777778, 589641.5, 589343.6666666666, 590656.0, 592144.0555555555, 591505.3888888889, 594476.6666666666, 593175.8333333334, 592172.3333333334, 591986.8333333334, 592649.8888888889, 592239.7222222222, 592795.1111111111, 592176.3333333334, 593440.1666666666, 592337.0555555555] comparison_ns=[1080099.9444444445, 1092817.3333333333, 1079162.8333333333, 1081870.7222222222, 1082637.2222222222, 1084578.111111111, 1082091.7777777778, 1084646.111111111, 1088793.111111111, 1087795.2777777778, 1099502.7222222222, 1092330.388888889, 1088950.2777777778, 1088055.6666666667, 1089359.888888889, 1087859.0, 1087719.5, 1086967.0, 1095825.888888889, 1087391.2777777778]
+Benchmarking multigraph_shortest_path_string_target_vs_networkx/candidate_vs_networkx
+Benchmarking multigraph_shortest_path_string_target_vs_networkx/candidate_vs_networkx: Warming up for 300.00 ms
+Benchmarking multigraph_shortest_path_string_target_vs_networkx/candidate_vs_networkx: Collecting 20 samples in estimated 617.71 ms (460 iterations)
+Benchmarking multigraph_shortest_path_string_target_vs_networkx/candidate_vs_networkx: Analyzing
+multigraph_shortest_path_string_target_vs_networkx/candidate_vs_networkx
+                        time:   [613.51 µs 618.70 µs 624.87 µs]
+                        change: [+3.1080% +4.1730% +5.4268%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 3 outliers among 20 measurements (15.00%)
+  2 (10.00%) high mild
+  1 (5.00%) high severe
+
+PAIRED_SHORTEST_AB comparison=networkx samples=20 candidate_mean_ns=618703.998 candidate_cv_pct=2.165368 comparison_mean_ns=620320.057 comparison_cv_pct=0.541907 speedup_comparison_over_candidate=1.002612
+PAIRED_SHORTEST_AB_RAW comparison=networkx candidate_ns=[606602.7391304348, 606455.9130434783, 607957.9565217391, 608103.1739130435, 621086.0869565217, 615349.1304347826, 618904.2173913043, 609522.6086956522, 618338.695652174, 610894.4782608695, 616374.6521739131, 614567.7826086957, 615691.4782608695, 607125.3913043478, 610394.695652174, 628005.6086956522, 654056.4782608695, 644006.1739130435, 641329.5652173914, 619313.1304347826] comparison_ns=[618009.8260869565, 617408.2173913043, 618827.0869565217, 618277.304347826, 622103.1739130435, 622313.8260869565, 619046.5652173914, 619834.4347826086, 617474.0434782609, 619063.2173913043, 617952.2608695652, 618422.6521739131, 617802.3913043478, 617385.5652173914, 618815.5652173914, 628019.4782608695, 626959.5217391305, 626212.5652173914, 623428.304347826, 619045.1304347826]
+Benchmarking ubizp_multigraph_single_source_shortest_path/fnx
+Benchmarking ubizp_multigraph_single_source_shortest_path/fnx: Warming up for 300.00 ms
+Benchmarking ubizp_multigraph_single_source_shortest_path/fnx: Collecting 10 samples in estimated 945.78 ms (20 iterations)
+Benchmarking ubizp_multigraph_single_source_shortest_path/fnx: Analyzing
+ubizp_multigraph_single_source_shortest_path/fnx
+                        time:   [47.996 ms 48.702 ms 49.817 ms]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) low mild
+  1 (10.00%) high severe
+
+Benchmarking ubizp_multigraph_single_source_shortest_path/networkx
+Benchmarking ubizp_multigraph_single_source_shortest_path/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 645.7ms.
+Benchmarking ubizp_multigraph_single_source_shortest_path/networkx: Collecting 10 samples in estimated 645.66 ms (10 iterations)
+Benchmarking ubizp_multigraph_single_source_shortest_path/networkx: Analyzing
+ubizp_multigraph_single_source_shortest_path/networkx
+                        time:   [64.084 ms 65.153 ms 67.244 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
+Benchmarking multidigraph_single_target_shortest_path_length/fnx
+Benchmarking multidigraph_single_target_shortest_path_length/fnx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 659.6ms or enable flat sampling.
+Benchmarking multidigraph_single_target_shortest_path_length/fnx: Collecting 10 samples in estimated 659.60 ms (55 iterations)
+Benchmarking multidigraph_single_target_shortest_path_length/fnx: Analyzing
+multidigraph_single_target_shortest_path_length/fnx
+                        time:   [11.772 ms 12.292 ms 12.962 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
+Benchmarking multidigraph_single_target_shortest_path_length/networkx
+Benchmarking multidigraph_single_target_shortest_path_length/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 920.2ms or enable flat sampling.
+Benchmarking multidigraph_single_target_shortest_path_length/networkx: Collecting 10 samples in estimated 920.21 ms (55 iterations)
+Benchmarking multidigraph_single_target_shortest_path_length/networkx: Analyzing
+multidigraph_single_target_shortest_path_length/networkx
+                        time:   [16.775 ms 16.814 ms 16.863 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+
+Benchmarking digraph_weighted_target_shortest_path_length/fnx
+Benchmarking digraph_weighted_target_shortest_path_length/fnx: Warming up for 300.00 ms
+Benchmarking digraph_weighted_target_shortest_path_length/fnx: Collecting 10 samples in estimated 609.15 ms (2695 iterations)
+Benchmarking digraph_weighted_target_shortest_path_length/fnx: Analyzing
+digraph_weighted_target_shortest_path_length/fnx
+                        time:   [176.66 µs 176.92 µs 177.27 µs]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+
+Benchmarking digraph_weighted_target_shortest_path_length/networkx
+Benchmarking digraph_weighted_target_shortest_path_length/networkx: Warming up for 300.00 ms
+Benchmarking digraph_weighted_target_shortest_path_length/networkx: Collecting 10 samples in estimated 630.65 ms (1100 iterations)
+Benchmarking digraph_weighted_target_shortest_path_length/networkx: Analyzing
+digraph_weighted_target_shortest_path_length/networkx
+                        time:   [575.55 µs 619.26 µs 698.86 µs]
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+
+Benchmarking string_graph_single_source_shortest_path/fnx
+Benchmarking string_graph_single_source_shortest_path/fnx: Warming up for 300.00 ms
+Benchmarking string_graph_single_source_shortest_path/fnx: Collecting 10 samples in estimated 812.13 ms (30 iterations)
+Benchmarking string_graph_single_source_shortest_path/fnx: Analyzing
+string_graph_single_source_shortest_path/fnx
+                        time:   [27.091 ms 28.691 ms 31.282 ms]
+Found 2 outliers among 10 measurements (20.00%)
+  2 (20.00%) high severe
+
+Benchmarking string_graph_single_source_shortest_path/networkx
+Benchmarking string_graph_single_source_shortest_path/networkx: Warming up for 300.00 ms
+Benchmarking string_graph_single_source_shortest_path/networkx: Collecting 10 samples in estimated 612.74 ms (20 iterations)
+Benchmarking string_graph_single_source_shortest_path/networkx: Analyzing
+string_graph_single_source_shortest_path/networkx
+                        time:   [31.995 ms 37.142 ms 42.672 ms]
+
+Benchmarking multidigraph_single_source_shortest_path/fnx
+Benchmarking multidigraph_single_source_shortest_path/fnx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 802.5ms or enable flat sampling.
+Benchmarking multidigraph_single_source_shortest_path/fnx: Collecting 10 samples in estimated 802.53 ms (55 iterations)
+Benchmarking multidigraph_single_source_shortest_path/fnx: Analyzing
+multidigraph_single_source_shortest_path/fnx
+                        time:   [14.785 ms 15.466 ms 17.347 ms]
+Found 2 outliers among 10 measurements (20.00%)
+  2 (20.00%) high severe
+
+Benchmarking multidigraph_single_source_shortest_path/networkx
+Benchmarking multidigraph_single_source_shortest_path/networkx: Warming up for 300.00 ms
+Benchmarking multidigraph_single_source_shortest_path/networkx: Collecting 10 samples in estimated 679.96 ms (30 iterations)
+Benchmarking multidigraph_single_source_shortest_path/networkx: Analyzing
+multidigraph_single_source_shortest_path/networkx
+                        time:   [21.192 ms 21.250 ms 21.307 ms]
+
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/fnx
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/fnx: Warming up for 300.00 ms
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/fnx: Collecting 10 samples in estimated 601.70 ms (2640 iterations)
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/fnx: Analyzing
+multidigraph_dijkstra_path_length_target_early_exit/fnx
+                        time:   [225.95 µs 226.21 µs 226.55 µs]
+
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/networkx
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/networkx: Warming up for 300.00 ms
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/networkx: Collecting 10 samples in estimated 763.56 ms (220 iterations)
+Benchmarking multidigraph_dijkstra_path_length_target_early_exit/networkx: Analyzing
+multidigraph_dijkstra_path_length_target_early_exit/networkx
+                        time:   [3.4381 ms 3.4425 ms 3.4470 ms]
+
+Benchmarking multidigraph_dijkstra_path_target_early_exit/fnx
+Benchmarking multidigraph_dijkstra_path_target_early_exit/fnx: Warming up for 300.00 ms
+Benchmarking multidigraph_dijkstra_path_target_early_exit/fnx: Collecting 10 samples in estimated 606.61 ms (2365 iterations)
+Benchmarking multidigraph_dijkstra_path_target_early_exit/fnx: Analyzing
+multidigraph_dijkstra_path_target_early_exit/fnx
+                        time:   [255.23 µs 256.05 µs 256.74 µs]
+
+Benchmarking multidigraph_dijkstra_path_target_early_exit/networkx
+Benchmarking multidigraph_dijkstra_path_target_early_exit/networkx: Warming up for 300.00 ms
+Benchmarking multidigraph_dijkstra_path_target_early_exit/networkx: Collecting 10 samples in estimated 661.91 ms (165 iterations)
+Benchmarking multidigraph_dijkstra_path_target_early_exit/networkx: Analyzing
+multidigraph_dijkstra_path_target_early_exit/networkx
+                        time:   [3.9725 ms 3.9813 ms 3.9895 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
+Benchmarking multigraph_dijkstra_path_string_target/fnx
+Benchmarking multigraph_dijkstra_path_string_target/fnx: Warming up for 300.00 ms
+Benchmarking multigraph_dijkstra_path_string_target/fnx: Collecting 10 samples in estimated 1.1029 s (110 iterations)
+Benchmarking multigraph_dijkstra_path_string_target/fnx: Analyzing
+multigraph_dijkstra_path_string_target/fnx
+                        time:   [9.9903 ms 10.010 ms 10.029 ms]
+                        change: [−0.1275% +0.2854% +0.6511%] (p = 0.19 > 0.05)
+                        No change in performance detected.
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) low mild
+  1 (10.00%) high severe
+
+Benchmarking multigraph_dijkstra_path_string_target/networkx
+Benchmarking multigraph_dijkstra_path_string_target/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 645.2ms or enable flat sampling.
+Benchmarking multigraph_dijkstra_path_string_target/networkx: Collecting 10 samples in estimated 645.17 ms (55 iterations)
+Benchmarking multigraph_dijkstra_path_string_target/networkx: Analyzing
+multigraph_dijkstra_path_string_target/networkx
+                        time:   [11.791 ms 11.832 ms 11.901 ms]
+                        change: [+0.4983% +1.0339% +1.8762%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+Found 2 outliers among 10 measurements (20.00%)
+  1 (10.00%) high mild
+  1 (10.00%) high severe
+
+Benchmarking multigraph_shortest_path_string_target/fnx
+Benchmarking multigraph_shortest_path_string_target/fnx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 2.4s.
+Benchmarking multigraph_shortest_path_string_target/fnx: Collecting 10 samples in estimated 2.4304 s (10 iterations)
+Benchmarking multigraph_shortest_path_string_target/fnx: Analyzing
+multigraph_shortest_path_string_target/fnx
+                        time:   [242.63 ms 242.98 ms 243.30 ms]
+                        change: [+0.3951% +0.6036% +0.8115%] (p = 0.00 < 0.05)
+                        Change within noise threshold.
+
+Benchmarking multigraph_shortest_path_string_target/orig
+Benchmarking multigraph_shortest_path_string_target/orig: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 57.2s.
+Benchmarking multigraph_shortest_path_string_target/orig: Collecting 10 samples in estimated 57.206 s (10 iterations)
+Benchmarking multigraph_shortest_path_string_target/orig: Analyzing
+multigraph_shortest_path_string_target/orig
+                        time:   [5.6982 s 5.7088 s 5.7203 s]
+                        change: [−19.923% −9.9333% −3.5046%] (p = 0.07 > 0.05)
+                        No change in performance detected.
+
+Benchmarking multigraph_shortest_path_string_target/networkx
+Benchmarking multigraph_shortest_path_string_target/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 2.5s.
+Benchmarking multigraph_shortest_path_string_target/networkx: Collecting 10 samples in estimated 2.5446 s (10 iterations)
+Benchmarking multigraph_shortest_path_string_target/networkx: Analyzing
+multigraph_shortest_path_string_target/networkx
+                        time:   [250.81 ms 251.14 ms 251.38 ms]
+                        change: [+1.1404% +1.3420% +1.5353%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) low mild
+
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 2.9s.
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx: Collecting 10 samples in estimated 2.9491 s (10 iterations)
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx: Analyzing
+multigraph_bidirectional_dijkstra_string_target/fnx
+                        time:   [293.34 ms 293.78 ms 294.21 ms]
+
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 55.2s.
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig: Collecting 10 samples in estimated 55.246 s (10 iterations)
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig: Analyzing
+multigraph_bidirectional_dijkstra_string_target/orig
+                        time:   [5.5171 s 5.5227 s 5.5292 s]
+
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 2.5s.
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx: Collecting 10 samples in estimated 2.4630 s (10 iterations)
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx: Analyzing
+multigraph_bidirectional_dijkstra_string_target/networkx
+                        time:   [246.05 ms 246.49 ms 246.91 ms]
+
+Benchmarking multidigraph_single_source_dijkstra_path_length/fnx
+Benchmarking multidigraph_single_source_dijkstra_path_length/fnx: Warming up for 300.00 ms
+Benchmarking multidigraph_single_source_dijkstra_path_length/fnx: Collecting 10 samples in estimated 952.57 ms (110 iterations)
+Benchmarking multidigraph_single_source_dijkstra_path_length/fnx: Analyzing
+multidigraph_single_source_dijkstra_path_length/fnx
+                        time:   [8.6405 ms 8.6535 ms 8.6809 ms]
+                        change: [−0.4678% −0.1363% +0.1937%] (p = 0.47 > 0.05)
+                        No change in performance detected.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+
+Benchmarking multidigraph_single_source_dijkstra_path_length/networkx
+Benchmarking multidigraph_single_source_dijkstra_path_length/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 600.0ms. You may wish to increase target time to 687.0ms.
+Benchmarking multidigraph_single_source_dijkstra_path_length/networkx: Collecting 10 samples in estimated 687.00 ms (10 iterations)
+Benchmarking multidigraph_single_source_dijkstra_path_length/networkx: Analyzing
+multidigraph_single_source_dijkstra_path_length/networkx
+                        time:   [67.962 ms 69.084 ms 70.646 ms]
+                        change: [−11.363% −9.7955% −7.6832%] (p = 0.00 < 0.05)
+                        Performance has improved.
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+
+  [2m2026-07-10T18:24:14.013987Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mRemote command finished: exit=0 in 376325ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:653 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:14.014332Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:702 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:14.014385Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:2328 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:14.711981Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 697ms (1 files, 2917 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2383 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:14.712017Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mArtifacts retrieved: 1 files, 2917 bytes in 697ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:735 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:14.712131Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx/.rch-target-ovh-a-pool-4a7eb17ce3437e25aacd2701aa3351d7 on ovh-a[0m
+    [2;3mat[0m rch/src/transfer.rs:2328 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:15.374700Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 662ms (1502 files, 43136 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2383 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T18:24:15.374729Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 1502 files, 43136 bytes in 662ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:859 [2;3mon[0m ThreadId(1)
+
+[RCH] remote ovh-a (391.4s)

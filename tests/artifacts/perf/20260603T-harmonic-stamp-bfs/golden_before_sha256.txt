@@ -1,0 +1,1 @@
+7a406fef51095b2fd8a838daea612411f09d5b6a9a0a97fdb407410dd0a8badb  tests/artifacts/perf/20260603T-harmonic-stamp-bfs/golden_before.txt

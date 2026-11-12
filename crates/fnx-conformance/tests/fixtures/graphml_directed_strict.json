@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "graphml_directed_strict",
+  "operations": [
+    {
+      "op": "read_graphml",
+      "input": "<?xml version='1.0' encoding='utf-8'?><graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\"><graph edgedefault=\"directed\"><node id=\"0\"/><node id=\"1\"/><edge source=\"0\" target=\"1\"/></graph></graphml>"
+    }
+  ],
+  "expected": {}
+}

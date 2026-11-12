@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260611T-zvwgo-int-set-nodes-boldfalcon/harness_int_set_nodes.py --label candidate_hf --n 1800 --samples 1 bench",
+      "mean": 0.28025249108000005,
+      "stddev": 0.019895743028498895,
+      "median": 0.28560768768,
+      "user": 4.53885066,
+      "system": 0.057836120000000005,
+      "min": 0.25547622868000003,
+      "max": 0.30008171168000003,
+      "times": [
+        0.29659440668000003,
+        0.26350242068,
+        0.28560768768,
+        0.30008171168000003,
+        0.25547622868000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

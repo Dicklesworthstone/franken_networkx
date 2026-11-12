@@ -1,0 +1,5 @@
+  [2m2026-07-11T03:58:05.765647Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib voronoi --[0m
+test tests::voronoi_cells_voronoi_ab ... ignored, measurement; run with --release --ignored --nocapture
+test tests::test_voronoi_cells_path ... ok
+test tests::test_voronoi_cells_single_center ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 936 filtered out; finished in 0.00s

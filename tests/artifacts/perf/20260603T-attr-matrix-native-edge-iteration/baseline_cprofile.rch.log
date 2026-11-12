@@ -1,0 +1,5 @@
+  [2m2026-06-03T22:21:49.772623Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -c 'import cProfile, io, json, pstats, time; from pathlib import Path; import franken_networkx as fnx, networkx as nx; edges=list(nx.gnm_random_graph(800,6000,seed=8675309).edges()); order=list(range(800)); G=fnx.Graph(); G.add_nodes_from(order); G.add_edges_from(edges); profiler=cProfile.Profile(); start=time.perf_counter(); profiler.enable();
+for _ in range(50): fnx.attr_matrix(G, rc_order=order)
+profiler.disable(); elapsed=time.perf_counter()-start; stream=io.StringIO(); pstats.Stats(profiler, stream=stream).sort_stats("cumtime").print_stats(40); Path("tests/artifacts/perf/20260603T-attr-matrix-native-edge-iteration/baseline_cprofile.txt").write_text(stream.getvalue()); print(json.dumps({"elapsed": elapsed, "calls": 50}, sort_keys=True))'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

@@ -1,0 +1,59 @@
+         4411861 function calls (4411758 primitive calls) in 2.144 seconds
+
+   Ordered by: cumulative time
+   List reduced from 201 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       10    0.001    0.000    2.144    0.214 bench_traversal.py:51(sample)
+       10    0.003    0.000    0.982    0.098 bench_traversal.py:17(build_pair)
+       10    0.000    0.000    0.733    0.073 bench_traversal.py:38(normalize)
+       30    0.014    0.000    0.555    0.019 {built-in method builtins.sorted}
+       10    0.000    0.000    0.469    0.047 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_barabasi_albert_graph_1)
+    40/10    0.001    0.000    0.467    0.047 backends.py:554(_call_if_any_backends_installed)
+    40/10    0.001    0.000    0.466    0.047 backends.py:1484(_call_with_backend)
+       10    0.034    0.003    0.466    0.047 random_graphs.py:659(barabasi_albert_graph)
+       10    0.098    0.010    0.450    0.045 __init__.py:2316(add_edges_from)
+    30010    0.008    0.000    0.396    0.000 bench_traversal.py:41(<genexpr>)
+    30010    0.377    0.000    0.383    0.000 __init__.py:42890(__iter__)
+       10    0.000    0.000    0.288    0.029 bench_traversal.py:33(<lambda>)
+       10    0.000    0.000    0.288    0.029 __init__.py:42691(wrapper)
+       10    0.000    0.000    0.288    0.029 __init__.py:9464(bfs_tree)
+       10    0.288    0.029    0.288    0.029 {built-in method franken_networkx._fnx.bfs_tree}
+       10    0.270    0.027    0.270    0.027 {function Graph.add_edges_from at 0x7df328b46980}
+    29960    0.154    0.000    0.211    0.000 graph.py:986(add_edges_from)
+    29950    0.053    0.000    0.208    0.000 random_graphs.py:644(_random_subset)
+       10    0.000    0.000    0.177    0.018 __init__.py:1320(__iter__)
+       10    0.021    0.002    0.177    0.018 __init__.py:1313(_materialize)
+    30000    0.013    0.000    0.145    0.000 bench_traversal.py:42(<genexpr>)
+       10    0.133    0.013    0.133    0.013 {built-in method gc.collect}
+   120400    0.049    0.000    0.133    0.000 random.py:345(choice)
+    30000    0.014    0.000    0.125    0.000 __init__.py:391(__next__)
+810897/810887    0.061    0.000    0.083    0.000 {built-in method builtins.len}
+    30000    0.010    0.000    0.080    0.000 __init__.py:29258(number_of_edges)
+   180110    0.042    0.000    0.073    0.000 __init__.py:28591(_private_override)
+   120400    0.043    0.000    0.067    0.000 random.py:245(_randbelow_with_getrandbits)
+    30020    0.016    0.000    0.062    0.000 __init__.py:28599(_has_networkx_private_storage)
+    30000    0.042    0.000    0.059    0.000 __init__.py:1103(__getitem__)
+       10    0.009    0.001    0.058    0.006 __init__.py:2139(add_nodes_from)
+      6/1    0.000    0.000    0.050    0.050 decorators.py:783(func)
+    30000    0.008    0.000    0.048    0.000 __init__.py:2107(add_node)
+    30000    0.006    0.000    0.045    0.000 __init__.py:29393(<lambda>)
+    30000    0.010    0.000    0.045    0.000 __init__.py:1047(__iter__)
+    30000    0.011    0.000    0.039    0.000 __init__.py:28670(_private_succ_mapping)
+    30000    0.038    0.000    0.038    0.000 {function Graph.add_node at 0x7df328b45ee0}
+    30000    0.006    0.000    0.033    0.000 __init__.py:1041(_atlas)
+   330045    0.031    0.000    0.031    0.000 {method 'get' of 'dict' objects}
+    30000    0.015    0.000    0.027    0.000 __init__.py:1113(<lambda>)
+   119850    0.026    0.000    0.026    0.000 reportviews.py:1274(__iter__)
+   239752    0.026    0.000    0.026    0.000 {method 'update' of 'dict' objects}
+    60000    0.010    0.000    0.023    0.000 __init__.py:1085(_atlas)
+    30000    0.009    0.000    0.021    0.000 __init__.py:29001(__len__)
+   329680    0.021    0.000    0.021    0.000 {built-in method builtins.hash}
+   359892    0.019    0.000    0.020    0.000 {built-in method builtins.isinstance}
+   210150    0.019    0.000    0.019    0.000 {built-in method builtins.vars}
+    30000    0.008    0.000    0.014    0.000 __init__.py:1210(_accessor)
+    60000    0.013    0.000    0.013    0.000 __init__.py:1248(<lambda>)
+   177600    0.013    0.000    0.013    0.000 {method 'getrandbits' of '_random.Random' objects}
+
+
+

@@ -1,0 +1,18 @@
+{
+  "cwd": "/data/projects/franken_networkx",
+  "fnx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+  "fnx_version": "0.1.0",
+  "git_head": "d39edc252189b9539ae4d7ef20dd5d358afc3eaa",
+  "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+  "networkx_version": "3.6.1",
+  "numpy_version": "2.4.6",
+  "platform": "Linux-6.17.0-35-generic-x86_64-with-glibc2.42",
+  "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+  "target_expression": "fnx.laplacian_spectrum(fnx.star_graph(798))",
+  "thread_env": {
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1"
+  }
+}

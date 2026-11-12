@@ -1,0 +1,31 @@
+{"checksum": 50000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 100, "mode": "gu", "module": "fnx"}
+
+         2406 function calls (2306 primitive calls) in 0.153 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.146    0.001    0.146    0.001 __init__.py:1298(<lambda>)
+      100    0.003    0.000    0.077    0.001 __init__.py:1206(__getitem__)
+      100    0.002    0.000    0.075    0.001 __init__.py:1145(__len__)
+      100    0.001    0.000    0.073    0.001 __init__.py:1213(<lambda>)
+        1    0.000    0.000    0.153    0.153 multiatlas_bench.py:44(workload)
+  200/100    0.000    0.000    0.075    0.001 {built-in method builtins.len}
+      100    0.000    0.000    0.001    0.000 __init__.py:30609(_private_directed_adj_mapping)
+      200    0.000    0.000    0.000    0.000 __init__.py:30540(_private_override)
+      100    0.000    0.000    0.078    0.001 __init__.py:1331(_graph_getitem_from_adj)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      100    0.000    0.000    0.001    0.000 __init__.py:31374(<lambda>)
+      200    0.000    0.000    0.146    0.001 __init__.py:1196(_atlas)
+      300    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      100    0.000    0.000    0.000    0.000 __init__.py:1267(_accessor)
+      100    0.000    0.000    0.073    0.001 __init__.py:1142(_atlas)
+      100    0.000    0.000    0.000    0.000 __init__.py:1139(__init__)
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:1297(<lambda>)
+        1    0.000    0.000    0.000    0.000 multiatlas_bench.py:40(choose_neighbor)
+        1    0.000    0.000    0.000    0.000 __init__.py:1193(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+
+

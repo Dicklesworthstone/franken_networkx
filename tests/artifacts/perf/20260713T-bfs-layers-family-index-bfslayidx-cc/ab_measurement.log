@@ -1,0 +1,9 @@
+  [2m2026-07-13T01:04:10.306236Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib bfs_layers -- --include-ignored --nocapture[0m
+test tests::bfs_layers_directed_dag ... ok
+test tests::bfs_layers_test ... ok
+BFSLAYMULTIIDX_AB bfs_layers_multi 3000-node deg100 rounds=61 (>1 = index faster)
+BFSLAYMULTIIDX_AB INDEX_vs_string: median=5.6188x win_rate=61/61 p5_p95=[4.1514,6.7604]
+BFSLAYMULTIIDX_AB NULL_index_vs_index: median=1.0038x win_rate=32/61 p5_p95=[0.6600,1.5095]
+test tests::bfs_layers_idx_ab ... ok
+test tests::bfs_layers_multi_idx_ab ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1033 filtered out; finished in 2.21s

@@ -1,0 +1,44 @@
+diff --git a/crates/fnx-classes/src/digraph.rs b/crates/fnx-classes/src/digraph.rs
+index ec0f9bde3..25fc7a7ec 100644
+--- a/crates/fnx-classes/src/digraph.rs
++++ b/crates/fnx-classes/src/digraph.rs
+@@ -121,6 +121,12 @@ pub struct DiGraph {
+     successors: IndexMap<String, IndexSet<String>>,
+     /// Incoming adjacency: node → set of predecessors.
+     predecessors: IndexMap<String, IndexSet<String>>,
++    /// br-r37-c1-d58s8 DiGraph row flip phase 1: EAGER integer row
++    /// mirrors (insertion-order-faithful, maintained by every writer
++    /// with the I5 repair pattern on removal). Phase 2 re-points
++    /// readers here; phase 3 deletes the String rows above.
++    succ_indices: Vec<Vec<usize>>,
++    pred_indices: Vec<Vec<usize>>,
+     /// Directed edges keyed by (source, target) — order matters.
+     edges: IndexMap<DirectedEdgeKey, AttrMap>,
+     runtime_policy: RuntimePolicy,
+@@ -147,6 +153,8 @@ impl DiGraph {
+             nodes: self.nodes.clone(),
+             successors: self.successors.clone(),
+             predecessors: self.predecessors.clone(),
++            succ_indices: self.succ_indices.clone(),
++            pred_indices: self.pred_indices.clone(),
+             edges: self.edges.clone(),
+             runtime_policy: RuntimePolicy::new(self.mode),
+             csr_cache: self.csr_cache.clone(),
+@@ -166,6 +174,8 @@ impl DiGraph {
+             nodes: IndexMap::new(),
+             successors: IndexMap::new(),
+             predecessors: IndexMap::new(),
++            succ_indices: Vec::new(),
++            pred_indices: Vec::new(),
+             edges: IndexMap::new(),
+             runtime_policy: RuntimePolicy::new(mode),
+             csr_cache: std::sync::Arc::default(),
+@@ -182,6 +192,8 @@ impl DiGraph {
+             nodes: IndexMap::new(),
+             successors: IndexMap::new(),
+             predecessors: IndexMap::new(),
++            succ_indices: Vec::new(),
++            pred_indices: Vec::new(),
+             edges: IndexMap::new(),
+             runtime_policy,
+             csr_cache: std::sync::Arc::default(),

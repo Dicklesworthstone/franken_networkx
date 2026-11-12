@@ -1,0 +1,8 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib uniform_k_out_digraph -- --nocapture
+running 1 test
+test tests::random_uniform_k_out_digraph_matches_networkx_seeded_examples ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 217 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).

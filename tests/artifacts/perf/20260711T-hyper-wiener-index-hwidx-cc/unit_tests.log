@@ -1,0 +1,5 @@
+  [2m2026-07-11T05:42:13.754580Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib hyper_wiener_index -- --include-ignored --nocapture[0m
+test tests::test_hyper_wiener_index_path ... ok
+test tests::test_hyper_wiener_index_path_four_nodes ... ok
+test tests::hyper_wiener_index_hwidx_ab ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 944 filtered out; finished in 1.34s

@@ -1,0 +1,16 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib hnm_harary -- --nocapture
+running 2 tests (+1 ignored measurement)
+test tests::hnm_harary_graph_rejects_dense_edge_count ... ok
+test tests::hnm_harary_graph_even_order_remainder_matches_networkx_edges ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 210 filtered out; finished in 0.00s
+
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+    Finished `dev` profile
+CLIPPY CLEAN (no errors, no warnings).
+
+NOTE: the first clippy pass (on a stricter/fresh-lint worker) flagged 3 manual `.is_multiple_of()` and
+1 unused-`mut` in the TEST-only `emit` fn + A/B interleaving closure. All four were cosmetic and
+behavior-identical (`x % 2 == 0` <-> `x.is_multiple_of(2)`, `x % 2 == 1` <-> `!x.is_multiple_of(2)`,
+removed an unnecessary `mut`); the production edit and the A/B graph outputs are unchanged, so the
+8.2428x measurement and the byte-identity parity asserts still hold.

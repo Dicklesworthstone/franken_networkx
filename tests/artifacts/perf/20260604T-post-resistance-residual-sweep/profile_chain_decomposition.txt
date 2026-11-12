@@ -1,0 +1,88 @@
+         10189671 function calls (10188647 primitive calls) in 3.388 seconds
+
+   Ordered by: cumulative time
+   List reduced from 256 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.009    0.009    3.388    3.388 <stdin>:9(run)
+    43000    0.009    0.000    3.375    0.000 __init__.py:20627(_gen)
+    43000    0.018    0.000    1.904    0.000 __init__.py:6374(_wrapped_iterator)
+    43000    0.168    0.000    1.885    0.000 chains.py:9(chain_decomposition)
+      500    0.002    0.000    1.463    0.003 __init__.py:6356(_call_networkx_for_parity)
+      500    0.015    0.000    1.451    0.003 __init__.py:5898(_networkx_graph_for_parity)
+      500    0.329    0.001    1.435    0.003 backend.py:606(_fnx_to_nx)
+      500    0.233    0.000    1.134    0.002 chains.py:67(_dfs_cycle_forest)
+   167500    0.220    0.000    0.482    0.000 backend.py:490(_topo_emit_edges_by_adj)
+      500    0.141    0.000    0.278    0.001 graph.py:584(add_nodes_from)
+   460000    0.171    0.000    0.261    0.000 depth_first_search.py:413(dfs_labeled_edges)
+   167000    0.157    0.000    0.247    0.000 digraph.py:677(add_edge)
+   125000    0.059    0.000    0.225    0.000 reportviews.py:1102(__call__)
+      500    0.127    0.000    0.184    0.000 graph.py:986(add_edges_from)
+   167500    0.067    0.000    0.182    0.000 chains.py:167(<genexpr>)
+   125000    0.109    0.000    0.169    0.000 digraph.py:450(add_node)
+   125000    0.077    0.000    0.166    0.000 reportviews.py:771(__init__)
+   459000    0.110    0.000    0.138    0.000 backend.py:539(_is_ready)
+   209500    0.042    0.000    0.126    0.000 graph.py:509(__getitem__)
+   292000    0.080    0.000    0.115    0.000 reportviews.py:799(<genexpr>)
+   877513    0.109    0.000    0.109    0.000 {method 'update' of 'dict' objects}
+  1006020    0.109    0.000    0.109    0.000 {method 'get' of 'dict' objects}
+   125500    0.037    0.000    0.097    0.000 backend.py:635(<genexpr>)
+   209500    0.051    0.000    0.093    0.000 chains.py:123(_build_chain)
+      500    0.084    0.000    0.084    0.000 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+   209500    0.065    0.000    0.083    0.000 coreviews.py:81(__getitem__)
+   293000    0.057    0.000    0.081    0.000 misc.py:645(_clear_cache)
+   125000    0.044    0.000    0.071    0.000 graph.py:2013(nbunch_iter)
+   125000    0.044    0.000    0.069    0.000 reportviews.py:798(__iter__)
+   209500    0.043    0.000    0.067    0.000 <frozen _collections_abc>:815(__contains__)
+   125000    0.053    0.000    0.061    0.000 __init__.py:4635(__getitem__)
+     1500    0.014    0.000    0.059    0.000 backend.py:549(<genexpr>)
+   418053    0.046    0.000    0.046    0.000 {method 'append' of 'list' objects}
+   501500    0.043    0.000    0.043    0.000 {method 'popleft' of 'collections.deque' objects}
+   125000    0.029    0.000    0.040    0.000 graph.py:1344(neighbors)
+   376010    0.036    0.000    0.036    0.000 {method 'add' of 'set' objects}
+   375000    0.034    0.000    0.034    0.000 {built-in method builtins.iter}
+      500    0.009    0.000    0.032    0.000 {built-in method builtins.sum}
+   124500    0.021    0.000    0.030    0.000 reportviews.py:190(__getitem__)
+   297563    0.026    0.000    0.027    0.000 {built-in method builtins.getattr}
+   125000    0.025    0.000    0.025    0.000 reportviews.py:779(<lambda>)
+   209500    0.024    0.000    0.024    0.000 coreviews.py:53(__getitem__)
+   125500    0.016    0.000    0.023    0.000 backend.py:554(<genexpr>)
+     2000    0.015    0.000    0.023    0.000 backends.py:554(_call_if_any_backends_installed)
+   167000    0.022    0.000    0.022    0.000 reportviews.py:790(<lambda>)
+   125000    0.018    0.000    0.018    0.000 {built-in method fromkeys}
+297009/296509    0.018    0.000    0.018    0.000 {built-in method builtins.len}
+   210500    0.018    0.000    0.018    0.000 coreviews.py:44(__init__)
+   166500    0.017    0.000    0.017    0.000 {method 'append' of 'collections.deque' objects}
+      500    0.015    0.000    0.016    0.000 __init__.py:29986(__iter__)
+   125000    0.015    0.000    0.015    0.000 graph.py:473(__contains__)
+   127500    0.014    0.000    0.014    0.000 {method 'items' of 'dict' objects}
+   125000    0.014    0.000    0.014    0.000 {method 'copy' of 'dict' objects}
+   125002    0.013    0.000    0.013    0.000 {method 'pop' of 'list' objects}
+   131134    0.011    0.000    0.012    0.000 {built-in method builtins.isinstance}
+   125000    0.008    0.000    0.008    0.000 {built-in method builtins.hash}
+      500    0.001    0.000    0.008    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      500    0.001    0.000    0.007    0.000 <class 'networkx.utils.decorators.argmap'> compilation 10:1(argmap_chain_decomposition_5)
+      500    0.001    0.000    0.007    0.000 <class 'networkx.utils.decorators.argmap'> compilation 14:1(argmap___new___11)
+      500    0.001    0.000    0.006    0.000 <class 'networkx.utils.decorators.argmap'> compilation 18:1(argmap_dfs_labeled_edges_15)
+2000/1500    0.002    0.000    0.005    0.000 functools.py:1010(__get__)
+     3500    0.003    0.000    0.004    0.000 __init__.py:5327(predicate)
+      500    0.001    0.000    0.004    0.000 __init__.py:43839(wrapper)
+      500    0.002    0.000    0.003    0.000 digraph.py:344(__init__)
+      500    0.001    0.000    0.003    0.000 __init__.py:20596(chain_decomposition)
+      500    0.001    0.000    0.002    0.000 graph.py:349(__init__)
+     2000    0.001    0.000    0.002    0.000 backends.py:1484(_call_with_backend)
+      500    0.000    0.000    0.002    0.000 digraph.py:1033(out_edges)
+      500    0.000    0.000    0.002    0.000 reportviews.py:1067(__init__)
+      500    0.001    0.000    0.002    0.000 __init__.py:5137(__get__)
+      500    0.001    0.000    0.001    0.000 __init__.py:30019(nodes)
+     1031    0.000    0.000    0.001    0.000 {built-in method builtins.hasattr}
+        4    0.000    0.000    0.001    0.000 decorators.py:783(func)
+        4    0.000    0.000    0.001    0.000 decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 decorators.py:869(compile)
+     2000    0.001    0.000    0.001    0.000 configs.py:162(get)
+      500    0.000    0.000    0.001    0.000 <frozen abc>:117(__instancecheck__)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+     1000    0.001    0.000    0.001    0.000 decorators.py:83(_not_implemented_for)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+
+

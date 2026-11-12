@@ -1,0 +1,87 @@
+{
+  "suite": "tree_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a"
+    },
+    {
+      "op": "add_node",
+      "node": "b"
+    },
+    {
+      "op": "add_node",
+      "node": "c"
+    },
+    {
+      "op": "add_node",
+      "node": "d"
+    },
+    {
+      "op": "add_node",
+      "node": "e"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "e"
+    },
+    {
+      "op": "is_tree_query"
+    },
+    {
+      "op": "is_forest_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "e",
+          "attrs": {}
+        }
+      ]
+    },
+    "is_tree": true,
+    "is_forest": true
+  }
+}

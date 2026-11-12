@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260606T-digraph-add-edges-batch-cod/digraph_add_edges_batch_harness.py timing --loops 8 --warmups 2 --output /tmp/fnx_digraph_add_edges_row_arena_baseline.json",
+      "mean": 0.5849869173200002,
+      "stddev": 0.06789485978595078,
+      "median": 0.5768756928200001,
+      "user": 3.4830670999999995,
+      "system": 0.06582412,
+      "min": 0.51060613882,
+      "max": 0.6896421528200001,
+      "times": [
+        0.52131819982,
+        0.58339763182,
+        0.52253293982,
+        0.51060613882,
+        0.6837584378200001,
+        0.6896421528200001,
+        0.6516113438200001,
+        0.5814928438200001,
+        0.5332509428200001,
+        0.5722585418200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

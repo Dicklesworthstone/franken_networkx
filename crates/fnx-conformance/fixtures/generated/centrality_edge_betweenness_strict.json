@@ -1,0 +1,68 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "edge_betweenness_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "edge_betweenness_centrality": [
+      {
+        "left": "a",
+        "right": "b",
+        "score": 0.6666666666666666
+      },
+      {
+        "left": "a",
+        "right": "c",
+        "score": 0.5
+      },
+      {
+        "left": "b",
+        "right": "d",
+        "score": 0.5
+      }
+    ]
+  }
+}

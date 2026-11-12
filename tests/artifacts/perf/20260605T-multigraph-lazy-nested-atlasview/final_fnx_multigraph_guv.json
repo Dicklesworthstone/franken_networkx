@@ -1,0 +1,29 @@
+{
+  "bead": "br-r37-c1-f0zo8",
+  "graph": "multigraph",
+  "library": "fnx",
+  "loops_per_sample": 20,
+  "neighbors": 720,
+  "observed_len_accumulator": 320,
+  "operation": "guv",
+  "parallel_edges_per_neighbor": 16,
+  "samples": 9,
+  "time_ms_per_op": {
+    "max": 0.0042786000000000005,
+    "mean": 0.0021596944444444446,
+    "median": 0.00187155,
+    "min": 0.001855,
+    "p95": 0.0042786000000000005,
+    "samples": [
+      0.0042786000000000005,
+      0.00208895,
+      0.001856,
+      0.00187905,
+      0.00187155,
+      0.0018695,
+      0.00187455,
+      0.00186405,
+      0.001855
+    ]
+  }
+}

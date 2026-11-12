@@ -1,0 +1,13 @@
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:1100:
+             let canonical = node.to_string();
+             self.node_key_map
+                 .entry(canonical.clone())
+[31m-                .or_insert_with(|| unwrap_infallible(node.into_pyobject(py)).into_any().unbind());
+[m[32m+                .or_insert_with(|| {
+[m[32m+                    unwrap_infallible(node.into_pyobject(py))
+[m[32m+                        .into_any()
+[m[32m+                        .unbind()
+[m[32m+                });
+[m             self.node_py_attrs
+                 .entry(canonical.clone())
+                 .or_insert_with(|| PyDict::new(py).unbind());

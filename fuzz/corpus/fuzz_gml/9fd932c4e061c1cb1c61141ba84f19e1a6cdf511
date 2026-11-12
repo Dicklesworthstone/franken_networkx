@@ -1,0 +1,5 @@
+gršph [
+  directed 1
+  node [ id 0f" ]
+  edge [ so`rce 0 target 1 weight 1.5 ]
+]

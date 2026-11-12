@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib hypercube -- --nocapture
+running 4 tests
+test tests::hypercube_graph_three_dimensions_matches_networkx_counts_and_edges ... ok
+test tests::hypercube_graph_one_dimension_uses_singleton_tuple_labels ... ok
+test tests::hypercube_graph_zero_dimension_matches_networkx_empty_graph ... ok
+test tests::hypercube_graph_rejects_node_count_beyond_generic_limit ... ok
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 202 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings). Landed after 10 static.crates.io flakes (intermittent registry).

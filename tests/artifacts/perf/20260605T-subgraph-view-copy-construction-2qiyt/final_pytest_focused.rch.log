@@ -1,0 +1,5 @@
+  [2m2026-06-05T06:50:40.065138Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: python3 -m pytest tests/python/test_subgraph_node_order_divergence.py tests/python/test_subgraph_view_no_copy_perf.py tests/python/test_filtered_view_nodes_parity.py -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+..................................................................       [100%]
+66 passed in 2.06s

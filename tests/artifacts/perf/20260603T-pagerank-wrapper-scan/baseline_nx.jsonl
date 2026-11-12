@@ -1,0 +1,1 @@
+{"case":"pagerank_weighted_ba","impl":"nx","m":4,"max_seconds":0.0066615519899642095,"mean_seconds":0.005878082854906097,"median_seconds":0.005690550999133848,"min_seconds":0.005645907003781758,"n":2000,"repeats":7,"seed":42,"sha256":"c992e25715a2cdcd5ed3da2fe2976bfb5f647994d6bccdce37523048a985180e"}

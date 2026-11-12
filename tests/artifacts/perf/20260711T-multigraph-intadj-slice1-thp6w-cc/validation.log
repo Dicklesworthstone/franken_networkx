@@ -1,0 +1,5 @@
+SLICE 1 validation (br-r37-c1-thp6w):
+suite: cargo test --release -p fnx-classes --lib -> 74 passed; 0 failed; 2 ignored (incl new invariant tests)
+  thp6w_int_adjacency_invariant_across_mutations ... ok
+  thp6w_int_adjacency_cache_is_fresh_per_clone ... ok
+clippy: cargo clippy --release -p fnx-classes --lib --tests -- -D warnings -> CLEAN

@@ -1,0 +1,2 @@
+# havel_hakimi_graph batch construction (br-r37-c1-hhbatch, cc)
+0.46x -> 1.19-1.21x (2.6x self-speedup: 13.9->5.6ms @ n=2000). The HH realization emitted edges via per-edge graph.add_edge (PyO3 round-trip dominated); the bucket bookkeeping never reads graph state, so collected all (source,target) and committed via ONE add_edges_from. Byte-exact: 23 checks (6 seeds x 3 sizes + 5 edge cases), nodes+edges-in-order+adjacency. Full suite zero new failures.

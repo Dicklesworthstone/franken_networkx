@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python python3 tests/artifacts/perf/20260615T-digraph-edges-stream-coppercliff/digraph_edges_stream_harness.py bench-fnx --loops 200",
+      "mean": 1.60150892838,
+      "stddev": 0.04246057366296604,
+      "median": 1.6102252893799998,
+      "user": 5.6339032,
+      "system": 0.06868593999999999,
+      "min": 1.51134448688,
+      "max": 1.6523027958799998,
+      "times": [
+        1.6444660468799999,
+        1.51134448688,
+        1.6116308468799998,
+        1.60881973188,
+        1.61838328788,
+        1.58106215888,
+        1.63806577888,
+        1.57749256888,
+        1.5715215808799998,
+        1.6523027958799998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python python3 tests/artifacts/perf/20260615T-digraph-edges-stream-coppercliff/digraph_edges_stream_harness.py bench-nx --loops 200",
+      "mean": 1.45258615408,
+      "stddev": 0.06098013683193035,
+      "median": 1.45440541338,
+      "user": 5.4540451999999995,
+      "system": 0.06906314,
+      "min": 1.34351416388,
+      "max": 1.5486769758799999,
+      "times": [
+        1.50086656688,
+        1.42661473988,
+        1.47919241588,
+        1.50614691988,
+        1.5486769758799999,
+        1.4296184108799999,
+        1.34351416388,
+        1.47982882388,
+        1.41236537388,
+        1.3990371498799998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

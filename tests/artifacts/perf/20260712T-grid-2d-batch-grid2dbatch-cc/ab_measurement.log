@@ -1,0 +1,17 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib grid_2d_graph_batch_ab -- --ignored --nocapture
+
+GRID2D_BATCH_AB grid200x200 rounds=61 (>1 = batch faster)
+GRID2D_BATCH_AB BATCH_vs_string: median=12.7913x win_rate=61/61 p5_p95=[10.1479,16.3163]
+GRID2D_BATCH_AB NULL_batch_vs_batch: median=0.9779x win_rate=24/61 p5_p95=[0.7682,1.2189]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 997 filtered out; finished in 11.64s
+
+Marker GRID2D_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) on grid_2d(200,200) passed before timing.
+
+$ cargo test --release -p fnx-algorithms --lib grid_2d -- --nocapture
+test tests::test_grid_2d_graph ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~34010-34035 / test ~69940-70050)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

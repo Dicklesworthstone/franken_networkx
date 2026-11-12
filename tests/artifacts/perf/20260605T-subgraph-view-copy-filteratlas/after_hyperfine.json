@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/bench.py 2000 50 8000 20",
+      "mean": 0.64559264928,
+      "stddev": 0.06294173327000545,
+      "median": 0.6311292606800001,
+      "user": 3.7710881,
+      "system": 0.07275434,
+      "min": 0.57955345268,
+      "max": 0.7598782876800001,
+      "times": [
+        0.61282363768,
+        0.7428910776800001,
+        0.7598782876800001,
+        0.6281860516800001,
+        0.6697844296800001,
+        0.59694518968,
+        0.6340724696800001,
+        0.57955345268,
+        0.58025558268,
+        0.6515363136800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

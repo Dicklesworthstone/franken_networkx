@@ -1,0 +1,11 @@
+op                             fnx(ms)    nx(ms)   ratio
+Graph plain                       4.60      4.46   0.97x
+Graph attributed                  8.14      4.92   0.60x  <<< SLOWER
+DiGraph plain                     6.55      4.31   0.66x  <<< SLOWER
+DiGraph attributed               11.08      5.70   0.51x  <<< SLOWER
+MultiGraph plain                 13.57     13.21   0.97x
+MultiGraph attributed            52.56     14.93   0.28x  <<< SLOWER
+MultiDiGraph plain               12.83     14.00   1.09x
+MultiDiGraph attributed          54.46     22.30   0.41x  <<< SLOWER
+add_nodes_from(20k)               6.56      5.30   0.81x
+copy                              0.98      9.76   9.97x

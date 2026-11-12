@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python3 -c \"import franken_networkx as fnx; g=fnx.generalized_petersen_graph(10,2); fnx.k_components(g)\"",
+      "mean": 0.68786512634,
+      "stddev": 0.04374397183135955,
+      "median": 0.69622583994,
+      "user": 2.90391184,
+      "system": 0.06913432,
+      "min": 0.62183267794,
+      "max": 0.72897193094,
+      "times": [
+        0.72897193094,
+        0.66971856694,
+        0.62183267794,
+        0.69622583994,
+        0.72257661594
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

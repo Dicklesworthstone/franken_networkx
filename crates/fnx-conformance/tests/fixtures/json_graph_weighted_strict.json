@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "json_graph_weighted_strict",
+  "operations": [
+    {
+      "op": "read_json_graph",
+      "input": "{\"directed\": false, \"multigraph\": false, \"graph\": {\"name\": \"weighted_test\"}, \"nodes\": [{\"id\": \"a\"}, {\"id\": \"b\"}, {\"id\": \"c\"}], \"links\": [{\"source\": \"a\", \"target\": \"b\", \"weight\": 2.5}, {\"source\": \"b\", \"target\": \"c\", \"weight\": 1.0}]}"
+    }
+  ],
+  "expected": {}
+}

@@ -1,0 +1,1 @@
+{"case":"laplacian_default","digest":"bca361dbcc78a18bc70f73d2dec30cc09d245e30218842df631d2bd79c1a2306","impl":"fnx","m":4,"n":8000,"profile":"tests/artifacts/perf/20260603T-post-normalized-sweep/profile_laplacian_default_after.txt","repeats":5}

@@ -1,0 +1,9 @@
+subject: G[u] on a plain Graph — native AtlasView row (br-r37-c1-ey6ob)
+rounds=12 (ABBA per round)
+
+  arm         nx ns    fnx ns    vs nx   load      MHz sub
+  before      146.7     126.6   1.1587x  16.27   2560.2 False
+  after       146.7     126.7   1.1580x  16.10   2522.9 True
+
+COMMON-MODE nx_before/nx_after = 0.9999  (OK)
+SELF before/after (fnx G[u])   = 0.9993  (no regression)

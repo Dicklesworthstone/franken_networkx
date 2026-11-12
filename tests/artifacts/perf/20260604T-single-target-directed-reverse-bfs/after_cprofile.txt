@@ -1,0 +1,26 @@
+  [2m2026-06-04T19:48:53.324086Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode profile --impl fnx --size 5000 --target 4999 --repeats 200 --profile-limit 30[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+         2802 function calls in 0.449 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.004    0.004    0.449    0.449 /data/projects/franken_networkx/tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py:105(repeated)
+      200    0.006    0.000    0.445    0.002 /data/projects/franken_networkx/tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py:41(run_case)
+      200    0.000    0.000    0.439    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:44600(wrapper)
+      200    0.000    0.000    0.438    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:44436(wrapper)
+      200    0.000    0.000    0.438    0.002 /data/projects/franken_networkx/python/franken_networkx/__init__.py:14656(single_target_shortest_path_length)
+      200    0.437    0.002    0.437    0.002 {built-in method franken_networkx._fnx.single_target_shortest_path_length}
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30581(__contains__)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30161(_private_override)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5327(predicate)
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7eef5d7816c0}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19753(_validate_backend_dispatch_keywords)
+      200    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:44577(_coerce_cutoff_value)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

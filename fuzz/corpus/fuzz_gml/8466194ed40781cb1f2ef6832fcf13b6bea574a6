@@ -1,0 +1,5 @@
+# cmmneots and en idtity-like labels
+graph [
+  `irected 0
+  node [ id 0 label "Tomde [p;yrer J" ]
+  node [ id 1 label "

@@ -1,0 +1,124 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 20",
+      "mean": 0.37069286241,
+      "stddev": 0.028739961870444846,
+      "median": 0.36282758466000004,
+      "user": 3.8472405150000006,
+      "system": 0.06308435,
+      "min": 0.34047913816,
+      "max": 0.42906103616,
+      "times": [
+        0.42906103616,
+        0.35166304816,
+        0.37184134216000003,
+        0.38948117816,
+        0.35381382716000004,
+        0.35069799316,
+        0.37850533616000004,
+        0.34047913816
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 20",
+      "mean": 0.408540766535,
+      "stddev": 0.05427982561132883,
+      "median": 0.39636137666000004,
+      "user": 3.6386582649999992,
+      "system": 0.06426485000000001,
+      "min": 0.34168740916,
+      "max": 0.49793008916000003,
+      "times": [
+        0.41820364116000003,
+        0.37165029216,
+        0.34168740916,
+        0.39147196816,
+        0.40125078516,
+        0.36855200916,
+        0.49793008916000003,
+        0.47757993816000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiDiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 20",
+      "mean": 0.372123770035,
+      "stddev": 0.03457096901254142,
+      "median": 0.37321344866,
+      "user": 3.6159885149999997,
+      "system": 0.0663721,
+      "min": 0.32898745616,
+      "max": 0.41241521516,
+      "times": [
+        0.35264369316,
+        0.33988235516000004,
+        0.41241521516,
+        0.40987322016,
+        0.39378320416,
+        0.32898745616,
+        0.34180034116,
+        0.39760467516000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiDiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 20",
+      "mean": 0.36719789016,
+      "stddev": 0.022704342674161306,
+      "median": 0.36048833616,
+      "user": 3.716771015,
+      "system": 0.064431475,
+      "min": 0.34359004516,
+      "max": 0.41492456616,
+      "times": [
+        0.34359004516,
+        0.34747871316,
+        0.36355630416,
+        0.37747130116,
+        0.35742036816,
+        0.41492456616,
+        0.35737286616,
+        0.37576895716000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

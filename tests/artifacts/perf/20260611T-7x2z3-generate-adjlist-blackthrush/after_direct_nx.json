@@ -1,0 +1,15 @@
+{
+  "backend": "nx",
+  "bead": "br-r37-c1-7x2z3",
+  "count": 100,
+  "graph": "barabasi_albert_graph(1800, 4, seed=101)",
+  "line_count": 1800,
+  "max_ms": 10.522397002205253,
+  "mean_ms": 1.9002711353823543,
+  "min_ms": 1.3262429274618626,
+  "p50_ms": 1.4418920618481934,
+  "p95_ms": 3.6323119420558214,
+  "repeats": 100,
+  "text_sha256": "37b95d4cb8f336275a817fc6752b56a5585cb884d60bdc37b160df1d87c4fd16",
+  "warmups": 10
+}

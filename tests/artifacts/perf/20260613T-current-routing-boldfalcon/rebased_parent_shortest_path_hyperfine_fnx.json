@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/tmp/franken_networkx-wkcpj-parent-20260613T2300Z/python python3 tests/artifacts/perf/20260613T-current-routing-boldfalcon/shortest_path_wrapper.py bench --impl fnx --loops 50000 --repeats 1",
+      "mean": 1.1397890260199999,
+      "stddev": 0.05134008243395294,
+      "median": 1.11905394982,
+      "user": 5.08532016,
+      "system": 0.06539318,
+      "min": 1.06182794782,
+      "max": 1.2406307208199998,
+      "times": [
+        1.1136840748199999,
+        1.06182794782,
+        1.15423518882,
+        1.11516157582,
+        1.12294632382,
+        1.1082296078199998,
+        1.18583719582,
+        1.2406307208199998,
+        1.1826995028199998,
+        1.1126381218199999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+graph [
+directed 5
+  node [ id 0 label""a  ]
+ !edge [ srget 5]
+]

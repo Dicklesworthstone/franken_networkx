@@ -1,0 +1,54 @@
+{
+  "bead": "br-r37-c1-p80x1.28",
+  "workload": "claim/label_propagation_communities n=1200 m=6000 seed=11",
+  "command": "taskset -c 24 env PYTHONHASHSEED=0 PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 EXPECT_ELF_SHA=cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935 /data/projects/franken_networkx/.venv/bin/python scripts/balanced_square_ab.py --workload claim-label-propagation --rounds 21 --warmup 4 --reps 1 --calls-per-slot 1",
+  "incumbent": {
+    "name": "networkx",
+    "version": "3.6.1",
+    "same_process": true
+  },
+  "candidate": {
+    "elf": "python/franken_networkx/_fnx.abi3.so",
+    "elf_sha256": "cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935",
+    "build_profile": "release"
+  },
+  "harness": {
+    "path": "scripts/balanced_square_ab.py",
+    "sha256": "f0ca1937a734fc893020c9c4a74b73a65f33f9839bc5c59c2d51d2634746795e",
+    "rounds": 21,
+    "warmup": 4,
+    "reps": 1,
+    "calls_per_slot": 1,
+    "square": "ABBAABBA"
+  },
+  "exact_fixture_contract": {
+    "input_sha256": "199d564350ec6f70885e8f8236fad28d6620b44e3e7917a470f6fba73024e653",
+    "input_canonical_bytes": 194277,
+    "generator_order_output_sha256": "bb8d5710d2f0eb09435f865e9561438c2c54bac87c02c2b41fd92f2406687ea9",
+    "generator_order_output_bytes": 8512,
+    "normalized_membership_sha256": "d53bb137b4413e187056ed1d85c987bb20da30e4910d2c0fbfe1e203487e37a5",
+    "normalized_membership_bytes": 8494,
+    "community_sizes_in_order": [1199, 1],
+    "parity_passed_before_timing": true,
+    "negative_case": "A reordered or membership-wrong partition fails generator-order or normalized-membership validation before timing."
+  },
+  "screening_ratio_t_networkx_over_t_fnx": 2.2756,
+  "screening_ci_95": [2.2468, 2.3085],
+  "aa_nulls": {
+    "networkx": 1.0043,
+    "fnx": 0.9952,
+    "bound": 0.02,
+    "passed": true
+  },
+  "host": {
+    "name": "thinkstation1",
+    "affinity_cpu": 24,
+    "smt_sibling_cpu": 56,
+    "smt_sibling_utilization_percent": 35,
+    "loadavg_start": [330.37109375, 170.28564453125, 82.328125],
+    "loadavg_end": [316.80810546875, 170.13134765625, 82.7509765625]
+  },
+  "git_head_at_measurement": "d781f03364ab23f0d9babf48656f9d144b61d2dc",
+  "verdict": "NO_ADMISSIBLE_RESULT",
+  "rejection": "SIBLING-CONTENDED: CPU 24's SMT sibling reached 35% utilization. The balanced-square harness admitted 0/1 rows and forbids quoting the screening ratio as a result."
+}

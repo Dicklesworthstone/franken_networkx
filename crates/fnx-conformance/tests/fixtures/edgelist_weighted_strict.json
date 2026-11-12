@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "edgelist_weighted_strict",
+  "operations": [
+    {
+      "op": "read_edgelist",
+      "input": "a b 1.5\nb c 2.0\nc a 0.5"
+    }
+  ],
+  "expected": {}
+}

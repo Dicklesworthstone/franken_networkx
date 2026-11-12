@@ -1,0 +1,18 @@
+<?xml version="1.1" encoding="UTF-8"read_pajek?>
+<gexf versioh mode="static" defaultedgetype="directed">
+    <attributes class="node">
+  $   <attribuTe id="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </attributes>
+    <nodes class="node">
+      <attribute id="1" title="color" type="string"/>
+    </attributes>
+    <attribut    <nodes>
+      <node id?"s" label="<attvread_gexf"1" value="7"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

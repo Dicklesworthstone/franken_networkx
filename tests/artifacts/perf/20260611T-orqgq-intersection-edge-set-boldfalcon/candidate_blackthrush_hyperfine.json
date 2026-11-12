@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260611T-orqgq-intersection-edge-set-boldfalcon/harness_intersection_edge_set.py bench --label candidate_blackthrush_hf_direct --n 1800 --samples 1",
+      "mean": 0.35360194965999997,
+      "stddev": 0.03627109516604285,
+      "median": 0.34475179596,
+      "user": 3.80311582,
+      "system": 0.05976914000000001,
+      "min": 0.30523395846,
+      "max": 0.40090158146,
+      "times": [
+        0.32485351046,
+        0.36773715546,
+        0.40062317346,
+        0.40090158146,
+        0.33348556546,
+        0.34153089046,
+        0.39821255446,
+        0.30523395846,
+        0.31546840546,
+        0.34797270146
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

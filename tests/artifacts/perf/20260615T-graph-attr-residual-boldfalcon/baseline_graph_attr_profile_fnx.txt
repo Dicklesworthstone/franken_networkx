@@ -1,0 +1,38 @@
+         8973362 function calls in 5.303 seconds
+
+   Ordered by: cumulative time
+   List reduced from 67 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    5.303    5.303 construction_attr_survey.py:148(once)
+      120    0.114    0.001    5.302    0.044 construction_attr_survey.py:101(_measure_case)
+      120    0.820    0.007    3.745    0.031 construction_attr_survey.py:29(_digest_graph)
+      120    0.056    0.000    1.441    0.012 construction_attr_survey.py:60(_graph_attr)
+  1281360    0.856    0.000    1.386    0.000 {built-in method builtins.sorted}
+      120    0.025    0.000    1.041    0.009 __init__.py:2970(add_edges_from)
+      120    1.016    0.008    1.016    0.008 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+  1918560    0.386    0.000    0.511    0.000 construction_attr_survey.py:46(<genexpr>)
+      120    0.000    0.000    0.451    0.004 __init__.py:658(__iter__)
+      120    0.450    0.004    0.450    0.004 __init__.py:536(_materialize)
+      120    0.001    0.000    0.428    0.004 __init__.py:183(dumps)
+      120    0.001    0.000    0.427    0.004 encoder.py:183(encode)
+      120    0.427    0.004    0.427    0.004 encoder.py:205(iterencode)
+  3199800    0.379    0.000    0.379    0.000 {built-in method builtins.repr}
+      120    0.212    0.002    0.344    0.003 construction_attr_survey.py:25(_attr_edges)
+   959400    0.142    0.000    0.142    0.000 __init__.py:439(_gen)
+  1281240    0.139    0.000    0.139    0.000 {method 'items' of 'dict' objects}
+      120    0.132    0.001    0.132    0.001 construction_attr_survey.py:21(_int_edges)
+      120    0.000    0.000    0.097    0.001 __init__.py:920(__iter__)
+      120    0.017    0.000    0.097    0.001 __init__.py:882(_materialize)
+      120    0.079    0.001    0.079    0.001 {function _mapping_items_view at 0x7c15ee95d760}
+   321960    0.019    0.000    0.019    0.000 construction_attr_survey.py:30(<genexpr>)
+      120    0.019    0.000    0.019    0.000 {built-in method _hashlib.openssl_sha256}
+      120    0.003    0.000    0.003    0.000 {method 'encode' of 'str' objects}
+      120    0.001    0.000    0.002    0.000 __init__.py:37076(edges)
+      120    0.000    0.000    0.001    0.000 weakref.py:164(__setitem__)
+      120    0.001    0.000    0.001    0.000 __init__.py:37056(nodes)
+      120    0.001    0.000    0.001    0.000 __init__.py:746(wrapped)
+      120    0.000    0.000    0.001    0.000 __init__.py:37281(number_of_nodes)
+      120    0.000    0.000    0.001    0.000 __init__.py:414(_FailFastEdgeIterator)
+
+

@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3",
+      "mean": 0.50964859052,
+      "stddev": 0.03127525363433243,
+      "median": 0.51283412372,
+      "user": 4.49672574,
+      "system": 0.10696793999999998,
+      "min": 0.45218826922000005,
+      "max": 0.55892635822,
+      "times": [
+        0.5185426952200001,
+        0.50712555222,
+        0.52678547622,
+        0.54284311722,
+        0.50559326122,
+        0.5190434542200001,
+        0.55892635822,
+        0.47840977922000005,
+        0.45218826922000005,
+        0.48702794222000007
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-qwqvn-multiedge-index-boldfalcon/multiedge_view_harness.py loop --which fnx --kind mg --case edges_keys --loops 60 --warmup 3",
+      "mean": 1.3796984588285715,
+      "stddev": 0.0961522967483162,
+      "median": 1.3731997304,
+      "user": 5.640652514285714,
+      "system": 0.08265618857142856,
+      "min": 1.2278474054,
+      "max": 1.5286450754,
+      "times": [
+        1.3682381394,
+        1.4284222974,
+        1.2278474054,
+        1.5286450754,
+        1.4261506614000001,
+        1.3731997304,
+        1.3053859024
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-qwqvn-multiedge-index-boldfalcon/multiedge_view_harness.py loop --which nx --kind mg --case edges_keys --loops 60 --warmup 3",
+      "mean": 0.5178827091142858,
+      "stddev": 0.007292733954226354,
+      "median": 0.5174010344000001,
+      "user": 4.836581085714286,
+      "system": 0.06498233142857142,
+      "min": 0.5083213674,
+      "max": 0.5264031054,
+      "times": [
+        0.5083213674,
+        0.5226278104000001,
+        0.5174010344000001,
+        0.5256544164,
+        0.5099872944,
+        0.5147839354,
+        0.5264031054
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

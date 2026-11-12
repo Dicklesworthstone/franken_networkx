@@ -1,0 +1,4 @@
+PARITY all-shapes: max_err=1.24e-14 bad=0  PASS
+n=  300  dense_pinv=  2.8135s  sparse_solve= 0.0022s  speedup=1265.2x
+n=  800  dense_pinv=  9.0735s  sparse_solve= 0.0150s  speedup= 603.8x
+n= 1500  dense_pinv= 18.3759s  sparse_solve= 0.0816s  speedup= 225.3x

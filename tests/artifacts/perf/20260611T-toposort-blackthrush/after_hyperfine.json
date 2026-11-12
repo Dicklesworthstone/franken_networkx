@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-toposort-blackthrush/harness_toposort.py --bench-only --bench-iterations 300 --bench-rounds 3 >/dev/null",
+      "mean": 0.8051053081200001,
+      "stddev": 0.025191319790909595,
+      "median": 0.8070682895200001,
+      "user": 4.617028419999999,
+      "system": 0.05323298,
+      "min": 0.7724845885200001,
+      "max": 0.8476518525200001,
+      "times": [
+        0.8140657585200001,
+        0.8101353315200001,
+        0.8476518525200001,
+        0.8162615315200001,
+        0.8040012475200001,
+        0.8354683385200001,
+        0.7724845885200001,
+        0.77591920152,
+        0.79788855552,
+        0.7771766755200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

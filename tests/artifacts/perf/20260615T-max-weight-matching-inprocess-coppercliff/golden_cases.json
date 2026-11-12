@@ -1,0 +1,387 @@
+{
+  "all_fnx_current_equal": true,
+  "all_orig_on_fnx_equal": true,
+  "records": [
+    {
+      "case": "tie-heavy-weighted",
+      "fnx_current": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": false,
+      "nx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": "weight"
+    },
+    {
+      "case": "tie-heavy-weighted",
+      "fnx_current": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": true,
+      "nx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": "weight"
+    },
+    {
+      "case": "tie-heavy-default-weight",
+      "fnx_current": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": false,
+      "nx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": null
+    },
+    {
+      "case": "tie-heavy-default-weight",
+      "fnx_current": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": true,
+      "nx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "builtins.str:'c'",
+          "builtins.str:'a'"
+        ],
+        [
+          "builtins.str:'d'",
+          "builtins.str:'b'"
+        ],
+        [
+          "builtins.str:'f'",
+          "builtins.str:'e'"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": null
+    },
+    {
+      "case": "mixed-default-and-weighted",
+      "fnx_current": [
+        [
+          "builtins.int:0",
+          "builtins.str:'0'"
+        ],
+        [
+          "builtins.int:1",
+          "builtins.tuple:(0,)"
+        ],
+        [
+          "builtins.tuple:(1,)",
+          "builtins.str:'1'"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": false,
+      "nx": [
+        [
+          "builtins.int:0",
+          "builtins.str:'0'"
+        ],
+        [
+          "builtins.int:1",
+          "builtins.tuple:(0,)"
+        ],
+        [
+          "builtins.tuple:(1,)",
+          "builtins.str:'1'"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "builtins.int:0",
+          "builtins.str:'0'"
+        ],
+        [
+          "builtins.int:1",
+          "builtins.tuple:(0,)"
+        ],
+        [
+          "builtins.tuple:(1,)",
+          "builtins.str:'1'"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": "weight"
+    },
+    {
+      "case": "mixed-default-and-weighted",
+      "fnx_current": [
+        [
+          "builtins.int:0",
+          "builtins.str:'0'"
+        ],
+        [
+          "builtins.int:1",
+          "builtins.tuple:(0,)"
+        ],
+        [
+          "builtins.tuple:(1,)",
+          "builtins.str:'1'"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": true,
+      "nx": [
+        [
+          "builtins.int:0",
+          "builtins.str:'0'"
+        ],
+        [
+          "builtins.int:1",
+          "builtins.tuple:(0,)"
+        ],
+        [
+          "builtins.tuple:(1,)",
+          "builtins.str:'1'"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "builtins.int:0",
+          "builtins.str:'0'"
+        ],
+        [
+          "builtins.int:1",
+          "builtins.tuple:(0,)"
+        ],
+        [
+          "builtins.tuple:(1,)",
+          "builtins.str:'1'"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": "weight"
+    },
+    {
+      "case": "hash-collision-nodes",
+      "fnx_current": [
+        [
+          "__main__.CollidingNode:CollidingNode('n3')",
+          "__main__.CollidingNode:CollidingNode('n1')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n4')",
+          "__main__.CollidingNode:CollidingNode('n2')"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": false,
+      "nx": [
+        [
+          "__main__.CollidingNode:CollidingNode('n3')",
+          "__main__.CollidingNode:CollidingNode('n1')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n4')",
+          "__main__.CollidingNode:CollidingNode('n2')"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "__main__.CollidingNode:CollidingNode('n3')",
+          "__main__.CollidingNode:CollidingNode('n1')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n4')",
+          "__main__.CollidingNode:CollidingNode('n2')"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": "weight"
+    },
+    {
+      "case": "hash-collision-nodes",
+      "fnx_current": [
+        [
+          "__main__.CollidingNode:CollidingNode('n1')",
+          "__main__.CollidingNode:CollidingNode('n0')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n3')",
+          "__main__.CollidingNode:CollidingNode('n5')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n4')",
+          "__main__.CollidingNode:CollidingNode('n2')"
+        ]
+      ],
+      "fnx_equals_nx": true,
+      "maxcardinality": true,
+      "nx": [
+        [
+          "__main__.CollidingNode:CollidingNode('n1')",
+          "__main__.CollidingNode:CollidingNode('n0')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n3')",
+          "__main__.CollidingNode:CollidingNode('n5')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n4')",
+          "__main__.CollidingNode:CollidingNode('n2')"
+        ]
+      ],
+      "nx_orig_on_fnx": [
+        [
+          "__main__.CollidingNode:CollidingNode('n1')",
+          "__main__.CollidingNode:CollidingNode('n0')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n3')",
+          "__main__.CollidingNode:CollidingNode('n5')"
+        ],
+        [
+          "__main__.CollidingNode:CollidingNode('n4')",
+          "__main__.CollidingNode:CollidingNode('n2')"
+        ]
+      ],
+      "orig_on_fnx_equals_nx": true,
+      "weight": "weight"
+    }
+  ],
+  "sha256": "f25550612786d2a111bb016b2b2d69cbef73c8481b03bc571af5c677b06d4406"
+}

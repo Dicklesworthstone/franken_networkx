@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib line_graph_batch_ab -- --ignored --nocapture
+
+LINEGRAPH_BATCH_AB K40 rounds=61 (>1 = batch faster)
+LINEGRAPH_BATCH_AB BATCH_vs_string: median=4.2809x win_rate=61/61 p5_p95=[3.3675,5.7209]
+LINEGRAPH_BATCH_AB NULL_batch_vs_batch: median=0.9751x win_rate=27/61 p5_p95=[0.7615,1.1813]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 973 filtered out; finished in 5.41s
+
+Gate: candidate p5 (3.3675) >> NULL p95 (1.1813); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on L(K40)) passed before timing. Two wins folded: hoist
+node_i = pair_label(u1,v1) OUT of the inner loop (it was recomputed for every j) + batch the L(G)
+edges (per-edge policy record -> one bulk extend_edges_unrecorded).

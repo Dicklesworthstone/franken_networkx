@@ -1,0 +1,3 @@
+  [2m2026-06-03T20:47:11.400742Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m py_compile python/franken_networkx/__init__.py tests/python/test_dag_extras.py tests/artifacts/perf/20260603T-dag-longest-path-fused-native/bench_dag_longest_path.py[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

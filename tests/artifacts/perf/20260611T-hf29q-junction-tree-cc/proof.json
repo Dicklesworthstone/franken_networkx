@@ -1,0 +1,19 @@
+{
+  "parity": {
+    "checks": 270,
+    "fails": 0,
+    "empty_ok": true
+  },
+  "speedup": {
+    "n400": {
+      "inproc_ms": 3099.2,
+      "genuine_nx_ms": 5283.8,
+      "vs_nx": 1.7
+    },
+    "n500": {
+      "inproc_ms": 5488.4,
+      "genuine_nx_ms": 8898.9,
+      "vs_nx": 1.62
+    }
+  }
+}

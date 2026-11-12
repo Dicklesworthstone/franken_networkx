@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "clean-compliance-audit-log-v1",
+  "generated_at_utc": "2026-02-15T16:38:00Z",
+  "records": [
+    {
+      "event_id": "CLEAN-AUDIT-0001",
+      "scenario_id": "CLEAN-COMP-UNIT-PROVENANCE-SAFETY",
+      "claim_id": "CPR-001",
+      "source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/classes/graph.py",
+        "lines": "534-753",
+        "symbol": "Graph.add_node"
+      },
+      "implementation_ref": {
+        "path": "crates/fnx-classes/src/lib.rs",
+        "symbol": "Graph::add_node"
+      },
+      "reviewer_id": "compat-audit-reviewer",
+      "mode": "strict",
+      "outcome": "pass",
+      "replay_command": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture",
+      "triage_metadata": {
+        "bucket_id": "policy-regression",
+        "severity": "critical",
+        "owner_role": "safety-audit",
+        "replay_ref": "rch exec -- cargo test -p fnx-conformance clean_provenance_ledger_is_lineage_complete_and_separated -- --exact --nocapture"
+      }
+    },
+    {
+      "event_id": "CLEAN-AUDIT-0002",
+      "scenario_id": "CLEAN-COMP-E2E-TRACEABILITY",
+      "claim_id": "CPR-009",
+      "source_anchor": {
+        "path": "legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/unweighted.py",
+        "lines": "15-102",
+        "symbol": "single_source_shortest_path"
+      },
+      "implementation_ref": {
+        "path": "crates/fnx-conformance/src/lib.rs",
+        "symbol": "run_fixture"
+      },
+      "reviewer_id": "runtime-safety-reviewer",
+      "mode": "hardened",
+      "outcome": "pass",
+      "replay_command": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+      "triage_metadata": {
+        "bucket_id": "state-transition-invariant",
+        "severity": "high",
+        "owner_role": "runtime-safety",
+        "replay_ref": "rch exec -- cargo run -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict"
+      }
+    }
+  ]
+}

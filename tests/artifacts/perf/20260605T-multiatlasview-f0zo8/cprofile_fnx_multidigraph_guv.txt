@@ -1,0 +1,35 @@
+{"checksum": 400, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 100, "mode": "guv", "module": "fnx"}
+
+         3306 function calls (3206 primitive calls) in 0.216 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      300    0.206    0.001    0.206    0.001 __init__.py:1298(<lambda>)
+      100    0.003    0.000    0.072    0.001 __init__.py:1206(__getitem__)
+      100    0.002    0.000    0.071    0.001 __init__.py:1160(__getitem__)
+      100    0.002    0.000    0.071    0.001 __init__.py:1170(<lambda>)
+      200    0.001    0.000    0.138    0.001 __init__.py:1213(<lambda>)
+        1    0.000    0.000    0.216    0.216 multiatlas_bench.py:44(workload)
+      100    0.000    0.000    0.001    0.000 __init__.py:30609(_private_directed_adj_mapping)
+  200/100    0.000    0.000    0.071    0.001 {built-in method builtins.len}
+      200    0.000    0.000    0.000    0.000 __init__.py:30540(_private_override)
+      300    0.000    0.000    0.206    0.001 __init__.py:1196(_atlas)
+      100    0.000    0.000    0.073    0.001 __init__.py:1331(_graph_getitem_from_adj)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      100    0.000    0.000    0.071    0.001 __init__.py:1101(__len__)
+      300    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      100    0.000    0.000    0.001    0.000 __init__.py:31374(<lambda>)
+      200    0.000    0.000    0.138    0.001 __init__.py:1142(_atlas)
+      100    0.000    0.000    0.000    0.000 __init__.py:1267(_accessor)
+      100    0.000    0.000    0.071    0.001 __init__.py:1098(_atlas)
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+      100    0.000    0.000    0.000    0.000 __init__.py:1139(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+      100    0.000    0.000    0.000    0.000 __init__.py:1095(__init__)
+        1    0.000    0.000    0.000    0.000 __init__.py:1297(<lambda>)
+        1    0.000    0.000    0.000    0.000 multiatlas_bench.py:40(choose_neighbor)
+        1    0.000    0.000    0.000    0.000 __init__.py:1193(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.max}
+
+

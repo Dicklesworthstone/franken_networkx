@@ -1,0 +1,13 @@
+         10001 function calls in 0.015 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.000    0.000    0.015    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/tests/artifacts/perf/20260613T-pdn5j-is-eulerian-boldfalcon/is_eulerian_harness.py:70(<lambda>)
+     1000    0.000    0.000    0.015    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:51632(wrapper)
+     1000    0.000    0.000    0.014    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:9869(is_eulerian)
+     1000    0.013    0.000    0.013    0.000 {built-in method franken_networkx._fnx.is_eulerian}
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:12705(_coerce_arg_to_fnx_graph)
+     4000    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     1000    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:23413(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

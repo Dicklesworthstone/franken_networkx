@@ -1,0 +1,38 @@
+{
+  "case": "fnx.laplacian_spectrum(fnx.complete_graph(399))",
+  "dtype": "float64",
+  "first_sorted_values_q9": [
+    0.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0
+  ],
+  "fnx_mean_seconds": 0.06137681419495493,
+  "fnx_median_seconds": 0.04694215499330312,
+  "fnx_seconds": [
+    0.1192389180068858,
+    0.04770032997475937,
+    0.04694215499330312,
+    0.04644749697763473,
+    0.046555171022191644
+  ],
+  "fnx_sorted_sha256_q9_canonical": "69ab4bfa8252b807f8e82bebeb78c23f6e73e297b687cd0c22c9d1d367201af2",
+  "last_sorted_values_q9": [
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0,
+    399.0
+  ],
+  "max_sorted_abs_delta": 1.3642420526593613e-12,
+  "nx_sorted_sha256_q9_canonical": "b11e686b338389798300f8b95589f6118ee9e4b7a8363343827a3b0fbf75ee55",
+  "samples": 5,
+  "sorted_values_match": true
+}

@@ -1,0 +1,11 @@
+Benchmark 1: /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl fnx --repeats 30
+  Time (mean ± σ):      2.280 s ±  0.468 s    [User: 5.473 s, System: 0.130 s]
+  Range (min … max):    2.031 s …  3.453 s    10 runs
+ 
+Benchmark 2: /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl nx --repeats 30
+  Time (mean ± σ):      2.596 s ±  0.550 s    [User: 5.226 s, System: 0.178 s]
+  Range (min … max):    2.111 s …  3.398 s    10 runs
+ 
+Summary
+  /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl fnx --repeats 30 ran
+    1.14 ± 0.34 times faster than /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl nx --repeats 30

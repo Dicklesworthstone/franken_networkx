@@ -1,0 +1,14 @@
+  [2m2026-06-05T03:45:25.578444Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 8 --export-json tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/after_hyperfine.json './.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl fnx --style range --nodes 1000 --edges 8000 --loops 10' './.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl nx --style range --nodes 1000 --edges 8000 --loops 10'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: ./.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl fnx --style range --nodes 1000 --edges 8000 --loops 10
+  Time (mean ± σ):     543.5 ms ±  56.2 ms    [User: 3870.0 ms, System: 73.4 ms]
+  Range (min … max):   457.8 ms … 628.5 ms    8 runs
+ 
+Benchmark 2: ./.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl nx --style range --nodes 1000 --edges 8000 --loops 10
+  Time (mean ± σ):     384.5 ms ±  28.2 ms    [User: 4218.6 ms, System: 63.0 ms]
+  Range (min … max):   345.6 ms … 430.8 ms    8 runs
+ 
+Summary
+  ./.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl nx --style range --nodes 1000 --edges 8000 --loops 10 ran
+    1.41 ± 0.18 times faster than ./.venv/bin/python tests/artifacts/perf/20260605T-remove-node-stable-store-tealspring/remove_node_batch_bench.py bench --impl fnx --style range --nodes 1000 --edges 8000 --loops 10

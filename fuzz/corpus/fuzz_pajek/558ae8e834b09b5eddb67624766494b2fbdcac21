@@ -1,0 +1,8 @@
+*Vertices 5
+1 plain
+2 "quoted label"
+3 "untermina*teread_edgelistcode-ish-e"
+*Edges
+0 21
+3 4 3
+4 5 3

@@ -1,0 +1,28 @@
+         12806 function calls (12805 primitive calls) in 0.003 seconds
+
+   Ordered by: cumulative time
+   List reduced from 52 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      2/1    0.000    0.000    0.003    0.003 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:48466(wrapper)
+        1    0.000    0.000    0.003    0.003 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:43099(k_components)
+        1    0.000    0.000    0.003    0.003 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:42939(_cubic_three_connected_k_components)
+      211    0.002    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:42917(_is_connected_after_removing)
+     3820    0.000    0.000    0.000    0.000 {method 'pop' of 'list' objects}
+     3609    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+     3609    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       20    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:1118(__iter__)
+       20    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:33265(_cached_adj_row_key_iter)
+       20    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:1382(_graph_getitem_from_adj)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:42972(_ordered_prism_k_components)
+      137    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:33172(_private_override)
+      659    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       27    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:33180(_has_networkx_private_storage)
+       20    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:1187(__getitem__)
+       20    0.000    0.000    0.000    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+       20    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:34056(<lambda>)
+       20    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:33234(_private_adj_mapping)
+        4    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:33933(number_of_edges)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/franken_networkx/__init__.py:17961(number_of_selfloops)
+
+

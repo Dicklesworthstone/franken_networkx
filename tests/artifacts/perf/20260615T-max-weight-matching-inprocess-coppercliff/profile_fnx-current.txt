@@ -1,0 +1,115 @@
+         4189672 function calls (4186397 primitive calls) in 1.047 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.047    1.047 mwm_pass1.py:316(target)
+        5    0.000    0.000    1.046    0.209 mwm_pass1.py:97(call_impl)
+        5    0.000    0.000    1.046    0.209 __init__.py:53045(wrapper)
+        5    0.000    0.000    1.046    0.209 __init__.py:9023(max_weight_matching)
+        5    0.000    0.000    1.046    0.209 __init__.py:7341(_call_networkx_for_parity)
+       10    0.000    0.000    0.994    0.099 backends.py:554(_call_if_any_backends_installed)
+        5    0.000    0.000    0.993    0.199 <class 'networkx.utils.decorators.argmap'> compilation 10:1(argmap_max_weight_matching_5)
+       10    0.000    0.000    0.993    0.099 backends.py:1484(_call_with_backend)
+        5    0.259    0.052    0.993    0.199 matching.py:318(max_weight_matching)
+   465880    0.209    0.000    0.527    0.000 matching.py:508(slack)
+   465880    0.083    0.000    0.225    0.000 graph.py:509(__getitem__)
+  1407380    0.144    0.000    0.144    0.000 {method 'get' of 'dict' objects}
+   465880    0.117    0.000    0.142    0.000 coreviews.py:81(__getitem__)
+        5    0.002    0.000    0.053    0.011 __init__.py:6747(_networkx_graph_for_parity)
+        5    0.017    0.003    0.051    0.010 backend.py:606(_fnx_to_nx)
+47500/44225    0.033    0.000    0.050    0.000 matching.py:513(assignLabel)
+   465880    0.043    0.000    0.043    0.000 coreviews.py:53(__getitem__)
+        5    0.023    0.005    0.039    0.008 matching.py:884(verifyOptimum)
+      170    0.013    0.000    0.031    0.000 matching.py:575(addBlossom)
+   465885    0.025    0.000    0.025    0.000 coreviews.py:44(__init__)
+        5    0.011    0.002    0.017    0.003 graph.py:986(add_edges_from)
+    26040    0.009    0.000    0.011    0.000 reportviews.py:856(__iter__)
+    96325    0.010    0.000    0.010    0.000 {method 'append' of 'list' objects}
+        5    0.007    0.001    0.007    0.001 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+    12700    0.004    0.000    0.006    0.000 matching.py:415(leaves)
+    62775    0.005    0.000    0.005    0.000 {built-in method builtins.isinstance}
+        5    0.001    0.000    0.005    0.001 backend.py:776(_align_rows)
+    10435    0.003    0.000    0.004    0.000 graph.py:1344(neighbors)
+      900    0.002    0.000    0.004    0.000 {built-in method builtins.any}
+    27840    0.004    0.000    0.004    0.000 {method 'update' of 'dict' objects}
+    26370    0.003    0.000    0.003    0.000 {method 'reverse' of 'list' objects}
+        5    0.001    0.000    0.002    0.000 graph.py:584(add_nodes_from)
+    23955    0.002    0.000    0.002    0.000 {method 'pop' of 'list' objects}
+    26930    0.002    0.000    0.002    0.000 backend.py:785(<genexpr>)
+    13015    0.002    0.000    0.002    0.000 {method 'split' of 'str' objects}
+      620    0.002    0.000    0.002    0.000 matching.py:538(scanBlossom)
+      450    0.001    0.000    0.002    0.000 matching.py:851(augmentMatching)
+    26030    0.002    0.000    0.002    0.000 reportviews.py:785(<lambda>)
+    13470    0.002    0.000    0.002    0.000 {method 'add' of 'set' objects}
+    10575    0.001    0.000    0.001    0.000 {built-in method builtins.iter}
+     1820    0.001    0.000    0.001    0.000 {method 'clear' of 'dict' objects}
+      905    0.000    0.000    0.001    0.000 backend.py:635(<genexpr>)
+    14875    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+       20    0.000    0.000    0.001    0.000 matching.py:786(augmentBlossom)
+      900    0.001    0.000    0.001    0.000 __init__.py:5472(__getitem__)
+       20    0.000    0.000    0.001    0.000 matching.py:670(expandBlossom)
+      260    0.000    0.000    0.001    0.000 matching.py:676(_recurse)
+      320    0.000    0.000    0.001    0.000 matching.py:792(_recurse)
+      145    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+     1825    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+     1705    0.000    0.000    0.000    0.000 {method 'extend' of 'list' objects}
+        5    0.000    0.000    0.000    0.000 matching.py:60(matching_dict_to_set)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.__build_class__}
+        5    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      900    0.000    0.000    0.000    0.000 {method 'copy' of 'dict' objects}
+      450    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+       35    0.000    0.000    0.000    0.000 __init__.py:6169(predicate)
+       15    0.000    0.000    0.000    0.000 functools.py:1010(__get__)
+      425    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+       15    0.000    0.000    0.000    0.000 __init__.py:37049(__iter__)
+      325    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}
+      900    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+       45    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      135    0.000    0.000    0.000    0.000 reportviews.py:187(__iter__)
+       10    0.000    0.000    0.000    0.000 reportviews.py:1102(__call__)
+        5    0.000    0.000    0.000    0.000 graph.py:349(__init__)
+       30    0.000    0.000    0.000    0.000 __init__.py:36496(_private_override)
+        5    0.000    0.000    0.000    0.000 __init__.py:37461(<lambda>)
+       20    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7729fd8c7100}
+      170    0.000    0.000    0.000    0.000 {method 'index' of 'list' objects}
+        5    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        5    0.000    0.000    0.000    0.000 __init__.py:36576(_private_adj_mapping)
+        5    0.000    0.000    0.000    0.000 __init__.py:5974(__get__)
+        5    0.000    0.000    0.000    0.000 __init__.py:37082(nodes)
+        5    0.000    0.000    0.000    0.000 graph.py:1387(edges)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       45    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      135    0.000    0.000    0.000    0.000 reportviews.py:207(__call__)
+        5    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+        5    0.000    0.000    0.000    0.000 graph.py:393(adj)
+       10    0.000    0.000    0.000    0.000 reportviews.py:771(__init__)
+       10    0.000    0.000    0.000    0.000 misc.py:645(_clear_cache)
+        5    0.000    0.000    0.000    0.000 graph.py:756(nodes)
+       10    0.000    0.000    0.000    0.000 decorators.py:83(_not_implemented_for)
+        5    0.000    0.000    0.000    0.000 graph.py:455(__iter__)
+        5    0.000    0.000    0.000    0.000 reportviews.py:1067(__init__)
+        5    0.000    0.000    0.000    0.000 __init__.py:37059(__len__)
+        5    0.000    0.000    0.000    0.000 graph.py:345(__new__)
+       10    0.000    0.000    0.000    0.000 configs.py:162(get)
+        5    0.000    0.000    0.000    0.000 matching.py:397(Blossom)
+        5    0.000    0.000    0.000    0.000 graph.py:63(__set__)
+        5    0.000    0.000    0.000    0.000 __init__.py:1513(_accessor)
+        5    0.000    0.000    0.000    0.000 reportviews.py:180(__init__)
+        5    0.000    0.000    0.000    0.000 matching.py:394(NoNode)
+       10    0.000    0.000    0.000    0.000 {method 'discard' of 'set' objects}
+       10    0.000    0.000    0.000    0.000 backends.py:1099(_can_backend_run)
+        5    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       10    0.000    0.000    0.000    0.000 {method 'endswith' of 'str' objects}
+        5    0.000    0.000    0.000    0.000 graph.py:38(__set__)
+       15    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7729fd8c71a0}
+        5    0.000    0.000    0.000    0.000 {method '_native_has_adj_py_keys' of 'franken_networkx.Graph' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:24203(_validate_backend_dispatch_keywords)
+        5    0.000    0.000    0.000    0.000 {method 'setdefault' of 'dict' objects}
+        5    0.000    0.000    0.000    0.000 graph.py:487(__len__)
+        5    0.000    0.000    0.000    0.000 backends.py:1052(_will_call_mutate_input)
+        5    0.000    0.000    0.000    0.000 graph.py:1584(is_multigraph)
+        5    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        5    0.000    0.000    0.000    0.000 graph.py:1588(is_directed)
+
+

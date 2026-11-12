@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version=>
+  <graph source="a" target="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/ 
+</gexf>

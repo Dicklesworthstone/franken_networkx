@@ -1,0 +1,5 @@
+  [2m2026-06-03T17:44:14.010154Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_quotient_graph_default_node_data.py tests/python/test_graph_utilities.py::test_dedensify_and_quotient_graph_match_networkx tests/python/test_graph_utilities.py::test_dedensify_and_quotient_graph_do_not_fallback -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+ERROR: stale python/franken_networkx/_fnx.abi3.so is older than Rust sources; rebuild the Python extension before running pytest (for example: rch exec -- maturin develop --features pyo3/abi3-py310)
+

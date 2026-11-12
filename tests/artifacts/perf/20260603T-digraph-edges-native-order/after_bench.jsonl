@@ -1,0 +1,1 @@
+{"checksum": 0, "edge_count": 9000, "edges": 9000, "iters": 20, "mean_s": 0.00968236315737678, "median_s": 0.009398456951021216, "min_s": 0.008843379600148183, "mode": "bench", "nodes": 1800, "samples": 7, "seed": 23}

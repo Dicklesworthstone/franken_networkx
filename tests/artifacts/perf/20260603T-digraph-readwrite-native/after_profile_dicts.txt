@@ -1,0 +1,11 @@
+         61 function calls in 0.063 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.000    0.000    0.063    0.003 bench_digraph_readwrite.py:57(<lambda>)
+       20    0.000    0.000    0.063    0.003 __init__.py:39511(to_dict_of_dicts)
+       20    0.063    0.003    0.063    0.003 {built-in method franken_networkx._fnx.to_dict_of_dicts_undirected}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

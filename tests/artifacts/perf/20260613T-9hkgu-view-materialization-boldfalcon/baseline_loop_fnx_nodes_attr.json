@@ -1,0 +1,96 @@
+{
+  "case": "nodes-attr",
+  "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+  "git_head": "a012a638d7ce7e0674a1afe38925718dd4fdb8d0",
+  "impl": "fnx",
+  "max": 0.0005639476374999504,
+  "mean": 0.0004990665297769333,
+  "median": 0.0004864418750003097,
+  "min": 0.0004408496859978186,
+  "n": 800,
+  "raw": [
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 1.089621974999318,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0005448109874996589,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 1.0837854989949847,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0005418927494974924,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 0.9457907390024047,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.00047289536950120235,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 1.1278952749999007,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0005639476374999504,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 1.010997988996678,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.000505498994498339,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 0.9728837500006193,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0004864418750003097,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 0.9394772889936576,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.00046973864449682877,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 0.9310456480016001,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.00046552282400080005,
+      "repeat": 2000
+    },
+    {
+      "case": "nodes-attr",
+      "digest": "cb38782ab852d8c8141aa6ef0e4c60c792cc68409d7825d4b3c56663b2dd5e64",
+      "elapsed": 0.8816993719956372,
+      "impl": "fnx",
+      "n": 800,
+      "per_iter": 0.0004408496859978186,
+      "repeat": 2000
+    }
+  ],
+  "repeat": 2000,
+  "samples": 9
+}

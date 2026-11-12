@@ -1,0 +1,45 @@
+{
+  "cases": [
+    {
+      "fnx": 0.018672078863438676,
+      "matches_nx": true,
+      "name": "ba1500",
+      "nx": 0.018672078863438676,
+      "raw": 0.018672078863438676,
+      "raw_matches_nx": true
+    },
+    {
+      "fnx": 0,
+      "matches_nx": true,
+      "name": "path257",
+      "nx": 0,
+      "raw": 0.0,
+      "raw_matches_nx": true
+    },
+    {
+      "fnx": 0,
+      "matches_nx": true,
+      "name": "cycle256",
+      "nx": 0,
+      "raw": 0.0,
+      "raw_matches_nx": true
+    },
+    {
+      "fnx": 1.0,
+      "matches_nx": true,
+      "name": "complete80",
+      "nx": 1.0,
+      "raw": 1.0,
+      "raw_matches_nx": true
+    },
+    {
+      "fnx": 0,
+      "matches_nx": true,
+      "name": "selfloop",
+      "nx": 0,
+      "raw": 0.0,
+      "raw_matches_nx": true
+    }
+  ],
+  "sha256": "4b5c53e2a2fc0616eb35010090a1457bfda7d87d6a6e842144bda379f01ad2ce"
+}

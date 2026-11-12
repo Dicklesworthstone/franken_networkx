@@ -1,0 +1,12 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib circulant_batch_ab -- --ignored --nocapture
+
+CIRCULANT_BATCH_AB n=10000 offsets=[1, 2, 3, 4, 5] rounds=61 (>1 = batch faster)
+CIRCULANT_BATCH_AB BATCH_vs_string: median=17.3655x win_rate=61/61 p5_p95=[13.3293,20.3729]
+CIRCULANT_BATCH_AB NULL_batch_vs_batch: median=1.0016x win_rate=32/61 p5_p95=[0.7957,1.1782]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 210 filtered out; finished in 9.73s
+
+PROFILE-FIRST: this A/B ran BEFORE the production edit. Its parity asserts across 6 configs — including
+the RISKY (100,[50]) offset==n/2, (7,[0]) self-loops, and (7,[0,2]) self-loops+normal — ALL passed,
+proving the gnm-style seen-set batch (canonical (min,max), skip-if-seen, first-occurrence order) is
+byte-identical to per-edge add_edge INCLUDING self-loop handling. Gate: candidate p5 (13.3293) >> NULL
+p95 (1.1782); 61/61.

@@ -1,0 +1,571 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "ci-gate-topology-v1",
+  "generated_at_utc": "2026-02-16T00:00:00Z",
+  "source_bead_id": "bd-315.10.1",
+  "gate_order": [
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "G5",
+    "G6",
+    "G7",
+    "G8"
+  ],
+  "short_circuit": {
+    "enabled": true,
+    "stop_after_first_failure": true,
+    "policy_id": "CI-POL-FAIL-CLOSED-001",
+    "required_failure_envelope_fields": [
+      "budget_id",
+      "status",
+      "policy_id",
+      "failing_gate_id",
+      "failing_test_groups",
+      "artifact_paths",
+      "replay_commands",
+      "owner_bead_id",
+      "remediation_hint"
+    ]
+  },
+  "policies": [
+    {
+      "policy_id": "CI-POL-FAIL-CLOSED-001",
+      "domain": "orchestration",
+      "rule": "all release-critical gates are blocking and fail-closed",
+      "violation_action": "halt pipeline and emit deterministic failure envelope",
+      "deterministic": true
+    },
+    {
+      "policy_id": "CI-POL-COMPAT-DRIFT-001",
+      "domain": "compatibility",
+      "rule": "strict compatibility drift is disallowed; hardened divergence must remain allowlisted",
+      "violation_action": "fail gate and block release",
+      "deterministic": true
+    },
+    {
+      "policy_id": "CI-POL-SECURITY-DRIFT-001",
+      "domain": "security",
+      "rule": "security-critical invariant violations and telemetry-contract gaps are zero-tolerance",
+      "violation_action": "fail gate and require corrective rerun",
+      "deterministic": true
+    },
+    {
+      "policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "domain": "reliability",
+      "rule": "budget failures must include machine-readable remediation envelopes",
+      "violation_action": "fail gate if envelope fields are incomplete",
+      "deterministic": true
+    },
+    {
+      "policy_id": "CI-POL-DURABILITY-001",
+      "domain": "durability",
+      "rule": "decode-proof evidence is mandatory for recovery-path artifacts",
+      "violation_action": "fail gate on missing or invalid decode-proof linkage",
+      "deterministic": true
+    },
+    {
+      "policy_id": "CI-POL-OVERRIDE-001",
+      "domain": "orchestration",
+      "rule": "manual override must be explicit, reason-coded, and auditable",
+      "violation_action": "reject implicit or unaudited overrides",
+      "deterministic": true
+    }
+  ],
+  "drift_rules": [
+    {
+      "rule_id": "DRIFT-COMPAT-STRICT-000",
+      "domain": "compatibility",
+      "threshold": "strict critical drift == 0",
+      "policy_id": "CI-POL-COMPAT-DRIFT-001",
+      "violation_action": "fail_closed"
+    },
+    {
+      "rule_id": "DRIFT-COMPAT-HARDENED-001",
+      "domain": "compatibility",
+      "threshold": "hardened divergence <= 1.00% and allowlisted only",
+      "policy_id": "CI-POL-COMPAT-DRIFT-001",
+      "violation_action": "fail_closed"
+    },
+    {
+      "rule_id": "DRIFT-SEC-INVARIANT-000",
+      "domain": "security",
+      "threshold": "no unknown incompatible feature handling and no unsafe bypass",
+      "policy_id": "CI-POL-SECURITY-DRIFT-001",
+      "violation_action": "fail_closed"
+    },
+    {
+      "rule_id": "DRIFT-TELEMETRY-CONTRACT-000",
+      "domain": "security",
+      "threshold": "0 missing replay/forensics required fields",
+      "policy_id": "CI-POL-SECURITY-DRIFT-001",
+      "violation_action": "fail_closed"
+    },
+    {
+      "rule_id": "DRIFT-DURABILITY-DECODE-000",
+      "domain": "durability",
+      "threshold": "decode_proof artifact required for recovery events",
+      "policy_id": "CI-POL-DURABILITY-001",
+      "violation_action": "fail_closed"
+    }
+  ],
+  "gates": [
+    {
+      "gate_id": "G1",
+      "name": "format + lint",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-SECURITY-DRIFT-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-SEC-INVARIANT-000"
+      ],
+      "budget_ids": [],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G1-STATIC-CHECKS",
+          "description": "workspace-level format/lint surfaces",
+          "required_paths": [
+            "Cargo.toml",
+            "rust-toolchain.toml",
+            "crates/fnx-runtime/src/lib.rs",
+            "crates/fnx-conformance/src/lib.rs"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G1-LINT-REPORT",
+          "description": "lint and formatting diagnostics evidence",
+          "path": "artifacts/conformance/latest/logging_final_gate_report_v1.json"
+        }
+      ],
+      "primary_commands": [
+        "rch exec -- cargo fmt --check",
+        "rch exec -- cargo clippy --workspace --all-targets -- -D warnings"
+      ],
+      "replay_commands": [
+        "rch exec -- cargo clippy --workspace --all-targets -- -D warnings"
+      ]
+    },
+    {
+      "gate_id": "G2",
+      "name": "unit + integration",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G1"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-COMPAT-DRIFT-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-COMPAT-STRICT-000"
+      ],
+      "budget_ids": [
+        "REL-BUD-001",
+        "REL-BUD-002"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G2-UNIT-INTEGRATION",
+          "description": "workspace test targets and conformance smoke harness",
+          "required_paths": [
+            "crates/fnx-conformance/tests/smoke.rs",
+            "crates/fnx-conformance/src/lib.rs",
+            "crates/fnx-algorithms/src/lib.rs"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G2-SMOKE-REPORT",
+          "description": "top-level smoke and structured telemetry outputs",
+          "path": "artifacts/conformance/latest/smoke_report.json"
+        }
+      ],
+      "primary_commands": [
+        "rch exec -- cargo test --workspace --all-targets"
+      ],
+      "replay_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture"
+      ]
+    },
+    {
+      "gate_id": "G3",
+      "name": "differential conformance",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G2"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-COMPAT-DRIFT-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-COMPAT-STRICT-000",
+        "DRIFT-COMPAT-HARDENED-001"
+      ],
+      "budget_ids": [
+        "REL-BUD-001",
+        "REL-BUD-004"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G3-DIFF-FIXTURES",
+          "description": "oracle-backed fixture corpus for parity checks",
+          "required_paths": [
+            "crates/fnx-conformance/fixtures/smoke_case.json",
+            "crates/fnx-conformance/fixtures/generated/dispatch_route_strict.json",
+            "artifacts/conformance/oracle_capture/legacy_networkx_capture.json"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G3-DIFF-REPORT",
+          "description": "fixture-level differential comparison report",
+          "path": "artifacts/conformance/latest/generated_dispatch_route_strict_json.report.json"
+        }
+      ],
+      "primary_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture"
+      ],
+      "replay_commands": [
+        "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture smoke_case.json --mode strict"
+      ]
+    },
+    {
+      "gate_id": "G4",
+      "name": "adversarial + property guards",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G3"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-SECURITY-DRIFT-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-SEC-INVARIANT-000",
+        "DRIFT-TELEMETRY-CONTRACT-000"
+      ],
+      "budget_ids": [
+        "REL-BUD-005"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G4-ADVERSARIAL-TELEMETRY",
+          "description": "adversarial scripts plus structured-log gate sources",
+          "required_paths": [
+            "scripts/e2e/run_adversarial_soak.sh",
+            "scripts/run_adversarial_seed_harness.py",
+            "crates/fnx-conformance/tests/structured_log_gate.rs"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G4-TELEMETRY-NORMALIZATION",
+          "description": "structured-log normalization and unblock matrix artifacts",
+          "path": "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+        }
+      ],
+      "primary_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test structured_log_gate -- --nocapture",
+        "bash scripts/e2e/run_adversarial_soak.sh"
+      ],
+      "replay_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test structured_log_gate -- --nocapture"
+      ]
+    },
+    {
+      "gate_id": "G5",
+      "name": "e2e + forensics",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G4"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-BUDGET-ENVELOPE-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-TELEMETRY-CONTRACT-000"
+      ],
+      "budget_ids": [
+        "REL-BUD-001",
+        "REL-BUD-002"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G5-E2E-FORENSICS",
+          "description": "script-pack and scenario-matrix e2e contracts",
+          "required_paths": [
+            "scripts/run_e2e_script_pack_gate.sh",
+            "scripts/run_e2e_scenario_matrix_gate.sh",
+            "artifacts/e2e/v1/e2e_scenario_matrix_oracle_contract_v1.json"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G5-E2E-GATE-REPORT",
+          "description": "deterministic e2e gate outputs and forensics references",
+          "path": "artifacts/e2e/latest/e2e_script_pack_gate_report_v1.json"
+        }
+      ],
+      "primary_commands": [
+        "bash scripts/run_e2e_script_pack_gate.sh",
+        "bash scripts/run_e2e_scenario_matrix_gate.sh"
+      ],
+      "replay_commands": [
+        "python3 scripts/run_e2e_script_pack.py --emit-json"
+      ]
+    },
+    {
+      "gate_id": "G6",
+      "name": "perf regression + isomorphism",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G5"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-COMPAT-DRIFT-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-COMPAT-STRICT-000",
+        "DRIFT-COMPAT-HARDENED-001"
+      ],
+      "budget_ids": [
+        "REL-BUD-003",
+        "REL-BUD-004"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G6-PERF-ISO",
+          "description": "performance and isomorphism harness assets",
+          "required_paths": [
+            "scripts/run_perf_regression_gate.py",
+            "scripts/run_perf_isomorphism_harness.py",
+            "artifacts/perf/phase2c/isomorphism_divergence_allowlist_v1.json"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G6-PERF-REPORT",
+          "description": "performance drift and isomorphism parity reports",
+          "path": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+        }
+      ],
+      "primary_commands": [
+        "python3 scripts/run_perf_regression_gate.py",
+        "python3 scripts/run_perf_isomorphism_harness.py"
+      ],
+      "replay_commands": [
+        "python3 scripts/run_perf_regression_gate.py"
+      ]
+    },
+    {
+      "gate_id": "G7",
+      "name": "artifact schema + reliability budgets",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G6"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-BUDGET-ENVELOPE-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-TELEMETRY-CONTRACT-000"
+      ],
+      "budget_ids": [
+        "REL-BUD-001",
+        "REL-BUD-002",
+        "REL-BUD-003",
+        "REL-BUD-004",
+        "REL-BUD-005",
+        "REL-BUD-006"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G7-RELIABILITY-SCHEMA",
+          "description": "reliability schema/spec and validator test lock",
+          "required_paths": [
+            "artifacts/conformance/schema/v1/reliability_budget_gate_schema_v1.json",
+            "artifacts/conformance/v1/reliability_budget_gate_v1.json",
+            "crates/fnx-conformance/tests/reliability_budget_gate.rs"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G7-RELIABILITY-VALIDATION",
+          "description": "reliability budget report and validator output",
+          "path": "artifacts/conformance/latest/reliability_budget_gate_validation_v1.json"
+        }
+      ],
+      "primary_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test reliability_budget_gate -- --nocapture"
+      ],
+      "replay_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test reliability_budget_gate -- --nocapture"
+      ]
+    },
+    {
+      "gate_id": "G8",
+      "name": "durability scrub + decode proof",
+      "blocking": true,
+      "owner_bead_id": "bd-315.10.1",
+      "depends_on": [
+        "G7"
+      ],
+      "short_circuit_on_fail": true,
+      "fail_closed_policy_ids": [
+        "CI-POL-FAIL-CLOSED-001",
+        "CI-POL-DURABILITY-001"
+      ],
+      "drift_rule_ids": [
+        "DRIFT-DURABILITY-DECODE-000"
+      ],
+      "budget_ids": [
+        "REL-BUD-006"
+      ],
+      "input_contracts": [
+        {
+          "contract_id": "IC-G8-DURABILITY-DECODE",
+          "description": "durability and packet-readiness gate surfaces",
+          "required_paths": [
+            "scripts/run_conformance_with_durability.sh",
+            "crates/fnx-conformance/tests/phase2c_packet_readiness_gate.rs",
+            "crates/fnx-conformance/fixtures/generated/adversarial_regression_bundle_v1.json"
+          ]
+        }
+      ],
+      "output_artifacts": [
+        {
+          "artifact_id": "OA-G8-DURABILITY-PIPELINE",
+          "description": "durability scrub/decode and recovery evidence outputs",
+          "path": "artifacts/conformance/latest/durability_pipeline_report.json"
+        }
+      ],
+      "primary_commands": [
+        "bash scripts/run_conformance_with_durability.sh",
+        "rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+      ],
+      "replay_commands": [
+        "rch exec -- cargo test -q -p fnx-conformance --test phase2c_packet_readiness_gate -- --nocapture"
+      ]
+    }
+  ],
+  "io_contract_matrix": [
+    {
+      "gate_id": "G1",
+      "input_contract_ids": [
+        "IC-G1-STATIC-CHECKS"
+      ],
+      "output_artifact_ids": [
+        "OA-G1-LINT-REPORT"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G2",
+      "input_contract_ids": [
+        "IC-G2-UNIT-INTEGRATION"
+      ],
+      "output_artifact_ids": [
+        "OA-G2-SMOKE-REPORT"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G3",
+      "input_contract_ids": [
+        "IC-G3-DIFF-FIXTURES"
+      ],
+      "output_artifact_ids": [
+        "OA-G3-DIFF-REPORT"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G4",
+      "input_contract_ids": [
+        "IC-G4-ADVERSARIAL-TELEMETRY"
+      ],
+      "output_artifact_ids": [
+        "OA-G4-TELEMETRY-NORMALIZATION"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G5",
+      "input_contract_ids": [
+        "IC-G5-E2E-FORENSICS"
+      ],
+      "output_artifact_ids": [
+        "OA-G5-E2E-GATE-REPORT"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G6",
+      "input_contract_ids": [
+        "IC-G6-PERF-ISO"
+      ],
+      "output_artifact_ids": [
+        "OA-G6-PERF-REPORT"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G7",
+      "input_contract_ids": [
+        "IC-G7-RELIABILITY-SCHEMA"
+      ],
+      "output_artifact_ids": [
+        "OA-G7-RELIABILITY-VALIDATION"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    },
+    {
+      "gate_id": "G8",
+      "input_contract_ids": [
+        "IC-G8-DURABILITY-DECODE"
+      ],
+      "output_artifact_ids": [
+        "OA-G8-DURABILITY-PIPELINE"
+      ],
+      "failure_envelope_policy_id": "CI-POL-BUDGET-ENVELOPE-001",
+      "owner_bead_id": "bd-315.10.1"
+    }
+  ]
+}

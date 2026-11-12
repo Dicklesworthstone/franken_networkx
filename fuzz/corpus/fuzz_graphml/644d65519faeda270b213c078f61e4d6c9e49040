@@ -1,0 +1,10 @@
+<&xml Versioo="0.0" eattr.name="weght" attr.type="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge sowrite_gexfarget="b">
+   e id="a"/>
+    <node id="b"/>
+    <ed/> sourec="a" t id="a"/>
+    <node id="b"/>
+    <ed/> sourraphml>

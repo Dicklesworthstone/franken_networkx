@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260602T-maximal-independent-set-indexed/bench_maximal_independent_set.py --impl fnx --nodes 3000 --m 4 --graph-seed 42 --mis-seed 1 --repeats 3",
+      "mean": 0.34722683947428573,
+      "stddev": 0.018975249974793596,
+      "median": 0.33833586375999997,
+      "user": 4.537025377142857,
+      "system": 0.07142606857142857,
+      "min": 0.32653510675999997,
+      "max": 0.37731876376,
+      "times": [
+        0.33571724176,
+        0.34891658976,
+        0.32653510675999997,
+        0.36874883076,
+        0.33833586375999997,
+        0.37731876376,
+        0.33501547976
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

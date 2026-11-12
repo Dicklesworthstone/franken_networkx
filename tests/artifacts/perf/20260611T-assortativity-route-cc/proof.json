@@ -1,0 +1,50 @@
+{
+  "routing": {
+    "degree_pearson_correlation_coefficient": true,
+    "attribute_assortativity_coefficient": true,
+    "numeric_assortativity_coefficient": true,
+    "degree_assortativity_coefficient": true,
+    "degree_mixing_matrix": true,
+    "attribute_mixing_matrix": true,
+    "average_neighbor_degree": true
+  },
+  "parity": {
+    "checks": 120,
+    "degree_pearson": 0,
+    "attribute_assort": 0,
+    "numeric_assort": 0,
+    "degree_mixing_matrix": 0,
+    "attribute_mixing_matrix": 0,
+    "avg_neighbor_degree": 0
+  },
+  "speedup": {
+    "degree_pearson_correlation_coefficient": {
+      "routed_ms": 15.92,
+      "old_submodule_ms": 53.99,
+      "genuine_nx_ms": 22.97,
+      "vs_old": 3.4,
+      "vs_nx": 1.44
+    },
+    "attribute_assortativity_coefficient": {
+      "routed_ms": 4.52,
+      "old_submodule_ms": 30.89,
+      "genuine_nx_ms": 6.18,
+      "vs_old": 6.8,
+      "vs_nx": 1.37
+    },
+    "degree_mixing_matrix": {
+      "routed_ms": 4.83,
+      "old_submodule_ms": 40.33,
+      "genuine_nx_ms": 13.02,
+      "vs_old": 8.3,
+      "vs_nx": 2.69
+    },
+    "attribute_mixing_matrix": {
+      "routed_ms": 6.71,
+      "old_submodule_ms": 29.69,
+      "genuine_nx_ms": 6.03,
+      "vs_old": 4.4,
+      "vs_nx": 0.9
+    }
+  }
+}

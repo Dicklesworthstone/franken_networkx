@@ -1,0 +1,123 @@
+{
+  "case": {
+    "k": 10,
+    "nodes": 1200,
+    "operation": "list(DG.reverse(copy=False).edges())",
+    "p": 0.2,
+    "seed": 5,
+    "style": "digraph_ctor"
+  },
+  "digest_recipe": "sha256(json.dumps(edges, sort_keys=True, separators=(',', ':')).encode())",
+  "edge_count": 12000,
+  "environment": {
+    "fnx_package": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]"
+  },
+  "expected_sha": "6c02e12d4919dc3896f61bb46132765c58d07395023846106aad288d1c918feb",
+  "first_edges": [
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      0,
+      3
+    ],
+    [
+      0,
+      4
+    ],
+    [
+      0,
+      5
+    ],
+    [
+      0,
+      427
+    ],
+    [
+      0,
+      784
+    ],
+    [
+      0,
+      1196
+    ],
+    [
+      0,
+      1197
+    ],
+    [
+      0,
+      1199
+    ],
+    [
+      1,
+      0
+    ],
+    [
+      1,
+      2
+    ]
+  ],
+  "fnx_matches_expected": false,
+  "fnx_matches_nx": true,
+  "fnx_sha": "042baf3e7f3df78ebd2f0449150004d3f1db72722c268721b598f173efc5d73b",
+  "last_edges": [
+    [
+      1198,
+      1197
+    ],
+    [
+      1198,
+      1199
+    ],
+    [
+      1199,
+      0
+    ],
+    [
+      1199,
+      1
+    ],
+    [
+      1199,
+      2
+    ],
+    [
+      1199,
+      3
+    ],
+    [
+      1199,
+      298
+    ],
+    [
+      1199,
+      1143
+    ],
+    [
+      1199,
+      1194
+    ],
+    [
+      1199,
+      1196
+    ],
+    [
+      1199,
+      1197
+    ],
+    [
+      1199,
+      1198
+    ]
+  ],
+  "nx_matches_expected": false,
+  "nx_sha": "042baf3e7f3df78ebd2f0449150004d3f1db72722c268721b598f173efc5d73b"
+}

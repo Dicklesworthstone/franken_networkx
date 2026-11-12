@@ -1,0 +1,8 @@
+{"elapsed_s": 0.025535619992297143, "graph_kind": "multigraph", "keys": 3, "lib": "fnx", "loops": 10, "mean_s": 0.0025535619992297144, "neighbors": 1000, "operation": "bare", "sink": 0}
+{"elapsed_s": 1.9917963072657585e-05, "graph_kind": "multigraph", "keys": 3, "lib": "nx", "loops": 10, "mean_s": 1.9917963072657587e-06, "neighbors": 1000, "operation": "bare", "sink": 0}
+{"elapsed_s": 0.06650274095591158, "graph_kind": "multigraph", "keys": 3, "lib": "fnx", "loops": 10, "mean_s": 0.006650274095591158, "neighbors": 1000, "operation": "point", "sink": 30}
+{"elapsed_s": 3.113900311291218e-05, "graph_kind": "multigraph", "keys": 3, "lib": "nx", "loops": 10, "mean_s": 3.113900311291218e-06, "neighbors": 1000, "operation": "point", "sink": 30}
+{"elapsed_s": 0.01683469896670431, "graph_kind": "multidigraph", "keys": 3, "lib": "fnx", "loops": 10, "mean_s": 0.001683469896670431, "neighbors": 1000, "operation": "bare", "sink": 0}
+{"elapsed_s": 1.638103276491165e-05, "graph_kind": "multidigraph", "keys": 3, "lib": "nx", "loops": 10, "mean_s": 1.6381032764911652e-06, "neighbors": 1000, "operation": "bare", "sink": 0}
+{"elapsed_s": 0.03552997100632638, "graph_kind": "multidigraph", "keys": 3, "lib": "fnx", "loops": 10, "mean_s": 0.0035529971006326377, "neighbors": 1000, "operation": "point", "sink": 30}
+{"elapsed_s": 2.455600770190358e-05, "graph_kind": "multidigraph", "keys": 3, "lib": "nx", "loops": 10, "mean_s": 2.4556007701903582e-06, "neighbors": 1000, "operation": "point", "sink": 30}

@@ -1,0 +1,41 @@
+         18002 function calls in 0.294 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.027    0.027    0.294    0.294 reverse_view_edges_harness.py:119(profiled)
+      300    0.006    0.000    0.268    0.001 reverse_view_edges_harness.py:82(target)
+      300    0.071    0.000    0.255    0.001 __init__.py:35290(__call__)
+      300    0.185    0.001    0.185    0.001 {method '_native_reverse_edges_no_data' of 'franken_networkx.DiGraph' objects}
+      300    0.000    0.000    0.006    0.000 __init__.py:4388(reverse)
+      300    0.000    0.000    0.006    0.000 __init__.py:44559(reverse_view)
+      300    0.000    0.000    0.005    0.000 __init__.py:53083(wrapper)
+      300    0.000    0.000    0.005    0.000 __init__.py:39155(reverse)
+      300    0.000    0.000    0.004    0.000 __init__.py:35168(_reverse_directed_view_for)
+      300    0.001    0.000    0.003    0.000 __init__.py:34550(__init__)
+     1500    0.001    0.000    0.001    0.000 __init__.py:6169(predicate)
+      300    0.000    0.000    0.001    0.000 __init__.py:6010(__set__)
+      600    0.000    0.000    0.001    0.000 __init__.py:5974(__get__)
+      300    0.000    0.000    0.000    0.000 __init__.py:34542(__new__)
+      300    0.000    0.000    0.000    0.000 __init__.py:34704(edges)
+      300    0.000    0.000    0.000    0.000 __init__.py:37519(<lambda>)
+      900    0.000    0.000    0.000    0.000 __init__.py:36538(_set_private_override)
+      300    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      300    0.000    0.000    0.000    0.000 __init__.py:36631(_private_succ_mapping)
+     1200    0.000    0.000    0.000    0.000 {built-in method builtins.setattr}
+     2100    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      300    0.000    0.000    0.000    0.000 __init__.py:37512(<lambda>)
+      300    0.000    0.000    0.000    0.000 __init__.py:36534(_private_override)
+      300    0.000    0.000    0.000    0.000 __init__.py:37520(<lambda>)
+      900    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      300    0.000    0.000    0.000    0.000 __init__.py:37528(<lambda>)
+      900    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7075cd8cd4e0}
+      600    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7075cd8cd440}
+      900    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      900    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      600    0.000    0.000    0.000    0.000 __init__.py:35222(__init__)
+      300    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+      300    0.000    0.000    0.000    0.000 __init__.py:24232(_validate_backend_dispatch_keywords)
+      300    0.000    0.000    0.000    0.000 {method 'clear' of 'dict' objects}
+      300    0.000    0.000    0.000    0.000 __init__.py:35287(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

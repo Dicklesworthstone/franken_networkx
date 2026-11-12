@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case chain_decomposition --impl fnx --repeats 50 >/dev/null",
+      "mean": 0.41227830786000014,
+      "stddev": 0.02254691460574829,
+      "median": 0.41253282826000004,
+      "user": 4.32449896,
+      "system": 0.057452800000000005,
+      "min": 0.39036650626,
+      "max": 0.46048410826,
+      "times": [
+        0.40886398626000003,
+        0.39145634126000006,
+        0.39147991626000006,
+        0.39190840826000006,
+        0.42913937526000007,
+        0.46048410826,
+        0.41620167026000005,
+        0.39036650626,
+        0.41909469126000004,
+        0.42378807526000006
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

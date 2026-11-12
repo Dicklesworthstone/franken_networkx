@@ -1,0 +1,247 @@
+diff --git a/crates/fnx-generators/src/lib.rs b/crates/fnx-generators/src/lib.rs
+index 77fd16199..86723f404 100644
+--- a/crates/fnx-generators/src/lib.rs
++++ b/crates/fnx-generators/src/lib.rs
+@@ -2967,17 +2967,25 @@ impl GraphGenerator {
+             })?;
+         let degree_floor = double_edges / n;
+         let offset = degree_floor / 2;
+-        let (mut graph, node_labels) = graph_with_n_nodes(self.mode, n);
++        // br-r37-c1-hnmhararybatch (cc): Harary H_{n,m} circulant + optional matching/remainder shells.
++        // The shells can overlap the circulant and each other (e.g. the remainder shift offset+1 or the
++        // matching shift n/2), so collect the (u,v) INDEX pairs with a gnm-style integer seen-set
++        // (canonical (min,max), skip-if-seen, first-occurrence order = exactly add_edge's dedup) in the
++        // SAME emission order, then batch-insert instead of per-edge add_edge (2 clones + 2 name hashes
++        // + policy each). Verified byte-identical via the hnm_harary_batch_ab parity asserts;
++        // extend_existing_index_edges_unrecorded matches add_edge's canonicalization, adj order, and
++        // self-loop/dedup handling.
++        let (mut graph, _node_labels) = graph_with_n_nodes(self.mode, n);
++        let mut edges: Vec<(usize, usize)> = Vec::new();
++        let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+ 
+         for shift in 1..=offset {
+             for node in 0..n {
+-                let target = (node + shift) % n;
+-                graph
+-                    .add_edge(node_labels[node].clone(), node_labels[target].clone())
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation,
+-                        reason: err.to_string(),
+-                    })?;
++                let (u, v) = (node, (node + shift) % n);
++                let key = if u <= v { (u, v) } else { (v, u) };
++                if seen.insert(key) {
++                    edges.push((u, v));
++                }
+             }
+         }
+ 
+@@ -2985,26 +2993,21 @@ impl GraphGenerator {
+         if n.is_multiple_of(2) || degree_floor.is_multiple_of(2) {
+             if degree_floor % 2 == 1 {
+                 for node in 0..half {
+-                    graph
+-                        .add_edge(node_labels[node].clone(), node_labels[node + half].clone())
+-                        .map_err(|err| GenerationError::FailClosed {
+-                            operation,
+-                            reason: err.to_string(),
+-                        })?;
++                    let (u, v) = (node, node + half);
++                    let key = if u <= v { (u, v) } else { (v, u) };
++                    if seen.insert(key) {
++                        edges.push((u, v));
++                    }
+                 }
+             }
+ 
+             let remainder = double_edges % n;
+             for node in 0..(remainder / 2) {
+-                graph
+-                    .add_edge(
+-                        node_labels[node].clone(),
+-                        node_labels[node + offset + 1].clone(),
+-                    )
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation,
+-                        reason: err.to_string(),
+-                    })?;
++                let (u, v) = (node, node + offset + 1);
++                let key = if u <= v { (u, v) } else { (v, u) };
++                if seen.insert(key) {
++                    edges.push((u, v));
++                }
+             }
+         } else {
+             let remaining_edges =
+@@ -3019,15 +3022,14 @@ impl GraphGenerator {
+                     reason: format!("edge count underflow for n={n}, m={m}"),
+                 })?;
+             for node in 0..remaining_edges {
+-                let target = (node + half) % n;
+-                graph
+-                    .add_edge(node_labels[node].clone(), node_labels[target].clone())
+-                    .map_err(|err| GenerationError::FailClosed {
+-                        operation,
+-                        reason: err.to_string(),
+-                    })?;
++                let (u, v) = (node, (node + half) % n);
++                let key = if u <= v { (u, v) } else { (v, u) };
++                if seen.insert(key) {
++                    edges.push((u, v));
++                }
+             }
+         }
++        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+ 
+         self.record(
+             operation,
+@@ -8851,6 +8853,149 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-hnmhararybatch: PROFILE-FIRST A/B for hnm_harary_graph. H_{n,m} = a circulant plus
++    /// matching/remainder shells whose edges can overlap the circulant and each other, so the batch
++    /// uses the seen-set. Parity asserts cover all branches (n even / odd × degree_floor even / odd)
++    /// BEFORE the production edit. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-generators --lib hnm_harary_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn hnm_harary_batch_ab() {
++        use super::graph_with_n_nodes;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Emit the (u,v) pairs in hnm_harary's exact order; `dedup` toggles the seen-set (batch path).
++        fn emit(n: usize, m: usize, dedup: bool) -> Vec<(usize, usize)> {
++            let double_edges = 2 * m;
++            let degree_floor = double_edges / n;
++            let offset = degree_floor / 2;
++            let half = n / 2;
++            let mut edges: Vec<(usize, usize)> = Vec::new();
++            let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
++            let push = |edges: &mut Vec<(usize, usize)>,
++                        seen: &mut std::collections::HashSet<(usize, usize)>,
++                        u: usize,
++                        v: usize| {
++                if dedup {
++                    let key = if u <= v { (u, v) } else { (v, u) };
++                    if seen.insert(key) {
++                        edges.push((u, v));
++                    }
++                } else {
++                    edges.push((u, v));
++                }
++            };
++            for shift in 1..=offset {
++                for node in 0..n {
++                    push(&mut edges, &mut seen, node, (node + shift) % n);
++                }
++            }
++            if n.is_multiple_of(2) || degree_floor.is_multiple_of(2) {
++                if !degree_floor.is_multiple_of(2) {
++                    for node in 0..half {
++                        push(&mut edges, &mut seen, node, node + half);
++                    }
++                }
++                let remainder = double_edges % n;
++                for node in 0..(remainder / 2) {
++                    push(&mut edges, &mut seen, node, node + offset + 1);
++                }
++            } else {
++                let remaining_edges = m - n * offset;
++                for node in 0..remaining_edges {
++                    push(&mut edges, &mut seen, node, (node + half) % n);
++                }
++            }
++            edges
++        }
++
++        let build_string = |n: usize, m: usize| {
++            let (mut g, labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
++            for &(u, v) in &emit(n, m, false) {
++                let _ = g.add_edge(labels[u].clone(), labels[v].clone());
++            }
++            g
++        };
++        let build_batch = |n: usize, m: usize| {
++            let (mut g, _labels) = graph_with_n_nodes(CompatibilityMode::Strict, n);
++            let _ = g.extend_existing_index_edges_unrecorded(emit(n, m, true));
++            g
++        };
++
++        // Byte-identity across all branch shapes (construction only, no timing).
++        for &(n, m) in &[
++            (10usize, 15usize), // n even, degree_floor odd → matching shell
++            (10, 20),           // n even, degree_floor even
++            (9, 9),             // n odd, degree_floor even → first branch
++            (9, 14),            // n odd, degree_floor odd → remaining branch
++            (11, 17),           // odd, remainder
++            (50000, 250000),    // timing config
++        ] {
++            let gs = build_string(n, m);
++            let gb = build_batch(n, m);
++            assert_eq!(
++                gs.edges_ordered_borrowed(),
++                gb.edges_ordered_borrowed(),
++                "seen-set batch hnm_harary(n={n}, m={m}) must equal the per-edge baseline"
++            );
++            assert_eq!(gs.nodes_ordered(), gb.nodes_ordered(), "nodes hnm({n},{m})");
++        }
++
++        // hnm_harary(50000, 250000): 50000 nodes, ~250000 edges (degree_floor 10).
++        let (n, m) = (50000usize, 250000usize);
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            if batch {
++                black_box(build_batch(n, m));
++            } else {
++                black_box(build_string(n, m));
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "HNM_HARARY_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("HNM_HARARY_BATCH_AB n={n} m={m} rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     fn packet_007_forensics_bundle(
+         run_id: &str,
+         test_id: &str,

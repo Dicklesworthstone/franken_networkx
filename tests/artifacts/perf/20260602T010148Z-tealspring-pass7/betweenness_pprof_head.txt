@@ -1,0 +1,22 @@
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":192.5368,"per_iter_ms":192.5368,"checksum":2.761383}
+pprof_top_inclusive:
+1	134	__rust_begin_short_backtrace<fn(), ()>
+2	134	_start
+3	134	betweenness_centrality_generic<fnx_classes::Graph>
+4	134	betweenness_centrality_with_params
+5	134	call_once<fn(), ()>
+6	134	main
+7	134	run_once
+8	13	grow_amortized<alloc::alloc::Global>
+9	13	grow_one<alloc::alloc::Global>
+10	13	grow_one<usize, alloc::alloc::Global>
+11	13	push<usize, alloc::alloc::Global>
+12	13	push_mut<usize, alloc::alloc::Global>
+13	8	finish_grow<alloc::alloc::Global>
+14	5	checked_mul
+15	5	layout_array
+16	5	repeat_packed
+17	5	unlikely
+18	4	set_ptr_and_cap<alloc::alloc::Global>
+19	3	extend_with<alloc::vec::Vec<f64, alloc::alloc::Global>, alloc::alloc::Global>
+20	3	from_elem<alloc::vec::Vec<f64, alloc::alloc::Global>, alloc::alloc::Global>

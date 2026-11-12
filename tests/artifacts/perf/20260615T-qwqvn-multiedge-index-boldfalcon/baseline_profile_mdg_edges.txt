@@ -1,0 +1,63 @@
+bead=br-r37-c1-qwqvn which=fnx kind=mdg case=edges loops=40 checksum=800000
+         801201 function calls in 0.383 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       40    0.045    0.001    0.383    0.010 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-qwqvn-multiedge-index-boldfalcon/multiedge_view_harness.py:62(run_case)
+       40    0.229    0.006    0.229    0.006 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1887(__iter__)
+   800040    0.108    0.000    0.108    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37013(edges)
+       40    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1917(__len__)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37227(number_of_edges)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36415(_has_networkx_private_storage)
+       40    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2311(__call__)
+       40    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       40    0.000    0.000    0.000    0.000 {function MultiDiGraph.number_of_edges at 0x7cb4f2a5b9c0}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       40    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       40    0.000    0.000    0.000    0.000 {method '_native_edge_view' of 'franken_networkx.MultiDiGraph' objects}
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       40    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1865(__init__)
+
+
+
+--- tottime ---
+         801201 function calls in 0.383 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       40    0.229    0.006    0.229    0.006 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1887(__iter__)
+   800040    0.108    0.000    0.108    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+       40    0.045    0.001    0.383    0.010 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-qwqvn-multiedge-index-boldfalcon/multiedge_view_harness.py:62(run_case)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37013(edges)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+       40    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2311(__call__)
+       40    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36415(_has_networkx_private_storage)
+       40    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+       40    0.000    0.000    0.000    0.000 {function MultiDiGraph.number_of_edges at 0x7cb4f2a5b9c0}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37227(number_of_edges)
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1917(__len__)
+       40    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       40    0.000    0.000    0.000    0.000 {method '_native_edge_view' of 'franken_networkx.MultiDiGraph' objects}
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       40    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       40    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1865(__init__)
+
+

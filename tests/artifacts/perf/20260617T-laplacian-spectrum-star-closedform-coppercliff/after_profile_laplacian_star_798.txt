@@ -1,0 +1,36 @@
+         862001 function calls in 0.731 seconds
+
+   Ordered by: cumulative time
+   List reduced from 39 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.002    0.000    0.731    0.001 __init__.py:53840(wrapper)
+     1000    0.001    0.000    0.730    0.001 __init__.py:22557(laplacian_spectrum)
+     1000    0.277    0.000    0.724    0.001 __init__.py:22637(_star_laplacian_spectrum_sorted_value_safe)
+     1000    0.001    0.000    0.301    0.000 __init__.py:658(__iter__)
+     1000    0.296    0.000    0.296    0.000 __init__.py:536(_materialize)
+   799000    0.124    0.000    0.124    0.000 __init__.py:439(_gen)
+     1000    0.001    0.000    0.006    0.000 __init__.py:37776(edges)
+     1000    0.004    0.000    0.005    0.000 numeric.py:170(ones)
+     1000    0.003    0.000    0.005    0.000 __init__.py:746(wrapped)
+     6000    0.001    0.000    0.005    0.000 {built-in method builtins.len}
+     1000    0.001    0.000    0.005    0.000 __init__.py:22607(_complete_laplacian_spectrum_sorted_value_safe)
+     2000    0.001    0.000    0.003    0.000 __init__.py:37733(__len__)
+     1000    0.002    0.000    0.003    0.000 __init__.py:414(_FailFastEdgeIterator)
+     1000    0.001    0.000    0.003    0.000 weakref.py:164(__setitem__)
+     4000    0.002    0.000    0.002    0.000 __init__.py:37178(_has_networkx_private_storage)
+     1000    0.001    0.000    0.002    0.000 __init__.py:37823(degree)
+     1000    0.001    0.000    0.002    0.000 __init__.py:37990(number_of_edges)
+     2000    0.001    0.000    0.002    0.000 __init__.py:37170(_private_override)
+     8000    0.002    0.000    0.002    0.000 {built-in method builtins.vars}
+     1000    0.001    0.000    0.001    0.000 __init__.py:497(__init__)
+     1000    0.001    0.000    0.001    0.000 {built-in method numpy.empty}
+     1000    0.001    0.000    0.001    0.000 weakref.py:352(__init__)
+     1000    0.000    0.000    0.001    0.000 weakref.py:347(__new__)
+     4000    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+     1000    0.000    0.000    0.001    0.000 __init__.py:315(number_of_edges)
+     4000    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+     3000    0.001    0.000    0.001    0.000 {method 'pop' of 'dict' objects}
+     1000    0.000    0.000    0.000    0.000 weakref.py:194(get)
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}

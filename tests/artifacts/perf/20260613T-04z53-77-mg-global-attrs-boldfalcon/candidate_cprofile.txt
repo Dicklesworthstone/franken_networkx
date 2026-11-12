@@ -1,0 +1,13 @@
+{"loops": 20, "n": 2000, "m": 8000, "digest": "c34547d2882e92ecff188201d9be2c41c5d7d2e0caeac70f23f07bc490f204d8"}
+         141 function calls in 0.518 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.000    0.000    0.518    0.026 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/tests/artifacts/perf/20260613T-04z53-77-mg-global-attrs-boldfalcon/bench_mg_global_attrs.py:106(construct)
+       20    0.000    0.000    0.517    0.026 /data/tmp/fnx_candidate_clean_overlay_04z53_77/franken_networkx/__init__.py:2634(_multi_add_edges_from)
+       20    0.517    0.026    0.517    0.026 {method '_try_add_attr_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+       20    0.000    0.000    0.000    0.000 /data/tmp/fnx_candidate_clean_overlay_04z53_77/franken_networkx/__init__.py:3408(__init__)
+       40    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}

@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260607T-graph-remove-p2c-tealspring/graph_remove_p2c.py loop --mode half --nodes 3000 --edges 36000 --loops 5",
+      "mean": 1.02995971018,
+      "stddev": 0.050898157424632766,
+      "median": 1.04767457938,
+      "user": 4.56851872,
+      "system": 0.12942773999999999,
+      "min": 0.9453158063800001,
+      "max": 1.06923387838,
+      "times": [
+        0.9453158063800001,
+        1.06923387838,
+        1.04767457938,
+        1.06568721838,
+        1.0218870683799999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

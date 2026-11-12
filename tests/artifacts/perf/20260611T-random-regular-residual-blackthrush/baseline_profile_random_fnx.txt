@@ -1,0 +1,56 @@
+         8650721 function calls in 2.266 seconds
+
+   Ordered by: cumulative time
+   List reduced from 67 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      160    0.000    0.000    2.266    0.014 harness_generators.py:69(build)
+      160    0.024    0.000    2.265    0.014 harness_generators.py:37(<lambda>)
+      160    0.003    0.000    2.242    0.014 __init__.py:48380(random_regular_graph)
+      160    0.265    0.002    1.489    0.009 __init__.py:48443(_try_creation)
+      480    0.336    0.001    1.130    0.002 random.py:354(shuffle)
+  1926240    0.511    0.000    0.793    0.000 random.py:245(_randbelow_with_getrandbits)
+      160    0.096    0.001    0.681    0.004 __init__.py:2694(add_edges_from)
+      160    0.516    0.003    0.516    0.003 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+  2850880    0.153    0.000    0.153    0.000 {method 'getrandbits' of '_random.Random' objects}
+  1926240    0.130    0.000    0.130    0.000 {method 'bit_length' of 'int' objects}
+   960160    0.093    0.000    0.093    0.000 {method 'add' of 'set' objects}
+   960160    0.069    0.000    0.069    0.000 {method 'append' of 'list' objects}
+      160    0.002    0.000    0.059    0.000 __init__.py:50182(wrapper)
+      160    0.000    0.000    0.058    0.000 __init__.py:18168(empty_graph)
+      160    0.000    0.000    0.047    0.000 __init__.py:45785(_add_nodes_in_order)
+      160    0.000    0.000    0.047    0.000 __init__.py:2411(add_nodes_from)
+      160    0.047    0.000    0.047    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      160    0.001    0.000    0.006    0.000 __init__.py:24207(_generator_random_state)
+      320    0.001    0.000    0.006    0.000 __init__.py:45757(_classic_default_graph_type)
+      160    0.001    0.000    0.004    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      160    0.002    0.000    0.003    0.000 backends.py:554(_call_if_any_backends_installed)
+      160    0.003    0.000    0.003    0.000 __init__.py:45722(_nodes_or_number_local)
+      160    0.001    0.000    0.003    0.000 __init__.py:45666(_checked_create_using)
+      160    0.003    0.000    0.003    0.000 {built-in method builtins.__build_class__}
+      160    0.000    0.000    0.001    0.000 random.py:119(__init__)
+      160    0.001    0.000    0.001    0.000 random.py:128(seed)
+      160    0.001    0.000    0.001    0.000 graph.py:349(__init__)
+     5760    0.001    0.000    0.001    0.000 {method 'extend' of 'list' objects}
+      160    0.000    0.000    0.001    0.000 __init__.py:45770(_classic_graph_from_create_using)
+      160    0.001    0.000    0.001    0.000 {function Random.seed at 0x70a30c125f80}
+      160    0.000    0.000    0.001    0.000 {built-in method builtins.all}
+      160    0.000    0.000    0.001    0.000 __init__.py:5638(clear)
+      320    0.000    0.000    0.001    0.000 __init__.py:5754(predicate)
+      320    0.000    0.000    0.000    0.000 __init__.py:3350(__init__)
+     2400    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      160    0.000    0.000    0.000    0.000 backends.py:1484(_call_with_backend)
+     5760    0.000    0.000    0.000    0.000 __init__.py:48448(<lambda>)
+      640    0.000    0.000    0.000    0.000 __init__.py:45673(<genexpr>)
+      480    0.000    0.000    0.000    0.000 __init__.py:48430(_suitable)
+      160    0.000    0.000    0.000    0.000 __init__.py:24211(_NumpyRandIntAdapter)
+      160    0.000    0.000    0.000    0.000 __init__.py:45553(_empty_graph_from_create_using)
+      160    0.000    0.000    0.000    0.000 graph.py:345(__new__)
+      640    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      160    0.000    0.000    0.000    0.000 {function _make_clear_with_attr_override.<locals>.clear at 0x70a30acb5e40}
+      160    0.000    0.000    0.000    0.000 graph.py:63(__set__)
+      800    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      160    0.000    0.000    0.000    0.000 configs.py:162(get)
+      160    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      160    0.000    0.000    0.000    0.000 graph.py:38(__set__)

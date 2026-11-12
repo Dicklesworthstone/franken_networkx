@@ -1,0 +1,329 @@
+{
+  "all_match": true,
+  "bead": "br-r37-c1-qwqvn",
+  "cases": [
+    {
+      "case": "edges",
+      "fnx_sha256": "7b6947ff583a99ebd8c80f77f6a993e803e1a3def6d6362200852fcb9d94b011",
+      "kind": "mg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "7b6947ff583a99ebd8c80f77f6a993e803e1a3def6d6362200852fcb9d94b011",
+      "sample": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "case": "edges_keys",
+      "fnx_sha256": "326094764bdb6ec58a17a3c3a78064d5ef6cecf110cfb5b474b47db915221be4",
+      "kind": "mg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "326094764bdb6ec58a17a3c3a78064d5ef6cecf110cfb5b474b47db915221be4",
+      "sample": [
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          3
+        ],
+        [
+          0,
+          1,
+          4
+        ]
+      ]
+    },
+    {
+      "case": "edges_keys_data",
+      "fnx_sha256": "6d718604a890a163578f7351495f33d4c5873ef5e43de3ccdcf63799f69146de",
+      "kind": "mg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "6d718604a890a163578f7351495f33d4c5873ef5e43de3ccdcf63799f69146de",
+      "sample": [
+        [
+          0,
+          1,
+          0,
+          {
+            "w": 17
+          }
+        ],
+        [
+          0,
+          1,
+          1,
+          {
+            "w": 18
+          }
+        ],
+        [
+          0,
+          1,
+          2,
+          {
+            "w": 19
+          }
+        ],
+        [
+          0,
+          1,
+          3,
+          {
+            "w": 20
+          }
+        ],
+        [
+          0,
+          1,
+          4,
+          {
+            "w": 21
+          }
+        ]
+      ]
+    },
+    {
+      "case": "edges_data_w",
+      "fnx_sha256": "cc0f7701edb79504b2e41b93b93bc772236a762da691935d7c28d8297d98be0e",
+      "kind": "mg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "cc0f7701edb79504b2e41b93b93bc772236a762da691935d7c28d8297d98be0e",
+      "sample": [
+        [
+          0,
+          1,
+          0,
+          17
+        ],
+        [
+          0,
+          1,
+          1,
+          18
+        ],
+        [
+          0,
+          1,
+          2,
+          19
+        ],
+        [
+          0,
+          1,
+          3,
+          20
+        ],
+        [
+          0,
+          1,
+          4,
+          21
+        ]
+      ]
+    },
+    {
+      "case": "edges",
+      "fnx_sha256": "e79ece4f1a53eb60d465941277dd60d0a73c5e6b08e6ffd208cb4d1ec1c6ed96",
+      "kind": "mdg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "e79ece4f1a53eb60d465941277dd60d0a73c5e6b08e6ffd208cb4d1ec1c6ed96",
+      "sample": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "case": "edges_keys",
+      "fnx_sha256": "d7f771fba413a6d08d372800144dc018e2a53115899369acdcaf7786e8e70c8e",
+      "kind": "mdg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "d7f771fba413a6d08d372800144dc018e2a53115899369acdcaf7786e8e70c8e",
+      "sample": [
+        [
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          1,
+          1
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          3
+        ],
+        [
+          0,
+          1,
+          4
+        ]
+      ]
+    },
+    {
+      "case": "edges_keys_data",
+      "fnx_sha256": "184b6710da64d8122de1a31b7c35b878c5e897020ed200f8d051e8b600ea200a",
+      "kind": "mdg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "184b6710da64d8122de1a31b7c35b878c5e897020ed200f8d051e8b600ea200a",
+      "sample": [
+        [
+          0,
+          1,
+          0,
+          {
+            "w": 17
+          }
+        ],
+        [
+          0,
+          1,
+          1,
+          {
+            "w": 18
+          }
+        ],
+        [
+          0,
+          1,
+          2,
+          {
+            "w": 19
+          }
+        ],
+        [
+          0,
+          1,
+          3,
+          {
+            "w": 20
+          }
+        ],
+        [
+          0,
+          1,
+          4,
+          {
+            "w": 21
+          }
+        ]
+      ]
+    },
+    {
+      "case": "edges_data_w",
+      "fnx_sha256": "059d14acdbd8adf94e050913b2833dd2329c1b7adde0c12e51509cd09fd31c84",
+      "kind": "mdg",
+      "length": 20000,
+      "match": true,
+      "nx_sha256": "059d14acdbd8adf94e050913b2833dd2329c1b7adde0c12e51509cd09fd31c84",
+      "sample": [
+        [
+          0,
+          1,
+          0,
+          17
+        ],
+        [
+          0,
+          1,
+          1,
+          18
+        ],
+        [
+          0,
+          1,
+          2,
+          19
+        ],
+        [
+          0,
+          1,
+          3,
+          20
+        ],
+        [
+          0,
+          1,
+          4,
+          21
+        ]
+      ]
+    }
+  ],
+  "graph": {
+    "edges": 20000,
+    "nodes": 2000,
+    "parallel": 5,
+    "span": 2
+  },
+  "obligations": {
+    "floating_point": "N/A; integer ids, keys, and attributes only.",
+    "ordering": "Exact edge/key/data output order compared against NetworkX.",
+    "rng": "N/A; deterministic graph construction.",
+    "tie_breaking": "N/A beyond insertion order and explicit keys."
+  },
+  "semantic_sha256": "bf5b4e5a550b2ec9e2195a9cc1548ad22598e0f9c8686cc5ad4059ead59052aa"
+}

@@ -1,0 +1,12736 @@
+#![forbid(unsafe_code)]
+
+pub mod digraph;
+
+use fnx_runtime::{
+    CgseValue, CompatibilityMode, DecisionAction, DecisionRecord, EvidenceLedger, EvidenceTerm,
+    RuntimePolicy, bool_evidence, count_evidence,
+};
+use indexmap::IndexMap;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+// br-r37-c1-fxhash: the node (String) and edge ((usize,usize)) key->index maps use
+// a FAST non-cryptographic hasher instead of std's SipHash. IndexMap keeps insertion
+// order in its Vec, so iteration order (nodes/edges/edges_ordered) is UNCHANGED — only
+// lookup/insert hashing gets faster. The (usize,usize) edge keys especially: SipHash on
+// 16 bytes (~20ns) -> FxHash on a usize (~3ns). Speeds up every has_edge/edge_attrs/
+// get_index_of/construction insert across the library.
+pub(crate) type FxIndexMap<K, V> = IndexMap<K, V, rustc_hash::FxBuildHasher>;
+/// br-r37-c1-4c29a: the set half of the same alias. `MultiDiGraph`'s adjacency
+/// rows are `IndexMap<String, IndexSet<usize>>` nested inside an already-Fx
+/// outer map, and the inner pair was missed by the original fxhash pass — they
+/// were still on the default SipHash. Both containers are insertion-ordered, so
+/// the hasher is invisible to iteration order.
+pub(crate) type FxIndexSet<T> = indexmap::IndexSet<T, rustc_hash::FxBuildHasher>;
+use std::collections::HashSet;
+use std::fmt;
+
+pub use fnx_runtime::AttrMap;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GraphError {
+    FailClosed {
+        operation: &'static str,
+        reason: String,
+    },
+}
+
+impl fmt::Display for GraphError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FailClosed { operation, reason } => {
+                write!(f, "operation `{operation}` failed closed: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GraphError {}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdgeSnapshot {
+    pub left: String,
+    pub right: String,
+    pub attrs: AttrMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphSnapshot {
+    pub mode: CompatibilityMode,
+    pub nodes: Vec<String>,
+    /// br-snapnodeattrs: node attributes keyed by node name. Preserved
+    /// across the ``snapshot`` round-trip so a graph with
+    /// ``add_node(n, attrs)`` doesn't lose those attrs when replayed.
+    /// Defaults to empty for snapshots produced by old code paths;
+    /// consumers that don't care can ignore it.
+    #[serde(default)]
+    pub node_attrs: BTreeMap<String, AttrMap>,
+    pub edges: Vec<EdgeSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MultiEdgeSnapshot {
+    pub left: String,
+    pub right: String,
+    pub key: usize,
+    pub attrs: AttrMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MultiGraphSnapshot {
+    pub mode: CompatibilityMode,
+    pub nodes: Vec<String>,
+    /// See ``GraphSnapshot::node_attrs``.
+    #[serde(default)]
+    pub node_attrs: BTreeMap<String, AttrMap>,
+    pub edges: Vec<MultiEdgeSnapshot>,
+}
+
+/// yr2oc.1: the node table of `Graph` and `DiGraph`: name -> slot, and the
+/// nodes in insertion order.
+///
+/// Slots are handed out in insertion order and the entries are indexed by
+/// slot, so the live entries in slot order ARE the insertion order. Removing a
+/// node tombstones its entry in O(1) instead of shifting every later node. A
+/// node's POSITION (the dense insertion-order index of the public API) is its
+/// rank among the live entries: its slot while nothing has been removed, and
+/// after a removal answered in O(log V) by a Fenwick tree built on first use
+/// and then updated by each further removal.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct NodeOrder {
+    slots: rustc_hash::FxHashMap<String, usize>,
+    /// slot -> name, `None` once removed. Read it freely; change it only
+    /// through the methods, which keep `slots`, `live` and the ranks in step.
+    pub(crate) names: Vec<Option<String>>,
+    live: usize,
+    ranks: std::sync::OnceLock<NodeRanks>,
+    /// sfq4w.3: every node's name is the decimal of its position (int nodes
+    /// added as 0, 1, 2, ...). Computed on first use, then kept current: an
+    /// append checks its one name, a removal of any but the last node clears it.
+    names_are_positions: std::sync::OnceLock<bool>,
+}
+
+/// `name` is exactly the decimal spelling of `n` (no sign, no leading zero).
+fn is_decimal_of(name: &str, mut n: usize) -> bool {
+    let digits = name.as_bytes();
+    let mut i = digits.len();
+    loop {
+        if i == 0 {
+            return false;
+        }
+        i -= 1;
+        #[allow(clippy::cast_possible_truncation)]
+        if digits[i] != b'0' + (n % 10) as u8 {
+            return false;
+        }
+        n /= 10;
+        if n == 0 {
+            return i == 0;
+        }
+    }
+}
+
+/// Rank/select over the live entries of a node table: a Fenwick tree of 0/1
+/// liveness. A removal updates it in O(log V) instead of invalidating it, so a
+/// positional read between two removals never pays an O(V) rebuild.
+#[derive(Debug, Clone)]
+struct NodeRanks {
+    /// 1-based Fenwick tree over entries.
+    tree: Vec<usize>,
+}
+
+impl NodeRanks {
+    /// A tree over `live.len()` entries, entry `i` counting when `live[i]`.
+    fn build(live: impl ExactSizeIterator<Item = bool>) -> Self {
+        let n = live.len();
+        let mut tree = vec![0; n + 1];
+        for (entry, is_live) in live.enumerate() {
+            if is_live {
+                tree[entry + 1] += 1;
+            }
+        }
+        for i in 1..=n {
+            let parent = i + i.isolate_lowest_one();
+            if parent <= n {
+                tree[parent] += tree[i];
+            }
+        }
+        Self { tree }
+    }
+
+    /// The number of live slots before `slot`.
+    fn rank(&self, slot: usize) -> usize {
+        let mut i = slot;
+        let mut live = 0;
+        while i > 0 {
+            live += self.tree[i];
+            i &= i - 1;
+        }
+        live
+    }
+
+    /// The live slot with `position` live slots before it.
+    fn select(&self, position: usize) -> Option<usize> {
+        let n = self.tree.len() - 1;
+        if n == 0 {
+            return None;
+        }
+        let mut remaining = position + 1;
+        let mut index = 0;
+        let mut step = 1 << (usize::BITS - 1 - n.leading_zeros());
+        while step > 0 {
+            let next = index + step;
+            if next <= n && self.tree[next] < remaining {
+                index = next;
+                remaining -= self.tree[next];
+            }
+            step >>= 1;
+        }
+        (index < n).then_some(index)
+    }
+
+    fn remove(&mut self, slot: usize) {
+        let mut i = slot + 1;
+        while i < self.tree.len() {
+            self.tree[i] -= 1;
+            i += i.isolate_lowest_one();
+        }
+    }
+
+    /// Append an entry in O(log V): the new node covers the entries after
+    /// `i - lowbit(i)`, all already counted by the prefix sums.
+    fn push(&mut self, is_live: bool) {
+        let i = self.tree.len();
+        let covered = self.rank(i - 1) - self.rank(i - i.isolate_lowest_one());
+        self.tree.push(covered + usize::from(is_live));
+    }
+
+    /// Drop the last entry. No earlier node covers it.
+    fn pop(&mut self) {
+        debug_assert!(self.tree.len() > 1);
+        self.tree.pop();
+    }
+}
+
+impl NodeOrder {
+    /// A table of distinct names, each at the slot of its index.
+    pub(crate) fn from_names(names: Vec<String>) -> Self {
+        let mut order = Self::default();
+        order.reserve(names.len());
+        for name in names {
+            order.push(name);
+        }
+        order
+    }
+
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.live
+    }
+
+    #[inline]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.live == 0
+    }
+
+    /// The length of every slot-indexed array: live and removed entries.
+    #[inline]
+    pub(crate) fn slot_count(&self) -> usize {
+        self.names.len()
+    }
+
+    /// Nothing removed since the last compaction: every slot is its position.
+    #[inline]
+    pub(crate) fn is_dense(&self) -> bool {
+        self.live == self.names.len()
+    }
+
+    /// The slot of a live name.
+    #[inline]
+    pub(crate) fn get(&self, name: &str) -> Option<&usize> {
+        self.slots.get(name)
+    }
+
+    #[inline]
+    pub(crate) fn contains_key(&self, name: &str) -> bool {
+        self.slots.contains_key(name)
+    }
+
+    /// The name at a live slot.
+    #[inline]
+    pub(crate) fn name(&self, slot: usize) -> Option<&str> {
+        self.names.get(slot)?.as_deref()
+    }
+
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        self.slots.reserve(additional);
+        self.names.reserve(additional);
+    }
+
+    /// Append a node that is not in the table; returns its slot.
+    pub(crate) fn push(&mut self, name: String) -> usize {
+        debug_assert!(!self.slots.contains_key(&name));
+        let slot = self.names.len();
+        self.slots.insert(name.clone(), slot);
+        if let Some(flag) = self.names_are_positions.get_mut()
+            && *flag
+        {
+            *flag = is_decimal_of(&name, self.live);
+        }
+        self.names.push(Some(name));
+        if let Some(ranks) = self.ranks.get_mut() {
+            ranks.push(true);
+        }
+        self.live += 1;
+        slot
+    }
+
+    /// Remove a node: its slot, and whether its entry was popped rather than
+    /// tombstoned (it was the last entry and nothing else had been removed),
+    /// in which case the caller pops its slot-indexed arrays too. O(1), plus
+    /// O(log V) to keep a built rank tree current.
+    pub(crate) fn remove(&mut self, name: &str) -> Option<(usize, bool)> {
+        let slot = self.slots.remove(name)?;
+        self.live -= 1;
+        let popped = slot + 1 == self.names.len() && self.live == slot;
+        if popped {
+            self.names.pop();
+            self.ranks.take();
+        } else {
+            self.names[slot] = None;
+            if let Some(ranks) = self.ranks.get_mut() {
+                ranks.remove(slot);
+            }
+            // Every later node moved down a position.
+            self.names_are_positions = std::sync::OnceLock::from(false);
+        }
+        Some((slot, popped))
+    }
+
+    /// sfq4w.3: is every node's name the decimal of its position? O(V) on
+    /// first use, O(1) after (see the field).
+    pub(crate) fn names_are_positions(&self) -> bool {
+        *self.names_are_positions.get_or_init(|| {
+            self.keys()
+                .enumerate()
+                .all(|(position, name)| is_decimal_of(name, position))
+        })
+    }
+
+    fn ranks(&self) -> &NodeRanks {
+        self.ranks
+            .get_or_init(|| NodeRanks::build(self.names.iter().map(Option::is_some)))
+    }
+
+    /// The slot at a position.
+    #[inline]
+    pub(crate) fn slot_at(&self, position: usize) -> Option<usize> {
+        if self.is_dense() {
+            (position < self.live).then_some(position)
+        } else if position < self.live {
+            self.ranks().select(position)
+        } else {
+            None
+        }
+    }
+
+    /// The position of a live slot.
+    #[inline]
+    pub(crate) fn position_of(&self, slot: usize) -> Option<usize> {
+        if self.is_dense() {
+            (slot < self.live).then_some(slot)
+        } else {
+            self.names.get(slot)?.as_ref()?;
+            Some(self.ranks().rank(slot))
+        }
+    }
+
+    /// slot -> position for a whole-graph walk (`usize::MAX` for a removed
+    /// slot), or `None` while every slot is its own position. O(slots).
+    pub(crate) fn slot_positions(&self) -> Option<Vec<usize>> {
+        if self.is_dense() {
+            return None;
+        }
+        let mut positions = vec![usize::MAX; self.names.len()];
+        for (position, slot) in self.values().enumerate() {
+            positions[slot] = position;
+        }
+        Some(positions)
+    }
+
+    /// The name and slot at a position.
+    #[inline]
+    pub(crate) fn get_index(&self, position: usize) -> Option<(&String, usize)> {
+        let slot = self.slot_at(position)?;
+        Some((self.names.get(slot)?.as_ref()?, slot))
+    }
+
+    /// The position of a live name.
+    #[inline]
+    pub(crate) fn get_index_of(&self, name: &str) -> Option<usize> {
+        self.position_of(*self.get(name)?)
+    }
+
+    /// `(name, slot)` in insertion order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, usize)> + '_ {
+        self.names
+            .iter()
+            .enumerate()
+            .filter_map(|(slot, name)| Some((name.as_ref()?, slot)))
+    }
+
+    /// Names in insertion order.
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &String> + '_ {
+        self.names.iter().filter_map(Option::as_ref)
+    }
+
+    /// Slots in insertion order.
+    pub(crate) fn values(&self) -> impl Iterator<Item = usize> + '_ {
+        self.iter().map(|(_, slot)| slot)
+    }
+
+    /// Renumber the live entries 0..len in order; returns old slot -> new slot
+    /// (`usize::MAX` for a removed one).
+    pub(crate) fn compact(&mut self) -> Vec<usize> {
+        let mut old_to_new = vec![usize::MAX; self.names.len()];
+        let mut names = Vec::with_capacity(self.live);
+        for (old, name) in std::mem::take(&mut self.names).into_iter().enumerate() {
+            if let Some(name) = name {
+                let new = names.len();
+                old_to_new[old] = new;
+                *self.slots.get_mut(&name).expect("live name is indexed") = new;
+                names.push(Some(name));
+            }
+        }
+        self.names = names;
+        self.ranks.take();
+        old_to_new
+    }
+}
+
+/// yr2oc.1: the node table of `MultiGraph`: name -> slot, and the nodes in
+/// insertion order.
+///
+/// Unlike [`NodeOrder`], a freed slot is REUSED by the next new node, because
+/// the multigraph's rows and slot-keyed edge buckets are never renumbered. So
+/// slot order is not insertion order, and the order is a separate list of
+/// entries, each naming a slot. Removing a node tombstones its entry in O(1)
+/// (the last entry is popped); a node's POSITION is its entry's rank among the
+/// live entries, answered by the entry index itself while nothing is
+/// tombstoned and by a Fenwick tree after. Once tombstones outnumber live
+/// entries the list is compacted, which moves entries and never slots.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SlotOrder {
+    slots: rustc_hash::FxHashMap<String, usize>,
+    /// slot -> name, `None` while the slot is free.
+    names: Vec<Option<String>>,
+    /// Freed slots, reused last-freed first.
+    free: Vec<usize>,
+    /// Insertion order: entry -> slot, `usize::MAX` once removed.
+    entries: Vec<usize>,
+    /// slot -> its entry; meaningful for live slots only.
+    entry_of: Vec<usize>,
+    ranks: std::sync::OnceLock<NodeRanks>,
+    /// br-r37-c1-qaqog: every node's name is the decimal of its position -
+    /// `NodeOrder`'s sfq4w.3 flag for the MultiGraph table. Computed on first
+    /// use, then kept current: an insert checks its one name at the position
+    /// it takes (the end), a removal of any but the last entry clears it.
+    names_are_positions: std::sync::OnceLock<bool>,
+}
+
+impl SlotOrder {
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.slots.len()
+    }
+
+    /// The length of every slot-indexed array: live and free slots.
+    #[inline]
+    pub(crate) fn slot_count(&self) -> usize {
+        self.names.len()
+    }
+
+    /// No entry tombstoned: every entry index is its position.
+    #[inline]
+    fn is_dense(&self) -> bool {
+        self.entries.len() == self.slots.len()
+    }
+
+    /// The slot of a live name.
+    #[inline]
+    pub(crate) fn get(&self, name: &str) -> Option<&usize> {
+        self.slots.get(name)
+    }
+
+    #[inline]
+    pub(crate) fn contains_key(&self, name: &str) -> bool {
+        self.slots.contains_key(name)
+    }
+
+    /// The name at a live slot.
+    #[inline]
+    pub(crate) fn name(&self, slot: usize) -> Option<&str> {
+        self.names.get(slot)?.as_deref()
+    }
+
+    /// slot -> name for every slot, `None` for a free one.
+    #[inline]
+    pub(crate) fn names(&self) -> &[Option<String>] {
+        &self.names
+    }
+
+    /// The freed slots awaiting reuse.
+    #[cfg(test)]
+    pub(crate) fn free_slots(&self) -> &[usize] {
+        &self.free
+    }
+
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        self.slots.reserve(additional);
+        self.names.reserve(additional);
+        self.entries.reserve(additional);
+        self.entry_of.reserve(additional);
+    }
+
+    /// Append a node that is not in the table. Returns its slot and whether
+    /// the slot is new (the caller grows its slot-indexed arrays) rather than
+    /// a reused free one.
+    pub(crate) fn insert(&mut self, name: String) -> (usize, bool) {
+        debug_assert!(!self.slots.contains_key(&name));
+        if let Some(flag) = self.names_are_positions.get_mut()
+            && *flag
+        {
+            *flag = is_decimal_of(&name, self.slots.len());
+        }
+        let (slot, fresh) = if let Some(slot) = self.free.pop() {
+            debug_assert!(self.names[slot].is_none());
+            self.names[slot] = Some(name.clone());
+            (slot, false)
+        } else {
+            self.names.push(Some(name.clone()));
+            self.entry_of.push(usize::MAX);
+            (self.names.len() - 1, true)
+        };
+        self.slots.insert(name, slot);
+        self.entry_of[slot] = self.entries.len();
+        self.entries.push(slot);
+        if let Some(ranks) = self.ranks.get_mut() {
+            ranks.push(true);
+        }
+        (slot, fresh)
+    }
+
+    /// Remove a node; returns its slot, now free. O(1), plus O(log V) to keep
+    /// a built rank tree current, plus an amortised O(1) share of compaction.
+    pub(crate) fn remove(&mut self, name: &str) -> Option<usize> {
+        let slot = self.slots.remove(name)?;
+        self.names[slot] = None;
+        self.free.push(slot);
+        let entry = self.entry_of[slot];
+        if entry + 1 == self.entries.len() {
+            self.entries.pop();
+            if let Some(ranks) = self.ranks.get_mut() {
+                ranks.pop();
+            }
+        } else {
+            self.entries[entry] = usize::MAX;
+            if let Some(ranks) = self.ranks.get_mut() {
+                ranks.remove(entry);
+            }
+            // Every later node moved down a position.
+            self.names_are_positions = std::sync::OnceLock::from(false);
+        }
+        if self.entries.len() - self.slots.len() > self.slots.len() {
+            self.compact();
+        }
+        Some(slot)
+    }
+
+    /// Remove every node whose slot is in `doomed`, freeing the slots in the
+    /// set's iteration order. O(V).
+    pub(crate) fn remove_slots(&mut self, doomed: &rustc_hash::FxHashSet<usize>) {
+        for &slot in doomed {
+            let name = self.names[slot].take().expect("doomed slot is live");
+            self.slots.remove(&name);
+            self.entries[self.entry_of[slot]] = usize::MAX;
+            self.free.push(slot);
+        }
+        if !doomed.is_empty() {
+            self.names_are_positions = std::sync::OnceLock::from(false);
+        }
+        self.compact();
+    }
+
+    /// br-r37-c1-qaqog: is every node's name the decimal of its position?
+    /// O(V) on first use, O(1) after (see the field).
+    pub(crate) fn names_are_positions(&self) -> bool {
+        *self.names_are_positions.get_or_init(|| {
+            self.keys()
+                .enumerate()
+                .all(|(position, name)| is_decimal_of(name, position))
+        })
+    }
+
+    /// Drop the tombstoned entries; slots do not move.
+    fn compact(&mut self) {
+        self.entries.retain(|&slot| slot != usize::MAX);
+        for (entry, &slot) in self.entries.iter().enumerate() {
+            self.entry_of[slot] = entry;
+        }
+        self.ranks.take();
+    }
+
+    fn ranks(&self) -> &NodeRanks {
+        self.ranks
+            .get_or_init(|| NodeRanks::build(self.entries.iter().map(|&slot| slot != usize::MAX)))
+    }
+
+    /// The slot at a position.
+    #[inline]
+    pub(crate) fn slot_at(&self, position: usize) -> Option<usize> {
+        if self.is_dense() {
+            self.entries.get(position).copied()
+        } else if position < self.slots.len() {
+            Some(self.entries[self.ranks().select(position)?])
+        } else {
+            None
+        }
+    }
+
+    /// The position of a live slot.
+    #[inline]
+    pub(crate) fn position_of_slot(&self, slot: usize) -> usize {
+        let entry = self.entry_of[slot];
+        if self.is_dense() {
+            entry
+        } else {
+            self.ranks().rank(entry)
+        }
+    }
+
+    /// The position of a live name.
+    #[inline]
+    pub(crate) fn get_index_of(&self, name: &str) -> Option<usize> {
+        Some(self.position_of_slot(*self.slots.get(name)?))
+    }
+
+    /// The name and slot at a position.
+    #[inline]
+    pub(crate) fn get_index(&self, position: usize) -> Option<(&String, usize)> {
+        let slot = self.slot_at(position)?;
+        Some((self.names[slot].as_ref()?, slot))
+    }
+
+    /// `(name, slot)` in insertion order.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&String, usize)> + '_ {
+        self.entries
+            .iter()
+            .filter(|&&slot| slot != usize::MAX)
+            .map(|&slot| (self.names[slot].as_ref().expect("live entry"), slot))
+    }
+
+    /// Names in insertion order.
+    pub(crate) fn keys(&self) -> impl Iterator<Item = &String> + '_ {
+        self.iter().map(|(name, _)| name)
+    }
+
+    /// Slots in insertion order.
+    pub(crate) fn values(&self) -> impl Iterator<Item = usize> + '_ {
+        self.iter().map(|(_, slot)| slot)
+    }
+}
+
+/// yr2oc.1: adjacency rows indexed by node SLOT, holding neighbour slots.
+///
+/// Slots stay put when a node is removed, so a removal costs its own degree
+/// instead of renumbering the whole graph. The public `*_indices` API speaks
+/// dense insertion-order POSITIONS, which equal slots only until a removal
+/// separates them. From then until the next compaction,
+/// [`SlotRows::positions`] serves the rows translated to positions, built on
+/// first use. Rows can only be changed through [`SlotRows::rows_mut`], which
+/// drops that translation, so it is never read stale.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SlotRows {
+    rows: Vec<Vec<usize>>,
+    positions: std::sync::OnceLock<Vec<Vec<usize>>>,
+}
+
+impl std::ops::Deref for SlotRows {
+    type Target = Vec<Vec<usize>>;
+
+    fn deref(&self) -> &Vec<Vec<usize>> {
+        &self.rows
+    }
+}
+
+impl SlotRows {
+    pub(crate) fn new(rows: Vec<Vec<usize>>) -> Self {
+        Self {
+            rows,
+            positions: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The only mutable access to the rows; it drops the position view.
+    pub(crate) fn rows_mut(&mut self) -> &mut Vec<Vec<usize>> {
+        self.positions.take();
+        &mut self.rows
+    }
+
+    /// The rows by position: position -> neighbour positions, in the slot
+    /// row's order. Built once per change of the rows.
+    pub(crate) fn positions(&self, order: &NodeOrder) -> &[Vec<usize>] {
+        self.positions.get_or_init(|| {
+            let mut slot_positions = vec![usize::MAX; self.rows.len()];
+            for (position, slot) in order.values().enumerate() {
+                slot_positions[slot] = position;
+            }
+            order
+                .values()
+                .map(|slot| {
+                    self.rows[slot]
+                        .iter()
+                        .map(|&neighbour| slot_positions[neighbour])
+                        .collect()
+                })
+                .collect()
+        })
+    }
+}
+
+/// br-r37-c1-36v6r: order every row of `rows` as `wanted`: `wanted[i]` is
+/// the row of the node at position `i` (`slots[i]`), neighbours as
+/// positions. All or nothing: `None` unless every wanted row is a
+/// permutation of the current one; else whether any row moved.
+pub(crate) fn set_slot_row_orders(
+    rows: &mut SlotRows,
+    slots: &[usize],
+    wanted: &[Vec<usize>],
+) -> Option<bool> {
+    if wanted.len() != slots.len() {
+        return None;
+    }
+    // unplaced[w] == slot while w sits in slot's current row, unconsumed.
+    let mut unplaced = vec![usize::MAX; rows.len()];
+    let mut ordered: Vec<Vec<usize>> = Vec::with_capacity(slots.len());
+    for (&slot, row) in slots.iter().zip(wanted) {
+        let current = &rows[slot];
+        if row.len() != current.len() {
+            return None;
+        }
+        for &w in current {
+            unplaced[w] = slot;
+        }
+        let mut new_row = Vec::with_capacity(row.len());
+        for &position in row {
+            let w = *slots.get(position)?;
+            if unplaced[w] != slot {
+                return None;
+            }
+            unplaced[w] = usize::MAX;
+            new_row.push(w);
+        }
+        ordered.push(new_row);
+    }
+    let mut changed = false;
+    for (&slot, new_row) in slots.iter().zip(ordered) {
+        if rows[slot] != new_row {
+            rows.rows_mut()[slot] = new_row;
+            changed = true;
+        }
+    }
+    Some(changed)
+}
+
+/// br-r37-c1-36v6r: put each row of `rows` in the order of the matching row
+/// of `source_rows`, in one pass per row: `slots` are the rows to order,
+/// `to_source` / `from_source` translate slots between the two graphs.
+/// Entries the source row lacks follow the matched ones in their own order.
+/// Returns whether any row moved.
+pub(crate) fn reorder_slot_rows_like(
+    rows: &mut SlotRows,
+    source_rows: &SlotRows,
+    slots: &[usize],
+    to_source: &[usize],
+    from_source: &[usize],
+) -> bool {
+    // in_row[w] == slot while w sits in slot's row and is not yet placed.
+    let mut in_row = vec![usize::MAX; to_source.len()];
+    let mut ordered: Vec<usize> = Vec::new();
+    let mut changed = false;
+    for &slot in slots {
+        let source_slot = to_source[slot];
+        let row = &rows[slot];
+        if source_slot == usize::MAX || row.len() < 2 {
+            continue;
+        }
+        for &w in row {
+            in_row[w] = slot;
+        }
+        ordered.clear();
+        for &source_neighbor in &source_rows[source_slot] {
+            let w = from_source[source_neighbor];
+            if w != usize::MAX && in_row[w] == slot {
+                ordered.push(w);
+                in_row[w] = usize::MAX;
+            }
+        }
+        if ordered.len() < row.len() {
+            ordered.extend(row.iter().copied().filter(|&w| in_row[w] == slot));
+        }
+        if ordered != *row {
+            rows.rows_mut()[slot].clone_from(&ordered);
+            changed = true;
+        }
+    }
+    changed
+}
+
+#[derive(Debug)]
+pub struct Graph {
+    mode: CompatibilityMode,
+    revision: u64,
+    /// name <-> slot and the insertion order (yr2oc.1: removal tombstones).
+    node_order: NodeOrder,
+    /// slot -> node attribute map
+    node_attrs: Vec<AttrMap>,
+    /// slot -> neighbor slots
+    adj_indices: SlotRows,
+    /// br-r37-c1-d58s8: revision-keyed all-int weights memo (see
+    /// DiGraph::all_int_cache).
+    all_int_cache: std::sync::Arc<std::sync::RwLock<Option<(u64, String, bool)>>>,
+    /// Revision-keyed, row-order-faithful mapping from an adjacency position to
+    /// its `edges` storage slot. Weighted readers visit integer adjacency rows
+    /// already; carrying the slot reads attrs without re-hashing the `(u, v)`
+    /// pair. It is built lazily and each structural mutation advances
+    /// `revision`, making stale rows unusable without mutation-side repair.
+    edge_slots_by_neighbor: std::sync::RwLock<Option<(u64, Vec<Vec<usize>>)>>,
+    edge_index_endpoints: Vec<(usize, usize)>,
+    // Slot-canonical (min_slot, max_slot) node pair — slots are stable
+    // so surviving edges NEVER rekey on node removal.
+    edges: FxIndexMap<(usize, usize), AttrMap>,
+    runtime_policy: RuntimePolicy,
+}
+
+impl Clone for Graph {
+    fn clone(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            node_order: self.node_order.clone(),
+            node_attrs: self.node_attrs.clone(),
+            adj_indices: self.adj_indices.clone(),
+            // Both caches are derived state. A clone must not share a cache:
+            // independently mutated copies can reach the same revision with
+            // different edge storage orders.
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: self.edge_index_endpoints.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: self.runtime_policy.clone(),
+        }
+    }
+}
+
+impl Graph {
+    #[must_use]
+    pub fn new(mode: CompatibilityMode) -> Self {
+        Self {
+            mode,
+            revision: 0,
+            node_order: NodeOrder::default(),
+            node_attrs: Vec::new(),
+            adj_indices: SlotRows::default(),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: Vec::new(),
+            edges: FxIndexMap::default(),
+            runtime_policy: RuntimePolicy::new(mode),
+        }
+    }
+
+    #[must_use]
+    pub fn with_runtime_policy(runtime_policy: RuntimePolicy) -> Self {
+        let mode = runtime_policy.mode();
+        Self {
+            mode,
+            revision: 0,
+            node_order: NodeOrder::default(),
+            node_attrs: Vec::new(),
+            adj_indices: SlotRows::default(),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: Vec::new(),
+            edges: FxIndexMap::default(),
+            runtime_policy,
+        }
+    }
+
+    /// br-r37-c1-clearedgesinplace (cc): drop all edges in place, keeping nodes (and
+    /// their index/order/attrs). O(E) teardown + O(V) row clears -- the binding's prior
+    /// path rebuilt a fresh Graph with a per-node add_node loop (ledger record_decision
+    /// tax + node-attr clone + old-inner drop), ~20x slower than nx. Sibling of
+    /// MultiGraph::clear_edges. adj_indices keeps its N rows (one per node), emptied;
+    /// the revision bump invalidates all_int_cache.
+    pub fn clear_edges(&mut self) {
+        if self.edges.is_empty() && self.edge_index_endpoints.is_empty() {
+            return;
+        }
+        self.edges.clear();
+        self.edge_index_endpoints.clear();
+        for row in self.adj_indices.rows_mut() {
+            row.clear();
+        }
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    #[must_use]
+    pub fn strict() -> Self {
+        Self::new(CompatibilityMode::Strict)
+    }
+
+    #[must_use]
+    pub fn complete_graph(mode: CompatibilityMode, n: usize) -> Self {
+        let edge_capacity = n.saturating_mul(n.saturating_sub(1)) / 2;
+        let revision = u64::try_from(n)
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(edge_capacity).unwrap_or(u64::MAX));
+        let node_labels = (0..n).map(|node| node.to_string()).collect::<Vec<_>>();
+        let node_order = NodeOrder::from_names(node_labels.clone());
+        let node_attrs = vec![AttrMap::new(); n];
+        let mut graph = Self {
+            mode,
+            revision,
+            node_order,
+            node_attrs,
+            adj_indices: SlotRows::new(vec![Vec::with_capacity(n.saturating_sub(1)); n]),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: Vec::with_capacity(edge_capacity),
+            edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+
+        let rows = graph.adj_indices.rows_mut();
+        for left_index in 0..n {
+            let _left = &node_labels[left_index];
+            for (right_index, _right) in node_labels.iter().enumerate().skip(left_index + 1) {
+                // Maintain integer adjacency
+                rows[left_index].push(right_index);
+                rows[right_index].push(left_index);
+                graph.edge_index_endpoints.push((left_index, right_index));
+                graph
+                    .edges
+                    .insert(Graph::canon_pair(left_index, right_index), AttrMap::new());
+            }
+        }
+
+        graph.record_decision(
+            "complete_graph_bulk",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "nodes".into(),
+                observed_value: count_evidence(n),
+                log_likelihood_ratio: 0.0,
+            }],
+        );
+        graph
+    }
+
+    /// Build a non-periodic 2-D grid with NetworkX's node and edge insertion
+    /// sequence. Canonical node keys are row-major all-int tuple strings like
+    /// "(i, j)".
+    #[must_use]
+    pub fn grid_2d(mode: CompatibilityMode, m: usize, n: usize) -> Self {
+        let node_count = m.saturating_mul(n);
+        let edge_capacity = m
+            .saturating_sub(1)
+            .saturating_mul(n)
+            .saturating_add(n.saturating_sub(1).saturating_mul(m));
+        let revision = u64::try_from(node_count)
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(edge_capacity).unwrap_or(u64::MAX));
+        let label = |i: usize, j: usize| format!("({i}, {j})");
+        let idx = |i: usize, j: usize| i * n + j;
+        let mut node_order = NodeOrder::default();
+        node_order.reserve(node_count);
+        for i in 0..m {
+            for j in 0..n {
+                node_order.push(label(i, j));
+            }
+        }
+        let mut graph = Self {
+            mode,
+            revision,
+            node_order,
+            node_attrs: vec![AttrMap::new(); node_count],
+            adj_indices: SlotRows::new(vec![Vec::with_capacity(4); node_count]),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: Vec::with_capacity(edge_capacity),
+            edges: FxIndexMap::with_capacity_and_hasher(edge_capacity, rustc_hash::FxBuildHasher),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+        fn add_grid_edge(graph: &mut Graph, _u: String, _v: String, u_idx: usize, v_idx: usize) {
+            // add_edge appends v to row[u] first, then u to row[v].
+            let rows = graph.adj_indices.rows_mut();
+            rows[u_idx].push(v_idx);
+            rows[v_idx].push(u_idx);
+            graph.edge_index_endpoints.push((u_idx, v_idx));
+            graph
+                .edges
+                .insert(Graph::canon_pair(u_idx, v_idx), AttrMap::new());
+        }
+        // Phase 1: for (pi, i) in pairwise(rows), for j in cols.
+        for i in 1..m {
+            for j in 0..n {
+                add_grid_edge(
+                    &mut graph,
+                    label(i, j),
+                    label(i - 1, j),
+                    idx(i, j),
+                    idx(i - 1, j),
+                );
+            }
+        }
+        // Phase 2: for i in rows, for (pj, j) in pairwise(cols).
+        for i in 0..m {
+            for j in 1..n {
+                add_grid_edge(
+                    &mut graph,
+                    label(i, j),
+                    label(i, j - 1),
+                    idx(i, j),
+                    idx(i, j - 1),
+                );
+            }
+        }
+        graph.record_decision(
+            "grid_2d_bulk",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "nodes".into(),
+                observed_value: count_evidence(node_count),
+                log_likelihood_ratio: 0.0,
+            }],
+        );
+        graph
+    }
+
+    /// Build NetworkX's n-dimensional integer grid graph in one bulk pass.
+    ///
+    /// NetworkX constructs this as repeated cartesian products of path/cycle
+    /// graphs, then flattens the nested tuple labels. The product order matters:
+    /// periodic axes use cycle edge-view order, not a simple coordinate loop.
+    pub fn grid_nd(
+        mode: CompatibilityMode,
+        dimensions: &[usize],
+        periodic: &[bool],
+    ) -> Result<Self, GraphError> {
+        if dimensions.len() != periodic.len() {
+            return Err(GraphError::FailClosed {
+                operation: "grid_nd",
+                reason: format!(
+                    "periodic flag count {} does not match dimension count {}",
+                    periodic.len(),
+                    dimensions.len()
+                ),
+            });
+        }
+        if dimensions.is_empty() {
+            return Ok(Self::new(mode));
+        }
+
+        #[derive(Clone)]
+        struct ProductState {
+            node_count: usize,
+            adjacency: Vec<Vec<usize>>,
+            edge_set: HashSet<(usize, usize)>,
+        }
+
+        impl ProductState {
+            fn empty() -> Self {
+                Self {
+                    node_count: 0,
+                    adjacency: Vec::new(),
+                    edge_set: HashSet::new(),
+                }
+            }
+
+            fn axis(size: usize, periodic: bool) -> Self {
+                let mut state = Self {
+                    node_count: size,
+                    adjacency: vec![Vec::new(); size],
+                    edge_set: HashSet::new(),
+                };
+                if size == 0 {
+                    return state;
+                }
+                if periodic {
+                    if size == 1 {
+                        state.add_edge(0, 0);
+                    } else {
+                        for node in 0..(size - 1) {
+                            state.add_edge(node, node + 1);
+                        }
+                        state.add_edge(size - 1, 0);
+                    }
+                } else {
+                    for node in 0..size.saturating_sub(1) {
+                        state.add_edge(node, node + 1);
+                    }
+                }
+                state
+            }
+
+            fn product(axis: &Self, old: &Self) -> Result<Self, GraphError> {
+                let Some(node_count) = axis.node_count.checked_mul(old.node_count) else {
+                    return Err(GraphError::FailClosed {
+                        operation: "grid_nd",
+                        reason: "node count overflow during cartesian product".to_owned(),
+                    });
+                };
+                if node_count == 0 {
+                    return Ok(Self::empty());
+                }
+
+                let axis_edges = axis.edges_view();
+                let old_edges = old.edges_view();
+                let mut state = Self {
+                    node_count,
+                    adjacency: vec![Vec::new(); node_count],
+                    edge_set: HashSet::with_capacity(
+                        axis_edges
+                            .len()
+                            .saturating_mul(old.node_count)
+                            .saturating_add(old_edges.len().saturating_mul(axis.node_count)),
+                    ),
+                };
+
+                for (axis_left, axis_right) in axis_edges {
+                    let left_base = axis_left * old.node_count;
+                    let right_base = axis_right * old.node_count;
+                    for old_index in 0..old.node_count {
+                        state.add_edge(left_base + old_index, right_base + old_index);
+                    }
+                }
+                for axis_index in 0..axis.node_count {
+                    let base = axis_index * old.node_count;
+                    for &(old_left, old_right) in &old_edges {
+                        state.add_edge(base + old_left, base + old_right);
+                    }
+                }
+                Ok(state)
+            }
+
+            fn add_edge(&mut self, left: usize, right: usize) {
+                let key = if left <= right {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                if !self.edge_set.insert(key) {
+                    return;
+                }
+                self.adjacency[left].push(right);
+                if left != right {
+                    self.adjacency[right].push(left);
+                }
+            }
+
+            fn edges_view(&self) -> Vec<(usize, usize)> {
+                let mut edges = Vec::with_capacity(self.edge_set.len());
+                let mut seen = vec![false; self.node_count];
+                for left in 0..self.node_count {
+                    for &right in &self.adjacency[left] {
+                        if !seen[right] {
+                            edges.push((left, right));
+                        }
+                    }
+                    seen[left] = true;
+                }
+                edges
+            }
+        }
+
+        fn coords_from_index(mut index: usize, sizes: &[usize]) -> Vec<usize> {
+            let mut coords = vec![0; sizes.len()];
+            for axis in (0..sizes.len()).rev() {
+                let size = sizes[axis];
+                coords[axis] = index % size;
+                index /= size;
+            }
+            coords
+        }
+
+        fn tuple_canonical(coords: &[usize]) -> String {
+            if let [value] = coords {
+                return value.to_string();
+            }
+            let mut s = String::with_capacity(coords.len() * 6 + 2);
+            s.push('(');
+            for (i, value) in coords.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&value.to_string());
+            }
+            s.push(')');
+            s
+        }
+
+        let mut state = ProductState::axis(dimensions[0], periodic[0]);
+        for (&size, &periodic_axis) in dimensions.iter().zip(periodic).skip(1) {
+            let axis = ProductState::axis(size, periodic_axis);
+            state = ProductState::product(&axis, &state)?;
+        }
+
+        let output_sizes = dimensions.iter().rev().copied().collect::<Vec<_>>();
+        let labels = (0..state.node_count)
+            .map(|index| tuple_canonical(&coords_from_index(index, &output_sizes)))
+            .collect::<Vec<_>>();
+        let edge_view = state.edges_view();
+        let mut final_adjacency = vec![Vec::new(); state.node_count];
+        for &(left, right) in &edge_view {
+            final_adjacency[left].push(right);
+            if left != right {
+                final_adjacency[right].push(left);
+            }
+        }
+        let revision = u64::try_from(state.node_count)
+            .unwrap_or(u64::MAX)
+            .saturating_add(u64::try_from(edge_view.len()).unwrap_or(u64::MAX));
+        let node_order = NodeOrder::from_names(labels);
+
+        let mut graph = Self {
+            mode,
+            revision,
+            node_order,
+            node_attrs: vec![AttrMap::new(); state.node_count],
+            adj_indices: SlotRows::new(final_adjacency),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: Vec::with_capacity(edge_view.len()),
+            edges: FxIndexMap::with_capacity_and_hasher(edge_view.len(), rustc_hash::FxBuildHasher),
+            runtime_policy: RuntimePolicy::new(mode),
+        };
+
+        for (left, right) in edge_view {
+            graph.edge_index_endpoints.push((left, right));
+            graph
+                .edges
+                .insert(Graph::canon_pair(left, right), AttrMap::new());
+        }
+
+        graph.record_decision(
+            "grid_nd_bulk",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "nodes".into(),
+                observed_value: count_evidence(state.node_count),
+                log_likelihood_ratio: 0.0,
+            }],
+        );
+        Ok(graph)
+    }
+
+    /// br-r37-c1-z2eaa: Kneser graph K(n, k) replicating NetworkX's exact
+    /// construction sequence. Nodes are k-subsets of 0..n as all-int-tuple
+    /// canonicals "(a, b, ...)" (br-r37-c1-y7m24). nx builds via
+    /// `add_edges_from((s, t) for s in subsets for t in
+    /// combinations(universe - set(s), k))` — node order is edge-DISCOVERY
+    /// order (u then v per new edge) and each unordered edge is offered
+    /// twice (the second add is a structural no-op). The complement
+    /// `universe - set(s)` iterates ASCENDING whenever every value fits its
+    /// exact CPython set slot — the Python wrapper gates this kernel on
+    /// that condition, so lexicographic combinations over the sorted
+    /// complement reproduce nx byte-for-byte. For `2k > n` nodes are
+    /// pre-added in subset order and no edges exist.
+    #[must_use]
+    pub fn kneser(mode: CompatibilityMode, n: usize, k: usize) -> Self {
+        fn tuple_canonical(c: &[usize]) -> String {
+            let mut s = String::with_capacity(c.len() * 6 + 2);
+            s.push('(');
+            for (i, v) in c.iter().enumerate() {
+                if i > 0 {
+                    s.push_str(", ");
+                }
+                s.push_str(&v.to_string());
+            }
+            if c.len() == 1 {
+                s.push(',');
+            }
+            s.push(')');
+            s
+        }
+        fn lex_combinations(m: usize, k: usize) -> Vec<Vec<usize>> {
+            let mut out = Vec::new();
+            if k > m {
+                return out;
+            }
+            let mut cur: Vec<usize> = (0..k).collect();
+            loop {
+                out.push(cur.clone());
+                let mut advanced = false;
+                let mut i = k;
+                while i > 0 {
+                    i -= 1;
+                    if cur[i] != i + m - k {
+                        cur[i] += 1;
+                        for j in (i + 1)..k {
+                            cur[j] = cur[j - 1] + 1;
+                        }
+                        advanced = true;
+                        break;
+                    }
+                }
+                if !advanced {
+                    break;
+                }
+            }
+            out
+        }
+        let subsets = lex_combinations(n, k);
+        let canonicals: Vec<String> = subsets.iter().map(|c| tuple_canonical(c)).collect();
+        let total = subsets.len();
+        let mut node_order = NodeOrder::default();
+        node_order.reserve(total);
+        let mut node_attrs = Vec::with_capacity(total);
+        let mut adj_indices = Vec::new();
+        if 2 * k > n {
+            // No disjoint pairs exist — nx pre-adds all subsets as nodes.
+            return Self {
+                mode,
+                revision: u64::try_from(total).unwrap_or(u64::MAX),
+                node_order: NodeOrder::from_names(canonicals),
+                node_attrs: vec![AttrMap::new(); total],
+                adj_indices: SlotRows::new(vec![Vec::new(); total]),
+                all_int_cache: std::sync::Arc::default(),
+                edge_slots_by_neighbor: std::sync::RwLock::default(),
+                edge_index_endpoints: Vec::new(),
+                edges: FxIndexMap::default(),
+                runtime_policy: RuntimePolicy::new(mode),
+            };
+        }
+        // Binomial table for lexicographic combination ranking.
+        let mut binom = vec![vec![0usize; k + 1]; n + 1];
+        for i in 0..=n {
+            binom[i][0] = 1;
+            for j in 1..=k.min(i) {
+                binom[i][j] = if i == j {
+                    1
+                } else {
+                    binom[i - 1][j - 1].saturating_add(binom[i - 1][j])
+                };
+            }
+        }
+        let lex_rank = |c: &[usize]| -> usize {
+            let mut r = 0usize;
+            let mut prev = 0usize;
+            for (i, &ci) in c.iter().enumerate() {
+                for j in prev..ci {
+                    r = r.saturating_add(binom[n - 1 - j][k - 1 - i]);
+                }
+                prev = ci + 1;
+            }
+            r
+        };
+        let mut seen = HashSet::<(usize, usize)>::with_capacity(total * 2);
+        // node first-touch insertion mirroring nx add_edge (u then v)
+        let mut node_idx: Vec<usize> = vec![usize::MAX; total];
+        let mut in_s = vec![false; n];
+        let m = n - k;
+        let picks = lex_combinations(m, k);
+        let mut edge_index_endpoints = Vec::new();
+        let mut edges = FxIndexMap::default();
+        for (s_idx, s) in subsets.iter().enumerate() {
+            for &v in s {
+                in_s[v] = true;
+            }
+            let complement: Vec<usize> = (0..n).filter(|&v| !in_s[v]).collect();
+            for pick in &picks {
+                let t: Vec<usize> = pick.iter().map(|&i| complement[i]).collect();
+                let t_idx = lex_rank(&t);
+                let pair = (s_idx.min(t_idx), s_idx.max(t_idx));
+                if seen.insert(pair) {
+                    for idx in [s_idx, t_idx] {
+                        if node_idx[idx] == usize::MAX {
+                            let slot = node_order.push(canonicals[idx].clone());
+                            node_attrs.push(AttrMap::new());
+                            node_idx[idx] = slot;
+                            adj_indices.push(Vec::new());
+                        }
+                    }
+                    // br-r37-c1-kneserpush (cc): we are inside `if seen.insert(pair)` — a FIRST
+                    // occurrence of this (s_idx,t_idx) edge — so it is provably not yet in either
+                    // adjacency row. The old `!adj_indices[..].contains(..)` guards were O(degree)
+                    // linear rescans always returning true here (redundant); push directly.
+                    // Byte-identical (Kneser edges have no parallel edges; self-loop s==t handled
+                    // by the != guard, exactly as before).
+                    adj_indices[node_idx[s_idx]].push(node_idx[t_idx]);
+                    if node_idx[s_idx] != node_idx[t_idx] {
+                        adj_indices[node_idx[t_idx]].push(node_idx[s_idx]);
+                    }
+                    edge_index_endpoints.push((node_idx[s_idx], node_idx[t_idx]));
+                    edges.insert(
+                        Graph::canon_pair(node_idx[s_idx], node_idx[t_idx]),
+                        AttrMap::new(),
+                    );
+                }
+            }
+            for &v in s {
+                in_s[v] = false;
+            }
+        }
+        let revision = u64::try_from(node_order.len() + edges.len()).unwrap_or(u64::MAX);
+        Self {
+            mode,
+            revision,
+            node_order,
+            node_attrs,
+            adj_indices: SlotRows::new(adj_indices),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints,
+            edges,
+            runtime_policy: RuntimePolicy::new(mode),
+        }
+    }
+
+    #[must_use]
+    pub fn hardened() -> Self {
+        Self::new(CompatibilityMode::Hardened)
+    }
+
+    #[must_use]
+    pub fn mode(&self) -> CompatibilityMode {
+        self.mode
+    }
+
+    #[must_use]
+    pub fn node_count(&self) -> usize {
+        self.node_order.len()
+    }
+
+    #[must_use]
+    pub fn edge_count(&self) -> usize {
+        self.edges.len()
+    }
+
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn has_node(&self, node: &str) -> bool {
+        self.node_order.contains_key(node)
+    }
+
+    /// br-r37-c1-d58s8 edges-map flip: resolve a String pair to the
+    /// index-canonical (min, max) key. None if either node is absent.
+    #[inline]
+    fn edge_pair_key(&self, left: &str, right: &str) -> Option<(usize, usize)> {
+        let &l = self.node_order.get(left)?;
+        let &r = self.node_order.get(right)?;
+        Some(if l <= r { (l, r) } else { (r, l) })
+    }
+
+    #[inline]
+    fn canon_pair(l: usize, r: usize) -> (usize, usize) {
+        if l <= r { (l, r) } else { (r, l) }
+    }
+
+    /// br-r37-c1-indsub: build the induced subgraph over `order` (parent node
+    /// indices, already in the caller's output order) without hashing a single
+    /// node name.
+    ///
+    /// The per-edge `add_edge_with_attrs` path costs two `String` allocations,
+    /// four name hashes and a `record_decision` ledger entry (which itself
+    /// allocates two Strings and a Vec) — ~2.5us/edge, so materializing the
+    /// 158k-edge k=10 core of ca-AstroPh took 393ms. Everything that loop
+    /// re-derives is already known here: the surviving rows come straight out
+    /// of `adj_indices`, and the new index of a kept node is its slot in
+    /// `order`. All the invariants `add_edge_with_attrs` maintains are
+    /// reproduced directly:
+    ///
+    ///  * `edges` is keyed by the INDEX-canonical pair of the NEW indices;
+    ///  * `edge_index_endpoints` keeps the STRING-canonical orientation
+    ///    (`left <= right` on names), matching the per-edge path;
+    ///  * a row records its neighbor when the pair is first emitted, so
+    ///    adjacency order is the walk order — which is exactly what nx's
+    ///    `add_edges_from` over the induced walk produces;
+    ///  * a self-loop appears once in its row.
+    ///
+    /// A pair is emitted from whichever endpoint comes FIRST in `order`, so
+    /// each undirected edge is visited once. `order` must contain distinct,
+    /// in-range parent indices.
+    #[must_use]
+    pub fn induced_subgraph_ordered(&self, order: &[usize], runtime_policy: RuntimePolicy) -> Self {
+        let mut parent_slot_to_subgraph_slot = vec![usize::MAX; self.node_order.slot_count()];
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            let (_, parent_slot) = self
+                .node_order
+                .get_index(parent_idx)
+                .expect("induced subgraph order must hold valid parent node indices");
+            parent_slot_to_subgraph_slot[parent_slot] = slot;
+        }
+
+        let mut node_order = NodeOrder::default();
+        node_order.reserve(order.len());
+        let mut node_attrs = Vec::with_capacity(order.len());
+        for &parent_idx in order {
+            let (name, parent_slot) = self
+                .node_order
+                .get_index(parent_idx)
+                .expect("induced subgraph order must hold valid parent node indices");
+            node_order.push(name.clone());
+            node_attrs.push(self.node_attrs[parent_slot].clone());
+        }
+
+        let mut adj_indices = vec![Vec::new(); order.len()];
+        let mut edges = FxIndexMap::default();
+        let mut edge_index_endpoints = Vec::new();
+        for (slot, &parent_idx) in order.iter().enumerate() {
+            let parent_slot = self.node_order.get_index(parent_idx).unwrap().1;
+            for &parent_neighbor_slot in &self.adj_indices[parent_slot] {
+                let other = parent_slot_to_subgraph_slot[parent_neighbor_slot];
+                if other == usize::MAX || other < slot {
+                    continue;
+                }
+                let attrs = self
+                    .edges
+                    .get(&Self::canon_pair(parent_slot, parent_neighbor_slot))
+                    .cloned()
+                    .unwrap_or_default();
+                edges.insert(Self::canon_pair(slot, other), attrs);
+                let left_name = node_order.get_index(slot).expect("slot inserted above").0;
+                let right_name = node_order.get_index(other).expect("slot inserted above").0;
+                if left_name <= right_name {
+                    edge_index_endpoints.push((slot, other));
+                } else {
+                    edge_index_endpoints.push((other, slot));
+                }
+                adj_indices[slot].push(other);
+                if slot != other {
+                    adj_indices[other].push(slot);
+                }
+            }
+        }
+
+        Self {
+            mode: runtime_policy.mode(),
+            revision: 0,
+            node_order,
+            node_attrs,
+            adj_indices: SlotRows::new(adj_indices),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints,
+            edges,
+            runtime_policy,
+        }
+    }
+
+    #[must_use]
+    pub fn has_edge(&self, left: &str, right: &str) -> bool {
+        self.edge_pair_key(left, right)
+            .is_some_and(|k| self.edges.contains_key(&k))
+    }
+
+    /// cc-hasedgeintidx: true iff the node stored at `idx` IS the integer `idx`
+    /// (its canonical string parses back to `idx`). Lets a caller VERIFY, per call
+    /// and with no allocation, that an exact-int node lands at its own index before
+    /// probing an edge by index — so any removal / re-add / remap that shifted
+    /// indices simply returns false and the caller falls back to the string path.
+    /// O(1) index access + a no-alloc `str::parse`.
+    #[must_use]
+    pub fn node_index_matches_int(&self, idx: usize) -> bool {
+        self.node_order
+            .get_index(idx)
+            .is_some_and(|(k, _)| k.parse::<usize>() == Ok(idx))
+    }
+
+    /// sfq4w.3: every node's name is the decimal of its position, so an int
+    /// key `k` IS the node at position `k` when `k < node_count()` and is
+    /// absent otherwise. O(V) on first use, kept current in O(1) after.
+    #[must_use]
+    pub fn node_names_are_positions(&self) -> bool {
+        self.node_order.names_are_positions()
+    }
+
+    /// cc-hasedgeintidx: undirected edge existence by node INDEX (canonical
+    /// min/max pair). Caller must have validated both indices (e.g. via
+    /// `node_index_matches_int`).
+    #[must_use]
+    pub fn has_edge_by_indices(&self, l: usize, r: usize) -> bool {
+        let Some(ls) = self.node_order.slot_at(l) else {
+            return false;
+        };
+        let Some(rs) = self.node_order.slot_at(r) else {
+            return false;
+        };
+        self.edges.contains_key(&Self::canon_pair(ls, rs))
+    }
+
+    #[must_use]
+    pub fn nodes_ordered(&self) -> Vec<&str> {
+        self.node_order.keys().map(String::as_str).collect()
+    }
+
+    #[must_use]
+    pub fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.node_order.get_index_of(node)
+    }
+
+    #[must_use]
+    pub fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.node_order.get_index(index).map(|(k, _)| k.as_str())
+    }
+
+    #[must_use]
+    pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
+        // br-r37-c1-d58s8 P2(a): serve from the integer rows + node-name
+        // table — adj_indices is order-faithful through every mutator
+        // (extends push in row order; remove_node repairs in place;
+        // apply_row_orders and reorder_rows_for_nx_copy_walk both
+        // resync). Migrating readers off the String rows is the
+        // prerequisite for dropping their eager maintenance (P2(c)).
+        let &slot = self.node_order.get(node)?;
+        Some(
+            self.adj_indices[slot]
+                .iter()
+                .map(|&nbr_slot| {
+                    self.node_order
+                        .name(nbr_slot)
+                        .expect("adj_indices entries are valid node slots")
+                })
+                .collect::<Vec<&str>>(),
+        )
+    }
+
+    #[must_use]
+    pub fn neighbors_iter(&self, node: &str) -> Option<impl Iterator<Item = &str> + '_> {
+        // br-r37-c1-d58s8 P2(a): index-backed (see neighbors()).
+        let &slot = self.node_order.get(node)?;
+        Some(self.adj_indices[slot].iter().map(move |&nbr_slot| {
+            self.node_order
+                .name(nbr_slot)
+                .expect("adj_indices entries are valid node slots")
+        }))
+    }
+
+    /// yr2oc.4: the attribute maps of `node`'s incident edges in its
+    /// neighbour-row order, each flagged when it is the self-loop. Read by
+    /// slot, so it needs no position translation after a removal.
+    #[must_use]
+    pub fn incident_edge_attrs(
+        &self,
+        node: &str,
+    ) -> Option<impl Iterator<Item = (bool, &AttrMap)> + '_> {
+        let &slot = self.node_order.get(node)?;
+        Some(self.adj_indices[slot].iter().map(move |&neighbour| {
+            let attrs = self
+                .edges
+                .get(&Self::canon_pair(slot, neighbour))
+                .expect("adjacency entries have matching edge storage");
+            (neighbour == slot, attrs)
+        }))
+    }
+
+    /// Return neighbor indices for O(1) traversal. Avoids string hashing
+    /// during BFS/DFS. Returns None if node index is out of bounds.
+    #[must_use]
+    #[inline]
+    pub fn neighbors_indices(&self, node_idx: usize) -> Option<&[usize]> {
+        if self.node_order.is_dense() {
+            self.adj_indices.get(node_idx).map(Vec::as_slice)
+        } else {
+            self.adj_indices
+                .positions(&self.node_order)
+                .get(node_idx)
+                .map(Vec::as_slice)
+        }
+    }
+
+    /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
+    /// `Clone` deep-copies the unbounded decision ledger (copy() measured
+    /// 2.3-2.8x slower on per-edge-ctor sources with identical structure);
+    /// result graphs carry the MODE, not the history.
+    #[must_use]
+    pub fn clone_with_fresh_policy(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            node_order: self.node_order.clone(),
+            node_attrs: self.node_attrs.clone(),
+            adj_indices: self.adj_indices.clone(),
+            all_int_cache: std::sync::Arc::default(),
+            edge_slots_by_neighbor: std::sync::RwLock::default(),
+            edge_index_endpoints: self.edge_index_endpoints.clone(),
+            edges: self.edges.clone(),
+            runtime_policy: RuntimePolicy::new(self.mode),
+        }
+    }
+
+    /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
+    /// round-trip). Each entry is (node, neighbor order); rows are
+    /// rebuilt in the given order with any unlisted survivors appended
+    /// in their current order (robust to stale state). The integer
+    /// `adj_indices` mirror is rebuilt to match.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+        // br-r37-c1-d58s8 P2(c) slice 2: reorder the integer rows directly.
+        let mut changed = false;
+        for (node, order) in orders {
+            let Some(&slot) = self.node_order.get(node.as_str()) else {
+                continue;
+            };
+            let row = &self.adj_indices[slot];
+            let row_set: std::collections::HashSet<usize> = row.iter().copied().collect();
+            let mut new_row: Vec<usize> = Vec::with_capacity(row.len());
+            let mut placed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+            for v in order {
+                if let Some(&v_slot) = self.node_order.get(v.as_str())
+                    && row_set.contains(&v_slot)
+                    && placed.insert(v_slot)
+                {
+                    new_row.push(v_slot);
+                }
+            }
+            for &v_slot in row {
+                if placed.insert(v_slot) {
+                    new_row.push(v_slot);
+                }
+            }
+            if self.adj_indices[slot] != new_row {
+                self.adj_indices.rows_mut()[slot] = new_row;
+                changed = true;
+            }
+        }
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    /// br-r37-c1-0ek49: reorder every adjacency row into NetworkX's
+    /// `Graph.copy()` walk order. nx copy rebuilds via
+    /// `add_edges_from((u, v, d) for u in _adj for v in _adj[u])`, so an
+    /// unordered pair enters BOTH endpoint rows at its first touch —
+    /// during the earlier endpoint's row scan. Row u therefore lists
+    /// neighbors at a smaller node position first (ordered by that
+    /// neighbor's scan time: `(pos(v), index of u within row v)`),
+    /// followed by its remaining neighbors — self-loops included — in
+    /// row u's original order. Call on a fresh clone inside copy-shaped
+    /// constructors; graph content is unchanged, only row order moves.
+    pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+        // br-r37-c1-predrebuild: rebuild rows in nx's copy-walk order in O(E),
+        // replacing the per-early-neighbor linear search
+        // `adj_indices[v].position(|w| w == pu)` (O(E * degree) — quadratic on
+        // dense graphs; it erodes dense Graph.copy() wins 9.5x->5.9x as density
+        // climbs). Early neighbors of pu (v < pu) sort by
+        // (pos(v), index-of-pu-within-adj[v]); walking adj in (v, adj-index)
+        // order and appending v to early[pu] when pu > v yields exactly that
+        // order. Late neighbors (v >= pu) keep adj[pu]'s row order. Byte-
+        // identical row order — no search, no sort.
+        //
+        // The walk compares slots as node positions, so slots must be positions.
+        self.ensure_compact();
+        let n = self.adj_indices.len();
+        let mut early: Vec<Vec<usize>> = vec![Vec::new(); n];
+        for (v, row) in self.adj_indices.iter().enumerate() {
+            for &pu in row {
+                if pu > v {
+                    early[pu].push(v);
+                }
+            }
+        }
+        let mut new_rows: Vec<Vec<usize>> = Vec::with_capacity(n);
+        for (pu, row) in self.adj_indices.iter().enumerate() {
+            let mut new_row = std::mem::take(&mut early[pu]);
+            new_row.reserve(row.len());
+            for &v in row {
+                if v >= pu {
+                    new_row.push(v);
+                }
+            }
+            new_rows.push(new_row);
+        }
+        if *self.adj_indices != new_rows {
+            *self.adj_indices.rows_mut() = new_rows;
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    /// br-r37-c1-36v6r: order each adjacency row as `source`'s row for the
+    /// node of the same name. A graph built from a filtered view of `source`
+    /// by a copy-shaped walk (each row filled in edge-walk order, as
+    /// networkx's `view.copy()` does) holds the view's rows as sets; the
+    /// view's ORDER is `source`'s row with entries filtered out, which this
+    /// restores. Entries `source`'s row lacks (a node or edge `source` does
+    /// not have) keep their relative order after the matched ones. Graph
+    /// content is unchanged; `revision` moves if any row does.
+    pub fn reorder_rows_like(&mut self, source: &Self) {
+        let mut to_source = vec![usize::MAX; self.node_order.slot_count()];
+        let mut from_source = vec![usize::MAX; source.node_order.slot_count()];
+        for (name, slot) in self.node_order.iter() {
+            if let Some(&source_slot) = source.node_order.get(name) {
+                to_source[slot] = source_slot;
+                from_source[source_slot] = slot;
+            }
+        }
+        let slots: Vec<usize> = self.node_order.values().collect();
+        let changed = reorder_slot_rows_like(
+            &mut self.adj_indices,
+            &source.adj_indices,
+            &slots,
+            &to_source,
+            &from_source,
+        );
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    /// br-r37-c1-36v6r: order every adjacency row as given - `rows[i]` is
+    /// the row of the node at position `i`, neighbours as positions - for a
+    /// row order no graph holds, such as a `to_undirected(as_view=True)`
+    /// view's set-ordered union rows. All or nothing: false, and nothing
+    /// changes, unless every given row is a permutation of the current one.
+    pub fn set_row_orders(&mut self, rows: &[Vec<usize>]) -> bool {
+        let slots: Vec<usize> = self.node_order.values().collect();
+        match set_slot_row_orders(&mut self.adj_indices, &slots, rows) {
+            None => false,
+            Some(changed) => {
+                if changed {
+                    self.revision = self.revision.saturating_add(1);
+                }
+                true
+            }
+        }
+    }
+
+    /// Every edge in storage order, its endpoints as node positions.
+    pub fn edges_storage_order_index_iter(
+        &self,
+    ) -> impl Iterator<Item = (usize, usize, &AttrMap)> + '_ {
+        let slot_positions = self.node_order.slot_positions();
+        self.edge_index_endpoints
+            .iter()
+            .copied()
+            .zip(self.edges.values())
+            .map(move |((left, right), attrs)| match &slot_positions {
+                Some(positions) => (positions[left], positions[right], attrs),
+                None => (left, right, attrs),
+            })
+    }
+
+    #[must_use]
+    pub fn neighbor_count(&self, node: &str) -> usize {
+        // br-r37-c1-d58s8 P2(a): index-backed.
+        self.node_order
+            .get(node)
+            .map_or(0, |&slot| self.adj_indices[slot].len())
+    }
+
+    #[must_use]
+    pub fn neighbor_count_by_index(&self, idx: usize) -> usize {
+        self.node_order
+            .get_index(idx)
+            .map_or(0, |(_, slot)| self.adj_indices[slot].len())
+    }
+
+    /// Return the degree of a node.
+    /// Self-loops contribute 2 to the degree (NetworkX convention).
+    #[must_use]
+    pub fn degree(&self, node: &str) -> usize {
+        let count = self.neighbor_count(node);
+        // If node has a self-loop, add 1 extra (self-loop contributes 2 total)
+        if self.has_edge(node, node) {
+            count + 1
+        } else {
+            count
+        }
+    }
+
+    /// br-r37-c1-degidx: degree by node INDEX — O(1), zero String
+    /// hashing (the &str path costs 2 hashes/node: neighbor_count's
+    /// get_index_of + the self-loop has_edge). Used by the DegreeView
+    /// iterator which already walks nodes in index order.
+    #[must_use]
+    pub fn degree_by_index(&self, idx: usize) -> usize {
+        let mut count = self.neighbor_count_by_index(idx);
+        if self.has_edge_by_indices(idx, idx) {
+            count += 1; // self-loop contributes 2 to total degree
+        }
+        count
+    }
+
+    #[must_use]
+    pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
+        let &slot = self.node_order.get(node)?;
+        Some(&self.node_attrs[slot])
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn node_attrs_by_index(&self, idx: usize) -> Option<&AttrMap> {
+        let slot = self.node_order.slot_at(idx)?;
+        Some(&self.node_attrs[slot])
+    }
+
+    #[must_use]
+    pub fn edge_attrs(&self, left: &str, right: &str) -> Option<&AttrMap> {
+        self.edges.get(&self.edge_pair_key(left, right)?)
+    }
+
+    /// br-r37-c1-d58s8: index-keyed attr access — a DIRECT map get for
+    /// callers that already hold node indices (kernels, CSR weight
+    /// builders, compose walks). Zero node-map probes.
+    #[must_use]
+    #[inline]
+    pub fn edge_attrs_by_indices(&self, left_idx: usize, right_idx: usize) -> Option<&AttrMap> {
+        let l_slot = self.node_order.slot_at(left_idx)?;
+        let r_slot = self.node_order.slot_at(right_idx)?;
+        self.edges.get(&Self::canon_pair(l_slot, r_slot))
+    }
+
+    /// Read an edge's attributes by a storage slot supplied by the
+    /// row-order-preserving edge-slot cache.
+    #[must_use]
+    #[inline]
+    pub fn edge_attrs_by_slot(&self, edge_slot: usize) -> Option<&AttrMap> {
+        self.edges.get_index(edge_slot).map(|(_, attrs)| attrs)
+    }
+
+    /// Give a reader the edge-storage slot for every entry in every adjacency
+    /// row, rows by node position and entries in `neighbors_indices` order.
+    /// The first reader after a structural revision resolves pairs once;
+    /// steady-state readers avoid pair hashing entirely.
+    pub fn with_edge_slots_by_neighbor<T>(&self, f: impl FnOnce(&[Vec<usize>]) -> T) -> T {
+        if let Ok(guard) = self.edge_slots_by_neighbor.read()
+            && let Some((revision, rows)) = guard.as_ref()
+            && *revision == self.revision
+        {
+            return f(rows);
+        }
+
+        let mut guard = self
+            .edge_slots_by_neighbor
+            .write()
+            .expect("edge slot cache lock poisoned");
+        if !matches!(guard.as_ref(), Some((revision, _)) if *revision == self.revision) {
+            let mut rows = Vec::with_capacity(self.node_order.len());
+            for node in self.node_order.values() {
+                let neighbors = &self.adj_indices[node];
+                let mut slots = Vec::with_capacity(neighbors.len());
+                for &neighbor in neighbors {
+                    let slot = self
+                        .edges
+                        .get_index_of(&Self::canon_pair(node, neighbor))
+                        .expect("adjacency entries have matching edge storage");
+                    slots.push(slot);
+                }
+                rows.push(slots);
+            }
+            *guard = Some((self.revision, rows));
+        }
+        let (_, rows) = guard
+            .as_ref()
+            .expect("edge slot cache is initialized before use");
+        f(rows)
+    }
+
+    /// br-r37-c1-hasattrlazyfix: does ANY edge carry the attribute `key` in the
+    /// authoritative Rust storage? Unlike the `edge_py_attrs` Python mirror (which is
+    /// LAZILY materialized — a batch-built graph leaves it empty), this scans the inner
+    /// `edges` AttrMaps directly (no node-name resolution, no allocation), so a
+    /// freshly-constructed weighted graph reports True. ~O(E) BTreeMap key checks.
+    #[must_use]
+    pub fn any_edge_has_attr(&self, key: &str) -> bool {
+        self.edges.values().any(|attrs| attrs.contains_key(key))
+    }
+
+    /// True if EVERY inner edge attr value is a faithful scalar (Int/Float/Bool)
+    /// — a String/Map value is a coerced non-scalar (repr/JSON) or genuine str,
+    /// ambiguous for lossless cloning. Direct no-alloc scan over the edge store
+    /// values (contrast `edges_ordered_borrowed`, which builds an O(E) dedup
+    /// HashMap). Used by the compose store-read gate.
+    #[must_use]
+    pub fn all_edge_attr_values_scalar(&self) -> bool {
+        self.edges.values().all(|attrs| {
+            attrs.values().all(|v| {
+                matches!(
+                    v,
+                    fnx_runtime::CgseValue::Int(_)
+                        | fnx_runtime::CgseValue::Float(_)
+                        | fnx_runtime::CgseValue::Bool(_)
+                )
+            })
+        })
+    }
+
+    /// br-r37-c1-hasanyattrlazyfix: does ANY node carry a Python-visible attr, per the
+    /// authoritative inner storage (not the lazy `node_py_attrs` mirror)?
+    #[must_use]
+    pub fn any_node_has_attrs(&self) -> bool {
+        self.node_order
+            .values()
+            .any(|slot| !self.node_attrs[slot].is_empty())
+    }
+
+    /// br-r37-c1-hasanyattrlazyfix: does ANY edge carry a Python-visible attr, per the
+    /// authoritative inner storage (not the lazy `edge_py_attrs` mirror)?
+    #[must_use]
+    pub fn any_edge_has_attrs(&self) -> bool {
+        self.edges.values().any(|attrs| !attrs.is_empty())
+    }
+
+    #[must_use]
+    pub fn nodes_are_contiguous_int_prefix(&self) -> bool {
+        self.node_order
+            .keys()
+            .enumerate()
+            .all(|(index, key)| Self::decimal_key_matches_index(key, index))
+    }
+
+    fn decimal_key_matches_index(key: &str, index: usize) -> bool {
+        let bytes = key.as_bytes();
+        if bytes.is_empty() || (bytes.len() > 1 && bytes[0] == b'0') {
+            return false;
+        }
+
+        let mut parsed = 0usize;
+        for &byte in bytes {
+            if !byte.is_ascii_digit() {
+                return false;
+            }
+            let digit = usize::from(byte - b'0');
+            let Some(next) = parsed
+                .checked_mul(10)
+                .and_then(|value| value.checked_add(digit))
+            else {
+                return false;
+            };
+            parsed = next;
+        }
+        parsed == index
+    }
+
+    #[must_use]
+    pub fn evidence_ledger(&self) -> &EvidenceLedger {
+        self.runtime_policy.decision_log()
+    }
+
+    pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
+        self.runtime_policy.drain_decision_records()
+    }
+
+    /// Record a bounded recovery performed OUTSIDE the graph (e.g. a reader
+    /// that skipped a malformed input line in hardened mode) in this graph's
+    /// evidence ledger, so `decision_records()` reports it like a native one.
+    pub fn record_external_recovery(
+        &mut self,
+        operation: impl Into<std::borrow::Cow<'static, str>>,
+        rationale: impl Into<std::borrow::Cow<'static, str>>,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            DecisionAction::FullValidate,
+            0.7,
+            rationale,
+            Vec::new(),
+        );
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
+    }
+
+    pub fn set_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.mode = runtime_policy.mode();
+        self.runtime_policy = runtime_policy;
+    }
+
+    /// Type identity: always `false` for undirected Graph.
+    #[must_use]
+    pub fn is_directed(&self) -> bool {
+        false
+    }
+
+    /// Type identity: always `false` for Graph (not a multigraph).
+    #[must_use]
+    pub fn is_multigraph(&self) -> bool {
+        false
+    }
+
+    pub fn add_node(&mut self, node: impl AsRef<str> + Into<String>) -> bool {
+        self.add_node_with_attrs(node, AttrMap::new())
+    }
+
+    /// br-r37-c1-wa1b9: every storage effect of [`Self::add_node_with_attrs`]
+    /// and none of its ledger record. Returns `(changed, existed, attrs_count,
+    /// inserted_index)` so the caller can file the record itself if it is a
+    /// user-visible `add_node`. `inserted_index` is present only for a newly
+    /// inserted node, allowing an autocreating caller to reuse the `IndexMap`
+    /// index it already paid to assign. Extracted rather than reimplemented so
+    /// the recorded and unrecorded paths cannot drift: node insertion ORDER,
+    /// the adjacency extension and the revision bump are literally the same
+    /// code.
+    /// br-r37-c1-jc9e4: the key is materialised only on the VACANT path.
+    ///
+    /// This used to open with `let node = node.into();`, so a `&str` caller
+    /// allocated an owned `String` on every call — including the calls that
+    /// insert nothing, where it was built purely to probe the map and then
+    /// dropped by `entry` on the occupied branch. The allocation census
+    /// measured that as one allocation per endpoint against a `has_node` read
+    /// control at zero. Probing borrowed and owning only when the entry is
+    /// genuinely new keeps the occupied path allocation-free.
+    ///
+    /// The raw entry keeps that single borrowed-key hash for a vacant insert,
+    /// too. That retains the allocation-free occupied branch and turns the
+    /// fresh branch's former lookup-plus-insert pair into one probe.
+    fn add_node_with_attrs_unrecorded(
+        &mut self,
+        node: impl AsRef<str> + Into<String>,
+        attrs: AttrMap,
+    ) -> (bool, bool, usize, Option<usize>) {
+        let node_ref = node.as_ref();
+        if let Some(&slot) = self.node_order.get(node_ref) {
+            let bucket = &mut self.node_attrs[slot];
+            let changed = !attrs.is_empty()
+                && attrs
+                    .iter()
+                    .any(|(key, value)| bucket.get(key) != Some(value));
+            bucket.extend(attrs);
+            if changed {
+                self.revision = self.revision.saturating_add(1);
+            }
+            return (changed, true, bucket.len(), None);
+        }
+
+        let slot = self.node_order.push(node.into());
+        self.node_attrs.push(attrs);
+        self.adj_indices.rows_mut().push(Vec::new());
+        let attr_count = self.node_attrs[slot].len();
+        self.revision = self.revision.saturating_add(1);
+        (true, false, attr_count, Some(slot))
+    }
+
+    /// Resolve an endpoint for `add_edge_with_attrs`, creating an empty node
+    /// bucket only when it is absent.
+    ///
+    /// `add_edge_with_attrs` receives borrowed endpoint names.  Sending a miss
+    /// through `get_index_of` and then `add_node_with_attrs_unrecorded` used to
+    /// hash that same borrowed name twice: once to discover the miss and once
+    /// more for the raw-entry insert.  Keep the no-attribute specialization
+    /// here so the edge path can decide and insert from one raw entry while the
+    /// general `add_node_with_attrs_unrecorded` path continues to move an owned
+    /// caller key into its vacant bucket.
+    ///
+    /// The storage effects deliberately match an empty-attribute call to
+    /// `add_node_with_attrs_unrecorded`: an inserted node appends exactly one
+    /// adjacency slot and advances `revision` once; an existing node is a
+    /// no-op.  The caller owns the one operation-level ledger record.
+    fn resolve_empty_node_for_edge_unrecorded(&mut self, node: &str) -> (usize, bool) {
+        if let Some(&slot) = self.node_order.get(node) {
+            return (slot, false);
+        }
+        let slot = self.node_order.push(node.to_owned());
+        self.node_attrs.push(AttrMap::new());
+        self.adj_indices.rows_mut().push(Vec::new());
+        self.revision = self.revision.saturating_add(1);
+        (slot, true)
+    }
+
+    pub fn add_node_with_attrs(
+        &mut self,
+        node: impl AsRef<str> + Into<String>,
+        attrs: AttrMap,
+    ) -> bool {
+        self.compact_before_growth();
+        let (changed, existed, attrs_count, _) = self.add_node_with_attrs_unrecorded(node, attrs);
+        self.record_decision(
+            "add_node",
+            0.0,
+            false,
+            vec![
+                EvidenceTerm {
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(existed),
+                    log_likelihood_ratio: -3.0,
+                },
+                EvidenceTerm {
+                    signal: "attrs_count".into(),
+                    observed_value: count_evidence(attrs_count),
+                    log_likelihood_ratio: -1.0,
+                },
+            ],
+        );
+        changed
+    }
+
+    /// Bulk node insertion for generated/batched construction paths where
+    /// per-node compatibility evidence would be pure constant-factor overhead.
+    #[must_use]
+    pub fn extend_nodes_unrecorded<I, N>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = N>,
+        N: Into<String>,
+    {
+        self.compact_before_growth();
+        let iterator = nodes.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.node_order.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for node in iterator {
+            let node = node.into();
+            if self.node_order.contains_key(&node) {
+                continue;
+            }
+            self.node_order.push(node);
+            self.node_attrs.push(AttrMap::new());
+            self.adj_indices.rows_mut().push(Vec::new());
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-l5ve7: bulk node insert WITH attrs, one ledger record —
+    /// mirror of DiGraph::extend_nodes_with_attrs_unrecorded. Existing
+    /// nodes merge attrs (extend), matching add_node_with_attrs.
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        self.compact_before_growth();
+        let iterator = nodes.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.node_order.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for (node, attrs) in iterator {
+            if let Some(&slot) = self.node_order.get(&node) {
+                self.node_attrs[slot].extend(attrs);
+                continue;
+            }
+            self.node_order.push(node);
+            self.node_attrs.push(attrs);
+            self.adj_indices.rows_mut().push(Vec::new());
+            inserted += 1;
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    pub fn apply_node_defaults(&mut self, defaults: &AttrMap) -> bool {
+        if defaults.is_empty() {
+            return false;
+        }
+        let mut inserted = 0usize;
+        for slot in self.node_order.values() {
+            let attrs = &mut self.node_attrs[slot];
+            for (key, value) in defaults {
+                if !attrs.contains_key(key) {
+                    attrs.insert(key.clone(), value.clone());
+                    inserted += 1;
+                }
+            }
+        }
+        if inserted > 0 {
+            self.revision = self.revision.saturating_add(1);
+            self.record_decision(
+                "apply_node_defaults",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "defaults_applied".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: 0.0,
+                }],
+            );
+            return true;
+        }
+        false
+    }
+
+    pub fn add_edge(
+        &mut self,
+        left: impl AsRef<str>,
+        right: impl AsRef<str>,
+    ) -> Result<(), GraphError> {
+        self.add_edge_with_attrs(left, right, AttrMap::new())
+    }
+
+    /// Bulk-add a sequence of attribute-free edges. Bypasses the
+    /// per-edge `runtime_policy.record_decision` call that
+    /// [`add_edge_with_attrs`] makes. Instead, emit one summary record
+    /// for the whole batch.
+    ///
+    /// Intended for fnx-internal callers that build a fresh graph
+    /// from a known-good edge list (e.g., `complement`,
+    /// `transitive_closure`, etc.) where the per-edge
+    /// incompatibility-probability accounting would just add
+    /// constant-factor overhead and is uninteresting for the policy
+    /// log.
+    ///
+    /// Nodes referenced by edges are auto-created if absent
+    /// (matching `add_edge` semantics). br-r37-c1-4jd8m.
+    #[must_use]
+    pub fn extend_edges_unrecorded<I, L, R>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (L, R)>,
+        L: Into<String>,
+        R: Into<String>,
+    {
+        self.compact_before_growth();
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.node_order.reserve(lower_bound);
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        let mut nodes_added = false;
+        for (left, right) in iterator {
+            let left = left.into();
+            let right = right.into();
+            let (left_slot, l_added) = match self.node_order.get(&left) {
+                Some(&slot) => (slot, false),
+                None => {
+                    let slot = self.node_order.push(left.clone());
+                    self.node_attrs.push(AttrMap::new());
+                    self.adj_indices.rows_mut().push(Vec::new());
+                    (slot, true)
+                }
+            };
+            nodes_added |= l_added;
+
+            let (right_slot, r_added) = if left == right {
+                (left_slot, false)
+            } else {
+                match self.node_order.get(&right) {
+                    Some(&slot) => (slot, false),
+                    None => {
+                        let slot = self.node_order.push(right.clone());
+                        self.node_attrs.push(AttrMap::new());
+                        self.adj_indices.rows_mut().push(Vec::new());
+                        (slot, true)
+                    }
+                }
+            };
+            nodes_added |= r_added;
+
+            let edge_key = Self::canon_pair(left_slot, right_slot);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+            if left <= right {
+                self.edge_index_endpoints.push((left_slot, right_slot));
+            } else {
+                self.edge_index_endpoints.push((right_slot, left_slot));
+            }
+            self.edges.insert(edge_key, AttrMap::new());
+
+            self.adj_indices.rows_mut()[left_slot].push(right_slot);
+            if left_slot != right_slot {
+                self.adj_indices.rows_mut()[right_slot].push(left_slot);
+            }
+            inserted += 1;
+        }
+        self.record_bulk_edge_summary(inserted, nodes_added);
+        inserted
+    }
+
+    /// Bulk-add attribute-free edges whose endpoints have already been
+    /// resolved to existing node indices. This is the index-space sibling of
+    /// [`extend_edges_unrecorded`]: it preserves duplicate handling, adjacency
+    /// row order, edge storage order, and string-canonical endpoint orientation
+    /// without per-edge node-name allocation or map lookup.
+    #[must_use]
+    pub fn extend_existing_index_edges_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize)>,
+    {
+        self.compact_before_growth();
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for (left_idx, right_idx) in iterator {
+            debug_assert!(left_idx < self.node_order.len());
+            debug_assert!(right_idx < self.node_order.len());
+            let left_slot = self
+                .node_order
+                .slot_at(left_idx)
+                .expect("validated left node index");
+            let right_slot = self
+                .node_order
+                .slot_at(right_idx)
+                .expect("validated right node index");
+
+            let edge_key = Self::canon_pair(left_slot, right_slot);
+            if self.edges.contains_key(&edge_key) {
+                continue;
+            }
+
+            let left_name = self
+                .node_order
+                .name(left_slot)
+                .expect("validated left node index");
+            let right_name = self
+                .node_order
+                .name(right_slot)
+                .expect("validated right node index");
+            if left_name <= right_name {
+                self.edge_index_endpoints.push((left_slot, right_slot));
+            } else {
+                self.edge_index_endpoints.push((right_slot, left_slot));
+            }
+            self.edges.insert(edge_key, AttrMap::new());
+
+            self.adj_indices.rows_mut()[left_slot].push(right_slot);
+            if left_slot != right_slot {
+                self.adj_indices.rows_mut()[right_slot].push(left_slot);
+            }
+            inserted += 1;
+        }
+        self.record_bulk_edge_summary(inserted, false);
+        inserted
+    }
+
+    /// br-r37-c1-dodattrbatch: bulk-add ATTRIBUTED edges by EXISTING node index
+    /// — the attributed sibling of [`extend_existing_index_edges_unrecorded`].
+    /// All endpoints MUST already exist (callers gate on a contiguous-int node
+    /// prefix). A new edge takes the given AttrMap; a duplicate edge MERGES
+    /// (last-writer-wins per key) exactly like `add_edge_with_attrs`. Replaces
+    /// the per-edge ledger with one batch summary; no String hashing for the
+    /// endpoints (they arrive as integer indices).
+    pub fn extend_existing_index_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, AttrMap)>,
+    {
+        self.compact_before_growth();
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        for (left_idx, right_idx, attrs) in iterator {
+            debug_assert!(left_idx < self.node_order.len());
+            debug_assert!(right_idx < self.node_order.len());
+            let left_slot = self
+                .node_order
+                .slot_at(left_idx)
+                .expect("validated left node index");
+            let right_slot = self
+                .node_order
+                .slot_at(right_idx)
+                .expect("validated right node index");
+
+            let edge_key = Self::canon_pair(left_slot, right_slot);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                // Duplicate edge within the batch: merge attrs (last wins).
+                existing.extend(attrs);
+                continue;
+            }
+
+            let left_name = self
+                .node_order
+                .name(left_slot)
+                .expect("validated left node index");
+            let right_name = self
+                .node_order
+                .name(right_slot)
+                .expect("validated right node index");
+            if left_name <= right_name {
+                self.edge_index_endpoints.push((left_slot, right_slot));
+            } else {
+                self.edge_index_endpoints.push((right_slot, left_slot));
+            }
+            self.edges.insert(edge_key, attrs);
+
+            self.adj_indices.rows_mut()[left_slot].push(right_slot);
+            if left_slot != right_slot {
+                self.adj_indices.rows_mut()[right_slot].push(left_slot);
+            }
+            inserted += 1;
+        }
+        self.record_bulk_edge_summary(inserted, false);
+        inserted
+    }
+
+    /// br-r37-c1-pr8q6: bulk-add ATTRIBUTED edges without per-edge ledger
+    /// records — the attributed sibling of [`extend_edges_unrecorded`].
+    ///
+    /// Semantics match a sequence of `add_edge_with_attrs` calls exactly:
+    /// nodes auto-created in first-appearance order, duplicate edges MERGE
+    /// their attrs into the existing map (`extend`), adjacency /
+    /// `adj_indices` / `edge_index_endpoints` maintained identically. Only
+    /// the per-edge `record_decision` push (timestamp + String allocs per
+    /// edge, the dominant cost of attributed bulk construction) is replaced
+    /// by one batch summary record.
+    ///
+    /// Callers MUST pre-screen attr keys starting with
+    /// `"__fnx_incompatible"` and route those edges through
+    /// `add_edge_with_attrs`, which owns the FailClosed contract for them.
+    pub fn extend_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, AttrMap)>,
+    {
+        self.compact_before_growth();
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.node_order.reserve(lower_bound);
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        let mut nodes_added = false;
+        let mut merged_changed = false;
+        for (left, right, attrs) in iterator {
+            let (left_slot, l_added) = match self.node_order.get(&left) {
+                Some(&slot) => (slot, false),
+                None => {
+                    let slot = self.node_order.push(left.clone());
+                    self.node_attrs.push(AttrMap::new());
+                    self.adj_indices.rows_mut().push(Vec::new());
+                    (slot, true)
+                }
+            };
+            nodes_added |= l_added;
+
+            let (right_slot, r_added) = if left == right {
+                (left_slot, false)
+            } else {
+                match self.node_order.get(&right) {
+                    Some(&slot) => (slot, false),
+                    None => {
+                        let slot = self.node_order.push(right.clone());
+                        self.node_attrs.push(AttrMap::new());
+                        self.adj_indices.rows_mut().push(Vec::new());
+                        (slot, true)
+                    }
+                }
+            };
+            nodes_added |= r_added;
+
+            let edge_key = Self::canon_pair(left_slot, right_slot);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+            if left <= right {
+                self.edge_index_endpoints.push((left_slot, right_slot));
+            } else {
+                self.edge_index_endpoints.push((right_slot, left_slot));
+            }
+            self.edges.insert(edge_key, attrs);
+
+            self.adj_indices.rows_mut()[left_slot].push(right_slot);
+            if left_slot != right_slot {
+                self.adj_indices.rows_mut()[right_slot].push(left_slot);
+            }
+            inserted += 1;
+        }
+        if merged_changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        self.record_bulk_edge_summary(inserted, nodes_added || merged_changed);
+        inserted
+    }
+
+    /// Bulk-add attributed undirected edges into a fresh graph when the caller
+    /// has already assigned NetworkX-compatible node indices in first-seen
+    /// order.
+    ///
+    /// This is the fresh/indexed sibling of
+    /// [`extend_edges_with_attrs_unrecorded`]. It preserves duplicate
+    /// insert-or-merge semantics, adjacency row order, self-loop handling, and
+    /// the public `edges()` orientation rule used by the string-key path.
+    #[must_use]
+    pub fn extend_fresh_index_edges_with_attrs_unrecorded<I, N>(
+        &mut self,
+        nodes: N,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, AttrMap)>,
+        N: IntoIterator<Item = String>,
+    {
+        if !self.node_order.is_empty()
+            || !self.adj_indices.is_empty()
+            || !self.edges.is_empty()
+            || !self.edge_index_endpoints.is_empty()
+        {
+            return 0;
+        }
+
+        let node_labels: Vec<String> = nodes.into_iter().collect();
+        let node_count = node_labels.len();
+        self.node_order = NodeOrder::from_names(node_labels.clone());
+        self.node_attrs = vec![AttrMap::new(); node_count];
+        *self.adj_indices.rows_mut() = vec![Vec::new(); node_count];
+
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+        self.edges.reserve(lower_bound);
+        self.edge_index_endpoints.reserve(lower_bound);
+
+        let mut inserted = 0usize;
+        let mut merged_changed = false;
+        for (left_idx, right_idx, attrs) in iterator {
+            if left_idx >= node_count || right_idx >= node_count {
+                continue;
+            }
+
+            let edge_key = Self::canon_pair(left_idx, right_idx);
+            if let Some(existing) = self.edges.get_mut(&edge_key) {
+                if attrs.is_empty() {
+                    continue;
+                }
+                if attrs
+                    .iter()
+                    .any(|(key, value)| existing.get(key) != Some(value))
+                {
+                    merged_changed = true;
+                }
+                existing.extend(attrs);
+                continue;
+            }
+
+            if node_labels[left_idx] <= node_labels[right_idx] {
+                self.edge_index_endpoints.push((left_idx, right_idx));
+            } else {
+                self.edge_index_endpoints.push((right_idx, left_idx));
+            }
+            self.edges.insert(edge_key, attrs);
+            let rows = self.adj_indices.rows_mut();
+            rows[left_idx].push(right_idx);
+            if left_idx != right_idx {
+                rows[right_idx].push(left_idx);
+            }
+            inserted += 1;
+        }
+
+        self.record_bulk_edge_summary(inserted, node_count > 0 || merged_changed);
+        inserted
+    }
+
+    fn record_bulk_edge_summary(&mut self, inserted: usize, nodes_added: bool) {
+        if inserted == 0 && !nodes_added {
+            return;
+        }
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+        // One summary record covers the whole batch and keeps the
+        // policy ledger non-empty so existing diagnostics still
+        // see the operation.
+        self.record_decision(
+            "extend_edges_unrecorded",
+            0.0,
+            false,
+            vec![EvidenceTerm {
+                signal: "batch_edge_count".into(),
+                observed_value: count_evidence(inserted),
+                log_likelihood_ratio: -1.0,
+            }],
+        );
+    }
+
+    /// br-r37-c1-jc9e4: the endpoint keys are never owned by this function.
+    ///
+    /// This used to open with `let left = left.into(); let right =
+    /// right.into();`, then hand `left.clone()` / `right.clone()` to
+    /// autocreation — up to four owned `String`s per call, none of which this
+    /// function keeps. Every use below is a comparison, a map probe, or a
+    /// forward to `add_node_with_attrs_unrecorded`, and that callee now owns
+    /// the key only on the vacant path. So the keys stay borrowed here and the
+    /// single allocation an insert genuinely needs happens once, inside the
+    /// callee, exactly when a node is created.
+    ///
+    /// Comparison semantics are unchanged: `left == right` and `left <= right`
+    /// on `&str` are the same byte-wise comparisons `String` performed, so the
+    /// self-loop test and the `edge_index_endpoints` push order are identical.
+    pub fn add_edge_with_attrs(
+        &mut self,
+        left: impl AsRef<str>,
+        right: impl AsRef<str>,
+        attrs: AttrMap,
+    ) -> Result<(), GraphError> {
+        self.add_edge_with_attrs_outcome(left, right, attrs)
+            .map(|_| ())
+    }
+
+    pub fn add_edge_with_attrs_outcome(
+        &mut self,
+        left: impl AsRef<str>,
+        right: impl AsRef<str>,
+        attrs: AttrMap,
+    ) -> Result<(bool, bool, bool), GraphError> {
+        self.compact_before_growth();
+        let left = left.as_ref();
+        let right = right.as_ref();
+
+        let unknown_feature = attrs
+            .keys()
+            .any(|key| key.starts_with("__fnx_incompatible"));
+        let incompatibility_probability = if unknown_feature {
+            1.0
+        } else if left == right {
+            0.22
+        } else {
+            0.08
+        };
+
+        // br-r37-c1-eo88t: the gate decision earns a ledger record only when it
+        // REFUSES. A refusal returns from here, so the outcome record at the end
+        // of this function never runs and the gate record is the whole audit
+        // trail for the rejected mutation. On the allow path the outcome record
+        // carries the same operation/mode/action/incompatibility_probability
+        // plus strictly richer evidence, so recording the gate as well wrote two
+        // near-identical records for every edge on the hottest mutation path.
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_feature);
+
+        if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
+            self.record_decision(
+                "add_edge",
+                incompatibility_probability,
+                unknown_feature,
+                vec![EvidenceTerm {
+                    signal: "unknown_incompatible_feature".into(),
+                    observed_value: bool_evidence(unknown_feature),
+                    log_likelihood_ratio: 12.0,
+                }],
+            );
+            return Err(GraphError::FailClosed {
+                operation: "add_edge",
+                reason: "incompatible edge metadata".to_owned(),
+            });
+        }
+
+        // br-r37-c1-wa1b9: autocreating an endpoint is an internal STEP of this
+        // add_edge, not a user-visible add_node, so it does not file its own
+        // ledger record. The outcome record below already reports the event via
+        // `left_autocreated` / `right_autocreated`, so no audit information is
+        // lost. This matches the ledger's per-OPERATION contract, which the
+        // bulk paths already assert (`extend_nodes_unrecorded` files ONE record
+        // for N nodes), and follows br-r37-c1-eo88t, which removed the other
+        // redundant record from this same function. A caller-visible
+        // `add_node` still records — only this internal path is unrecorded.
+        // br-r37-c1-jc9e4: resolve each endpoint with ONE raw-entry probe.
+        // A missing endpoint formerly did `get_index_of` followed by
+        // `add_node_with_attrs_unrecorded`, which probed the same borrowed key
+        // a second time before it could insert.  The specialized resolver
+        // returns the existing index or inserts the empty bucket from that
+        // single raw entry. A self-loop is resolved without probing the second
+        // endpoint at all, since `left == right` makes the indices equal by
+        // construction.
+        //
+        // Order is untouched: the left endpoint is still resolved and
+        // autocreated before the right one, and `IndexMap` appends, so
+        // autocreating the right endpoint cannot move the left one's index.
+        let (left_key_idx, left_autocreated) = self.resolve_empty_node_for_edge_unrecorded(left);
+        let (right_key_idx, right_autocreated) = if left == right {
+            (left_key_idx, left_autocreated)
+        } else {
+            self.resolve_empty_node_for_edge_unrecorded(right)
+        };
+        let edge_key = Self::canon_pair(left_key_idx, right_key_idx);
+        let self_loop = left == right;
+        // One `entry` probe decides both whether this is a fresh edge and
+        // which attribute bucket receives the update.  The former
+        // `contains_key` + `entry` sequence hashed the same index pair twice
+        // on every add_edge call, including the dominant fresh-edge build arm.
+        let (new_edge, changed, edge_attr_count) = match self.edges.entry(edge_key) {
+            indexmap::map::Entry::Vacant(entry) => {
+                let edge_attr_count = attrs.len();
+                entry.insert(attrs);
+                (true, true, edge_attr_count)
+            }
+            indexmap::map::Entry::Occupied(mut entry) => {
+                let edge_attrs = entry.get_mut();
+                let changed = !attrs.is_empty()
+                    && attrs
+                        .iter()
+                        .any(|(key, value)| edge_attrs.get(key) != Some(value));
+                edge_attrs.extend(attrs);
+                (false, changed, edge_attrs.len())
+            }
+        };
+
+        // Update integer adjacency (only for new edges, avoid duplicates)
+        if changed {
+            // br-r37-c1-jc9e4 (cc): reuse the indices resolved above instead of
+            // re-running two String-keyed IndexMap lookups. `left_key_idx` /
+            // `right_key_idx` came from the same `self.nodes` a few lines up and
+            // nothing between them touches the node map — the intervening work
+            // is the `self.edges` entry and the attr extend — so the old
+            // `if let (Some(..), Some(..))` could never fail and never differed.
+            // Byte-identical: same indices, same push order, same self-loop
+            // single-push behaviour.
+            if new_edge {
+                if left <= right {
+                    self.edge_index_endpoints
+                        .push((left_key_idx, right_key_idx));
+                } else {
+                    self.edge_index_endpoints
+                        .push((right_key_idx, left_key_idx));
+                }
+                // br-r37-c1-addedgenewedge (cc): adj_indices membership is EXACTLY edge
+                // existence, which `new_edge` (= !self.edges.contains_key(edge_key)) already
+                // decided in O(1). The old `!adj_indices[left_idx].contains(&right_idx)` guards
+                // were an O(degree) linear rescan of the adjacency row computing the SAME
+                // answer — O(n²) to build a star/hub via add_edge. Push only when new_edge
+                // (byte-identical: existing edge ⇒ new_edge false ⇒ both endpoints already in
+                // adj_indices ⇒ old guards were false too; self-loop ⇒ left_idx==right_idx ⇒
+                // single push in both).
+                let rows = self.adj_indices.rows_mut();
+                rows[left_key_idx].push(right_key_idx);
+                if left_key_idx != right_key_idx {
+                    rows[right_key_idx].push(left_key_idx);
+                }
+            }
+            self.revision = self.revision.saturating_add(1);
+        }
+
+        self.record_decision(
+            "add_edge",
+            incompatibility_probability,
+            unknown_feature,
+            vec![
+                EvidenceTerm {
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(self_loop),
+                    log_likelihood_ratio: -0.5,
+                },
+                EvidenceTerm {
+                    signal: "edge_attr_count".into(),
+                    observed_value: count_evidence(edge_attr_count),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(left_autocreated),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(right_autocreated),
+                    log_likelihood_ratio: -1.25,
+                },
+            ],
+        );
+
+        Ok((left_autocreated, !self_loop && right_autocreated, new_edge))
+    }
+
+    pub fn apply_edge_defaults(&mut self, defaults: &AttrMap) -> bool {
+        if defaults.is_empty() {
+            return false;
+        }
+        let mut inserted = 0usize;
+        for attrs in self.edges.values_mut() {
+            for (key, value) in defaults {
+                if !attrs.contains_key(key) {
+                    attrs.insert(key.clone(), value.clone());
+                    inserted += 1;
+                }
+            }
+        }
+        if inserted > 0 {
+            self.revision = self.revision.saturating_add(1);
+            self.record_decision(
+                "apply_edge_defaults",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "defaults_applied".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: 0.0,
+                }],
+            );
+            return true;
+        }
+        false
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing edge,
+    /// matching post-creation Python-side mutations. Unlike
+    /// `add_edge_with_attrs` which extends, this replaces. Returns
+    /// `true` if the edge existed and was updated, `false` otherwise.
+    pub fn replace_edge_attrs(&mut self, left: &str, right: &str, attrs: AttrMap) -> bool {
+        let Some(edge_key) = self.edge_pair_key(left, right) else {
+            return false;
+        };
+        if let Some(slot) = self.edges.get_mut(&edge_key) {
+            if *slot != attrs {
+                *slot = attrs;
+                self.revision = self.revision.saturating_add(1);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.
+    pub fn replace_node_attrs(&mut self, node: &str, attrs: AttrMap) -> bool {
+        if let Some(&slot) = self.node_order.get(node) {
+            if self.node_attrs[slot] != attrs {
+                self.node_attrs[slot] = attrs;
+                self.revision = self.revision.saturating_add(1);
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn remove_edge(&mut self, left: &str, right: &str) -> bool {
+        let (Some(&left_slot), Some(&right_slot)) =
+            (self.node_order.get(left), self.node_order.get(right))
+        else {
+            return false;
+        };
+        let pair = Self::canon_pair(left_slot, right_slot);
+        let removed = self.edges.swap_remove_full(&pair);
+        if let Some((edge_pos, _, _)) = removed {
+            let rows = self.adj_indices.rows_mut();
+            rows[left_slot].retain(|&i| i != right_slot);
+            if left_slot != right_slot {
+                rows[right_slot].retain(|&i| i != left_slot);
+            }
+            self.edge_index_endpoints.swap_remove(edge_pos);
+            self.revision = self.revision.saturating_add(1);
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn remove_node(&mut self, node: &str) -> bool {
+        let removed = self.remove_node_deferred_compaction(node);
+        if removed {
+            self.compact_when_sparse();
+        }
+        removed
+    }
+
+    fn remove_node_deferred_compaction(&mut self, node: &str) -> bool {
+        // O(1): the node's entry is tombstoned (or popped, for the last entry
+        // of a table with nothing else removed), never shifted.
+        let Some((slot, popped)) = self.node_order.remove(node) else {
+            return false;
+        };
+
+        // Drop incident edges and remove this slot from neighbors' adjacency lists.
+        let rows = self.adj_indices.rows_mut();
+        let nbrs = std::mem::take(&mut rows[slot]);
+        for &nbr in &nbrs {
+            let pair = Self::canon_pair(slot, nbr);
+            if let Some((edge_pos, _, _)) = self.edges.swap_remove_full(&pair) {
+                self.edge_index_endpoints.swap_remove(edge_pos);
+            }
+            if nbr != slot {
+                rows[nbr].retain(|&i| i != slot);
+            }
+        }
+
+        if popped {
+            self.node_attrs.pop();
+            rows.pop();
+        } else {
+            self.node_attrs[slot].clear();
+        }
+
+        self.revision = self.revision.saturating_add(1);
+        true
+    }
+
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let mut removed_nodes = 0usize;
+        let old_edge_count = self.edges.len();
+        for node in nodes {
+            if self.remove_node_deferred_compaction(node) {
+                removed_nodes += 1;
+            }
+        }
+        let removed_edges = old_edge_count.saturating_sub(self.edges.len());
+        if removed_nodes > 0 {
+            self.compact_when_sparse();
+        }
+        (removed_nodes, removed_edges)
+    }
+
+    /// yr2oc.1: compact once the freed slots outnumber the live nodes. A run
+    /// of removals then pays the O(V+E) renumbering once per O(V) removals
+    /// (amortised O(degree) each) rather than on every removal, and the slot
+    /// arrays stay within twice the live node count. Until then, readers of
+    /// positions go through the position view.
+    fn compact_when_sparse(&mut self) {
+        let removed = self.node_order.slot_count() - self.node_order.len();
+        if removed > self.node_order.len() {
+            self.compact_internal();
+        }
+    }
+
+    /// yr2oc.1: freed slots last only through a run of removals. The first
+    /// insertion after one compacts, once, so a graph that grows again is back
+    /// on dense slots: an insertion would otherwise drop the position view and
+    /// every index read after it would rebuild the view in O(V+E).
+    fn compact_before_growth(&mut self) {
+        if !self.node_order.is_dense() {
+            self.compact_internal();
+        }
+    }
+
+    /// Rebuild integer adjacency from string adjacency. Called after node
+    /// removal since indices shift.
+    #[allow(dead_code)]
+    /// br-r37-c1-d58s8: revision-keyed memo of "every edge's `attr`
+    /// value is an integer (missing = default 1 = int)".
+    #[must_use]
+    pub fn edge_weights_all_int(&self, attr: &str) -> bool {
+        if let Ok(guard) = self.all_int_cache.read()
+            && let Some((rev, a, v)) = guard.as_ref()
+            && *rev == self.revision
+            && a == attr
+        {
+            return *v;
+        }
+        let v = self
+            .edges
+            .values()
+            .all(|attrs| attrs.get(attr).is_none_or(fnx_runtime::CgseValue::is_int));
+        if let Ok(mut guard) = self.all_int_cache.write() {
+            *guard = Some((self.revision, attr.to_owned(), v));
+        }
+        v
+    }
+
+    pub fn edges_ordered(&self) -> Vec<EdgeSnapshot> {
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen = vec![false; self.node_order.slot_count()];
+        for (u_name, u) in self.node_order.iter() {
+            for &v in &self.adj_indices[u] {
+                if !seen[v] {
+                    let pair = Self::canon_pair(u, v);
+                    if let Some(attrs) = self.edges.get(&pair) {
+                        let v_name = self.node_order.name(v).expect("valid node slot");
+                        ordered.push(EdgeSnapshot {
+                            left: u_name.clone(),
+                            right: v_name.to_owned(),
+                            attrs: attrs.clone(),
+                        });
+                    }
+                }
+            }
+            seen[u] = true;
+        }
+
+        ordered
+    }
+
+    #[must_use]
+    pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, &AttrMap)> {
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen = vec![false; self.node_order.slot_count()];
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
+            slot_to_pos[slot] = pos;
+        }
+
+        for (u_pos, (_, u)) in self.node_order.iter().enumerate() {
+            for &v in &self.adj_indices[u] {
+                if !seen[v] {
+                    let pair = Self::canon_pair(u, v);
+                    if let Some(attrs) = self.edges.get(&pair) {
+                        let v_pos = slot_to_pos[v];
+                        ordered.push((u_pos, v_pos, attrs));
+                    }
+                }
+            }
+            seen[u] = true;
+        }
+
+        ordered
+    }
+
+    pub fn try_for_each_indexed_edge_ordered_borrowed<E>(
+        &self,
+        mut visit: impl FnMut(usize, usize, &str, &str, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let mut seen = vec![false; self.node_order.slot_count()];
+        if self.node_order.is_dense() {
+            for (u_name, u) in self.node_order.iter() {
+                for &v in &self.adj_indices[u] {
+                    if !seen[v] {
+                        let pair = Self::canon_pair(u, v);
+                        if let Some(attrs) = self.edges.get(&pair) {
+                            let v_name = self.node_order.name(v).expect("valid node slot");
+                            visit(u, v, u_name.as_str(), v_name, attrs)?;
+                        }
+                    }
+                }
+                seen[u] = true;
+            }
+            return Ok(());
+        }
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
+            slot_to_pos[slot] = pos;
+        }
+        for (u_pos, (u_name, u)) in self.node_order.iter().enumerate() {
+            for &v in &self.adj_indices[u] {
+                if !seen[v] {
+                    let pair = Self::canon_pair(u, v);
+                    if let Some(attrs) = self.edges.get(&pair) {
+                        let v_pos = slot_to_pos[v];
+                        let v_name = self.node_order.name(v).expect("valid node slot");
+                        visit(u_pos, v_pos, u_name.as_str(), v_name, attrs)?;
+                    }
+                }
+            }
+            seen[u] = true;
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen = vec![false; self.node_order.slot_count()];
+        for (u_name, u) in self.node_order.iter() {
+            for &v in &self.adj_indices[u] {
+                if !seen[v] {
+                    let pair = Self::canon_pair(u, v);
+                    if let Some(attrs) = self.edges.get(&pair) {
+                        let v_name = self.node_order.name(v).expect("valid node slot");
+                        ordered.push((u_name.as_str(), v_name, attrs));
+                    }
+                }
+            }
+            seen[u] = true;
+        }
+
+        ordered
+    }
+
+    /// br-r37-c1-wsize (cc): integer `size(weight)` straight from the CgseValue
+    /// store. `size(weight)` is `sum(degree(weight))/2`; the `/2` exactly cancels
+    /// the double-endpoint counting, so the weighted size equals each stored
+    /// edge's weight summed ONCE (a self-loop is one stored edge → counted once,
+    /// matching nx's degree-counts-it-twice-then-halves). Each edge appears once
+    /// in `self.edges`, so a single store walk is the whole answer — no per-node
+    /// PyObject degree materialization. Returns `None` (caller falls back to the
+    /// exact float/PyObject degree path) on ANY non-integer weight value; a
+    /// missing weight defaults to nx's int `1`. Integer addition is associative,
+    /// so iteration order is irrelevant.
+    #[must_use]
+    pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        let mut total: i128 = 0;
+        for attrs in self.edges.values() {
+            let value = match attrs.get(weight) {
+                Some(CgseValue::Int(v)) => i128::from(*v),
+                Some(_) => return None,
+                None => 1,
+            };
+            total = total.checked_add(value)?;
+        }
+        Some(total)
+    }
+
+    /// br-r37-c1-2a00r: index-space twin of `edges_ordered_borrowed` — yields
+    /// `(u, v)` node indices in the SAME node-major traversed order/orientation,
+    /// without resolving endpoints to `&str`. Lets the EdgeView iterate edges and
+    /// look up the per-index Python node-key object directly (O(1) incref) instead
+    /// of hashing the canonical String per endpoint via `py_node_key`.
+    #[must_use]
+    pub fn edges_ordered_indices(&self) -> Vec<(usize, usize)> {
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen_source = vec![false; self.node_order.slot_count()];
+        let mut slot_to_pos = vec![0; self.node_order.slot_count()];
+        for (pos, (_, slot)) in self.node_order.iter().enumerate() {
+            slot_to_pos[slot] = pos;
+        }
+
+        for (u_pos, (_, u)) in self.node_order.iter().enumerate() {
+            for &v in &self.adj_indices[u] {
+                if !seen_source[v] {
+                    let v_pos = slot_to_pos[v];
+                    ordered.push((u_pos, v_pos));
+                }
+            }
+            seen_source[u] = true;
+        }
+        if ordered.len() == self.edges.len() {
+            return ordered;
+        }
+        // Fallback (degenerate adjacency):
+        let mut present: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::with_capacity(self.edges.len());
+        for &(l, r) in &self.edge_index_endpoints {
+            present.insert(Self::canon_pair(l, r));
+        }
+        let mut ordered = Vec::with_capacity(self.edges.len());
+        let mut seen_pairs =
+            std::collections::HashSet::<(usize, usize)>::with_capacity(self.edges.len());
+        for (u_pos, (_, u)) in self.node_order.iter().enumerate() {
+            for &v in &self.adj_indices[u] {
+                let pair = Self::canon_pair(u, v);
+                if !seen_pairs.insert(pair) {
+                    continue;
+                }
+                if present.contains(&pair) {
+                    let v_pos = slot_to_pos[v];
+                    ordered.push((u_pos, v_pos));
+                }
+            }
+        }
+        if ordered.len() < self.edges.len() {
+            for &(l, r) in self.edges.keys() {
+                if seen_pairs.insert((l, r)) {
+                    let l_pos = slot_to_pos[l];
+                    let r_pos = slot_to_pos[r];
+                    ordered.push((l_pos, r_pos));
+                }
+            }
+        }
+        ordered
+    }
+
+    #[must_use]
+    pub fn edges_storage_order_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edge_index_endpoints
+            .iter()
+            .zip(self.edges.values())
+            .map(|(&(l, r), attrs)| {
+                (
+                    self.node_order.name(l).expect("valid index"),
+                    self.node_order.name(r).expect("valid index"),
+                    attrs,
+                )
+            })
+            .collect()
+    }
+
+    pub fn edges_storage_order_iter(&self) -> impl Iterator<Item = (&str, &str, &AttrMap)> + '_ {
+        self.edge_index_endpoints
+            .iter()
+            .zip(self.edges.values())
+            .map(|(&(l, r), attrs)| {
+                (
+                    self.node_order.name(l).expect("valid index"),
+                    self.node_order.name(r).expect("valid index"),
+                    attrs,
+                )
+            })
+    }
+
+    /// Nothing removed since the last compaction: every node's slot is its
+    /// position (O(1)).
+    #[inline]
+    #[must_use]
+    pub fn is_compact(&self) -> bool {
+        self.node_order.is_dense()
+    }
+
+    pub fn ensure_compact(&mut self) {
+        if self.is_compact() {
+            return;
+        }
+        self.compact_internal();
+    }
+
+    fn compact_internal(&mut self) {
+        let n = self.node_order.len();
+        let old_slots: Vec<usize> = self.node_order.values().collect();
+        let old_to_new = self.node_order.compact();
+
+        let mut new_node_attrs = Vec::with_capacity(n);
+        let mut new_adj_indices = Vec::with_capacity(n);
+        let rows = self.adj_indices.rows_mut();
+        for old_slot in old_slots {
+            new_node_attrs.push(std::mem::take(&mut self.node_attrs[old_slot]));
+            new_adj_indices.push(std::mem::take(&mut rows[old_slot]));
+        }
+
+        // Remap neighbor slots in adjacency rows
+        for row in &mut new_adj_indices {
+            for neighbor in row {
+                *neighbor = old_to_new[*neighbor];
+            }
+        }
+
+        // Remap edge keys and edge_index_endpoints
+        let old_edges = std::mem::take(&mut self.edges);
+        let old_endpoints = std::mem::take(&mut self.edge_index_endpoints);
+        let mut new_edges =
+            FxIndexMap::with_capacity_and_hasher(old_edges.len(), rustc_hash::FxBuildHasher);
+        let mut new_endpoints = Vec::with_capacity(old_endpoints.len());
+
+        for (((old_l, old_r), attrs), (ep_l, ep_r)) in old_edges.into_iter().zip(old_endpoints) {
+            let new_l = old_to_new[old_l];
+            let new_r = old_to_new[old_r];
+            new_edges.insert(Self::canon_pair(new_l, new_r), attrs);
+            new_endpoints.push((old_to_new[ep_l], old_to_new[ep_r]));
+        }
+
+        self.node_attrs = new_node_attrs;
+        *self.adj_indices.rows_mut() = new_adj_indices;
+        self.edges = new_edges;
+        self.edge_index_endpoints = new_endpoints;
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> GraphSnapshot {
+        let mut node_attrs: BTreeMap<String, AttrMap> = BTreeMap::new();
+        for (name, slot) in self.node_order.iter() {
+            if !self.node_attrs[slot].is_empty() {
+                node_attrs.insert(name.clone(), self.node_attrs[slot].clone());
+            }
+        }
+        GraphSnapshot {
+            mode: self.mode,
+            nodes: self.node_order.keys().cloned().collect(),
+            node_attrs,
+            edges: self.edges_ordered(),
+        }
+    }
+
+    fn record_decision(
+        &mut self,
+        operation: &'static str,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+        evidence: Vec<EvidenceTerm>,
+    ) -> DecisionAction {
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_incompatible_feature);
+        self.runtime_policy.record(
+            operation,
+            action,
+            incompatibility_probability,
+            "argmin expected loss over {allow,full_validate,fail_closed}",
+            evidence,
+        );
+        action
+    }
+}
+
+/// br-r37-c1-thp6w slice 1: revision-keyed integer-adjacency memo for MultiGraph. Holds the
+/// integer neighbor rows (`get_node_index` of each adjacency-row neighbor, in row order),
+/// lazily built from the authoritative stable-slot rows and reused until the graph mutates.
+/// Interior mutability (RwLock) so it can populate on a `&self` read while staying `Sync`,
+/// matching `Graph::all_int_cache`. Clone yields a FRESH (empty) memo — never shared — so a
+/// clone that mutates independently can never serve another graph's rows.
+#[derive(Debug, Default)]
+struct IntAdjCache(std::sync::RwLock<Option<(u64, Vec<Vec<usize>>)>>);
+
+impl Clone for IntAdjCache {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+/// br-r37-c1-thp6w S4: the structural row delta of one single-edge MultiGraph
+/// mutation, used by `advance_int_adj_memo` to keep a warm integer-adjacency
+/// memo live across the mutation instead of invalidating it.
+enum IntAdjEdgeDelta<'a> {
+    Add {
+        left: &'a str,
+        right: &'a str,
+        left_new: bool,
+        right_new: bool,
+        pair_new: bool,
+    },
+    Remove {
+        left: &'a str,
+        right: &'a str,
+        pair_gone: bool,
+    },
+}
+
+/// Stable-slot storage for `MultiGraph`. Test-only positional prototypes stay
+/// alongside it as parity and benchmark comparators for the storage cutover.
+pub(crate) mod multigraph_storage {
+    use super::{AttrMap, CompatibilityMode, MultiEdgeSnapshot, MultiGraphSnapshot, SlotOrder};
+    use indexmap::IndexMap;
+    #[cfg(test)]
+    use indexmap::IndexSet;
+
+    /// Index-keyed analog of the MultiGraph storage core. Internal pair
+    /// canonicalization is (min_idx, max_idx) — deliberately DIFFERENT from
+    /// the String-lex `EdgeKey` canonical ("10" < "2" lex, 2 < 10 numeric) —
+    /// because pair-key orientation is never observable: every public
+    /// ordering derives from the rows walk + per-cell key sets, which the
+    /// parity gates pin byte-for-byte.
+    #[cfg(test)]
+    #[derive(Debug, Default)]
+    pub struct MgIntStorageProto {
+        /// Node names in insertion order (the surviving String table).
+        pub node_names: Vec<String>,
+        /// name -> index resolution (the `nodes` map analog).
+        pub node_index: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        /// node idx -> distinct-neighbor idx -> parallel-edge key set,
+        /// insertion-ordered exactly like the String rows.
+        pub rows: Vec<IndexMap<usize, IndexSet<usize>>>,
+        /// (min_idx, max_idx) -> key -> attrs.
+        pub edges: IndexMap<(usize, usize), IndexMap<usize, AttrMap>, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    #[cfg(test)]
+    impl MgIntStorageProto {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&idx) = self.node_index.get(name) {
+                return idx;
+            }
+            let idx = self.node_names.len();
+            self.node_names.push(name.to_owned());
+            self.node_index.insert(name.to_owned(), idx);
+            self.rows.push(IndexMap::new());
+            idx
+        }
+
+        /// Mirror of `MultiGraph::extend_keyed_edges_with_attrs_unrecorded`'s
+        /// per-edge storage ops: endpoint nodes created on demand, an existing
+        /// (pair, key) cell merges attrs, new cells count toward `edge_count`.
+        pub fn add_keyed_edge(&mut self, left: &str, right: &str, key: usize, attrs: AttrMap) {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            let bucket = self.edges.entry(pair).or_default();
+            if !bucket.contains_key(&key) {
+                self.edge_count += 1;
+            }
+            bucket.entry(key).or_default().extend(attrs);
+            self.rows[l].entry(r).or_default().insert(key);
+            if l != r {
+                self.rows[r].entry(l).or_default().insert(key);
+            }
+        }
+
+        /// Mirror of `MultiGraph::extend_fresh_int_prefix_keyed_edges_unrecorded`
+        /// for the A/B: same node-name String table build (fairness — the name
+        /// table survives the flip), then pure index-keyed edge inserts with no
+        /// String clone/hash per edge.
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_names.reserve(node_count);
+            proto.node_index.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_names.push(name.clone());
+                proto.node_index.insert(name, node);
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_idx, right_idx, key) in iterator {
+                debug_assert!(left_idx < node_count);
+                debug_assert!(right_idx < node_count);
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                proto
+                    .edges
+                    .entry(pair)
+                    .or_default()
+                    .insert(key, AttrMap::new());
+                proto.rows[left_idx]
+                    .entry(right_idx)
+                    .or_default()
+                    .insert(key);
+                if left_idx != right_idx {
+                    proto.rows[right_idx]
+                        .entry(left_idx)
+                        .or_default()
+                        .insert(key);
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Distinct neighbors of node `i` as names, in row order.
+        #[must_use]
+        pub fn neighbor_names(&self, i: usize) -> Vec<&str> {
+            self.rows[i]
+                .keys()
+                .map(|&j| self.node_names[j].as_str())
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair, `edge_keys_vec` analog.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(|bucket| bucket.keys().copied().collect())
+                .unwrap_or_default()
+        }
+
+        /// br-r37-c1-thp6w S7: mirror of `MultiGraph::remove_edge` on the
+        /// index layout — `key=None` picks the LAST bucket key (`next_back`),
+        /// the surviving bucket keeps its key order (shift semantics), an
+        /// emptied pair drops from the outer edges map (order unobservable)
+        /// and shift-removes the neighbor cell from both rows.
+        pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return false;
+            };
+            let pair = (l.min(r), l.max(r));
+            let Some(bucket) = self.edges.get_mut(&pair) else {
+                return false;
+            };
+            let Some(removal_key) = key.or_else(|| bucket.keys().next_back().copied()) else {
+                return false;
+            };
+            if bucket.shift_remove(&removal_key).is_none() {
+                return false;
+            }
+            self.edge_count -= 1;
+            let pair_gone = bucket.is_empty();
+            if pair_gone {
+                self.edges.swap_remove(&pair);
+            }
+            let mut drop_cell = |u: usize, v: usize| {
+                let mut cell_empty = false;
+                if let Some(keys) = self.rows[u].get_mut(&v) {
+                    keys.shift_remove(&removal_key);
+                    cell_empty = keys.is_empty();
+                }
+                if cell_empty {
+                    self.rows[u].shift_remove(&v);
+                }
+            };
+            drop_cell(l, r);
+            if l != r {
+                drop_cell(r, l);
+            }
+            true
+        }
+
+        /// br-r37-c1-thp6w S7: mirror of `MultiGraph::remove_node` under the
+        /// index layout — the d58s8-pattern fused renumber (Graph::remove_node
+        /// template): drop the node's row, decrement every surviving index
+        /// above it in one order-preserving pass per row, rebuild the edges
+        /// map order-preserving with incident pairs skipped and both pair
+        /// members decremented (order within the pair is preserved by a
+        /// uniform decrement, so the index-canonical invariant survives).
+        pub fn remove_node(&mut self, name: &str) -> bool {
+            let Some(&idx) = self.node_index.get(name) else {
+                return false;
+            };
+            self.node_names.remove(idx);
+            self.node_index.shift_remove(name);
+            for stored in self.node_index.values_mut() {
+                if *stored > idx {
+                    *stored -= 1;
+                }
+            }
+            self.rows.remove(idx);
+            for row in &mut self.rows {
+                let old = std::mem::take(row);
+                for (j, keys) in old {
+                    if j == idx {
+                        continue;
+                    }
+                    row.insert(if j > idx { j - 1 } else { j }, keys);
+                }
+            }
+            let old_edges = std::mem::take(&mut self.edges);
+            let mut removed_cells = 0usize;
+            for ((a, b), bucket) in old_edges {
+                if a == idx || b == idx {
+                    removed_cells += bucket.len();
+                    continue;
+                }
+                self.edges.insert(
+                    (
+                        if a > idx { a - 1 } else { a },
+                        if b > idx { b - 1 } else { b },
+                    ),
+                    bucket,
+                );
+            }
+            self.edge_count -= removed_cells;
+            true
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: singleton-optimized parallel-key cell. The
+    /// insertion-ordered set semantics of `IndexSet<usize>` are preserved
+    /// exactly (dedup on insert, One -> Many promotion appends), but the
+    /// singleton case — the overwhelmingly common one in real multigraphs —
+    /// allocates NOTHING.
+    /// br-r37-c1-19ngg: Fx-hashed like the rest of the storage - the default
+    /// SipHash on these usize keys was 18.7% of a multigraph attr batch; the
+    /// set is insertion-ordered, so the hasher cannot change any order.
+    #[derive(Debug, Clone)]
+    pub enum CompactKeys {
+        One(usize),
+        Many(crate::FxIndexSet<usize>),
+    }
+
+    impl CompactKeys {
+        /// Set-insert preserving insertion order; returns true if newly added.
+        pub fn insert(&mut self, key: usize) -> bool {
+            match self {
+                Self::One(existing) => {
+                    if *existing == key {
+                        return false;
+                    }
+                    let mut set =
+                        crate::FxIndexSet::with_capacity_and_hasher(2, rustc_hash::FxBuildHasher);
+                    set.insert(*existing);
+                    set.insert(key);
+                    *self = Self::Many(set);
+                    true
+                }
+                Self::Many(set) => set.insert(key),
+            }
+        }
+
+        #[cfg(test)]
+        #[must_use]
+        pub fn order(&self) -> Vec<usize> {
+            match self {
+                Self::One(key) => vec![*key],
+                Self::Many(set) => set.iter().copied().collect(),
+            }
+        }
+
+        /// Number of parallel keys, including zero for a live empty keydict.
+        #[must_use]
+        pub fn len(&self) -> usize {
+            match self {
+                Self::One(_) => 1,
+                Self::Many(set) => set.len(),
+            }
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        pub fn iter(&self) -> CompactKeysIter<'_> {
+            match self {
+                Self::One(key) => CompactKeysIter::One(Some(key)),
+                Self::Many(set) => CompactKeysIter::Many(set.iter()),
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: order-preserving key removal; returns
+        /// (removed, cell_now_empty). A `Many` that shrinks to one entry stays
+        /// `Many` — only iteration order is observable, not the variant.
+        pub fn shift_remove(&mut self, key: usize) -> (bool, bool) {
+            match self {
+                Self::One(existing) => {
+                    let removed = *existing == key;
+                    (removed, removed)
+                }
+                Self::Many(set) => {
+                    let removed = set.shift_remove(&key);
+                    (removed, set.is_empty())
+                }
+            }
+        }
+    }
+
+    pub enum CompactKeysIter<'a> {
+        One(Option<&'a usize>),
+        Many(indexmap::set::Iter<'a, usize>),
+    }
+
+    impl<'a> Iterator for CompactKeysIter<'a> {
+        type Item = &'a usize;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(it) => it.next(),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: singleton-optimized (pair -> key -> attrs) bucket,
+    /// insertion-key-ordered like `IndexMap<usize, AttrMap>`; the singleton
+    /// case stores the key + attrs inline with no map allocation (an empty
+    /// `AttrMap`/BTreeMap does not allocate).
+    /// br-r37-c1-19ngg: Fx-hashed, as `CompactKeys`.
+    #[derive(Debug, Clone)]
+    pub enum CompactBucket {
+        One(usize, AttrMap),
+        Many(crate::FxIndexMap<usize, AttrMap>),
+    }
+
+    impl CompactBucket {
+        /// `entry(key).or_default().extend(attrs)` analog; returns true if the
+        /// (key) cell is new.
+        pub fn merge(&mut self, key: usize, attrs: AttrMap) -> bool {
+            match self {
+                Self::One(existing, existing_attrs) => {
+                    if *existing == key {
+                        existing_attrs.extend(attrs);
+                        return false;
+                    }
+                    let mut map =
+                        crate::FxIndexMap::with_capacity_and_hasher(2, rustc_hash::FxBuildHasher);
+                    map.insert(*existing, std::mem::take(existing_attrs));
+                    map.insert(key, attrs);
+                    *self = Self::Many(map);
+                    true
+                }
+                // One hash: the entry decides both the merge and the answer.
+                Self::Many(map) => match map.entry(key) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        cell.get_mut().extend(attrs);
+                        false
+                    }
+                    indexmap::map::Entry::Vacant(cell) => {
+                        cell.insert(attrs);
+                        true
+                    }
+                },
+            }
+        }
+
+        #[must_use]
+        pub fn key_order(&self) -> Vec<usize> {
+            match self {
+                Self::One(key, _) => vec![*key],
+                Self::Many(map) => map.keys().copied().collect(),
+            }
+        }
+
+        #[must_use]
+        pub fn attrs_for(&self, key: usize) -> Option<&AttrMap> {
+            match self {
+                Self::One(existing, attrs) => (*existing == key).then_some(attrs),
+                Self::Many(map) => map.get(&key),
+            }
+        }
+
+        #[must_use]
+        pub fn get(&self, key: &usize) -> Option<&AttrMap> {
+            self.attrs_for(*key)
+        }
+
+        pub fn get_mut(&mut self, key: &usize) -> Option<&mut AttrMap> {
+            match self {
+                Self::One(existing, attrs) => (*existing == *key).then_some(attrs),
+                Self::Many(map) => map.get_mut(key),
+            }
+        }
+
+        #[must_use]
+        pub fn contains_key(&self, key: usize) -> bool {
+            self.attrs_for(key).is_some()
+        }
+
+        /// br-r37-c1-thp6w S22: OVERWRITE the attr map for an existing key
+        /// (`merge` extends; this replaces). Returns true if the key was
+        /// present. Mirror of one cell of `MultiGraph::replace_edge_attrs`.
+        pub fn replace_attrs(&mut self, key: usize, attrs: AttrMap) -> bool {
+            match self {
+                Self::One(existing, existing_attrs) => {
+                    if *existing == key {
+                        *existing_attrs = attrs;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Self::Many(map) => {
+                    if let Some(slot) = map.get_mut(&key) {
+                        *slot = attrs;
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: number of parallel keys in the bucket.
+        #[must_use]
+        pub fn len(&self) -> usize {
+            match self {
+                Self::One(..) => 1,
+                Self::Many(map) => map.len(),
+            }
+        }
+
+        #[must_use]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        /// br-r37-c1-thp6w S9: the LAST key in insertion order (the real
+        /// `remove_edge(key=None)` default via `next_back`).
+        #[must_use]
+        pub fn last_key(&self) -> Option<usize> {
+            match self {
+                Self::One(key, _) => Some(*key),
+                Self::Many(map) => map.keys().next_back().copied(),
+            }
+        }
+
+        /// br-r37-c1-thp6w S9: order-preserving key removal; returns
+        /// (removed, bucket_now_empty).
+        pub fn shift_remove(&mut self, key: usize) -> (bool, bool) {
+            match self {
+                Self::One(existing, _) => {
+                    let removed = *existing == key;
+                    (removed, removed)
+                }
+                Self::Many(map) => {
+                    let removed = map.shift_remove(&key).is_some();
+                    (removed, map.is_empty())
+                }
+            }
+        }
+
+        /// br-r37-c1-thp6w S12: key-ordered (key, attrs) iteration without a
+        /// per-bucket allocation (read-path hot loop).
+        pub fn iter(&self) -> CompactBucketIter<'_> {
+            match self {
+                Self::One(key, attrs) => CompactBucketIter::One(std::iter::once((*key, attrs))),
+                Self::Many(map) => CompactBucketIter::Many(map.iter()),
+            }
+        }
+
+        /// br-r37-c1-thp6w S33: zero-alloc parallel-key iterator yielding
+        /// `&usize`, matching the String adjacency `IndexSet<usize>::iter` that
+        /// backs `edge_keys_iter`.
+        pub fn keys(&self) -> CompactBucketKeys<'_> {
+            match self {
+                Self::One(key, _) => CompactBucketKeys::One(Some(key)),
+                Self::Many(map) => CompactBucketKeys::Many(map.keys()),
+            }
+        }
+
+        pub fn values(&self) -> CompactBucketValues<'_> {
+            match self {
+                Self::One(_, attrs) => CompactBucketValues::One(Some(attrs)),
+                Self::Many(map) => CompactBucketValues::Many(map.values()),
+            }
+        }
+
+        pub fn values_mut(&mut self) -> CompactBucketValuesMut<'_> {
+            match self {
+                Self::One(_, attrs) => CompactBucketValuesMut::One(Some(attrs)),
+                Self::Many(map) => CompactBucketValuesMut::Many(map.values_mut()),
+            }
+        }
+    }
+
+    impl<'a> IntoIterator for &'a CompactBucket {
+        type Item = (usize, &'a AttrMap);
+        type IntoIter = CompactBucketIter<'a>;
+
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter()
+        }
+    }
+
+    /// br-r37-c1-thp6w S12: enum iterator for `CompactBucket::iter` (no Box,
+    /// no per-bucket allocation).
+    pub enum CompactBucketIter<'a> {
+        One(std::iter::Once<(usize, &'a AttrMap)>),
+        Many(indexmap::map::Iter<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketIter<'a> {
+        type Item = (usize, &'a AttrMap);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(it) => it.next(),
+                Self::Many(it) => it.next().map(|(key, attrs)| (*key, attrs)),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S33: zero-alloc `&usize` parallel-key iterator over a
+    /// `CompactBucket` (One = the single key once, Many = the map's keys),
+    /// matching `IndexSet<usize>::Iter` so `edge_keys_iter` keeps `Item=&usize`.
+    pub enum CompactBucketKeys<'a> {
+        One(Option<&'a usize>),
+        Many(indexmap::map::Keys<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketKeys<'a> {
+        type Item = &'a usize;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(keys) => keys.next(),
+            }
+        }
+    }
+
+    pub enum CompactBucketValues<'a> {
+        One(Option<&'a AttrMap>),
+        Many(indexmap::map::Values<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketValues<'a> {
+        type Item = &'a AttrMap;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(values) => values.next(),
+            }
+        }
+    }
+
+    pub enum CompactBucketValuesMut<'a> {
+        One(Option<&'a mut AttrMap>),
+        Many(indexmap::map::ValuesMut<'a, usize, AttrMap>),
+    }
+
+    impl<'a> Iterator for CompactBucketValuesMut<'a> {
+        type Item = &'a mut AttrMap;
+
+        fn next(&mut self) -> Option<Self::Item> {
+            match self {
+                Self::One(opt) => opt.take(),
+                Self::Many(values) => values.next(),
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S6: the compact-bucket variant of the index-keyed
+    /// layout — identical structure to `MgIntStorageProto` except both nested
+    /// bucket levels use the singleton-optimized enums, so a simple-graph-like
+    /// multigraph (no parallel edges) performs ZERO per-pair bucket
+    /// allocations.
+    #[cfg(test)]
+    #[derive(Debug, Default)]
+    pub struct MgIntStorageProtoCompact {
+        pub node_names: Vec<String>,
+        pub node_index: IndexMap<String, usize, rustc_hash::FxBuildHasher>,
+        pub rows: Vec<IndexMap<usize, CompactKeys>>,
+        pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    #[cfg(test)]
+    impl MgIntStorageProtoCompact {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&idx) = self.node_index.get(name) {
+                return idx;
+            }
+            let idx = self.node_names.len();
+            self.node_names.push(name.to_owned());
+            self.node_index.insert(name.to_owned(), idx);
+            self.rows.push(IndexMap::new());
+            idx
+        }
+
+        /// Mirror of `MgIntStorageProto::add_keyed_edge` on compact buckets.
+        pub fn add_keyed_edge(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            let pair = (l.min(r), l.max(r));
+            let is_new = match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => bucket.get_mut().merge(key, attrs),
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactBucket::One(key, attrs));
+                    true
+                }
+            };
+            if is_new {
+                self.edge_count += 1;
+            }
+            match self.rows[l].entry(r) {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactKeys::One(key));
+                }
+            }
+            if l != r {
+                match self.rows[r].entry(l) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+            }
+            is_new
+        }
+
+        /// Mirror of `MgIntStorageProto::bulk_load_int_prefix` on compact buckets.
+        #[cfg(test)]
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_names.reserve(node_count);
+            proto.node_index.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            for node in 0..node_count {
+                let name = node.to_string();
+                proto.node_names.push(name.clone());
+                proto.node_index.insert(name, node);
+                proto.rows.push(IndexMap::new());
+            }
+            for (left_idx, right_idx, key) in iterator {
+                debug_assert!(left_idx < node_count);
+                debug_assert!(right_idx < node_count);
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match proto.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match proto.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match proto.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Distinct neighbors of node `i` as names, in row order.
+        #[must_use]
+        pub fn neighbor_names(&self, i: usize) -> Vec<&str> {
+            self.rows[i]
+                .keys()
+                .map(|&j| self.node_names[j].as_str())
+                .collect()
+        }
+
+        /// Parallel-edge key order for the (left, right) pair.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_index.get(left), self.node_index.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+                .unwrap_or_default()
+        }
+    }
+
+    /// br-r37-c1-thp6w S9: the slab/stable-slot layout MANDATED by the S8
+    /// removal A/B (positional renumber measured 190-203x slower than the
+    /// String store). Node identity = a STABLE SLOT that never renumbers;
+    /// removal frees the slot for reuse and tombstones only the order entry
+    /// (yr2oc.1: O(1), see [`SlotOrder`]), so rows and edge pair-keys stay
+    /// valid with ZERO rekeying. nx-observable insertion order lives entirely
+    /// in `node_order`. Buckets are the S6 compact enums (the winning
+    /// construction layout).
+    #[derive(Debug, Clone, Default)]
+    pub struct MgSlabStorage {
+        /// name <-> stable slot, and the nx node insertion order.
+        pub(crate) node_order: SlotOrder,
+        /// Slot-parallel node attributes. Empty for edge-created nodes and
+        /// cleared when a slot is freed.
+        pub node_attrs: Vec<AttrMap>,
+        /// slot -> neighbor slot -> parallel-key cell (row insertion order).
+        /// br-r37-c1-19ngg: Fx-hashed; order is the IndexMap's insertion order.
+        pub rows: Vec<crate::FxIndexMap<usize, CompactKeys>>,
+        /// slot-canonical (min, max) pair -> compact bucket. Slots are stable,
+        /// so pair keys survive any removal without rekeying.
+        pub edges: IndexMap<(usize, usize), CompactBucket, rustc_hash::FxBuildHasher>,
+        pub edge_count: usize,
+    }
+
+    impl MgSlabStorage {
+        #[must_use]
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub(crate) fn ensure_node(&mut self, name: &str) -> usize {
+            if let Some(&slot) = self.node_order.get(name) {
+                return slot;
+            }
+            let (slot, fresh) = self.node_order.insert(name.to_owned());
+            if fresh {
+                self.rows.push(crate::FxIndexMap::default());
+                self.node_attrs.push(AttrMap::new());
+            } else {
+                debug_assert!(self.rows[slot].is_empty());
+                self.node_attrs[slot] = AttrMap::new();
+            }
+            slot
+        }
+
+        /// Same insert semantics as the S5/S6 variants, slot-keyed.
+        pub fn add_keyed_edge(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let l = self.ensure_node(left);
+            let r = if left == right {
+                l
+            } else {
+                self.ensure_node(right)
+            };
+            self.add_keyed_edge_by_pair(l, r, key, attrs)
+        }
+
+        /// br-r37-c1-4c29a: slot-keyed half of [`Self::add_keyed_edge`], for a
+        /// caller that has already ensured both endpoints exist and knows their
+        /// slots. Identical insert semantics — the only thing skipped is the
+        /// `ensure_node` pair, which for such a caller is two redundant
+        /// `String` hashes.
+        pub fn add_keyed_edge_by_pair(
+            &mut self,
+            l: usize,
+            r: usize,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let pair = (l.min(r), l.max(r));
+            let is_new = match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => bucket.get_mut().merge(key, attrs),
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactBucket::One(key, attrs));
+                    true
+                }
+            };
+            if is_new {
+                self.edge_count += 1;
+            }
+            match self.rows[l].entry(r) {
+                indexmap::map::Entry::Occupied(mut cell) => {
+                    let _ = cell.get_mut().insert(key);
+                }
+                indexmap::map::Entry::Vacant(slot) => {
+                    slot.insert(CompactKeys::One(key));
+                }
+            }
+            if l != r {
+                match self.rows[r].entry(l) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+            }
+            is_new
+        }
+
+        /// Bulk loader mirroring the S5/S6 int-prefix arms (fresh graph, slots
+        /// == 0..n, no tombstones).
+        #[cfg(test)]
+        #[must_use]
+        pub fn bulk_load_int_prefix<I>(node_count: usize, edges: I) -> Self
+        where
+            I: IntoIterator<Item = (usize, usize, usize)>,
+        {
+            let iterator = edges.into_iter();
+            let (lower_bound, _) = iterator.size_hint();
+            let mut proto = Self::new();
+            proto.node_order.reserve(node_count);
+            proto.rows.reserve(node_count);
+            proto.edges.reserve(lower_bound);
+            proto.node_attrs.reserve(node_count);
+            for node in 0..node_count {
+                proto.node_order.insert(node.to_string());
+                proto.rows.push(crate::FxIndexMap::default());
+                proto.node_attrs.push(AttrMap::new());
+            }
+            for (left_slot, right_slot, key) in iterator {
+                debug_assert!(left_slot < node_count);
+                debug_assert!(right_slot < node_count);
+                let pair = (left_slot.min(right_slot), left_slot.max(right_slot));
+                match proto.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match proto.rows[left_slot].entry(right_slot) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_slot != right_slot {
+                    match proto.rows[right_slot].entry(left_slot) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                proto.edge_count += 1;
+            }
+            proto
+        }
+
+        /// Mirror of `MultiGraph::remove_edge` (key=None -> LAST bucket key).
+        pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+            self.remove_edge_impl(left, right, key, false)
+        }
+
+        /// A keydict deletion preserves the pair's adjacency position even
+        /// when its last key is gone. It is not graph-side `remove_edge`.
+        pub fn remove_key_preserving_pair(&mut self, left: &str, right: &str, key: usize) -> bool {
+            self.remove_edge_impl(left, right, Some(key), true)
+        }
+
+        fn remove_edge_impl(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: Option<usize>,
+            preserve_pair: bool,
+        ) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            let pair = (l.min(r), l.max(r));
+            let Some(bucket) = self.edges.get_mut(&pair) else {
+                return false;
+            };
+            let Some(removal_key) = key.or_else(|| bucket.last_key()) else {
+                return false;
+            };
+            let (removed, bucket_empty) = bucket.shift_remove(removal_key);
+            if !removed {
+                return false;
+            }
+            self.edge_count -= 1;
+            if bucket_empty {
+                if preserve_pair {
+                    // `One::shift_remove` reports emptiness without changing
+                    // its variant; it must not retain a phantom singleton.
+                    *bucket = CompactBucket::Many(crate::FxIndexMap::default());
+                    debug_assert!(bucket.is_empty());
+                } else {
+                    self.edges.swap_remove(&pair);
+                }
+            }
+            let mut drop_cell = |u: usize, v: usize| {
+                let mut cell_empty = false;
+                if let Some(keys) = self.rows[u].get_mut(&v) {
+                    let (cell_removed, now_empty) = keys.shift_remove(removal_key);
+                    debug_assert!(cell_removed);
+                    cell_empty = now_empty;
+                    if now_empty && preserve_pair {
+                        *keys = CompactKeys::Many(crate::FxIndexSet::default());
+                    }
+                }
+                if cell_empty && !preserve_pair {
+                    self.rows[u].shift_remove(&v);
+                }
+            };
+            drop_cell(l, r);
+            if l != r {
+                drop_cell(r, l);
+            }
+            true
+        }
+
+        /// Slab removal: O(degree) row/bucket drops and an O(1) order-entry
+        /// tombstone. NO renumber, NO edges rekey — the S8-mandated shape.
+        pub fn remove_node(&mut self, name: &str) -> bool {
+            let Some(&slot) = self.node_order.get(name) else {
+                return false;
+            };
+            let row = std::mem::take(&mut self.rows[slot]);
+            for &nbr in row.keys() {
+                if nbr != slot {
+                    self.rows[nbr].shift_remove(&slot);
+                }
+                if let Some(bucket) = self.edges.swap_remove(&(slot.min(nbr), slot.max(nbr))) {
+                    self.edge_count -= bucket.len();
+                }
+            }
+            self.node_order.remove(name);
+            self.node_attrs[slot] = AttrMap::new();
+            true
+        }
+
+        /// `MultiGraph::add_node_with_attrs` semantics: ensure the node exists,
+        /// then extend its attribute map.
+        pub fn set_node_attrs(&mut self, name: &str, attrs: AttrMap) -> (bool, bool, usize) {
+            let existed = self.node_order.contains_key(name);
+            let changed = !existed
+                || attrs.iter().any(|(key, value)| {
+                    self.node_attrs_for(name).and_then(|a| a.get(key)) != Some(value)
+                });
+            let slot = self.ensure_node(name);
+            self.node_attrs[slot].extend(attrs);
+            (existed, changed, self.node_attrs[slot].len())
+        }
+
+        /// Overwrite an existing node's attribute map. No-op if absent.
+        pub fn replace_node_attrs(&mut self, name: &str, attrs: AttrMap) {
+            if let Some(&slot) = self.node_order.get(name) {
+                self.node_attrs[slot] = attrs;
+            }
+        }
+
+        /// Distinct neighbors (names, row order) of the node at insertion-order
+        /// position `pos`.
+        #[cfg(test)]
+        #[must_use]
+        pub fn neighbor_names(&self, pos: usize) -> Vec<&str> {
+            let Some((_, slot)) = self.node_order.get_index(pos) else {
+                return Vec::new();
+            };
+            self.rows[slot]
+                .keys()
+                .map(|&s| self.node_order.name(s).expect("row references a live slot"))
+                .collect()
+        }
+
+        /// br-r37-c1-thp6w S26: name-keyed distinct neighbors in row order
+        /// (mirror of `MultiGraph::neighbors`); `None` if the node is absent.
+        #[must_use]
+        pub fn neighbors_by_name(&self, name: &str) -> Option<Vec<&str>> {
+            let &slot = self.node_order.get(name)?;
+            Some(
+                self.rows[slot]
+                    .keys()
+                    .map(|&s| self.node_order.name(s).expect("row references a live slot"))
+                    .collect(),
+            )
+        }
+
+        /// br-r37-c1-thp6w S27: node degree (mirror of `MultiGraph::degree`) —
+        /// sum of per-neighbor parallel-edge counts, self-loops counted twice
+        /// (nx convention). 0 if the node is absent.
+        #[must_use]
+        pub fn degree(&self, name: &str) -> usize {
+            let Some(&slot) = self.node_order.get(name) else {
+                return 0;
+            };
+            let mut deg = 0;
+            for (&nbr_slot, keys) in &self.rows[slot] {
+                let count = keys.len();
+                if nbr_slot == slot {
+                    deg += count * 2;
+                } else {
+                    deg += count;
+                }
+            }
+            deg
+        }
+
+        #[must_use]
+        pub fn number_of_selfloops(&self) -> usize {
+            self.edges
+                .iter()
+                .filter(|((left, right), _)| left == right)
+                .map(|(_, bucket)| bucket.len())
+                .sum()
+        }
+
+        /// br-r37-c1-thp6w S28: node membership (mirror of `MultiGraph::has_node`).
+        #[must_use]
+        pub fn has_node(&self, name: &str) -> bool {
+            self.node_order.contains_key(name)
+        }
+
+        /// br-r37-c1-thp6w S28: edge membership (mirror of `MultiGraph::has_edge`)
+        /// — true iff a pair exists, including a live empty keydict.
+        #[must_use]
+        pub fn has_edge(&self, left: &str, right: &str) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            self.has_edge_by_pair(l, r)
+        }
+
+        /// br-r37-c1-4c29a: the slot-keyed half of [`Self::has_edge`].
+        ///
+        /// The callgrind profile of the MultiGraph build put
+        /// `IndexMap<String, usize>::get_index_of` at 17.39% — the largest
+        /// entry, ahead of the allocator — because `add_edge_impl` re-resolved
+        /// both endpoint strings inside every one of six storage calls. These
+        /// `_by_pair` variants let a caller that has already resolved its
+        /// endpoints skip the lookup, and the `&str` methods keep working by
+        /// resolving once and delegating here, so there is a single
+        /// implementation of the logic.
+        #[must_use]
+        pub fn has_edge_by_pair(&self, l: usize, r: usize) -> bool {
+            self.edges.contains_key(&(l.min(r), l.max(r)))
+        }
+
+        /// Slot for a node name, or `None` when absent.
+        #[must_use]
+        pub fn node_slot(&self, name: &str) -> Option<usize> {
+            self.node_order.get(name).copied()
+        }
+
+        /// br-r37-c1-2ndmw: the stable SLOT of the node at an insertion-order
+        /// POSITION, without hashing a node key: O(1) until a removal, O(log V)
+        /// after (yr2oc.1).
+        ///
+        /// This is the missing conversion between the two index spaces. Callers
+        /// hold POSITIONS (`get_node_index`, and the cached exact-string index
+        /// on the Python side); the edge map is keyed by SLOTS. Feeding one to
+        /// the other reports a real edge as ABSENT once a node has been removed
+        /// -- see `multigraph_node_slot_and_position_are_distinct_index_spaces`.
+        #[must_use]
+        pub fn slot_at_position(&self, position: usize) -> Option<usize> {
+            self.node_order.slot_at(position)
+        }
+
+        /// br-r37-c1-thp6w S30: node is isolated (mirror of
+        /// `MultiGraph::is_isolate`) — present with an empty adjacency row.
+        #[must_use]
+        pub fn is_isolate(&self, name: &str) -> bool {
+            self.node_order
+                .get(name)
+                .is_some_and(|&slot| self.rows[slot].is_empty())
+        }
+
+        #[must_use]
+        pub fn isolates(&self) -> Vec<String> {
+            self.node_order
+                .iter()
+                .filter(|&(_, slot)| self.rows[slot].is_empty())
+                .map(|(name, _)| name.clone())
+                .collect()
+        }
+
+        #[must_use]
+        pub fn number_of_isolates(&self) -> usize {
+            self.node_order
+                .values()
+                .filter(|&slot| self.rows[slot].is_empty())
+                .count()
+        }
+
+        /// br-r37-c1-thp6w S31: integer weighted size (mirror of
+        /// `MultiGraph::weighted_size_int`) — sum of the `weight` attr over
+        /// every edge cell (int -> value, missing -> 1); `None` on any non-int
+        /// weight. Order-independent (commutative sum; `None` iff any non-int).
+        #[must_use]
+        pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+            let mut total: i128 = 0;
+            for bucket in self.edges.values() {
+                for (_key, attrs) in bucket.iter() {
+                    let value = match attrs.get(weight) {
+                        Some(fnx_runtime::CgseValue::Int(v)) => i128::from(*v),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(value)?;
+                }
+            }
+            Some(total)
+        }
+
+        /// Parallel-edge key order for the (left, right) pair.
+        #[must_use]
+        pub fn key_order(&self, left: &str, right: &str) -> Vec<usize> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return Vec::new();
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+                .unwrap_or_default()
+        }
+
+        #[must_use]
+        pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::key_order)
+        }
+
+        pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<CompactBucketKeys<'_>> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::keys)
+        }
+
+        pub fn edge_attr_values(&self, left: &str, right: &str) -> Option<CompactBucketValues<'_>> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map(CompactBucket::values)
+        }
+
+        /// br-r37-c1-4c29a: slot-keyed edge-cell count. The `&str` wrapper this
+        /// replaced had exactly one caller — `add_edge_impl`, which now holds
+        /// the slots — so it was removed rather than left dead.
+        #[must_use]
+        pub fn edge_attr_count_by_pair(&self, l: usize, r: usize) -> usize {
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .map_or(0, CompactBucket::len)
+        }
+
+        /// br-r37-c1-4c29a: slot-keyed auto-key selection. As with
+        /// `edge_attr_count_by_pair`, the `&str` wrapper had a single caller
+        /// that now holds the slots, so it was removed rather than left dead.
+        #[must_use]
+        pub fn next_edge_key_by_pair(&self, l: usize, r: usize) -> usize {
+            let Some(bucket) = self.edges.get(&(l.min(r), l.max(r))) else {
+                return 0;
+            };
+            let mut key = bucket.len();
+            while bucket.contains_key(key) {
+                key += 1;
+            }
+            key
+        }
+
+        /// Overwrite the attribute map for one edge cell.
+        pub fn replace_edge_attrs(
+            &mut self,
+            left: &str,
+            right: &str,
+            key: usize,
+            attrs: AttrMap,
+        ) -> bool {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return false;
+            };
+            self.edges
+                .get_mut(&(l.min(r), l.max(r)))
+                .is_some_and(|bucket| bucket.replace_attrs(key, attrs))
+        }
+
+        /// Attributes of one `(left, right, key)` edge cell.
+        #[must_use]
+        pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
+            let (Some(&l), Some(&r)) = (self.node_order.get(left), self.node_order.get(right))
+            else {
+                return None;
+            };
+            self.edge_attrs_by_pair(l, r, key)
+        }
+
+        /// br-r37-c1-4c29a: slot-keyed half of [`Self::edge_attrs`].
+        #[must_use]
+        pub fn edge_attrs_by_pair(&self, l: usize, r: usize, key: usize) -> Option<&AttrMap> {
+            self.edges
+                .get(&(l.min(r), l.max(r)))
+                .and_then(|bucket| bucket.attrs_for(key))
+        }
+
+        /// The node's attribute map, or `None` when the node is absent.
+        #[must_use]
+        pub fn node_attrs_for(&self, name: &str) -> Option<&AttrMap> {
+            let &slot = self.node_order.get(name)?;
+            Some(&self.node_attrs[slot])
+        }
+
+        #[must_use]
+        pub fn get_node_index(&self, name: &str) -> Option<usize> {
+            self.node_order.get_index_of(name)
+        }
+
+        #[must_use]
+        pub fn get_node_name(&self, index: usize) -> Option<&str> {
+            self.node_order
+                .get_index(index)
+                .map(|(name, _)| name.as_str())
+        }
+
+        #[must_use]
+        pub fn node_index_matches_int(&self, index: usize) -> bool {
+            self.node_order
+                .get_index(index)
+                .is_some_and(|(name, _)| name.parse::<usize>() == Ok(index))
+        }
+
+        #[must_use]
+        pub fn build_int_adjacency(&self) -> Vec<Vec<usize>> {
+            let slot_to_position = self.slot_positions();
+            self.node_order
+                .values()
+                .map(|slot| {
+                    self.rows[slot]
+                        .keys()
+                        .map(|&neighbor_slot| slot_to_position[neighbor_slot])
+                        .collect()
+                })
+                .collect()
+        }
+
+        /// br-r37-c1-thp6w S10: slot -> insertion-order position (usize::MAX
+        /// for tombstones), rebuilt on demand in O(V).
+        fn slot_positions(&self) -> Vec<usize> {
+            let mut pos = vec![usize::MAX; self.node_order.slot_count()];
+            for (p, slot) in self.node_order.values().enumerate() {
+                pos[slot] = p;
+            }
+            pos
+        }
+
+        /// br-r37-c1-thp6w S12: full `edges_ordered_borrowed` analog with
+        /// attrs — the production read candidate. Same walk contract as
+        /// `edges_ordered_names` (node order x row order x bucket key order,
+        /// first-touch dedup, String-lex canonical emission orientation) but
+        /// hashing only usizes where the String store hashes `EdgeKeyRef`
+        /// String pairs per cell and per seen-set probe.
+        #[must_use]
+        pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, u_slot) in self.node_order.iter() {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for (key, attrs) in bucket.iter() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
+                            .expect("row references a live slot");
+                        let (left, right) = if u_name.as_str() <= v_name {
+                            (u_name.as_str(), v_name)
+                        } else {
+                            (v_name, u_name.as_str())
+                        };
+                        ordered.push((left, right, key, attrs));
+                    }
+                }
+            }
+            ordered
+        }
+
+        #[must_use]
+        pub fn snapshot(&self, mode: CompatibilityMode) -> MultiGraphSnapshot {
+            let node_attrs = self
+                .node_order
+                .iter()
+                .filter_map(|(name, slot)| {
+                    let attrs = &self.node_attrs[slot];
+                    (!attrs.is_empty()).then(|| (name.clone(), attrs.clone()))
+                })
+                .collect();
+            let edges = self
+                .edges_ordered_borrowed()
+                .into_iter()
+                .map(|(left, right, key, attrs)| MultiEdgeSnapshot {
+                    left: left.to_owned(),
+                    right: right.to_owned(),
+                    key,
+                    attrs: attrs.clone(),
+                })
+                .collect();
+            MultiGraphSnapshot {
+                mode,
+                nodes: self.node_order.keys().cloned().collect(),
+                node_attrs,
+                edges,
+            }
+        }
+
+        /// br-r37-c1-thp6w S13: index-space analog of `edges_ordered_borrowed`
+        /// — the same walk/order/orientation, but each endpoint emitted as its
+        /// POSITION (node_order iteration index = nx node position), not its
+        /// name. A `slot -> position` array is built once up front (O(n),
+        /// hash-free — positions come straight from `node_order` iteration, so
+        /// this is correct under any slot recycling, where slot != position),
+        /// then the walk resolves both endpoints by O(1) array index. The only
+        /// per-edge string op is the lex compare for the canonical orientation
+        /// (production `edges_ordered_indices_borrowed` pays a `get_index_of`
+        /// String hash per endpoint plus an `EdgeKey` pair hash instead).
+        #[must_use]
+        pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
+            let slot_to_pos = self.slot_positions();
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, u_slot) in self.node_order.iter() {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for (key, attrs) in bucket.iter() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
+                            .expect("row references a live slot");
+                        let (left_pos, right_pos) = if u_name.as_str() <= v_name {
+                            (slot_to_pos[u_slot], slot_to_pos[v_slot])
+                        } else {
+                            (slot_to_pos[v_slot], slot_to_pos[u_slot])
+                        };
+                        ordered.push((left_pos, right_pos, key, attrs));
+                    }
+                }
+            }
+            ordered
+        }
+
+        pub fn try_for_each_indexed_edge_view_ordered_borrowed<E>(
+            &self,
+            mut visit: impl FnMut(usize, usize, &str, &str, usize, &AttrMap) -> Result<(), E>,
+        ) -> Result<(), E> {
+            let mut processed = vec![false; self.node_order.slot_count()];
+            if self.node_order.is_dense() {
+                // Dense entries have no tombstones, but their stable slots can
+                // still differ from positions after compaction or recycling.
+                // The reverse entry lookup is O(1) in this branch.
+                for (u_pos, (u_name, u_slot)) in self.node_order.iter().enumerate() {
+                    for &v_slot in self.rows[u_slot].keys() {
+                        if processed[v_slot] {
+                            continue;
+                        }
+                        let v_pos = self.node_order.position_of_slot(v_slot);
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
+                            .expect("row references a live slot");
+                        let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                        if let Some(bucket) = self.edges.get(&pair) {
+                            for (key, attrs) in bucket.iter() {
+                                visit(u_pos, v_pos, u_name.as_str(), v_name, key, attrs)?;
+                            }
+                        }
+                    }
+                    processed[u_slot] = true;
+                }
+                return Ok(());
+            }
+            let slot_to_pos = self.slot_positions();
+            for (u_pos, (u_name, u_slot)) in self.node_order.iter().enumerate() {
+                for &v_slot in self.rows[u_slot].keys() {
+                    if processed[v_slot] {
+                        continue;
+                    }
+                    let v_pos = slot_to_pos[v_slot];
+                    let v_name = self
+                        .node_order
+                        .name(v_slot)
+                        .expect("row references a live slot");
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    if let Some(bucket) = self.edges.get(&pair) {
+                        for (key, attrs) in bucket.iter() {
+                            visit(u_pos, v_pos, u_name.as_str(), v_name, key, attrs)?;
+                        }
+                    }
+                }
+                processed[u_slot] = true;
+            }
+            Ok(())
+        }
+
+        /// br-r37-c1-thp6w S10: `edges_ordered_borrowed` analog — the ONLY
+        /// observed edge order. Walk = node insertion order, row order, bucket
+        /// key order; each (pair, key) emitted once (first touch); emitted
+        /// orientation = STRING-LEX canonical (`EdgeKey` semantics), derived
+        /// from the names at emission since the internal pair key is
+        /// slot-canonical. This is the snapshot/pickle orientation gate.
+        #[cfg(test)]
+        #[must_use]
+        pub fn edges_ordered_names(&self) -> Vec<(&str, &str, usize)> {
+            let mut ordered = Vec::with_capacity(self.edge_count);
+            let mut seen: std::collections::HashSet<(usize, usize, usize)> =
+                std::collections::HashSet::with_capacity(self.edge_count);
+            for (u_name, u_slot) in self.node_order.iter() {
+                for &v_slot in self.rows[u_slot].keys() {
+                    let pair = (u_slot.min(v_slot), u_slot.max(v_slot));
+                    let Some(bucket) = self.edges.get(&pair) else {
+                        continue;
+                    };
+                    for key in bucket.key_order() {
+                        if !seen.insert((pair.0, pair.1, key)) {
+                            continue;
+                        }
+                        let v_name = self
+                            .node_order
+                            .name(v_slot)
+                            .expect("row references a live slot");
+                        let (left, right) = if u_name.as_str() <= v_name {
+                            (u_name.as_str(), v_name)
+                        } else {
+                            (v_name, u_name.as_str())
+                        };
+                        ordered.push((left, right, key));
+                    }
+                }
+            }
+            ordered
+        }
+
+        pub fn clear_edges(&mut self) {
+            self.edges.clear();
+            for row in &mut self.rows {
+                row.clear();
+            }
+            self.edge_count = 0;
+        }
+
+        pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+        where
+            I: IntoIterator<Item = &'a str>,
+        {
+            let remove_slots: rustc_hash::FxHashSet<usize> = nodes
+                .into_iter()
+                .filter_map(|name| self.node_order.get(name).copied())
+                .collect();
+            if remove_slots.is_empty() {
+                return (0, 0);
+            }
+
+            let old_edge_count = self.edge_count;
+            self.edges.retain(|(left, right), _| {
+                !remove_slots.contains(left) && !remove_slots.contains(right)
+            });
+            self.edge_count = self.edges.values().map(CompactBucket::len).sum();
+
+            for (slot, row) in self.rows.iter_mut().enumerate() {
+                if remove_slots.contains(&slot) {
+                    row.clear();
+                } else {
+                    row.retain(|neighbor, _| !remove_slots.contains(neighbor));
+                }
+            }
+            self.node_order.remove_slots(&remove_slots);
+            for &slot in &remove_slots {
+                self.node_attrs[slot].clear();
+            }
+            (
+                remove_slots.len(),
+                old_edge_count.saturating_sub(self.edge_count),
+            )
+        }
+
+        /// br-r37-c1-thp6w S10: `MultiGraph::reorder_rows_for_nx_copy_walk`
+        /// under slot storage. Two-phase exactly like the real one: ALL new
+        /// row orders are computed against the PRE-reorder rows (early =
+        /// earlier-position neighbors sorted by (pos(v), index of u within
+        /// row v), then late in original order), then applied. Sort key
+        /// (pos, idx, slot) is equivalent to the real (pos, idx, name)
+        /// because pos is unique per neighbor.
+        /// Returns whether the edge-only copy walk dropped live empty pairs.
+        pub fn reorder_rows_for_nx_copy_walk(&mut self) -> bool {
+            let pos = self.slot_positions();
+            let order_slots: Vec<usize> = self.node_order.values().collect();
+            let mut new_orders: Vec<(usize, Vec<usize>)> = Vec::with_capacity(order_slots.len());
+            let mut dropped_empty_pairs = false;
+            for &u_slot in &order_slots {
+                let pu = pos[u_slot];
+                let mut early: Vec<(usize, usize, usize)> = Vec::new();
+                let mut late: Vec<usize> = Vec::new();
+                for (&v_slot, keys) in &self.rows[u_slot] {
+                    // NetworkX copies edges, not empty adjacency cells left by
+                    // a held keydict.clear(). The source still keeps its cell.
+                    if keys.is_empty() {
+                        dropped_empty_pairs = true;
+                        continue;
+                    }
+                    let pv = pos[v_slot];
+                    if pv < pu {
+                        let idx = self.rows[v_slot]
+                            .get_index_of(&u_slot)
+                            .unwrap_or(usize::MAX);
+                        early.push((pv, idx, v_slot));
+                    } else {
+                        late.push(v_slot);
+                    }
+                }
+                early.sort_unstable();
+                let mut order: Vec<usize> = early.into_iter().map(|(_, _, v)| v).collect();
+                order.extend(late);
+                new_orders.push((u_slot, order));
+            }
+            for (u_slot, order) in new_orders {
+                let mut old = std::mem::take(&mut self.rows[u_slot]);
+                if dropped_empty_pairs {
+                    old.retain(|_, keys| !keys.is_empty());
+                }
+                let mut rebuilt = crate::FxIndexMap::with_capacity_and_hasher(
+                    old.len(),
+                    rustc_hash::FxBuildHasher,
+                );
+                for v_slot in order {
+                    if let Some(cell) = old.shift_remove(&v_slot) {
+                        rebuilt.insert(v_slot, cell);
+                    }
+                }
+                debug_assert!(old.is_empty(), "copy-walk reorder dropped a cell");
+                self.rows[u_slot] = rebuilt;
+            }
+            if dropped_empty_pairs {
+                self.edges.retain(|_, bucket| !bucket.is_empty());
+            }
+            dropped_empty_pairs
+        }
+
+        /// Apply arbitrary name-keyed row orders to the slot-keyed rows, with
+        /// requested neighbors first and untouched neighbors retaining order.
+        pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+            for (node, order) in orders {
+                let Some(&slot) = self.node_order.get(node.as_str()) else {
+                    continue;
+                };
+                let mut old = std::mem::take(&mut self.rows[slot]);
+                let mut new_row = crate::FxIndexMap::with_capacity_and_hasher(
+                    old.len(),
+                    rustc_hash::FxBuildHasher,
+                );
+                for v in order {
+                    if let Some(&v_slot) = self.node_order.get(v.as_str())
+                        && let Some((k, val)) = old.shift_remove_entry(&v_slot)
+                    {
+                        new_row.insert(k, val);
+                    }
+                }
+                for (k, val) in old {
+                    new_row.insert(k, val);
+                }
+                self.rows[slot] = new_row;
+            }
+        }
+
+        /// br-r37-c1-36v6r: order each row as `source`'s row for the node of
+        /// the same name - see Graph::reorder_rows_like. A stable sort on the
+        /// neighbour's position in the source row, so entries the source row
+        /// lacks keep their relative order after the matched ones; keyed
+        /// cells move with their neighbour. Whether any row moved.
+        pub fn reorder_rows_like(&mut self, source: &Self) -> bool {
+            let mut to_source = vec![usize::MAX; self.node_order.slot_count()];
+            for (name, slot) in self.node_order.iter() {
+                if let Some(&source_slot) = source.node_order.get(name) {
+                    to_source[slot] = source_slot;
+                }
+            }
+            let mut changed = false;
+            for slot in self.node_order.values() {
+                let row = &mut self.rows[slot];
+                let Some(source_row) = source.rows.get(to_source[slot]) else {
+                    continue;
+                };
+                if row.len() < 2 {
+                    continue;
+                }
+                let rank = |w: &usize| {
+                    source_row
+                        .get_index_of(&to_source[*w])
+                        .unwrap_or(usize::MAX)
+                };
+                if !row.keys().map(rank).is_sorted() {
+                    row.sort_by_cached_key(|w, _| rank(w));
+                    changed = true;
+                }
+            }
+            changed
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MultiGraph {
+    mode: CompatibilityMode,
+    revision: u64,
+    storage: multigraph_storage::MgSlabStorage,
+    runtime_policy: RuntimePolicy,
+    edge_count: usize,
+    /// br-r37-c1-thp6w slice 1: lazy revision-keyed integer adjacency (see `IntAdjCache`).
+    int_adj_cache: IntAdjCache,
+}
+
+/// Neighbor-name iterator over a stable-slot integer row.
+pub struct MgNeighborNames<'a> {
+    rows: indexmap::map::Keys<'a, usize, multigraph_storage::CompactKeys>,
+    slot_names: &'a [Option<String>],
+}
+
+impl<'a> Iterator for MgNeighborNames<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.rows.next().map(|&slot| {
+            self.slot_names[slot]
+                .as_deref()
+                .expect("row references a live slot")
+        })
+    }
+}
+
+/// Zero-allocation parallel-key iterator over a stable-slot edge bucket.
+pub struct MgEdgeKeys<'a>(multigraph_storage::CompactBucketKeys<'a>);
+
+impl<'a> Iterator for MgEdgeKeys<'a> {
+    type Item = &'a usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
+    }
+}
+
+impl MultiGraph {
+    /// br-r37-c1-7dpyg: structural clone with a FRESH RuntimePolicy —
+    /// see Graph::clone_with_fresh_policy.
+    #[must_use]
+    pub fn clone_with_fresh_policy(&self) -> Self {
+        Self {
+            mode: self.mode,
+            revision: self.revision,
+            storage: self.storage.clone(),
+            runtime_policy: RuntimePolicy::new(self.mode),
+            edge_count: self.edge_count,
+            int_adj_cache: IntAdjCache::default(),
+        }
+    }
+
+    /// br-r37-c1-s0d4x: reorder every adjacency row into NetworkX's
+    /// `MultiGraph.copy()` walk order — the multigraph counterpart of
+    /// Graph::reorder_rows_for_nx_copy_walk (cells move wholesale). A
+    /// pair's cells enter both rows at the first u-major touch: row u =
+    /// earlier-position neighbors sorted by (pos(v), index of u within
+    /// row v), then the rest (self-loops included) in original order.
+    pub fn reorder_rows_for_nx_copy_walk(&mut self) {
+        if self.storage.reorder_rows_for_nx_copy_walk() {
+            self.revision = self.revision.saturating_add(1);
+        }
+        *self
+            .int_adj_cache
+            .0
+            .get_mut()
+            .expect("int_adj_cache poisoned") = None;
+    }
+
+    /// br-r37-c1-u3qyn: restore explicit adjacency row orders (pickle
+    /// round-trip) — see Graph::apply_row_orders. Multigraph rows are
+    /// keyed cells (neighbor -> key set); the cells move wholesale.
+    pub fn apply_row_orders(&mut self, orders: &[(String, Vec<String>)]) {
+        self.storage.apply_row_orders(orders);
+        // br-r37-c1-thp6w slice 1: a pure ROW-ORDER change (MultiGraph.copy walk order,
+        // pickle round-trip) does NOT bump `revision`, so the revision-keyed int-adjacency
+        // memo would otherwise serve stale row order. Drop it explicitly here — this is the
+        // only adjacency mutator that changes order without a content (revision) bump.
+        *self
+            .int_adj_cache
+            .0
+            .get_mut()
+            .expect("int_adj_cache poisoned") = None;
+    }
+
+    /// br-r37-c1-36v6r: order each row as `source`'s row for the node of the
+    /// same name - a graph built from a filtered view of `source` by a
+    /// copy-shaped walk, whose rows the view shows as `source`'s rows
+    /// filtered (see Graph::reorder_rows_like). Cells move wholesale; like
+    /// `apply_row_orders`, drops the int-adjacency memo rather than moving
+    /// `revision`.
+    pub fn reorder_rows_like(&mut self, source: &Self) {
+        if self.storage.reorder_rows_like(&source.storage) {
+            *self
+                .int_adj_cache
+                .0
+                .get_mut()
+                .expect("int_adj_cache poisoned") = None;
+        }
+    }
+
+    #[must_use]
+    pub fn new(mode: CompatibilityMode) -> Self {
+        Self {
+            mode,
+            revision: 0,
+            storage: multigraph_storage::MgSlabStorage::new(),
+            runtime_policy: RuntimePolicy::new(mode),
+            edge_count: 0,
+            int_adj_cache: IntAdjCache::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_runtime_policy(runtime_policy: RuntimePolicy) -> Self {
+        let mode = runtime_policy.mode();
+        Self {
+            mode,
+            revision: 0,
+            storage: multigraph_storage::MgSlabStorage::new(),
+            runtime_policy,
+            edge_count: 0,
+            int_adj_cache: IntAdjCache::default(),
+        }
+    }
+
+    fn slab_store(&self) -> &multigraph_storage::MgSlabStorage {
+        &self.storage
+    }
+
+    fn slab_store_mut(&mut self) -> &mut multigraph_storage::MgSlabStorage {
+        &mut self.storage
+    }
+
+    #[must_use]
+    pub fn strict() -> Self {
+        Self::new(CompatibilityMode::Strict)
+    }
+
+    #[must_use]
+    pub fn hardened() -> Self {
+        Self::new(CompatibilityMode::Hardened)
+    }
+
+    #[must_use]
+    pub fn mode(&self) -> CompatibilityMode {
+        self.mode
+    }
+
+    #[must_use]
+    pub fn node_count(&self) -> usize {
+        self.slab_store().node_order.len()
+    }
+
+    #[must_use]
+    pub fn edge_count(&self) -> usize {
+        self.edge_count
+    }
+
+    #[must_use]
+    pub fn number_of_selfloops(&self) -> usize {
+        self.slab_store().number_of_selfloops()
+    }
+
+    /// Return edge keys as Vec (needed by Python bindings).
+    #[must_use]
+    pub fn edge_keys(&self, left: &str, right: &str) -> Option<Vec<usize>> {
+        self.slab_store().edge_keys(left, right)
+    }
+
+    /// Return an iterator over keys for edges between left and right.
+    pub fn edge_keys_iter(&self, left: &str, right: &str) -> Option<MgEdgeKeys<'_>> {
+        self.slab_store()
+            .edge_keys_iter(left, right)
+            .map(MgEdgeKeys)
+    }
+
+    #[must_use]
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    #[must_use]
+    pub fn has_node(&self, node: &str) -> bool {
+        self.slab_store().has_node(node)
+    }
+
+    #[must_use]
+    pub fn has_edge(&self, left: &str, right: &str) -> bool {
+        self.slab_store().has_edge(left, right)
+    }
+
+    /// br-r37-c1-04z53 (cc): resolve `has_edge` straight from insertion-order
+    /// indices, skipping the `i.to_string()` heap alloc the Python binding pays
+    /// for int nodes. The names come from the node table by index (borrowed, no
+    /// alloc); the caller (`PyMultiGraph::has_edge`) guards each index with
+    /// `node_index_matches_int` so the identity `index == int-value` holds
+    /// (any removal / remap that broke it fails the guard and falls through to
+    /// the String path). Mirror of `Graph::has_edge_by_indices`.
+    ///
+    /// br-r37-c1-2ndmw: THIS TAKES A POSITION AND THE EDGE MAP IS KEYED BY SLOT,
+    /// which is the whole subtlety. It used to bridge the two spaces by
+    /// resolving both positions back to NAMES and calling the string
+    /// `has_edge`, which re-hashes both node keys -- so this was O(node key
+    /// length) while `Graph::has_edge_by_indices` was a genuine O(1)
+    /// `contains_key`, and every caller taking the "index fast path"
+    /// (`PyMultiGraph::has_edge`, the edge-view probe, the algorithms bulk
+    /// paths) still paid for the key length it was trying to avoid.
+    ///
+    /// `slot_at_position` bridges the same gap in O(1) with no hashing, and
+    /// substitutes an EQUAL value rather than changing behaviour:
+    /// `MgSlabStorage::has_edge(l, r)` is itself defined as `node_order.get(l)`
+    /// and `node_order.get(r)` followed by `has_edge_by_pair`, and the slot
+    /// `get(name)` returns for an entry is the slot `get_index(position)`
+    /// returns for that same entry.
+    ///
+    /// What must NEVER happen is passing the position straight to
+    /// `has_edge_by_pair`: the spaces coincide only until a node is removed,
+    /// after which that reports a real edge as absent. Pinned by
+    /// `multigraph_node_slot_and_position_are_distinct_index_spaces`, and the
+    /// equivalence pinned by
+    /// `multigraph_has_edge_by_indices_matches_the_string_path_across_removals`.
+    #[must_use]
+    pub fn has_edge_by_indices(&self, li: usize, ri: usize) -> bool {
+        let store = self.slab_store();
+        match (store.slot_at_position(li), store.slot_at_position(ri)) {
+            (Some(left), Some(right)) => store.has_edge_by_pair(left, right),
+            _ => false,
+        }
+    }
+
+    /// br-r37-c1-s8dj1: attributes of a KEYED edge, addressed by node POSITION.
+    ///
+    /// The keyed sibling of [`Self::has_edge_by_indices`], and it exists for the
+    /// same reason: `PyMultiGraph::has_edge` had an O(1) path only while `key`
+    /// was `None`, so `(u, v) in G.edges` -- which passes key 0 -- paid two
+    /// canonicalisations and several node-key hashes and grew 3.6x from 2- to
+    /// 2000-character keys while the keyless form stayed flat.
+    ///
+    /// Takes POSITIONS and converts them to SLOTS, exactly as the keyless
+    /// sibling does. Passing a position straight to the slot-keyed store
+    /// reports a real edge as absent after any node removal -- see
+    /// `multigraph_node_slot_and_position_are_distinct_index_spaces`.
+    #[must_use]
+    pub fn edge_attrs_by_indices(&self, li: usize, ri: usize, key: usize) -> Option<&AttrMap> {
+        let store = self.slab_store();
+        match (store.slot_at_position(li), store.slot_at_position(ri)) {
+            (Some(left), Some(right)) => store.edge_attrs_by_pair(left, right, key),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn nodes_ordered(&self) -> Vec<&str> {
+        self.slab_store()
+            .node_order
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    /// Resolve a node through the insertion-ordered node table without
+    /// rebuilding a query-local name-to-index map.
+    #[must_use]
+    #[inline]
+    pub fn get_node_index(&self, node: &str) -> Option<usize> {
+        self.slab_store().get_node_index(node)
+    }
+
+    /// Resolve the current node name for an insertion-order index.
+    #[must_use]
+    #[inline]
+    pub fn get_node_name(&self, index: usize) -> Option<&str> {
+        self.slab_store().get_node_name(index)
+    }
+
+    /// br-cc-nbunchbulk: int membership fast path for `_nbunch_present` — see the
+    /// simple-Graph accessor.
+    #[must_use]
+    pub fn node_index_matches_int(&self, idx: usize) -> bool {
+        self.slab_store().node_index_matches_int(idx)
+    }
+
+    /// br-r37-c1-qaqog: every node's name is the decimal of its position, so
+    /// an int key `k` IS the node at position `k` when `k < node_count()` and
+    /// is absent otherwise - `Graph::node_names_are_positions`. O(V) on first
+    /// use, kept current in O(1) after.
+    #[must_use]
+    pub fn node_names_are_positions(&self) -> bool {
+        self.slab_store().node_order.names_are_positions()
+    }
+
+    #[must_use]
+    pub fn neighbors(&self, node: &str) -> Option<Vec<&str>> {
+        self.slab_store().neighbors_by_name(node)
+    }
+
+    pub fn neighbors_iter(&self, node: &str) -> Option<MgNeighborNames<'_>> {
+        let slab = self.slab_store();
+        let &slot = slab.node_order.get(node)?;
+        Some(MgNeighborNames {
+            rows: slab.rows[slot].keys(),
+            slot_names: slab.node_order.names(),
+        })
+    }
+
+    /// br-r37-c1-thp6w slice 1: build integer adjacency from the authoritative stable-slot
+    /// rows. Row `i` (node at insertion-index `i`) lists the node indices of that node's
+    /// neighbors in adjacency-row order — i.e. exactly
+    /// `[get_node_index(v) for v in neighbors_iter(node_i)]`. Distinct neighbors only
+    /// (parallel-edge multiplicity lives in `edges`).
+    fn build_int_adjacency(&self) -> Vec<Vec<usize>> {
+        self.slab_store().build_int_adjacency()
+    }
+
+    /// br-r37-c1-thp6w slice 1: run `f` with the integer adjacency (hash-free neighbor rows),
+    /// built lazily from the stable-slot rows and memoized until the next mutation. The
+    /// memo is keyed on `revision` (bumped by every content mutation) and cleared by
+    /// `apply_row_orders` (the one order-only mutator), so the rows always match the current
+    /// storage byte-for-byte. The closure form lets a whole traversal borrow the rows
+    /// under one read lock without a per-node allocation. Foundation for the epoch's
+    /// `neighbors_indices` traversal; no caller yet (infrastructure).
+    pub fn with_int_adjacency<R>(&self, f: impl FnOnce(&[Vec<usize>]) -> R) -> R {
+        {
+            let guard = self.int_adj_cache.0.read().expect("int_adj_cache poisoned");
+            if let Some((rev, adj)) = guard.as_ref()
+                && *rev == self.revision
+            {
+                return f(adj);
+            }
+        }
+        let adj = self.build_int_adjacency();
+        let result = f(&adj);
+        *self
+            .int_adj_cache
+            .0
+            .write()
+            .expect("int_adj_cache poisoned") = Some((self.revision, adj));
+        result
+    }
+
+    /// br-r37-c1-thp6w S4: advance a warm integer-adjacency memo across one
+    /// single-edge mutation instead of invalidating it. The memo must still be
+    /// keyed at `prev_revision` (the revision on entry to the mutating call);
+    /// the delta mirrors the String-row edit exactly (new distinct neighbors
+    /// append, emptied pairs shift-remove, new nodes push fresh rows), then the
+    /// memo re-keys to the post-mutation revision. Every mutation path that
+    /// does NOT call this leaves the memo keyed at a stale revision, so
+    /// `with_int_adjacency` lazily rebuilds — unhandled sites stay exactly as
+    /// safe as the invalidate-only scheme.
+    fn advance_int_adj_memo(&mut self, prev_revision: u64, delta: IntAdjEdgeDelta<'_>) {
+        let needs_indices = matches!(
+            delta,
+            IntAdjEdgeDelta::Add { pair_new: true, .. }
+                | IntAdjEdgeDelta::Remove {
+                    pair_gone: true,
+                    ..
+                }
+        );
+        let indices = if needs_indices {
+            let (left, right) = match &delta {
+                IntAdjEdgeDelta::Add { left, right, .. }
+                | IntAdjEdgeDelta::Remove { left, right, .. } => (*left, *right),
+            };
+            match (
+                self.storage.get_node_index(left),
+                self.storage.get_node_index(right),
+            ) {
+                (Some(u), Some(v)) => Some((u, v)),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let Ok(slot) = self.int_adj_cache.0.get_mut() else {
+            return;
+        };
+        if needs_indices && indices.is_none() {
+            // Endpoint missing from the node table (should be unreachable for a
+            // live edge): the delta cannot be mirrored, so drop the memo.
+            *slot = None;
+            return;
+        }
+        let Some((rev, rows)) = slot.as_mut() else {
+            return;
+        };
+        if *rev != prev_revision {
+            return;
+        }
+        let mut advanced = true;
+        match delta {
+            IntAdjEdgeDelta::Add {
+                left,
+                right,
+                left_new,
+                right_new,
+                pair_new,
+            } => {
+                if left_new {
+                    rows.push(Vec::new());
+                }
+                if right_new && left != right {
+                    rows.push(Vec::new());
+                }
+                if pair_new && let Some((u, v)) = indices {
+                    rows[u].push(v);
+                    if u != v {
+                        rows[v].push(u);
+                    }
+                }
+            }
+            IntAdjEdgeDelta::Remove { pair_gone, .. } => {
+                if pair_gone && let Some((u, v)) = indices {
+                    // Mirror `IndexMap::shift_remove` on the String row:
+                    // order-preserving removal of the emptied neighbor cell.
+                    if let Some(pu) = rows[u].iter().position(|&x| x == v) {
+                        rows[u].remove(pu);
+                        if u != v {
+                            if let Some(pv) = rows[v].iter().position(|&x| x == u) {
+                                rows[v].remove(pv);
+                            } else {
+                                advanced = false;
+                            }
+                        }
+                    } else {
+                        advanced = false;
+                    }
+                }
+            }
+        }
+        if advanced {
+            *rev = self.revision;
+        } else {
+            *slot = None;
+        }
+    }
+
+    #[must_use]
+    pub fn edge_keys_vec(&self, left: &str, right: &str) -> Vec<usize> {
+        self.slab_store().key_order(left, right)
+    }
+
+    #[must_use]
+    pub fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
+        self.slab_store().node_attrs_for(node)
+    }
+
+    #[must_use]
+    pub fn edge_attrs(&self, left: &str, right: &str, key: usize) -> Option<&AttrMap> {
+        self.slab_store().edge_attrs(left, right, key)
+    }
+
+    /// Iterator over the `AttrMap`s of every parallel edge between `left` and
+    /// `right` (undirected: the single canonical bucket), yielded in the SAME
+    /// order as `edge_keys` / `edge_keys_iter`. The adjacency `IndexSet<usize>`
+    /// and this `edges` `IndexMap<usize, AttrMap>` are appended together on add
+    /// and both `shift_remove`d on per-key remove (whole bucket dropped on
+    /// node/endpoint removal), so their key order stays identical — callers that
+    /// need adjacency-order iteration (e.g. the order-sensitive Neumaier weighted
+    /// degree) may consume this directly instead of re-looking-up each key.
+    /// Undirected sibling of `MultiDiGraph::edge_attr_values`.
+    pub fn edge_attr_values(
+        &self,
+        left: &str,
+        right: &str,
+    ) -> Option<impl Iterator<Item = &AttrMap> + '_> {
+        self.slab_store().edge_attr_values(left, right)
+    }
+
+    /// Yield `(neighbor_position, parallel_edge_attr_maps)` for the node at
+    /// insertion-order position `node_index`, in exact adjacency-row order,
+    /// without allocating a projection graph or hashing node name strings.
+    pub fn neighbor_edge_attr_values_by_index(
+        &self,
+        node_index: usize,
+    ) -> Option<impl Iterator<Item = (usize, multigraph_storage::CompactBucketValues<'_>)> + '_>
+    {
+        let slab = self.slab_store();
+        let u_slot = slab.slot_at_position(node_index)?;
+        let row = slab.rows.get(u_slot)?;
+        Some(row.keys().filter_map(move |&v_slot| {
+            let bucket = slab.edges.get(&(u_slot.min(v_slot), u_slot.max(v_slot)))?;
+            if bucket.is_empty() {
+                return None;
+            }
+            let v_pos = slab.node_order.position_of_slot(v_slot);
+            Some((v_pos, bucket.values()))
+        }))
+    }
+
+    /// Yield `(neighbor_position, parallel_edge_key_attr_pairs)` for the node at
+    /// insertion-order position `node_index`, in exact adjacency-row order,
+    /// without allocating neighbor name vectors or key vectors (br-r37-c1-7ye53).
+    pub fn neighbor_edge_buckets_by_index(
+        &self,
+        node_index: usize,
+    ) -> Option<impl Iterator<Item = (usize, multigraph_storage::CompactBucketIter<'_>)> + '_> {
+        let slab = self.slab_store();
+        let u_slot = slab.slot_at_position(node_index)?;
+        let row = slab.rows.get(u_slot)?;
+        Some(row.keys().filter_map(move |&v_slot| {
+            let bucket = slab.edges.get(&(u_slot.min(v_slot), u_slot.max(v_slot)))?;
+            if bucket.is_empty() {
+                return None;
+            }
+            let v_pos = slab.node_order.position_of_slot(v_slot);
+            Some((v_pos, bucket.iter()))
+        }))
+    }
+
+    #[must_use]
+    pub fn evidence_ledger(&self) -> &EvidenceLedger {
+        self.runtime_policy.decision_log()
+    }
+
+    pub fn drain_decision_records(&mut self) -> Vec<DecisionRecord> {
+        self.runtime_policy.drain_decision_records()
+    }
+
+    /// Record a bounded recovery performed OUTSIDE the graph (e.g. a reader
+    /// that skipped a malformed input line in hardened mode) in this graph's
+    /// evidence ledger, so `decision_records()` reports it like a native one.
+    pub fn record_external_recovery(
+        &mut self,
+        operation: impl Into<std::borrow::Cow<'static, str>>,
+        rationale: impl Into<std::borrow::Cow<'static, str>>,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            DecisionAction::FullValidate,
+            0.7,
+            rationale,
+            Vec::new(),
+        );
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
+    }
+
+    pub fn set_runtime_policy(&mut self, runtime_policy: RuntimePolicy) {
+        self.mode = runtime_policy.mode();
+        self.runtime_policy = runtime_policy;
+    }
+
+    #[must_use]
+    pub fn is_directed(&self) -> bool {
+        false
+    }
+
+    #[must_use]
+    pub fn is_multigraph(&self) -> bool {
+        true
+    }
+
+    /// Return the degree of a node (total number of parallel edges incident).
+    /// Self-loops contribute 2 to the degree each (NetworkX convention).
+    #[must_use]
+    pub fn degree(&self, node: &str) -> usize {
+        self.slab_store().degree(node)
+    }
+
+    /// br-r37-c1-mgisol (cc): native isolate detection for MultiGraph. A node
+    /// is isolated iff it has no incident edges (empty/absent adjacency row);
+    /// a self-loop keeps a node non-isolated (the loop records the node in its
+    /// own row, matching nx's degree-2 self-loop convention). Yields nodes in
+    /// insertion order — identical to the `G.degree()`-driven nx generator and
+    /// to the old `multigraph_to_simple_graph` projection path, but WITHOUT the
+    /// per-call O(V+E) simple-graph rebuild that dominated the binding.
+    #[must_use]
+    pub fn isolates(&self) -> Vec<String> {
+        self.slab_store().isolates()
+    }
+
+    /// br-r37-c1-mgisol (cc): isolate count without the simple-graph projection.
+    #[must_use]
+    pub fn number_of_isolates(&self) -> usize {
+        self.slab_store().number_of_isolates()
+    }
+
+    /// br-r37-c1-mgisol (cc): O(1) isolate predicate. Absent node -> false
+    /// (mirrors `is_isolate(&Graph)`); the binding validates presence first.
+    #[must_use]
+    pub fn is_isolate(&self, node: &str) -> bool {
+        self.slab_store().is_isolate(node)
+    }
+
+    pub fn add_node(&mut self, node: impl AsRef<str>) -> bool {
+        self.add_node_with_attrs(node, AttrMap::new())
+    }
+
+    /// br-r37-c1-wa1b9: the storage half of [`Self::add_node_with_attrs`],
+    /// without its ledger record. See the undirected `Graph` sibling.
+    /// br-r37-c1-jc9e4: no owned key at all on this path. `set_node_attrs`
+    /// already takes `&str` and owns internally only when it inserts, so the
+    /// `let node = node.into();` this used to open with was allocating a
+    /// `String` purely to hand out a borrow of it — waste on every call, not
+    /// just the occupied ones.
+    fn add_node_with_attrs_unrecorded(
+        &mut self,
+        node: impl AsRef<str>,
+        attrs: AttrMap,
+    ) -> (bool, bool, usize) {
+        let (existed, changed, attrs_count) = self.storage.set_node_attrs(node.as_ref(), attrs);
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        (changed, existed, attrs_count)
+    }
+
+    pub fn add_node_with_attrs(&mut self, node: impl AsRef<str>, attrs: AttrMap) -> bool {
+        let (changed, existed, attrs_count) = self.add_node_with_attrs_unrecorded(node, attrs);
+        self.record_decision(
+            "add_node",
+            0.0,
+            false,
+            vec![
+                EvidenceTerm {
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(existed),
+                    log_likelihood_ratio: -3.0,
+                },
+                EvidenceTerm {
+                    signal: "attrs_count".into(),
+                    observed_value: count_evidence(attrs_count),
+                    log_likelihood_ratio: -1.0,
+                },
+            ],
+        );
+        changed
+    }
+
+    pub fn add_edge(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+    ) -> Result<usize, GraphError> {
+        self.add_edge_impl(left, right, None, AttrMap::new())
+    }
+
+    pub fn add_edge_with_attrs(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        self.add_edge_impl(left, right, None, attrs)
+    }
+
+    pub fn add_edge_with_key_and_attrs(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+        key: usize,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        self.add_edge_impl(left, right, Some(key), attrs)
+    }
+
+    /// Insert one attribute-free edge for a pair known to have no existing
+    /// parallel edge bucket. Returns `None` if the pair already exists.
+    #[must_use]
+    pub fn add_fresh_edge_unrecorded(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+    ) -> Option<usize> {
+        self.add_fresh_edge_with_key_unrecorded(left, right, 0)
+    }
+
+    /// Insert one attribute-free edge with an explicit key for a pair known to
+    /// have no existing parallel edge bucket. Returns `None` if the pair
+    /// already exists.
+    #[must_use]
+    pub fn add_fresh_edge_with_key_unrecorded(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+        key: usize,
+    ) -> Option<usize> {
+        let left = left.into();
+        let right = right.into();
+        self.storage.set_node_attrs(&left, AttrMap::new());
+        if left != right {
+            self.storage.set_node_attrs(&right, AttrMap::new());
+        }
+
+        if self.storage.has_edge(&left, &right) {
+            return None;
+        }
+        let inserted = self
+            .storage
+            .add_keyed_edge(&left, &right, key, AttrMap::new());
+        debug_assert!(inserted, "fresh edge unexpectedly merged");
+        self.edge_count += 1;
+        self.revision = self.revision.saturating_add(1);
+        Some(key)
+    }
+
+    /// br-r37-c1-l5ve7: bulk node insert WITH attrs, one ledger record —
+    /// MultiGraph mirror of MultiDiGraph::extend_nodes_with_attrs_unrecorded.
+    /// Existing nodes merge attrs (extend).
+    pub fn extend_nodes_with_attrs_unrecorded<I>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = (String, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (node, attrs) in nodes {
+            let (existed, _, _) = self.storage.set_node_attrs(&node, attrs);
+            if !existed {
+                inserted += 1;
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// Bulk node insert without attrs, one summary ledger record.
+    pub fn extend_nodes_unrecorded<I, N>(&mut self, nodes: I) -> usize
+    where
+        I: IntoIterator<Item = N>,
+        N: AsRef<str>,
+    {
+        let mut inserted = 0usize;
+        for node in nodes {
+            let (existed, _, _) = self.storage.set_node_attrs(node.as_ref(), AttrMap::new());
+            if !existed {
+                inserted += 1;
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_nodes_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_node_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-l5ve7: bulk KEYED edge insert WITH attrs, one ledger
+    /// record — MultiGraph mirror of
+    /// MultiDiGraph::extend_keyed_edges_with_attrs_unrecorded
+    /// (add_edge_impl pays TWO record_decision calls per edge). Endpoint
+    /// nodes are created on demand; an existing (u, v, key) cell merges
+    /// attrs (extend), matching add_edge_with_key_and_attrs.
+    pub fn extend_keyed_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+    where
+        I: IntoIterator<Item = (String, String, usize, AttrMap)>,
+    {
+        let mut inserted = 0usize;
+        for (left, right, key, attrs) in edges {
+            if self.storage.add_keyed_edge(&left, &right, key, attrs) {
+                self.edge_count += 1;
+                inserted += 1;
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// br-r37-c1-lesqm: bulk attribute-free keyed edge insert from a deduplicated
+    /// batch node-name table `names` and `(u_id, v_id, key)` triples, resolving
+    /// each unique batch node to its `MgSlabStorage` slot once instead of
+    /// hashing both endpoint strings on every edge.
+    pub fn extend_indexed_keyed_edges_unrecorded(
+        &mut self,
+        names: &[String],
+        edges: &[(u32, u32, usize)],
+    ) -> usize {
+        let mut slots = vec![usize::MAX; names.len()];
+        let mut inserted = 0usize;
+        for &(u_id, v_id, key) in edges {
+            let u_idx = u_id as usize;
+            let l = if slots[u_idx] != usize::MAX {
+                slots[u_idx]
+            } else {
+                let s = self.storage.ensure_node(&names[u_idx]);
+                slots[u_idx] = s;
+                s
+            };
+            let v_idx = v_id as usize;
+            let r = if u_idx == v_idx {
+                l
+            } else if slots[v_idx] != usize::MAX {
+                slots[v_idx]
+            } else {
+                let s = self.storage.ensure_node(&names[v_idx]);
+                slots[v_idx] = s;
+                s
+            };
+            if self
+                .storage
+                .add_keyed_edge_by_pair(l, r, key, AttrMap::new())
+            {
+                self.edge_count += 1;
+                inserted += 1;
+            }
+        }
+        if inserted > 0 {
+            self.revision = self
+                .revision
+                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            self.record_decision(
+                "extend_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        inserted
+    }
+
+    /// Bulk-load attribute-free keyed edges for a freshly-created integer
+    /// prefix graph. The caller has already validated that node first-seen
+    /// order is exactly `0..node_count` and that internal keys are sequential
+    /// per undirected pair, so this builds the string-keyed MultiGraph state
+    /// directly from indices instead of canonicalizing both endpoints for every
+    /// edge in the Python boundary layer.
+    #[must_use]
+    pub fn extend_fresh_int_prefix_keyed_edges_unrecorded<I>(
+        &mut self,
+        node_count: usize,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, usize)>,
+    {
+        debug_assert_eq!(self.node_count(), 0);
+        debug_assert_eq!(self.edge_count(), 0);
+
+        let iterator = edges.into_iter();
+        let (lower_bound, _) = iterator.size_hint();
+
+        let node_names = (0..node_count)
+            .map(|node| node.to_string())
+            .collect::<Vec<_>>();
+        let mut fresh_slab = {
+            use multigraph_storage::MgSlabStorage;
+            let mut slab = MgSlabStorage::new();
+            slab.node_order.reserve(node_count);
+            slab.node_attrs.reserve(node_count);
+            slab.rows.reserve(node_count);
+            slab.edges.reserve(lower_bound);
+            for name in &node_names {
+                slab.node_order.insert(name.clone());
+                slab.node_attrs.push(AttrMap::new());
+                slab.rows.push(crate::FxIndexMap::default());
+            }
+            slab
+        };
+
+        let mut inserted = 0usize;
+        for (left_idx, right_idx, key) in iterator {
+            debug_assert!(left_idx < node_names.len());
+            debug_assert!(right_idx < node_names.len());
+            {
+                use multigraph_storage::{CompactBucket, CompactKeys};
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                match fresh_slab.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        let _ = bucket.get_mut().merge(key, AttrMap::new());
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, AttrMap::new()));
+                    }
+                }
+                match fresh_slab.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match fresh_slab.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+                fresh_slab.edge_count += 1;
+            }
+
+            inserted += 1;
+        }
+        self.edge_count = fresh_slab.edge_count;
+        if inserted > 0 || node_count > 0 {
+            self.revision = self.revision.saturating_add(
+                u64::try_from(inserted.saturating_add(node_count)).unwrap_or(u64::MAX),
+            );
+            self.record_decision(
+                "extend_fresh_int_prefix_keyed_edges_unrecorded",
+                0.0,
+                false,
+                vec![EvidenceTerm {
+                    signal: "batch_edge_count".into(),
+                    observed_value: count_evidence(inserted),
+                    log_likelihood_ratio: -1.0,
+                }],
+            );
+        }
+        debug_assert_eq!(fresh_slab.edge_count, self.edge_count);
+        self.storage = fresh_slab;
+        inserted
+    }
+
+    /// Bulk-load attributed keyed edges for a freshly-created integer-indexed
+    /// graph. The caller has already assigned NetworkX-compatible node labels
+    /// and per-undirected-pair keys, so this avoids endpoint string hashing in
+    /// the Python boundary layer while preserving the normal MultiGraph storage
+    /// layout.
+    #[must_use]
+    pub fn extend_fresh_index_keyed_edges_with_attrs_unrecorded<I, N>(
+        &mut self,
+        nodes: N,
+        edges: I,
+    ) -> usize
+    where
+        I: IntoIterator<Item = (usize, usize, usize, AttrMap)>,
+        N: IntoIterator<Item = String>,
+    {
+        if self.node_count() != 0 || self.edge_count() != 0 {
+            return 0;
+        }
+
+        let node_labels: Vec<String> = nodes.into_iter().collect();
+        let mut fresh_slab = {
+            use multigraph_storage::MgSlabStorage;
+            let mut slab = MgSlabStorage::new();
+            slab.node_order.reserve(node_labels.len());
+            slab.node_attrs.reserve(node_labels.len());
+            slab.rows.reserve(node_labels.len());
+            for name in &node_labels {
+                slab.node_order.insert(name.clone());
+                slab.node_attrs.push(AttrMap::new());
+                slab.rows.push(crate::FxIndexMap::default());
+            }
+            slab
+        };
+
+        let node_count = node_labels.len();
+        let mut inserted = 0usize;
+        for (left_idx, right_idx, key, attrs) in edges {
+            if node_labels.get(left_idx).is_none() {
+                continue;
+            }
+            if node_labels.get(right_idx).is_none() {
+                continue;
+            }
+            {
+                use multigraph_storage::{CompactBucket, CompactKeys};
+                let pair = (left_idx.min(right_idx), left_idx.max(right_idx));
+                let is_new = match fresh_slab.edges.entry(pair) {
+                    indexmap::map::Entry::Occupied(mut bucket) => {
+                        bucket.get_mut().merge(key, attrs)
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactBucket::One(key, attrs));
+                        true
+                    }
+                };
+                if is_new {
+                    fresh_slab.edge_count += 1;
+                    inserted += 1;
+                }
+                match fresh_slab.rows[left_idx].entry(right_idx) {
+                    indexmap::map::Entry::Occupied(mut cell) => {
+                        let _ = cell.get_mut().insert(key);
+                    }
+                    indexmap::map::Entry::Vacant(slot) => {
+                        slot.insert(CompactKeys::One(key));
+                    }
+                }
+                if left_idx != right_idx {
+                    match fresh_slab.rows[right_idx].entry(left_idx) {
+                        indexmap::map::Entry::Occupied(mut cell) => {
+                            let _ = cell.get_mut().insert(key);
+                        }
+                        indexmap::map::Entry::Vacant(slot) => {
+                            slot.insert(CompactKeys::One(key));
+                        }
+                    }
+                }
+            }
+        }
+
+        self.edge_count = fresh_slab.edge_count;
+        if node_count > 0 || inserted > 0 {
+            self.revision = self.revision.saturating_add(
+                u64::try_from(node_count.saturating_add(inserted)).unwrap_or(u64::MAX),
+            );
+            self.record_decision(
+                "extend_fresh_index_keyed_edges_with_attrs_unrecorded",
+                0.0,
+                false,
+                vec![
+                    EvidenceTerm {
+                        signal: "batch_node_count".into(),
+                        observed_value: count_evidence(node_count),
+                        log_likelihood_ratio: -1.0,
+                    },
+                    EvidenceTerm {
+                        signal: "batch_edge_count".into(),
+                        observed_value: count_evidence(inserted),
+                        log_likelihood_ratio: -1.0,
+                    },
+                ],
+            );
+        }
+        debug_assert_eq!(fresh_slab.edge_count, self.edge_count);
+        self.storage = fresh_slab;
+        inserted
+    }
+
+    fn add_edge_impl(
+        &mut self,
+        left: impl Into<String>,
+        right: impl Into<String>,
+        explicit_key: Option<usize>,
+        attrs: AttrMap,
+    ) -> Result<usize, GraphError> {
+        let left = left.into();
+        let right = right.into();
+        // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
+        // keyed here is advanced across this mutation instead of invalidated.
+        let prev_revision = self.revision;
+
+        let unknown_feature = attrs
+            .keys()
+            .any(|key| key.starts_with("__fnx_incompatible"));
+        let incompatibility_probability = if unknown_feature {
+            1.0
+        } else if left == right {
+            0.22
+        } else {
+            0.08
+        };
+
+        // br-r37-c1-eo88t: the gate decision earns a ledger record only when it
+        // REFUSES. A refusal returns from here, so the outcome record at the end
+        // of this function never runs and the gate record is the whole audit
+        // trail for the rejected mutation. On the allow path the outcome record
+        // carries the same operation/mode/action/incompatibility_probability
+        // plus strictly richer evidence, so recording the gate as well wrote two
+        // near-identical records for every edge on the hottest mutation path.
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_feature);
+
+        if action == DecisionAction::FailClosed || action == DecisionAction::FullValidate {
+            self.record_decision(
+                "add_edge",
+                incompatibility_probability,
+                unknown_feature,
+                vec![EvidenceTerm {
+                    signal: "unknown_incompatible_feature".into(),
+                    observed_value: bool_evidence(unknown_feature),
+                    log_likelihood_ratio: 12.0,
+                }],
+            );
+            return Err(GraphError::FailClosed {
+                operation: "add_edge",
+                reason: "incompatible edge metadata".to_owned(),
+            });
+        }
+
+        // br-r37-c1-wa1b9: internal autocreation files no record of its own —
+        // see the undirected `Graph` sibling for the ruling.
+        let mut left_autocreated = false;
+        if !self.has_node(&left) {
+            let _ = self.add_node_with_attrs_unrecorded(left.clone(), AttrMap::new());
+            left_autocreated = true;
+        }
+        let mut right_autocreated = false;
+        if left == right {
+            right_autocreated = left_autocreated;
+        } else if !self.has_node(&right) {
+            let _ = self.add_node_with_attrs_unrecorded(right.clone(), AttrMap::new());
+            right_autocreated = true;
+        }
+
+        // br-r37-c1-4c29a: resolve each endpoint to its slot ONCE. Both nodes
+        // are guaranteed present by the autocreation above, and the six storage
+        // calls below used to re-resolve BOTH endpoint strings independently —
+        // `IndexMap<String, usize>::get_index_of` was 17.39% of the MultiGraph
+        // build profile, the largest entry, ahead of the allocator. The
+        // `_by_pair` variants take the slots and are otherwise identical.
+        let left_slot = self
+            .slab_store()
+            .node_slot(&left)
+            .expect("autocreated above");
+        let right_slot = if left == right {
+            left_slot
+        } else {
+            self.slab_store()
+                .node_slot(&right)
+                .expect("autocreated above")
+        };
+
+        let key = explicit_key.unwrap_or_else(|| {
+            self.slab_store()
+                .next_edge_key_by_pair(left_slot, right_slot)
+        });
+        let pair_was_present = self.slab_store().has_edge_by_pair(left_slot, right_slot);
+        let changed = self
+            .slab_store()
+            .edge_attrs_by_pair(left_slot, right_slot, key)
+            .is_none_or(|edge_attrs| {
+                attrs
+                    .iter()
+                    .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
+            });
+        let inserted = self
+            .slab_store_mut()
+            .add_keyed_edge_by_pair(left_slot, right_slot, key, attrs);
+        if inserted {
+            self.edge_count += 1;
+        }
+        let edge_attr_count = self
+            .slab_store()
+            .edge_attr_count_by_pair(left_slot, right_slot);
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        if self.revision != prev_revision {
+            self.advance_int_adj_memo(
+                prev_revision,
+                IntAdjEdgeDelta::Add {
+                    left: &left,
+                    right: &right,
+                    left_new: left_autocreated,
+                    right_new: right_autocreated,
+                    pair_new: !pair_was_present,
+                },
+            );
+        }
+
+        self.record_decision(
+            "add_edge",
+            incompatibility_probability,
+            unknown_feature,
+            vec![
+                EvidenceTerm {
+                    signal: "edge_key".into(),
+                    observed_value: key.to_string().into(),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "edge_attr_count".into(),
+                    observed_value: count_evidence(edge_attr_count),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(left_autocreated),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(right_autocreated),
+                    log_likelihood_ratio: -1.25,
+                },
+            ],
+        );
+
+        Ok(key)
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing
+    /// (u, v, key) edge. Returns whether the edge existed.
+    pub fn replace_edge_attrs(
+        &mut self,
+        left: &str,
+        right: &str,
+        key: usize,
+        attrs: AttrMap,
+    ) -> bool {
+        let Some(existing) = self.slab_store().edge_attrs(left, right, key) else {
+            return false;
+        };
+        let changed = *existing != attrs;
+        if changed {
+            let replaced = self
+                .slab_store_mut()
+                .replace_edge_attrs(left, right, key, attrs);
+            debug_assert!(replaced, "slab edge disappeared during replacement");
+            self.revision = self.revision.saturating_add(1);
+        }
+        true
+    }
+
+    /// br-r37-c1-sjf4t: overwrite the attribute map for an existing node.
+    pub fn replace_node_attrs(&mut self, node: &str, attrs: AttrMap) -> bool {
+        let Some(existing) = self.slab_store().node_attrs_for(node) else {
+            return false;
+        };
+        let changed = *existing != attrs;
+        if changed {
+            self.slab_store_mut().replace_node_attrs(node, attrs);
+            self.revision = self.revision.saturating_add(1);
+        }
+        true
+    }
+
+    pub fn remove_edge(&mut self, left: &str, right: &str, key: Option<usize>) -> bool {
+        self.remove_edge_impl(left, right, key, false)
+    }
+
+    /// Delete a key through a live adjacency keydict without removing the
+    /// pair's ordered neighbor cells. An empty pair still has adjacency, but
+    /// contributes no edges or degree. Normal `remove_edge` drops the pair.
+    pub fn remove_key_preserving_pair(&mut self, left: &str, right: &str, key: usize) -> bool {
+        self.remove_edge_impl(left, right, Some(key), true)
+    }
+
+    fn remove_edge_impl(
+        &mut self,
+        left: &str,
+        right: &str,
+        key: Option<usize>,
+        preserve_pair: bool,
+    ) -> bool {
+        // br-r37-c1-thp6w S4: revision on entry — a warm int-adjacency memo
+        // keyed here is advanced across this mutation instead of invalidated.
+        let prev_revision = self.revision;
+        let removal_key = key.or_else(|| {
+            self.slab_store()
+                .edge_keys_iter(left, right)
+                .and_then(|keys| keys.last().copied())
+        });
+
+        let Some(removal_key) = removal_key else {
+            return false;
+        };
+
+        let removed = if preserve_pair {
+            self.slab_store_mut()
+                .remove_key_preserving_pair(left, right, removal_key)
+        } else {
+            self.slab_store_mut()
+                .remove_edge(left, right, Some(removal_key))
+        };
+        if !removed {
+            return false;
+        }
+        self.edge_count -= 1;
+        let pair_gone = !self.slab_store().has_edge(left, right);
+        self.revision = self.revision.saturating_add(1);
+        self.advance_int_adj_memo(
+            prev_revision,
+            IntAdjEdgeDelta::Remove {
+                left,
+                right,
+                pair_gone,
+            },
+        );
+        true
+    }
+
+    pub fn clear_edges(&mut self) {
+        if self.slab_store().edges.is_empty() {
+            return;
+        }
+
+        self.slab_store_mut().clear_edges();
+        self.edge_count = 0;
+        self.revision = self.revision.saturating_add(1);
+    }
+
+    pub fn remove_node(&mut self, node: &str) -> bool {
+        if !self.has_node(node) {
+            return false;
+        }
+
+        let removed = self.slab_store_mut().remove_node(node);
+        debug_assert!(removed, "node disappeared during remove_node");
+        self.edge_count = self.slab_store().edge_count;
+        self.revision = self.revision.saturating_add(1);
+        true
+    }
+
+    /// br-r37-c1-mgrnf: batch node removal — one O(|V|+|E|) `retain` pass,
+    /// matching the simple-`Graph` batch (`Graph::remove_nodes_from`) that the
+    /// directed types already carry. (`remove_node` itself is O(degree) since
+    /// yr2oc.1, so this pays off only for a large share of the graph.)
+    /// Returns `(removed_node_count, removed_edge_instance_count)`.
+    pub fn remove_nodes_from<'a, I>(&mut self, nodes: I) -> (usize, usize)
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        let (removed_nodes, removed_edges) = self.slab_store_mut().remove_nodes_from(nodes);
+        if removed_nodes == 0 {
+            return (0, 0);
+        }
+        self.edge_count = self.slab_store().edge_count;
+        self.revision = self
+            .revision
+            .saturating_add(u64::try_from(removed_nodes).unwrap_or(u64::MAX));
+        (removed_nodes, removed_edges)
+    }
+
+    #[must_use]
+    pub fn edges_ordered(&self) -> Vec<MultiEdgeSnapshot> {
+        self.slab_store()
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, key, attrs)| MultiEdgeSnapshot {
+                left: left.to_owned(),
+                right: right.to_owned(),
+                key,
+                attrs: attrs.clone(),
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, usize, &AttrMap)> {
+        self.slab_store().edges_ordered_borrowed()
+    }
+
+    /// br-r37-c1-wsize (cc): integer `size(weight)` from the store — the
+    /// multigraph twin of `Graph::weighted_size_int`. Each parallel edge is one
+    /// bucket entry in `self.edges` and contributes its weight once (size halves
+    /// degree's double count); a self-loop key is one stored edge counted once.
+    /// Returns `None` on any non-integer weight (caller uses the exact
+    /// float/PyObject degree path); missing weight defaults to nx's int `1`.
+    #[must_use]
+    pub fn weighted_size_int(&self, weight: &str) -> Option<i128> {
+        self.slab_store().weighted_size_int(weight)
+    }
+
+    #[must_use]
+    pub fn edges_ordered_indices_borrowed(&self) -> Vec<(usize, usize, usize, &AttrMap)> {
+        self.slab_store().edges_ordered_indices_borrowed()
+    }
+
+    pub fn try_for_each_indexed_edge_view_ordered_borrowed<E>(
+        &self,
+        visit: impl FnMut(usize, usize, &str, &str, usize, &AttrMap) -> Result<(), E>,
+    ) -> Result<(), E> {
+        self.slab_store()
+            .try_for_each_indexed_edge_view_ordered_borrowed(visit)
+    }
+
+    #[must_use]
+    pub fn snapshot(&self) -> MultiGraphSnapshot {
+        self.slab_store().snapshot(self.mode)
+    }
+
+    fn record_decision(
+        &mut self,
+        operation: &'static str,
+        incompatibility_probability: f64,
+        unknown_incompatible_feature: bool,
+        evidence: Vec<EvidenceTerm>,
+    ) -> DecisionAction {
+        let action = self
+            .runtime_policy
+            .action_for(incompatibility_probability, unknown_incompatible_feature);
+        self.runtime_policy.record(
+            operation,
+            action,
+            incompatibility_probability,
+            "argmin expected loss over {allow,full_validate,fail_closed}",
+            evidence,
+        );
+        action
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn multigraph_live_empty_pairs_preserve_topology_not_edges() {
+        for keys in [vec![7], vec![7, 2]] {
+            for target in ["v", "u"] {
+                let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+                graph.add_edge("u", "before").unwrap();
+                for &key in &keys {
+                    graph
+                        .add_edge_with_key_and_attrs("u", target, key, AttrMap::new())
+                        .unwrap();
+                }
+                graph.add_edge("u", "after").unwrap();
+                let expected_neighbors = graph.neighbors("u").unwrap();
+                let expected_neighbors: Vec<String> =
+                    expected_neighbors.into_iter().map(str::to_owned).collect();
+                let before_adjacency = graph.with_int_adjacency(<[Vec<usize>]>::to_vec);
+                let before_count = graph.edge_count();
+                for &key in &keys {
+                    assert!(graph.remove_key_preserving_pair("u", target, key));
+                }
+                assert_eq!(graph.edge_count(), before_count - keys.len());
+                assert_eq!(graph.neighbors("u").unwrap(), expected_neighbors);
+                assert_eq!(
+                    graph.with_int_adjacency(<[Vec<usize>]>::to_vec),
+                    before_adjacency
+                );
+                assert_eq!(graph.edge_keys("u", target), Some(vec![]));
+                assert!(graph.has_edge("u", target));
+                let u = graph.get_node_index("u").unwrap();
+                let v = graph.get_node_index(target).unwrap();
+                assert!(graph.has_edge_by_indices(u, v));
+                assert!(graph.edge_attrs_by_indices(u, v, 7).is_none());
+                assert_eq!(graph.degree("u"), 2);
+                let mut copied = graph.clone();
+                // Warm the clone's memo too: pruning must invalidate it.
+                assert_eq!(
+                    copied.with_int_adjacency(<[Vec<usize>]>::to_vec),
+                    before_adjacency
+                );
+                copied.reorder_rows_for_nx_copy_walk();
+                assert!(!copied.has_edge("u", target));
+                assert_eq!(copied.edge_keys("u", target), None);
+                assert_eq!(copied.neighbors("u").unwrap(), vec!["before", "after"]);
+                assert_eq!(copied.edge_count(), graph.edge_count());
+                assert_eq!(
+                    copied.with_int_adjacency(|rows| rows[u].clone()),
+                    vec![
+                        copied.get_node_index("before").unwrap(),
+                        copied.get_node_index("after").unwrap(),
+                    ]
+                );
+                assert!(graph.has_edge("u", target));
+                assert_eq!(graph.neighbors("u").unwrap(), expected_neighbors);
+                let revision = graph.revision();
+                assert!(!graph.remove_key_preserving_pair("u", target, 7));
+                assert!(!graph.remove_edge("u", target, None));
+                assert_eq!(graph.revision(), revision);
+                graph
+                    .add_edge_with_key_and_attrs("u", target, 9, AttrMap::new())
+                    .unwrap();
+                assert_eq!(graph.neighbors("u").unwrap(), expected_neighbors);
+                assert_eq!(graph.edge_keys("u", target), Some(vec![9]));
+                assert!(graph.remove_edge("u", target, Some(9)));
+                assert!(!graph.has_edge("u", target));
+                assert_eq!(graph.neighbors("u").unwrap(), vec!["before", "after"]);
+            }
+        }
+    }
+
+    #[test]
+    fn multigraph_clear_and_node_removal_drop_edgeless_live_pairs() {
+        for remove_node in [false, true] {
+            let mut graph = MultiGraph::new(CompatibilityMode::Strict);
+            graph
+                .add_edge_with_key_and_attrs("u", "v", 7, AttrMap::new())
+                .unwrap();
+            graph
+                .add_edge_with_key_and_attrs("u", "u", 2, AttrMap::new())
+                .unwrap();
+            assert!(graph.remove_key_preserving_pair("u", "v", 7));
+            assert!(graph.remove_key_preserving_pair("u", "u", 2));
+            assert_eq!(graph.edge_count(), 0);
+            let mut copied = graph.clone();
+            copied.reorder_rows_for_nx_copy_walk();
+            assert_eq!(copied.edge_count(), 0);
+            assert!(!copied.has_edge("u", "v"));
+            assert!(!copied.has_edge("u", "u"));
+            assert!(copied.neighbors("u").unwrap().is_empty());
+            assert!(copied.neighbors("v").unwrap().is_empty());
+            assert!(graph.has_edge("u", "v"));
+            assert!(graph.has_edge("u", "u"));
+            if remove_node {
+                assert!(graph.remove_node("u"));
+                graph.add_node("u");
+            } else {
+                graph.clear_edges();
+            }
+            assert!(!graph.has_edge("u", "v"));
+            assert!(!graph.has_edge("u", "u"));
+            assert!(graph.neighbors("u").unwrap().is_empty());
+            assert!(graph.neighbors("v").unwrap().is_empty());
+            assert_eq!(graph.degree("u"), 0);
+            graph
+                .add_edge_with_key_and_attrs("u", "v", 7, AttrMap::new())
+                .unwrap();
+            assert_eq!(graph.edge_count(), 1);
+        }
+    }
+
+    /// br-r37-c1-19ngg: the compact key cells are Fx-hashed; their order must
+    /// stay insertion order (a pair's key order is what edges(keys=True) and
+    /// every keydict iterate) through the One -> Many promotion, a repeated
+    /// key, removals and re-insertion - never numeric or hash order.
+    #[test]
+    fn compact_key_cells_keep_insertion_order() {
+        use super::multigraph_storage::{CompactBucket, CompactKeys};
+
+        let inserted = [7_usize, 2, 9, 0, 5, 11, 3];
+        let mut keys = CompactKeys::One(inserted[0]);
+        let mut bucket = CompactBucket::One(inserted[0], AttrMap::new());
+        for &key in &inserted[1..] {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                "k".to_owned(),
+                CgseValue::Int(i64::try_from(key).expect("small key")),
+            );
+            assert!(keys.insert(key));
+            assert!(bucket.merge(key, attrs));
+        }
+        assert_eq!(keys.order(), inserted);
+        assert_eq!(bucket.key_order(), inserted);
+
+        // A repeated key is not new and moves nothing; its attrs merge in place.
+        let mut more = AttrMap::new();
+        more.insert("extra".to_owned(), CgseValue::Bool(true));
+        assert!(!keys.insert(9));
+        assert!(!bucket.merge(9, more));
+        assert_eq!(keys.order(), inserted);
+        assert_eq!(bucket.key_order(), inserted);
+        let merged = bucket.attrs_for(9).expect("key 9 is held");
+        assert_eq!(merged.get("k"), Some(&CgseValue::Int(9)));
+        assert_eq!(merged.get("extra"), Some(&CgseValue::Bool(true)));
+
+        // Removal keeps the rest in order; a key re-inserted goes to the end.
+        assert_eq!(keys.shift_remove(0), (true, false));
+        assert_eq!(bucket.shift_remove(0), (true, false));
+        assert!(keys.insert(0));
+        assert!(bucket.merge(0, AttrMap::new()));
+        assert_eq!(keys.order(), [7, 2, 9, 5, 11, 3, 0]);
+        assert_eq!(bucket.key_order(), [7, 2, 9, 5, 11, 3, 0]);
+    }
+
+    /// br-r37-c1-2ndmw: `has_edge_by_indices` must agree with the string path
+    /// for EVERY pair, including after removals move the positions away from the
+    /// slots.
+    ///
+    /// The implementation no longer resolves positions back to names; it
+    /// converts position to slot and probes the slot-keyed edge map directly.
+    /// That is only correct if the slot at a position is the slot the name at
+    /// that position maps to, which is an IndexMap invariant rather than
+    /// something this crate enforces — so it is asserted here exhaustively
+    /// rather than assumed, against the string lookup as the oracle.
+    #[test]
+    fn multigraph_has_edge_by_indices_matches_the_string_path_across_removals() {
+        let mut g = MultiGraph::new(CompatibilityMode::Strict);
+        let names: Vec<String> = (0..8).map(|i| format!("n{i}")).collect();
+        for name in &names {
+            g.add_node(name.as_str());
+        }
+        for (a, b) in [(0, 1), (2, 3), (3, 5), (5, 7), (0, 7), (4, 4)] {
+            g.add_edge(names[a].as_str(), names[b].as_str()).unwrap();
+        }
+
+        // Removals chosen to shift positions out from under the slots, plus a
+        // re-add so a reused slot is exercised too.
+        for step in 0..4 {
+            if step == 1 {
+                g.remove_node("n0");
+            }
+            if step == 2 {
+                g.remove_node("n4");
+            }
+            if step == 3 {
+                g.add_node("n8");
+                g.add_edge("n8", "n3").unwrap();
+            }
+            let live: Vec<String> = g.nodes_ordered().iter().map(|s| (*s).to_string()).collect();
+            for (li, left) in live.iter().enumerate() {
+                for (ri, right) in live.iter().enumerate() {
+                    let by_index = g.has_edge_by_indices(li, ri);
+                    let by_name = g.has_edge(left.as_str(), right.as_str());
+                    assert_eq!(
+                        by_index, by_name,
+                        "step {step}: has_edge_by_indices({li}, {ri}) disagreed with \
+                         has_edge({left:?}, {right:?})"
+                    );
+                }
+            }
+            // Out-of-range positions must answer false, not panic.
+            let n = live.len();
+            assert!(!g.has_edge_by_indices(n, 0));
+            assert!(!g.has_edge_by_indices(0, n + 50));
+        }
+    }
+
+    /// br-r37-c1-2ndmw: THE SLOT AND THE POSITION ARE DIFFERENT INDEX SPACES,
+    /// and confusing them is a silent wrong-answer bug rather than a type error.
+    ///
+    /// `MultiGraph::get_node_index` returns `node_order.get_index_of(name)` — a
+    /// POSITION in the IndexMap. `MgSlabStorage::has_edge_by_pair` is keyed on
+    /// `node_order.get(name)` — the stored SLOT. On a graph that has never had a
+    /// node removed these are equal, which is precisely what makes the confusion
+    /// dangerous: every fresh-graph test passes and the divergence only appears
+    /// after a removal, as a `false` from an edge that exists.
+    ///
+    /// WHY THIS TEST EXISTS. `MultiGraph::has_edge_by_indices` reads like an
+    /// O(1) index fast path — it is named like one and documented as a "Mirror
+    /// of `Graph::has_edge_by_indices`", which genuinely is one
+    /// (`edges.contains_key(&canon_pair)`). It is not. It resolves both indices
+    /// back to NAMES and calls the string `has_edge`, so it is O(node key
+    /// length). Anyone optimising the multigraph row probe will find the
+    /// slot-keyed `has_edge_by_pair`, reach for a cached `get_node_index`, and
+    /// ship a read that returns the wrong answer after any node removal. That
+    /// was attempted on this pane and stopped by this test.
+    ///
+    /// The assertions below pin all three facts: the positions move, the
+    /// position-keyed lookup is WRONG, and the slot-keyed lookup is RIGHT.
+    #[test]
+    fn multigraph_node_slot_and_position_are_distinct_index_spaces() {
+        let mut g = MultiGraph::new(CompatibilityMode::Strict);
+        for name in ["n0", "n1", "n2", "n3"] {
+            g.add_node(name);
+        }
+        g.add_edge("n2", "n3").unwrap();
+        assert!(g.has_edge("n2", "n3"));
+
+        // Before any removal the two spaces agree, which is the trap.
+        let pos_before = (g.get_node_index("n2"), g.get_node_index("n3"));
+        let slot_before = (
+            g.slab_store().node_slot("n2"),
+            g.slab_store().node_slot("n3"),
+        );
+        assert_eq!(
+            pos_before, slot_before,
+            "on a graph with no removals the position and the slot coincide — \
+             this is why confusing them survives fresh-graph testing"
+        );
+
+        g.remove_node("n0");
+
+        let (Some(p2), Some(p3)) = (g.get_node_index("n2"), g.get_node_index("n3")) else {
+            panic!("nodes vanished after removing an unrelated node");
+        };
+        let (Some(s2), Some(s3)) = (
+            g.slab_store().node_slot("n2"),
+            g.slab_store().node_slot("n3"),
+        ) else {
+            panic!("slots vanished after removing an unrelated node");
+        };
+
+        // The edge is untouched: only an unrelated node was removed.
+        assert!(
+            g.has_edge("n2", "n3"),
+            "removing an unrelated node must not remove this edge"
+        );
+
+        // The positions MOVED and the slots did not follow them.
+        assert_ne!(
+            (p2, p3),
+            (s2, s3),
+            "after a removal the position and slot spaces must diverge; if this \
+             ever holds, re-derive whether the fast path below is now safe"
+        );
+
+        // THE TRAP: position indices through the slot-keyed edge map are WRONG.
+        assert!(
+            !g.slab_store().has_edge_by_pair(p2, p3),
+            "position indices happened to answer correctly here — that is luck, \
+             not a contract; do not take it as licence to feed get_node_index() \
+             into has_edge_by_pair()"
+        );
+
+        // THE CORRECT SPACE: slots answer correctly.
+        assert!(
+            g.slab_store().has_edge_by_pair(s2, s3),
+            "slot indices must agree with the string lookup"
+        );
+    }
+
+    /// br-r37-c1-f3i50: two helpers on the SAME struct use DIFFERENT index
+    /// spaces, so you cannot infer the space from where a function lives.
+    ///
+    /// The test above pins that `MgSlabStorage::has_edge_by_pair` is SLOT-keyed.
+    /// `MgSlabStorage::node_index_matches_int` sits in the same `impl`, is named
+    /// in the same style, and is POSITION-keyed: it calls
+    /// `node_order.get_index(index)`, which is the IndexMap POSITION, not the
+    /// stored slot. So it composes correctly with `MultiGraph::get_node_index`
+    /// and would be WRONG to pair with `has_edge_by_pair`.
+    ///
+    /// I got this backwards first: the helper delegates to `slab_store()`, which
+    /// reads like slot territory, and I wrote the opposite assertion and watched
+    /// it fail. Reading the body is the only way to know. That is exactly why
+    /// this is pinned rather than left to the next reader's inference.
+    ///
+    /// SECOND FACT, and the one that bites: once a node is removed, name and
+    /// position stop agreeing for EVERY surviving node, so this predicate goes
+    /// uniformly false on a graph whose int nodes are all still present. A
+    /// caller treating it as "is int N in the graph" would answer no for nodes
+    /// that plainly exist.
+    #[test]
+    fn multigraph_node_index_matches_int_is_position_keyed_not_slot_keyed() {
+        let mut g = MultiGraph::new(CompatibilityMode::Strict);
+        for name in ["0", "1", "2", "3"] {
+            g.add_node(name);
+        }
+
+        // Fresh graph: name, position and slot all coincide — the trap state.
+        for idx in 0..4 {
+            assert!(
+                g.node_index_matches_int(idx),
+                "on a fresh graph int {idx} sits at position {idx}"
+            );
+            assert_eq!(g.get_node_index(&idx.to_string()), Some(idx));
+            assert_eq!(g.slab_store().node_slot(&idx.to_string()), Some(idx));
+        }
+
+        g.remove_node("0");
+
+        // Node "3" survives; its SLOT is unchanged and its POSITION has moved.
+        let slot_3 = g.slab_store().node_slot("3").expect("node 3 survives");
+        let pos_3 = g.get_node_index("3").expect("node 3 survives");
+        assert_eq!(slot_3, 3, "slots are stable across removals");
+        assert_eq!(pos_3, 2, "positions compact after a removal");
+        assert_ne!(slot_3, pos_3, "the two spaces have diverged");
+
+        // POSITION-KEYED: asking with the out-of-range slot is simply absent,
+        // which is what proves the argument is a position and not a slot — a
+        // slot-keyed predicate would have answered for the live node 3.
+        assert!(
+            !g.node_index_matches_int(slot_3),
+            "slot {slot_3} is past the end of a 3-node order, so a position-keyed              predicate reports absent; if this ever answers true the argument has              become slot-keyed and every caller must be re-derived"
+        );
+
+        // And the predicate is now uniformly false, because no surviving name
+        // equals its position — even though all three nodes are present.
+        for idx in 0..3 {
+            assert!(
+                !g.node_index_matches_int(idx),
+                "after the removal no name equals its position, so int {idx} must                  not report as sitting at position {idx}"
+            );
+            assert!(
+                g.has_node(&(idx + 1).to_string()),
+                "...while the node itself is still very much present"
+            );
+        }
+    }
+
+    use super::{AttrMap, Graph, GraphError, MultiGraph};
+    use fnx_runtime::{CgseValue, CompatibilityMode, DecisionAction, DecisionRecord};
+    use proptest::prelude::*;
+    use std::collections::BTreeSet;
+
+    /// br-r37-c1-addedgenewedge parity: the new_edge-gated adjacency push must never create a
+    /// duplicate adjacency entry, even under duplicate edges / self-loops / edges added in both
+    /// orientations. (The old `!adj_indices[..].contains(..)` guard prevented dups; the O(1)
+    /// `new_edge` flag must too, since adj-membership ⟺ edge existence.)
+    #[test]
+    fn add_edge_newedge_no_duplicate_adjacency() {
+        let mut g = Graph::strict();
+        let _ = g.add_edge("h", "a");
+        let _ = g.add_edge("h", "b");
+        let _ = g.add_edge("h", "a"); // exact duplicate
+        let _ = g.add_edge("a", "h"); // reversed duplicate
+        let _ = g.add_edge("s", "s"); // self-loop
+        let _ = g.add_edge("s", "s"); // duplicate self-loop
+        let n = g.node_count();
+        for i in 0..n {
+            if let Some(row) = g.neighbors_indices(i) {
+                let uniq: BTreeSet<usize> = row.iter().copied().collect();
+                assert_eq!(
+                    uniq.len(),
+                    row.len(),
+                    "node {i} has duplicate adjacency entries"
+                );
+            }
+        }
+        // Unique edges: h-a, h-b, s-s.
+        assert_eq!(
+            g.edge_count(),
+            3,
+            "duplicate/reversed adds must not create new edges"
+        );
+    }
+
+    /// br-r37-c1-addedgenewedge: paired-interleaved median A/B for the exact change — building a
+    /// high-degree hub's adjacency row. The OLD code guarded each push with
+    /// `adj_indices[hub].contains(&x)` (an O(row.len) linear rescan → O(n²) to build a star via
+    /// add_edge); the NEW code pushes on the O(1) `new_edge` flag → O(n). This isolates the two
+    /// changed lines; the rest of add_edge is O(1)/edge in both arms (so the full-function win is
+    /// this, diluted by that per-edge overhead). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib add_edge_newedge_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn add_edge_newedge_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 40000usize;
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut row: Vec<usize> = Vec::with_capacity(n);
+            for i in 0..n {
+                if use_new || !row.contains(&i) {
+                    row.push(i);
+                }
+            }
+            black_box(&row);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..2 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ADDEDGE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!("ADDEDGE_AB adj-row push n={n} rounds={rounds} (>1 = new_edge-flag faster)");
+        report("NEWEDGE_vs_contains", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-degselfloopidx: parity + paired-interleaved A/B for `degree_by_index` — the O(1)
+    /// `has_edge_by_indices(idx,idx)` self-loop check vs the pre-lever O(degree)
+    /// `adj_indices[idx].contains(&idx)` rescan, over a degree histogram of a dense graph. Byte-exact
+    /// parity (also vs the `&str` `degree`). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib degree_by_index_selfloop_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn degree_by_index_selfloop_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 20000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(format!("n{i}"));
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+            }
+        }
+        for i in (0..n).step_by(1000) {
+            let _ = g.add_edge(format!("n{i}"), format!("n{i}"));
+        }
+
+        // Byte-exact parity: new == old (row.contains) == the &str degree, incl. self-loop nodes.
+        for idx in 0..g.node_count() {
+            let new = g.degree_by_index(idx);
+            let old = g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx));
+            assert_eq!(new, old, "degree_by_index parity vs row.contains at {idx}");
+            assert_eq!(
+                new,
+                g.degree(&format!("n{idx}")),
+                "degree_by_index parity vs &str degree at {idx}"
+            );
+        }
+
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut sum = 0usize;
+            for idx in 0..g.node_count() {
+                sum += if use_new {
+                    g.degree_by_index(idx)
+                } else {
+                    g.adj_indices[idx].len() + usize::from(g.adj_indices[idx].contains(&idx))
+                };
+            }
+            black_box(sum);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "DEGIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "DEGIDX_AB degree histogram n={n} deg={deg} rounds={rounds} (>1 = O(1) has_edge faster)"
+        );
+        report("HASEDGE_vs_contains", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-isoedgecount: paired-interleaved A/B for the graph-isomorphism early-out edge
+    /// count check. `undirected_isomorphism_mappings` / `directed_isomorphism_mappings` (fnx-python,
+    /// reached by public `is_isomorphic`) compared edge COUNTS via `edges_ordered().len()`, which
+    /// materialises a full `Vec<EdgeSnapshot>` (two owned Strings per edge) only to read its length;
+    /// the O(1) `edge_count()` (== `self.edges.len()`) is byte-identical. This times the exact
+    /// early-out compare on the non-isomorphic same-node / different-edge case (where the check is
+    /// the dominant cost). Byte-exact parity asserted (`edge_count() == edges_ordered().len()`).
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib iso_edge_count_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn iso_edge_count_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 4000usize;
+        let deg = 25usize;
+        let build = |steps: usize| -> Graph {
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("n{i}"));
+            }
+            for i in 0..n {
+                for step in 1..=steps {
+                    let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + step) % n));
+                }
+            }
+            g
+        };
+        // Same node count, DIFFERENT edge count → the early-out returns at the edge-count compare.
+        let g1 = build(deg);
+        let g2 = build(deg - 1);
+
+        // Byte-exact parity: edge_count() must equal edges_ordered().len() for both graphs.
+        assert_eq!(
+            g1.edge_count(),
+            g1.edges_ordered().len(),
+            "edge_count parity g1"
+        );
+        assert_eq!(
+            g2.edge_count(),
+            g2.edges_ordered().len(),
+            "edge_count parity g2"
+        );
+        assert_ne!(
+            g1.edge_count(),
+            g2.edge_count(),
+            "workload must exercise the differing-count early-out"
+        );
+
+        let time = |use_new: bool| -> f64 {
+            let t0 = Instant::now();
+            let mut acc = 0usize;
+            for _ in 0..8 {
+                let differ = if use_new {
+                    g1.edge_count() != g2.edge_count()
+                } else {
+                    g1.edges_ordered().len() != g2.edges_ordered().len()
+                };
+                acc += usize::from(differ);
+            }
+            black_box(acc);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 41usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "ISOEDGE_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "ISOEDGE_AB same-node/different-edge early-out n={n} deg={deg} rounds={rounds} (>1 = edge_count faster)"
+        );
+        report("EDGECOUNT_vs_edgesordered", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-selfloopidx: paired-interleaved A/B for the `nodes_with_selfloops` per-node self-loop
+    /// probe (feeds `number_of_selfloops` / `selfloop_edges` / `nodes_with_selfloops`, many callers).
+    /// The kernel checked `has_edge(node, node)` — resolving BOTH `&str` endpoints via
+    /// `edge_pair_key` (two String-hash lookups per node) — vs the index probe
+    /// `has_edge_by_indices(i, i)` (a direct integer `canon_pair` + `contains_key`, no String
+    /// resolution). Byte-exact parity asserted (same self-loop node set). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib nodes_selfloop_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn nodes_selfloop_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // 40k nodes, ring-of-chords, NO self-loops (the common case: every node is probed and misses).
+        let n = 40_000usize;
+        let deg = 10usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
+            }
+        }
+
+        let names = g.nodes_ordered();
+        let old_scan =
+            |g: &Graph| -> usize { names.iter().filter(|&&node| g.has_edge(node, node)).count() };
+        let new_scan = |g: &Graph| -> usize {
+            (0..names.len())
+                .filter(|&i| g.has_edge_by_indices(i, i))
+                .count()
+        };
+        assert_eq!(
+            old_scan(&g),
+            new_scan(&g),
+            "nodes_with_selfloops parity (self-loop count)"
+        );
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let c = if cand { new_scan(&g) } else { old_scan(&g) };
+            black_box(c);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "SELFLOOPIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "SELFLOOPIDX_AB nodes_with_selfloops n={n} deg={deg} rounds={rounds} (>1 = index probe faster)"
+        );
+        report("HASEDGEIDX_vs_hasedge", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-numselfidx: paired-interleaved A/B for `number_of_selfloops` (feeds the is_planar
+    /// dense-graph `planarity_euler_reject` fast path). The kernel counted self-loops with
+    /// `edges_ordered().filter(|e| e.left == e.right).count()` — materialising a full
+    /// `Vec<EdgeSnapshot>` (two owned Strings + an attr clone PER edge) — vs the integer per-node
+    /// probe `(0..n).filter(|i| has_edge_by_indices(i, i)).count()` (no allocation). Byte-exact parity
+    /// asserted (same self-loop count). `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib number_of_selfloops_idx_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn number_of_selfloops_idx_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        // Dense-ish ring-of-chords, ~20k nodes * 20 = ~200k edges, no self-loops (the count is 0 and
+        // the old arm materialises the whole edge Vec anyway).
+        let n = 20_000usize;
+        let deg = 20usize;
+        let mut g = Graph::strict();
+        for i in 0..n {
+            let _ = g.add_node(i.to_string());
+        }
+        for i in 0..n {
+            for step in 1..=deg {
+                let _ = g.add_edge(i.to_string(), ((i + step) % n).to_string());
+            }
+        }
+
+        let old_count = |g: &Graph| -> usize {
+            g.edges_ordered()
+                .iter()
+                .filter(|e| e.left == e.right)
+                .count()
+        };
+        let new_count = |g: &Graph| -> usize {
+            (0..g.node_count())
+                .filter(|&i| g.has_edge_by_indices(i, i))
+                .count()
+        };
+        assert_eq!(old_count(&g), new_count(&g), "number_of_selfloops parity");
+
+        let time = |cand: bool| -> f64 {
+            let t0 = Instant::now();
+            let c = if cand { new_count(&g) } else { old_count(&g) };
+            black_box(c);
+            t0.elapsed().as_secs_f64()
+        };
+        for _ in 0..3 {
+            black_box(time(true));
+            black_box(time(false));
+        }
+        let median = |v: &[f64]| {
+            let mut s = v.to_vec();
+            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            s[s.len() / 2]
+        };
+        let rounds = 61usize;
+        let paired = |cand: bool, base: bool| -> Vec<f64> {
+            let mut v = Vec::with_capacity(rounds);
+            for r in 0..rounds {
+                let (tb, tc) = if r % 2 == 0 {
+                    let b = time(base);
+                    let c = time(cand);
+                    (b, c)
+                } else {
+                    let c = time(cand);
+                    let b = time(base);
+                    (b, c)
+                };
+                v.push(tb / tc);
+            }
+            v
+        };
+        let report = |name: &str, ratios: &[f64]| {
+            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
+            let mut sorted = ratios.to_vec();
+            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            println!(
+                "NUMSELFIDX_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
+                median(ratios),
+                sorted[rounds * 5 / 100],
+                sorted[rounds * 95 / 100],
+            );
+        };
+        println!(
+            "NUMSELFIDX_AB number_of_selfloops n={n} deg={deg} rounds={rounds} (>1 = index count faster)"
+        );
+        report("INDEXCOUNT_vs_edgesordered", &paired(true, false));
+        report("NULL_new_vs_new", &paired(true, true));
+    }
+
+    /// br-r37-c1-kneserpush parity: removing the redundant `adj_indices.contains` guards under the
+    /// `seen.insert(pair)` new-pair guard must keep the Kneser build byte-identical — correct
+    /// node/edge counts and NO duplicate adjacency entries. (Same lever + adj_indices.push operation
+    /// as br-r37-c1-addedgenewedge, whose A/B measured the O(degree)→O(1) win.)
+    #[test]
+    fn kneser_push_no_duplicate_adjacency() {
+        // Kneser(10,3): C(10,3)=120 nodes, degree C(7,3)=35, edges = 120*35/2 = 2100.
+        let g = Graph::kneser(CompatibilityMode::Strict, 10, 3);
+        assert_eq!(g.node_count(), 120, "C(10,3) nodes");
+        assert_eq!(g.edge_count(), 2100, "120*35/2 Kneser edges");
+        let mut total_deg = 0usize;
+        for (i, row) in g.adj_indices.iter().enumerate() {
+            let uniq: BTreeSet<usize> = row.iter().copied().collect();
+            assert_eq!(
+                uniq.len(),
+                row.len(),
+                "node {i} has duplicate adjacency entries"
+            );
+            assert_eq!(row.len(), 35, "Kneser(10,3) is 35-regular");
+            total_deg += row.len();
+        }
+        assert_eq!(total_deg, 2 * 2100, "handshake: sum of degrees == 2|E|");
+    }
+
+    fn node_name(id: u8) -> String {
+        format!("n{}", id % 8)
+    }
+
+    fn canonical_edge(left: &str, right: &str) -> (String, String) {
+        if left <= right {
+            (left.to_owned(), right.to_owned())
+        } else {
+            (right.to_owned(), left.to_owned())
+        }
+    }
+
+    /// br-r37-c1-thp6w slice 1 INVARIANT: the cached integer adjacency
+    /// (`with_int_adjacency`) must equal, byte-for-byte, a fresh derivation from the
+    /// authoritative stable-slot rows — row `i` == `[get_node_index(v) for v in
+    /// neighbors_iter(node_i)]` — for the CURRENT graph state. Because the memo is keyed on
+    /// `revision` + explicitly cleared by `apply_row_orders`, calling this after a mutation
+    /// (with a prior populating read) catches any mutation path that fails to invalidate.
+    fn assert_int_adjacency_matches(g: &MultiGraph) {
+        let expected: Vec<Vec<usize>> = g
+            .nodes_ordered()
+            .iter()
+            .map(|name| {
+                g.neighbors_iter(name).map_or_else(Vec::new, |it| {
+                    it.map(|v| g.get_node_index(v).unwrap()).collect()
+                })
+            })
+            .collect();
+        g.with_int_adjacency(|adj| {
+            assert_eq!(
+                adj,
+                expected.as_slice(),
+                "int adjacency must mirror the stable-slot rows exactly"
+            );
+        });
+    }
+
+    #[test]
+    fn thp6w_int_adjacency_invariant_across_mutations() {
+        let mut g = MultiGraph::strict();
+        for i in 0..8 {
+            g.add_node(format!("n{i}"));
+        }
+        // Edges incl. parallels and a self-loop.
+        let _ = g.add_edge("n0", "n1");
+        let _ = g.add_edge("n0", "n1"); // parallel
+        let _ = g.add_edge("n1", "n2");
+        let _ = g.add_edge("n2", "n3");
+        let _ = g.add_edge("n3", "n0");
+        let _ = g.add_edge("n4", "n4"); // self-loop
+        let _ = g.add_edge("n5", "n6");
+        // Populate the memo, then verify.
+        assert_int_adjacency_matches(&g);
+
+        // read-mutate-read for EACH mutation kind: a stale memo would fail the re-check.
+        // add_node
+        assert_int_adjacency_matches(&g);
+        g.add_node("n9");
+        assert_int_adjacency_matches(&g);
+        // add_edge (new neighbor -> row grows)
+        assert_int_adjacency_matches(&g);
+        let _ = g.add_edge("n9", "n0");
+        assert_int_adjacency_matches(&g);
+        // parallel add_edge (row unchanged, content bumps revision)
+        assert_int_adjacency_matches(&g);
+        let _ = g.add_edge("n9", "n0");
+        assert_int_adjacency_matches(&g);
+        // remove one parallel edge (row must stay; neighbor still present)
+        assert_int_adjacency_matches(&g);
+        assert!(g.remove_edge("n0", "n1", None));
+        assert_int_adjacency_matches(&g);
+        // remove last edge of a pair (neighbor drops from both rows)
+        assert_int_adjacency_matches(&g);
+        assert!(g.remove_edge("n5", "n6", None));
+        assert_int_adjacency_matches(&g);
+        // remove_node (renumber: indices shift down)
+        assert_int_adjacency_matches(&g);
+        assert!(g.remove_node("n2"));
+        assert_int_adjacency_matches(&g);
+        // ORDER-ONLY change via the copy walk reorder (does NOT bump revision — the
+        // apply_row_orders cache-clear is what keeps this correct).
+        assert_int_adjacency_matches(&g);
+        g.reorder_rows_for_nx_copy_walk();
+        assert_int_adjacency_matches(&g);
+        // clear_edges
+        assert_int_adjacency_matches(&g);
+        g.clear_edges();
+        assert_int_adjacency_matches(&g);
+    }
+
+    #[test]
+    fn reorder_rows_like_restores_the_source_rows() {
+        // source rows: x [c, a, b], c [x, b], a [x, b], b [x, a, c]
+        let mut source = Graph::strict();
+        for (u, v) in [("x", "c"), ("x", "a"), ("x", "b"), ("a", "b"), ("c", "b")] {
+            let _ = source.add_edge(u, v);
+        }
+        // A copy-shaped rebuild over the node order [a, b, c, x] fills each
+        // row in edge-walk order: a [x, b], b [a, x, c], c [b, x],
+        // x [a, b, c]; plus an edge the source lacks.
+        let mut copy = Graph::strict();
+        for node in ["a", "b", "c", "x", "y"] {
+            let _ = copy.add_node(node);
+        }
+        for (u, v) in [
+            ("a", "x"),
+            ("a", "b"),
+            ("b", "x"),
+            ("b", "c"),
+            ("c", "x"),
+            ("x", "y"),
+        ] {
+            let _ = copy.add_edge(u, v);
+        }
+        assert_eq!(copy.neighbors("b"), Some(vec!["a", "x", "c"]));
+        let before = copy.revision;
+        copy.reorder_rows_like(&source);
+        assert_eq!(copy.neighbors("a"), Some(vec!["x", "b"]));
+        assert_eq!(copy.neighbors("b"), Some(vec!["x", "a", "c"]));
+        assert_eq!(copy.neighbors("c"), Some(vec!["x", "b"]));
+        // The unmatched neighbour keeps its place after the matched ones.
+        assert_eq!(copy.neighbors("x"), Some(vec!["c", "a", "b", "y"]));
+        assert_eq!(copy.neighbors("y"), Some(vec!["x"]));
+        assert!(copy.revision > before, "a moved row must bump the revision");
+        let after = copy.revision;
+        copy.reorder_rows_like(&source);
+        assert_eq!(copy.revision, after, "an ordered graph is left alone");
+        assert_eq!(copy.edge_count(), 6);
+    }
+
+    #[test]
+    fn set_row_orders_takes_permutations_only_and_all_or_nothing() {
+        let mut g = Graph::strict();
+        for (u, v) in [("a", "b"), ("a", "c"), ("b", "c")] {
+            let _ = g.add_edge(u, v);
+        }
+        // positions: a 0, b 1, c 2
+        assert!(g.set_row_orders(&[vec![2, 1], vec![2, 0], vec![1, 0]]));
+        assert_eq!(g.neighbors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.neighbors("b"), Some(vec!["c", "a"]));
+        assert_eq!(g.neighbors("c"), Some(vec!["b", "a"]));
+        let before = g.revision;
+        // Row b names a node twice (not a permutation): nothing moves, not
+        // even row a, which alone would have been valid.
+        assert!(!g.set_row_orders(&[vec![1, 2], vec![2, 2], vec![0, 1]]));
+        // A missing row, a short row, a position past the end.
+        assert!(!g.set_row_orders(&[vec![1, 2], vec![0, 2]]));
+        assert!(!g.set_row_orders(&[vec![1], vec![0, 2], vec![0, 1]]));
+        assert!(!g.set_row_orders(&[vec![1, 7], vec![0, 2], vec![0, 1]]));
+        assert_eq!(g.neighbors("a"), Some(vec!["c", "b"]));
+        assert_eq!(g.revision, before);
+    }
+
+    #[test]
+    fn multigraph_reorder_rows_like_restores_the_source_rows() {
+        // br-r37-c1-36v6r: source row x [c, a, b]; the pair x-a has two keys.
+        let mut source = MultiGraph::strict();
+        for (u, v) in [("x", "c"), ("x", "a"), ("x", "b"), ("x", "a")] {
+            let _ = source.add_edge(u, v);
+        }
+        // A copy-shaped rebuild over [a, b, c, x, y] fills row x in walk
+        // order, plus a neighbour the source lacks.
+        let mut copy = MultiGraph::strict();
+        for node in ["a", "b", "c", "x", "y"] {
+            let _ = copy.add_node(node);
+        }
+        for (u, v) in [("a", "x"), ("a", "x"), ("b", "x"), ("c", "x"), ("x", "y")] {
+            let _ = copy.add_edge(u, v);
+        }
+        assert_eq!(copy.neighbors("x"), Some(vec!["a", "b", "c", "y"]));
+        assert_int_adjacency_matches(&copy); // warms the int-adjacency memo
+        copy.reorder_rows_like(&source);
+        // The unmatched neighbour keeps its place after the matched ones;
+        // the keyed cell moves with its neighbour.
+        assert_eq!(copy.neighbors("x"), Some(vec!["c", "a", "b", "y"]));
+        assert_eq!(copy.neighbors("a"), Some(vec!["x"]));
+        assert_eq!(copy.edge_keys("x", "a"), Some(vec![0, 1]));
+        assert_eq!(copy.edge_count(), 5);
+        // The memo is rebuilt from the reordered rows, not served stale.
+        assert_int_adjacency_matches(&copy);
+    }
+
+    /// br-r37-c1-thp6w S4: the memo is keyed at the CURRENT revision without any
+    /// intervening read — i.e. the mutation advanced it in place rather than
+    /// leaving it stale for the next `with_int_adjacency` rebuild.
+    fn int_adj_memo_is_warm(g: &MultiGraph) -> bool {
+        g.int_adj_cache
+            .0
+            .read()
+            .expect("int_adj_cache poisoned")
+            .as_ref()
+            .is_some_and(|(rev, _)| *rev == g.revision)
+    }
+
+    /// br-r37-c1-thp6w S4 INVARIANT: single-edge `add_edge`/`remove_edge` must
+    /// ADVANCE a warm integer-adjacency memo across the mutation (no rebuild),
+    /// and the advanced rows must equal a fresh derivation from the String
+    /// adjacency after every step. Unhandled mutation kinds (`remove_node`)
+    /// must still leave the memo stale so the lazy rebuild path takes over.
+    #[test]
+    fn thp6w_s4_single_edge_mutations_advance_warm_memo() {
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        assert_int_adjacency_matches(&g); // populate the memo
+
+        // new neighbor with an auto-created right endpoint
+        let _ = g.add_edge("b", "c");
+        assert!(
+            int_adj_memo_is_warm(&g),
+            "add_edge must advance, not invalidate"
+        );
+        assert_int_adjacency_matches(&g);
+        // both endpoints auto-created
+        let _ = g.add_edge("d", "e");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // self-loop on an auto-created node
+        let _ = g.add_edge("f", "f");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // parallel edge: rows unchanged, revision bumps -> re-key only
+        let _ = g.add_edge("a", "b");
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // attr-only change on an existing key: rows unchanged, revision bumps
+        let mut attrs = AttrMap::new();
+        attrs.insert("w".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attrs);
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // remove one parallel key (pair survives -> rows unchanged)
+        assert!(g.remove_edge("a", "b", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // remove the last key (pair gone -> shift-remove mirrored in the rows)
+        assert!(g.remove_edge("a", "b", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // order-sensitive middle-of-row removal: row b = [a-gone..., c, ...]; build
+        // b->x, b->y then drop (b,c) so the survivors must keep String-row order.
+        let _ = g.add_edge("b", "x");
+        let _ = g.add_edge("b", "y");
+        assert!(g.remove_edge("b", "c", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // self-loop removal
+        assert!(g.remove_edge("f", "f", None));
+        assert!(int_adj_memo_is_warm(&g));
+        assert_int_adjacency_matches(&g);
+        // unhandled mutation kind: remove_node renumbers -> memo must go stale
+        assert!(g.remove_node("x"));
+        assert!(
+            !int_adj_memo_is_warm(&g),
+            "remove_node stays invalidate-only; a warm memo here would serve stale indices"
+        );
+        assert_int_adjacency_matches(&g);
+    }
+
+    /// br-r37-c1-thp6w S5 PARITY GATES: the index-keyed prototype must derive
+    /// byte-identical observable orderings (node order, per-row distinct-
+    /// neighbor order, per-pair parallel-key order) and identical edge count +
+    /// merged attrs from the same insert stream as the real String-keyed
+    /// MultiGraph batch path. The stream deliberately includes names where
+    /// String-lex and index canonicalization DIVERGE ("10" < "2" lex, 2 < 10
+    /// numeric), reversed re-adds, self-loops, sparse explicit keys, dup
+    /// (pair, key) attr merges, and late out-of-order node introduction.
+    #[test]
+    fn thp6w_s5_int_storage_proto_parity_gates() {
+        use super::multigraph_storage::MgIntStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1), // reversed orientation, same pair, next key
+            ("1", "1", 0),  // self-loop on a fresh node
+            ("2", "3", 0),
+            ("3", "2", 0), // dup (pair, key) from the reverse orientation -> attr merge
+            ("10", "1", 5), // sparse explicit key
+            ("0", "2", 0), // node "0" introduced late (insertion order != numeric)
+            ("2", "10", 1), // dup (pair, key) again -> attr merge
+            ("4", "5", 2),
+            ("5", "4", 0), // parallel keys, both orientations
+            ("1", "1", 1), // parallel self-loop key
+        ];
+        let attrs_for = |i: usize| {
+            let mut attrs = AttrMap::new();
+            attrs.insert(
+                format!("a{}", i % 3),
+                fnx_runtime::CgseValue::Int(i64::try_from(i).unwrap()),
+            );
+            attrs
+        };
+
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .enumerate()
+                .map(|(i, (l, r, k))| ((*l).to_owned(), (*r).to_owned(), *k, attrs_for(i))),
+        );
+        let mut proto = MgIntStorageProto::new();
+        for (i, (l, r, k)) in stream.iter().enumerate() {
+            proto.add_keyed_edge(l, r, *k, attrs_for(i));
+        }
+        // br-r37-c1-thp6w S6: the compact-bucket variant must pass the same gates.
+        let mut compact = super::multigraph_storage::MgIntStorageProtoCompact::new();
+        for (i, (l, r, k)) in stream.iter().enumerate() {
+            compact.add_keyed_edge(l, r, *k, attrs_for(i));
+        }
+
+        // Gate 1: node insertion order.
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "node order must match"
+        );
+        assert_eq!(
+            compact
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "compact node order must match"
+        );
+        // Gate 2 + 3: per-row distinct-neighbor order and per-pair key order.
+        for (i, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(proto.neighbor_names(i), mg_row, "row order for node {name}");
+            assert_eq!(
+                compact.neighbor_names(i),
+                mg_row,
+                "compact row order for node {name}"
+            );
+            for v in &mg_row {
+                assert_eq!(
+                    proto.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "key order for pair ({name}, {v})"
+                );
+                assert_eq!(
+                    compact.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "compact key order for pair ({name}, {v})"
+                );
+            }
+        }
+        // Gate 4: edge count.
+        assert_eq!(proto.edge_count, mg.edge_count(), "edge_count must match");
+        assert_eq!(
+            compact.edge_count,
+            mg.edge_count(),
+            "compact edge_count must match"
+        );
+        // Gate 5: merged attrs on a dup-inserted cell ((2,10) key 1 saw inserts
+        // at stream positions 1 and 7 -> extend semantics on both sides).
+        let l = *proto.node_index.get("2").expect("proto must retain node 2");
+        let r = *proto
+            .node_index
+            .get("10")
+            .expect("proto must retain node 10");
+        let proto_attrs = proto.edges[&(l.min(r), l.max(r))]
+            .get(&1)
+            .expect("proto (2,10,1) cell");
+        assert_eq!(
+            Some(proto_attrs),
+            mg.edge_attrs("2", "10", 1),
+            "merged attrs on the dup (pair, key) cell must match"
+        );
+        assert_eq!(
+            compact.edges[&(l.min(r), l.max(r))].attrs_for(1),
+            mg.edge_attrs("2", "10", 1),
+            "compact merged attrs on the dup (pair, key) cell must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S7 helper: full observable-order parity between the
+    /// real MultiGraph and the index-keyed prototype, plus the prototype's own
+    /// name->index consistency (the renumber invariant).
+    fn assert_proto_matches_mg(
+        mg: &MultiGraph,
+        proto: &super::multigraph_storage::MgIntStorageProto,
+    ) {
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg.nodes_ordered(),
+            "node order"
+        );
+        for (i, name) in proto.node_names.iter().enumerate() {
+            assert_eq!(
+                proto.node_index.get(name),
+                Some(&i),
+                "node_index desync for {name}"
+            );
+        }
+        for (i, name) in mg.nodes_ordered().iter().enumerate() {
+            let mg_row: Vec<&str> = mg
+                .neighbors_iter(name)
+                .map_or_else(Vec::new, Iterator::collect);
+            assert_eq!(proto.neighbor_names(i), mg_row, "row order for {name}");
+            for v in &mg_row {
+                assert_eq!(
+                    proto.key_order(name, v),
+                    mg.edge_keys_vec(name, v),
+                    "key order for ({name}, {v})"
+                );
+            }
+        }
+        assert_eq!(proto.edge_count, mg.edge_count(), "edge_count");
+    }
+
+    /// br-r37-c1-thp6w S7 PARITY GAUNTLET (removal + renumber): the epoch's
+    /// riskiest semantics — `remove_edge` shift/`next_back` behavior and the
+    /// `remove_node` index renumber — must keep every observable ordering
+    /// byte-identical to the real String-keyed MultiGraph after EVERY step,
+    /// including re-adds AFTER a renumber (stale-index detection).
+    #[test]
+    fn thp6w_s7_removal_renumber_parity_gauntlet() {
+        use super::multigraph_storage::MgIntStorageProto;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("3", "2", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("2", "10", 1),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("1", "1", 1),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut proto = MgIntStorageProto::new();
+        for (l, r, k) in &stream {
+            proto.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_proto_matches_mg(&mg, &proto);
+
+        // key=None must pick the LAST bucket key (next_back): (4,5) keys are
+        // [2, 0] in insertion order -> removes 0, survivor [2].
+        assert_eq!(
+            mg.remove_edge("4", "5", None),
+            proto.remove_edge("4", "5", None)
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Partial removal of a parallel bundle: survivor key order preserved.
+        assert_eq!(
+            mg.remove_edge("2", "10", Some(0)),
+            proto.remove_edge("2", "10", Some(0))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Last key of the pair -> neighbor cell drops from both rows.
+        assert_eq!(
+            mg.remove_edge("2", "10", None),
+            proto.remove_edge("2", "10", None)
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Self-loop partial removal.
+        assert_eq!(
+            mg.remove_edge("1", "1", Some(0)),
+            proto.remove_edge("1", "1", Some(0))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+        // Missing pair / missing key: both sides must refuse identically.
+        assert_eq!(
+            mg.remove_edge("0", "10", None),
+            proto.remove_edge("0", "10", None)
+        );
+        assert_eq!(
+            mg.remove_edge("2", "3", Some(9)),
+            proto.remove_edge("2", "3", Some(9))
+        );
+        assert_proto_matches_mg(&mg, &proto);
+
+        // THE renumber: remove a mid-order node with live edges.
+        assert_eq!(mg.remove_node("2"), proto.remove_node("2"));
+        assert_proto_matches_mg(&mg, &proto);
+        // Re-adds AFTER the renumber: fresh node + edges into shifted indices.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("3".to_owned(), "99".to_owned(), 0, AttrMap::new()),
+            ("0".to_owned(), "3".to_owned(), 0, AttrMap::new()),
+        ]);
+        proto.add_keyed_edge("3", "99", 0, AttrMap::new());
+        proto.add_keyed_edge("0", "3", 0, AttrMap::new());
+        assert_proto_matches_mg(&mg, &proto);
+        // Renumber again from the other end, then the self-loop node.
+        assert_eq!(mg.remove_node("10"), proto.remove_node("10"));
+        assert_proto_matches_mg(&mg, &proto);
+        assert_eq!(mg.remove_node("1"), proto.remove_node("1"));
+        assert_proto_matches_mg(&mg, &proto);
+        // Removing a missing node refuses identically.
+        assert_eq!(mg.remove_node("2"), proto.remove_node("2"));
+        assert_proto_matches_mg(&mg, &proto);
+    }
+
+    /// br-r37-c1-thp6w S8 A/B: the flip's COST side — `remove_node` under the
+    /// index layout pays the d58s8 positional renumber (O(V+E) per removal:
+    /// row drop+decrement passes + full edges-map rebuild) where the current
+    /// String store pays only O(V + degree) (shift_remove memmoves, no edge
+    /// rekey). Same build stream, same 200-name removal sequence, removal
+    /// phase timed alone, paired-interleaved with a null arm. This number
+    /// decides whether the real flip needs the slab/stable-slot + tombstone
+    /// node store (see the bead's S8 design note) instead of positional
+    /// renumber.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s8_removal_cost_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s8_removal_cost_ab() {
+        use super::multigraph_storage::MgIntStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+        let victims: Vec<String> = (0..n).step_by(100).map(|i| i.to_string()).collect();
+
+        let time_current_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut g = MultiGraph::strict();
+            let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(g.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(g.edge_count());
+            dt
+        };
+        let time_proto_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(proto.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(proto.edge_count);
+            dt
+        };
+
+        // Post-removal structural agreement (once, outside timing).
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let mut proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        for name in &victims {
+            assert!(g.remove_node(name));
+            assert!(proto.remove_node(name));
+        }
+        assert_eq!(
+            proto.edge_count,
+            g.edge_count(),
+            "removal arms diverged in edge_count"
+        );
+        assert_eq!(
+            proto
+                .node_names
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            g.nodes_ordered(),
+            "removal arms diverged in node order"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut pro, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..7 {
+            cur.push(time_current_removals(&stream));
+            pro.push(time_proto_removals(&stream));
+            nul.push(time_current_removals(&stream));
+        }
+        // br-r37-c1-thp6w S9: slab arm — must be ~parity with the String store.
+        let time_slab_removals = |stream: &[(usize, usize, usize)]| -> f64 {
+            let mut slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let t0 = Instant::now();
+            for name in &victims {
+                assert!(slab.remove_node(name));
+            }
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(slab.edge_count);
+            dt
+        };
+        let mut g2 = MultiGraph::strict();
+        let _ = g2.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let mut slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        for name in &victims {
+            assert!(g2.remove_node(name));
+            assert!(slab.remove_node(name));
+        }
+        assert_eq!(
+            slab.edge_count,
+            g2.edge_count(),
+            "slab removal arm diverged in edge_count"
+        );
+        assert_eq!(
+            slab.node_order
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            g2.nodes_ordered(),
+            "slab removal arm diverged in node order"
+        );
+        let mut sla = Vec::new();
+        for _ in 0..7 {
+            sla.push(time_slab_removals(&stream));
+        }
+        let msl = median(&mut sla);
+
+        let (mc, mp, mn) = (median(&mut cur), median(&mut pro), median(&mut nul));
+        println!(
+            "THP6W_S8_REMOVAL_AB n={n} m={} removals={} current={mc:.6}s proto_renumber={mp:.6}s slab={msl:.6}s ratio_proto_over_current={:.3} ratio_slab_over_current={:.3} null={:.3}",
+            stream.len(),
+            victims.len(),
+            mp / mc,
+            msl / mc,
+            mc / mn,
+        );
+    }
+
+    /// br-r37-c1-thp6w S9 helper: full observable-order parity between the
+    /// real MultiGraph and the slab prototype (order from `node_order`, rows
+    /// resolved slot -> name), plus slab self-consistency (live slots named,
+    /// free slots tombstoned).
+    fn assert_slab_matches_mg(mg: &MultiGraph, slab: &super::multigraph_storage::MgSlabStorage) {
+        let mg_node_order = mg.nodes_ordered();
+        assert_eq!(
+            slab.node_order
+                .keys()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            mg_node_order,
+            "slab node order"
+        );
+        for (name, slot) in slab.node_order.iter() {
+            assert_eq!(
+                slab.node_order.name(slot),
+                Some(name.as_str()),
+                "slot names desync for {name}"
+            );
+        }
+        for &free in slab.node_order.free_slots() {
+            assert!(
+                slab.node_order.name(free).is_none(),
+                "free slot {free} still named"
+            );
+            assert!(slab.rows[free].is_empty(), "free slot {free} has row cells");
+            assert!(
+                slab.node_attrs[free].is_empty(),
+                "free slot {free} still has node attrs"
+            );
+        }
+        for &name in &mg_node_order {
+            assert_eq!(
+                slab.node_attrs_for(name),
+                mg.node_attrs(name),
+                "slab node attrs for {name}"
+            );
+        }
+        for (pos, &name) in mg_node_order.iter().enumerate() {
+            let mg_row = mg.neighbors(name).unwrap_or_default();
+            assert_eq!(
+                slab.neighbor_names(pos),
+                mg_row,
+                "slab row order for {name}"
+            );
+            for &v in &mg_row {
+                let mg_keys = mg.edge_keys_vec(name, v);
+                assert_eq!(
+                    slab.key_order(name, v),
+                    mg_keys,
+                    "slab key order for ({name}, {v})"
+                );
+            }
+        }
+        assert_eq!(slab.edge_count, mg.edge_count, "slab edge_count");
+    }
+
+    /// br-r37-c1-thp6w S9 PARITY GAUNTLET (slab + slot recycling): the
+    /// S8-mandated layout must stay byte-identical to the real MultiGraph
+    /// through the S7 removal shapes AND the slab-specific hazards — slot
+    /// reuse after removal (fresh name AND the removed name re-added must
+    /// append at the END of node order with no phantom edges from the slot's
+    /// previous occupant).
+    #[test]
+    fn thp6w_s9_slab_recycling_parity_gauntlet() {
+        use super::multigraph_storage::MgSlabStorage;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("3", "2", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("2", "10", 1),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("1", "1", 1),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut slab = MgSlabStorage::new();
+        for (l, r, k) in &stream {
+            slab.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_slab_matches_mg(&mg, &slab);
+
+        // S7 removal shapes.
+        assert_eq!(
+            mg.remove_edge("4", "5", None),
+            slab.remove_edge("4", "5", None)
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("2", "10", Some(0)),
+            slab.remove_edge("2", "10", Some(0))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("2", "10", None),
+            slab.remove_edge("2", "10", None)
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("1", "1", Some(0)),
+            slab.remove_edge("1", "1", Some(0))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(
+            mg.remove_edge("0", "10", None),
+            slab.remove_edge("0", "10", None)
+        );
+        assert_eq!(
+            mg.remove_edge("2", "3", Some(9)),
+            slab.remove_edge("2", "3", Some(9))
+        );
+        assert_slab_matches_mg(&mg, &slab);
+
+        // Tombstone a mid-order node with live parallel edges...
+        assert_eq!(mg.remove_node("2"), slab.remove_node("2"));
+        assert_slab_matches_mg(&mg, &slab);
+        // ...then RECYCLE its slot with a FRESH name: must append at the END
+        // of node order and carry no phantom adjacency from the old occupant.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "fresh".to_owned(),
+            "3".to_owned(),
+            0,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("fresh", "3", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        // ...and re-add the REMOVED name too (recycles another slot or a fresh
+        // one; order must be append-at-end either way).
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "2".to_owned(),
+            "fresh".to_owned(),
+            7,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("2", "fresh", 7, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        // Remove the recycled node again (double-recycle path).
+        assert_eq!(mg.remove_node("fresh"), slab.remove_node("fresh"));
+        assert_slab_matches_mg(&mg, &slab);
+        // Self-loop node and end nodes.
+        assert_eq!(mg.remove_node("1"), slab.remove_node("1"));
+        assert_slab_matches_mg(&mg, &slab);
+        assert_eq!(mg.remove_node("10"), slab.remove_node("10"));
+        assert_slab_matches_mg(&mg, &slab);
+        // Missing-node refusal parity.
+        assert_eq!(mg.remove_node("gone"), slab.remove_node("gone"));
+        assert_slab_matches_mg(&mg, &slab);
+    }
+
+    /// br-r37-c1-thp6w S10 helper: the ONLY observed edge order — walk-order
+    /// emission with String-lex canonical orientation — must be byte-identical
+    /// between the real MultiGraph and the slab layout.
+    fn assert_slab_edges_ordered_matches_mg(
+        mg: &MultiGraph,
+        slab: &super::multigraph_storage::MgSlabStorage,
+    ) {
+        let mg_ordered: Vec<(&str, &str, usize)> = mg
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(l, r, k, _)| (l, r, k))
+            .collect();
+        assert_eq!(
+            slab.edges_ordered_names(),
+            mg_ordered,
+            "edges_ordered walk emission must match"
+        );
+        // br-r37-c1-thp6w S12: the attrs-carrying walk must match in FULL,
+        // including per-cell attr payloads.
+        assert_eq!(
+            slab.edges_ordered_borrowed(),
+            mg.edges_ordered_borrowed(),
+            "attrs-carrying edges_ordered walk must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S10 PARITY GAUNTLET (copy-walk reorder + snapshot
+    /// orientation): the two remaining tie-break axes for the real flip.
+    /// `edges_ordered` (walk emission with lex-canonical orientation) and
+    /// `reorder_rows_for_nx_copy_walk` (the MultiGraph.copy row-order
+    /// contract) must stay byte-identical through reorders, post-reorder
+    /// mutations, removals, and slot recycling.
+    #[test]
+    fn thp6w_s10_copy_walk_and_snapshot_orientation_gauntlet() {
+        use super::multigraph_storage::MgSlabStorage;
+
+        let stream: Vec<(&str, &str, usize)> = vec![
+            ("2", "10", 0),
+            ("10", "2", 1),
+            ("1", "1", 0),
+            ("2", "3", 0),
+            ("10", "1", 5),
+            ("0", "2", 0),
+            ("4", "5", 2),
+            ("5", "4", 0),
+            ("3", "0", 0),
+            ("1", "1", 1),
+            ("5", "0", 3),
+        ];
+        let mut mg = MultiGraph::strict();
+        let _ = mg.extend_keyed_edges_with_attrs_unrecorded(
+            stream
+                .iter()
+                .map(|(l, r, k)| ((*l).to_owned(), (*r).to_owned(), *k, AttrMap::new())),
+        );
+        let mut slab = MgSlabStorage::new();
+        for (l, r, k) in &stream {
+            slab.add_keyed_edge(l, r, *k, AttrMap::new());
+        }
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // THE copy-walk reorder (MultiGraph.copy row-order contract).
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Reorder must be idempotent on both sides.
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Post-reorder mutations: new edges append after the reordered cells.
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("0".to_owned(), "9".to_owned(), 0, AttrMap::new()),
+            ("9".to_owned(), "2".to_owned(), 0, AttrMap::new()),
+        ]);
+        slab.add_keyed_edge("0", "9", 0, AttrMap::new());
+        slab.add_keyed_edge("9", "2", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+
+        // Removal + slot recycling, then reorder AGAIN on the recycled state.
+        assert_eq!(mg.remove_node("2"), slab.remove_node("2"));
+        mg.extend_keyed_edges_with_attrs_unrecorded(vec![(
+            "fresh".to_owned(),
+            "9".to_owned(),
+            0,
+            AttrMap::new(),
+        )]);
+        slab.add_keyed_edge("fresh", "9", 0, AttrMap::new());
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+        mg.reorder_rows_for_nx_copy_walk();
+        slab.reorder_rows_for_nx_copy_walk();
+        assert_slab_matches_mg(&mg, &slab);
+        assert_slab_edges_ordered_matches_mg(&mg, &slab);
+    }
+
+    /// br-r37-c1-thp6w S12 A/B: the `edges_ordered_borrowed` read on the
+    /// String store (per-cell `EdgeKeyRef` String-pair hashing + String-pair
+    /// seen-set probes) vs the slab walk (usize hashing throughout). Same
+    /// graph state on both sides (slab via `from_string_state`), full-output
+    /// equality asserted outside timing, paired-interleaved with a null arm.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s12_edges_ordered_read_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s12_edges_ordered_read_ab() {
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let slab = g.storage.clone();
+        assert_eq!(
+            slab.edges_ordered_borrowed(),
+            g.edges_ordered_borrowed(),
+            "arms must emit identical sequences"
+        );
+
+        let time_string = || -> f64 {
+            let t0 = Instant::now();
+            let out = g.edges_ordered_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let time_slab = || -> f64 {
+            let t0 = Instant::now();
+            let out = slab.edges_ordered_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut sla, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_string());
+            sla.push(time_slab());
+            nul.push(time_string());
+        }
+        let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
+        println!(
+            "THP6W_S12_EDGES_ORDERED_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
+            stream.len(),
+            mc / ms,
+            mc / mn,
+        );
+    }
+
+    /// br-r37-c1-thp6w S13 A/B: the INDEX-space `edges_ordered_indices_borrowed`
+    /// read — String store (per-edge `nodes.get_index_of` String hash + `EdgeKey`
+    /// pair hash) vs the slab (hash-free `slot->position` array + usize walk).
+    /// Same graph state, output equality asserted outside timing, paired-
+    /// interleaved with a null arm.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s13_edges_ordered_indices_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s13_edges_ordered_indices_ab() {
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let slab = g.storage.clone();
+        assert_eq!(
+            slab.edges_ordered_indices_borrowed(),
+            g.edges_ordered_indices_borrowed(),
+            "arms must emit identical index sequences"
+        );
+
+        let time_string = || -> f64 {
+            let t0 = Instant::now();
+            let out = g.edges_ordered_indices_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let time_slab = || -> f64 {
+            let t0 = Instant::now();
+            let out = slab.edges_ordered_indices_borrowed();
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(out.len());
+            dt
+        };
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut sla, mut nul) = (Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_string());
+            sla.push(time_slab());
+            nul.push(time_string());
+        }
+        let (mc, ms, mn) = (median(&mut cur), median(&mut sla), median(&mut nul));
+        println!(
+            "THP6W_S13_EDGES_ORDERED_INDICES_AB n={n} m={} string={mc:.6}s slab={ms:.6}s ratio_string_over_slab={:.3} null={:.3}",
+            stream.len(),
+            mc / ms,
+            mc / mn,
+        );
+    }
+
+    fn assert_multigraph_storage_invariants(graph: &MultiGraph) {
+        let storage = &graph.storage;
+        assert_eq!(storage.node_order.slot_count(), storage.node_attrs.len());
+        assert_eq!(storage.node_order.slot_count(), storage.rows.len());
+        assert_eq!(graph.edge_count, storage.edge_count);
+        assert_eq!(
+            storage.edge_count,
+            storage
+                .edges
+                .values()
+                .map(super::multigraph_storage::CompactBucket::len)
+                .sum::<usize>()
+        );
+
+        let mut live_slots = vec![false; storage.node_order.slot_count()];
+        for (position, (name, slot)) in storage.node_order.iter().enumerate() {
+            assert!(!live_slots[slot], "slot {slot} is assigned twice");
+            live_slots[slot] = true;
+            assert_eq!(storage.node_order.name(slot), Some(name.as_str()));
+            // yr2oc.1: every positional reader agrees with the order walk.
+            assert_eq!(graph.get_node_index(name), Some(position));
+            assert_eq!(graph.get_node_name(position), Some(name.as_str()));
+            assert_eq!(storage.slot_at_position(position), Some(slot));
+        }
+        assert_eq!(
+            live_slots.iter().filter(|&&live| live).count(),
+            graph.node_count()
+        );
+        assert_eq!(graph.get_node_name(graph.node_count()), None);
+        assert_eq!(storage.slot_at_position(graph.node_count()), None);
+
+        let mut free_slots = BTreeSet::new();
+        for &slot in storage.node_order.free_slots() {
+            assert!(free_slots.insert(slot), "free slot {slot} listed twice");
+            assert!(!live_slots[slot], "live slot {slot} is also free");
+            assert!(storage.node_order.name(slot).is_none());
+            assert!(storage.node_attrs[slot].is_empty());
+            assert!(storage.rows[slot].is_empty());
+        }
+        assert_eq!(
+            free_slots.len() + graph.node_count(),
+            storage.node_order.slot_count(),
+            "a slot is neither live nor free"
+        );
+
+        for (left, row) in storage.rows.iter().enumerate() {
+            if !live_slots[left] {
+                assert!(row.is_empty(), "tombstoned slot {left} has neighbors");
+                continue;
+            }
+            for (&right, keys) in row {
+                assert!(live_slots[right], "row points to tombstoned slot {right}");
+                let pair = (left.min(right), left.max(right));
+                let bucket = storage
+                    .edges
+                    .get(&pair)
+                    .expect("every row cell must have an edge bucket");
+                assert_eq!(keys.order(), bucket.key_order());
+                if left != right {
+                    assert_eq!(
+                        storage.rows[right]
+                            .get(&left)
+                            .expect("undirected reverse row is missing")
+                            .order(),
+                        keys.order()
+                    );
+                }
+            }
+        }
+        for (&(left, right), bucket) in &storage.edges {
+            assert!(live_slots[left] && live_slots[right]);
+            assert_eq!(
+                storage.rows[left]
+                    .get(&right)
+                    .expect("edge bucket missing left row")
+                    .order(),
+                bucket.key_order()
+            );
+            if left != right {
+                assert_eq!(
+                    storage.rows[right]
+                        .get(&left)
+                        .expect("edge bucket missing right row")
+                        .order(),
+                    bucket.key_order()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn thp6w_s35_slab_is_sole_store_mutation_gauntlet() {
+        let attr = |key: &str, value: i64| {
+            let mut attrs = AttrMap::new();
+            attrs.insert(key.to_owned(), fnx_runtime::CgseValue::Int(value));
+            attrs
+        };
+
+        let mut graph = MultiGraph::strict();
+        assert!(graph.add_node_with_attrs("iso", attr("kind", 1)));
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("b", "a", 3, attr("weight", 2)),
+            Ok(3)
+        );
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("a", "b", 3, attr("color", 7)),
+            Ok(3)
+        );
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("a", "b", 0, AttrMap::new()),
+            Ok(0)
+        );
+        assert_eq!(
+            graph.add_edge_with_key_and_attrs("c", "c", 5, attr("weight", 11)),
+            Ok(5)
+        );
+        assert_eq!(graph.nodes_ordered(), vec!["iso", "b", "a", "c"]);
+        assert_eq!(graph.edge_keys_vec("a", "b"), vec![3, 0]);
+        assert_eq!(
+            graph.edge_attrs("a", "b", 3),
+            Some(&{
+                let mut attrs = attr("weight", 2);
+                attrs.extend(attr("color", 7));
+                attrs
+            })
+        );
+        assert_eq!(graph.number_of_selfloops(), 1);
+        assert_eq!(graph.degree("c"), 2);
+        assert_eq!(graph.isolates(), vec!["iso"]);
+        assert_multigraph_storage_invariants(&graph);
+        assert_int_adjacency_matches(&graph);
+
+        let baseline = graph.snapshot();
+        let cloned = graph.clone_with_fresh_policy();
+        assert_eq!(cloned.snapshot(), baseline);
+        assert_multigraph_storage_invariants(&cloned);
+
+        let revision = graph.revision();
+        assert!(graph.replace_edge_attrs("a", "b", 3, attr("replacement", 9)));
+        assert_eq!(graph.revision(), revision + 1);
+        let revision = graph.revision();
+        assert!(graph.replace_edge_attrs("a", "b", 3, attr("replacement", 9)));
+        assert_eq!(
+            graph.revision(),
+            revision,
+            "no-op edge replace bumped revision"
+        );
+        assert!(graph.replace_node_attrs("iso", attr("kind", 4)));
+        assert!(graph.remove_edge("b", "a", Some(3)));
+        assert_eq!(graph.edge_keys_vec("a", "b"), vec![0]);
+        assert!(graph.remove_node("b"));
+        assert!(!graph.has_edge("a", "b"));
+        assert_eq!(graph.nodes_ordered(), vec!["iso", "a", "c"]);
+        assert_eq!(graph.add_edge("d", "a"), Ok(0));
+        assert_eq!(graph.nodes_ordered(), vec!["iso", "a", "c", "d"]);
+        assert_multigraph_storage_invariants(&graph);
+
+        let (removed_nodes, removed_edges) = graph.remove_nodes_from(["iso", "c", "missing"]);
+        assert_eq!((removed_nodes, removed_edges), (2, 1));
+        assert_eq!(graph.nodes_ordered(), vec!["a", "d"]);
+        assert_eq!(graph.edge_count(), 1);
+        assert_multigraph_storage_invariants(&graph);
+        graph.clear_edges();
+        assert_eq!(graph.edge_count(), 0);
+        assert_eq!(graph.isolates(), vec!["a", "d"]);
+        assert_multigraph_storage_invariants(&graph);
+    }
+
+    #[test]
+    fn thp6w_s35_fresh_loaders_populate_sole_store() {
+        let mut integer = MultiGraph::strict();
+        assert_eq!(
+            integer.extend_fresh_int_prefix_keyed_edges_unrecorded(
+                4,
+                [(0, 1, 0), (1, 0, 1), (2, 2, 0), (3, 0, 0)]
+            ),
+            4
+        );
+        assert_eq!(integer.nodes_ordered(), vec!["0", "1", "2", "3"]);
+        assert_eq!(integer.edge_keys_vec("0", "1"), vec![0, 1]);
+        assert_eq!(integer.number_of_selfloops(), 1);
+        assert_multigraph_storage_invariants(&integer);
+        assert_int_adjacency_matches(&integer);
+
+        let mut weight = AttrMap::new();
+        weight.insert("weight".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let mut color = AttrMap::new();
+        color.insert("color".to_owned(), fnx_runtime::CgseValue::Int(7));
+        let mut attributed = MultiGraph::strict();
+        assert_eq!(
+            attributed.extend_fresh_index_keyed_edges_with_attrs_unrecorded(
+                ["b", "a", "c"].into_iter().map(str::to_owned),
+                [
+                    (0, 1, 4, weight),
+                    (1, 0, 4, color),
+                    (2, 2, 0, AttrMap::new()),
+                    (0, 9, 0, AttrMap::new()),
+                ]
+            ),
+            2
+        );
+        assert_eq!(attributed.nodes_ordered(), vec!["b", "a", "c"]);
+        assert_eq!(attributed.edge_count(), 2);
+        assert_eq!(attributed.edge_keys_vec("a", "b"), vec![4]);
+        let attrs = attributed
+            .edge_attrs("a", "b", 4)
+            .expect("merged attributed edge");
+        assert_eq!(attrs.len(), 2);
+        assert!(attrs.contains_key("weight"));
+        assert!(attrs.contains_key("color"));
+        assert_multigraph_storage_invariants(&attributed);
+    }
+
+    /// yr2oc.1: runs of O(1) multigraph removals, interleaved with insertions
+    /// that reuse the freed slots and with batch removals, keep every
+    /// positional reader and the stored edges in step with a name-level model.
+    #[test]
+    fn multigraph_removal_runs_keep_positional_readers_in_step_with_names() {
+        use std::collections::BTreeMap;
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        let pair = |u: &str, v: &str| {
+            if u <= v {
+                (u.to_owned(), v.to_owned())
+            } else {
+                (v.to_owned(), u.to_owned())
+            }
+        };
+        for round in 0..30 {
+            let n = 10 + round % 17;
+            let mut g = MultiGraph::strict();
+            let mut order: Vec<String> = Vec::new();
+            let mut edges: BTreeMap<(String, String), usize> = BTreeMap::new();
+            let mut fresh = 0;
+            let add_edge = |g: &mut MultiGraph,
+                            order: &mut Vec<String>,
+                            edges: &mut BTreeMap<(String, String), usize>,
+                            u: String,
+                            v: String| {
+                for node in [&u, &v] {
+                    if !order.contains(node) {
+                        order.push(node.clone());
+                    }
+                }
+                *edges.entry(pair(&u, &v)).or_default() += 1;
+                g.add_edge(u, v).expect("edge");
+            };
+            for _ in 0..3 * n {
+                let (u, v) = (next(n), next(n));
+                add_edge(
+                    &mut g,
+                    &mut order,
+                    &mut edges,
+                    format!("n{u}"),
+                    format!("n{v}"),
+                );
+            }
+            for _ in 0..4 * n {
+                match next(6) {
+                    0..=2 if !order.is_empty() => {
+                        let victim = order.remove(next(order.len()));
+                        edges.retain(|(u, v), _| *u != victim && *v != victim);
+                        assert!(g.remove_node(&victim));
+                        assert!(!g.remove_node(&victim));
+                    }
+                    3 | 4 => {
+                        let u = format!("f{fresh}");
+                        fresh += 1;
+                        let v = if order.is_empty() || next(4) == 0 {
+                            u.clone()
+                        } else {
+                            order[next(order.len())].clone()
+                        };
+                        add_edge(&mut g, &mut order, &mut edges, u, v);
+                    }
+                    5 if order.len() > 2 => {
+                        let doomed = [order[next(order.len())].clone(), "absent".to_owned()];
+                        let removed = g.remove_nodes_from(doomed.iter().map(String::as_str));
+                        assert_eq!(removed.0, 1);
+                        order.retain(|name| *name != doomed[0]);
+                        edges.retain(|(u, v), _| *u != doomed[0] && *v != doomed[0]);
+                    }
+                    _ => {}
+                }
+                assert_eq!(g.nodes_ordered(), order, "round {round}");
+                assert_eq!(g.edge_count(), edges.values().sum::<usize>());
+                for ((u, v), &count) in &edges {
+                    assert_eq!(g.edge_keys_vec(u, v).len(), count, "({u}, {v})");
+                }
+                assert_multigraph_storage_invariants(&g);
+                assert_int_adjacency_matches(&g);
+            }
+        }
+    }
+
+    /// br-r37-c1-thp6w S14: a fresh bulk-built graph must be WARM from birth
+    /// (the slab co-built during construction), byte-identical, and stay warm
+    /// through instrumented mutations. NOTE: `edges_ordered_borrowed` is a
+    /// ROUTED read (S13) — comparing it against the shadow would be circular
+    /// with a warm shadow, so this gauntlet uses only unrouted ground-truth
+    /// accessors (`nodes_ordered`, `neighbors_iter`, `edge_keys_vec`); the
+    /// walk itself is gated non-circularly by the S13 route gate.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s14_fresh_bulk_graph_is_warm_from_birth() {
+        let mut g = MultiGraph::strict();
+        let stream = vec![
+            (0usize, 1usize, 0usize),
+            (1, 2, 0),
+            (0, 1, 1), // parallel
+            (2, 2, 0), // self-loop
+            (3, 0, 0),
+        ];
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(5, stream.into_iter());
+        assert!(
+            g.slab_shadow_is_warm(),
+            "fresh bulk graph must be born warm"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+        // Instrumented mutations keep the born-warm shadow warm.
+        let _ = g.add_edge("2", "4");
+        assert!(g.slab_shadow_is_warm());
+        assert!(g.remove_edge("0", "1", None));
+        assert!(g.slab_shadow_is_warm());
+        assert!(g.remove_node("1"));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+
+        // br-r37-c1-thp6w S17: a node-attr set now ADVANCES the warm shadow in
+        // place (was stale->rebuild in S16). Existing node "2":
+        let mut nattrs = AttrMap::new();
+        nattrs.insert("color".to_owned(), fnx_runtime::CgseValue::Int(7));
+        let _ = g.add_node_with_attrs("2", nattrs);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "node-attr set must advance (not stale) the warm shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("2"),
+                g.nodes.get("2"),
+                "advanced shadow must carry the set node attr for node 2"
+            );
+        }
+        // A node-attr set that CREATES a new node advances the shadow too.
+        let mut nattrs2 = AttrMap::new();
+        nattrs2.insert("w".to_owned(), fnx_runtime::CgseValue::Int(9));
+        let _ = g.add_node_with_attrs("attr_only", nattrs2);
+        assert!(g.slab_shadow_is_warm());
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("attr_only"),
+                g.nodes.get("attr_only"),
+                "advanced shadow must carry a new attr-only node"
+            );
+        }
+        // A full rebuild still reproduces the same node attrs (from_string_state).
+        g.sync_slab_shadow();
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // br-r37-c1-thp6w S15: the ATTRIBUTED fresh path is born warm too —
+        // arbitrary labels, dup-(pair,key) attr merge, out-of-bounds skip.
+        let mut h = MultiGraph::strict();
+        let mut w1 = AttrMap::new();
+        w1.insert("w".to_owned(), fnx_runtime::CgseValue::Int(1));
+        let mut w2 = AttrMap::new();
+        w2.insert("x".to_owned(), fnx_runtime::CgseValue::Int(2));
+        let _ = h.extend_fresh_index_keyed_edges_with_attrs_unrecorded(
+            vec!["b".to_owned(), "a".to_owned(), "c".to_owned()],
+            vec![
+                (0, 1, 0, w1.clone()),
+                (1, 0, 0, w2),             // dup (pair, key) reversed -> attr merge
+                (2, 2, 0, w1),             // self-loop
+                (0, 9, 0, AttrMap::new()), // out-of-bounds -> skipped by BOTH sides
+                (1, 2, 3, AttrMap::new()), // sparse key
+            ],
+        );
+        assert!(h.slab_shadow_is_warm(), "attributed fresh graph born warm");
+        let shadow = h.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&h, &shadow.1);
+        assert_eq!(
+            shadow.1.edges[&(0, 1)].attrs_for(0),
+            h.edges
+                .get(&super::EdgeKeyRef::new("b", "a"))
+                .and_then(|kb| kb.get(&0)),
+            "merged attrs on the dup cell must match"
+        );
+    }
+
+    /// br-r37-c1-thp6w S19: batch `remove_nodes_from` advances the warm shadow
+    /// (per-node slab remove, stable slots) on BOTH its exit paths — the
+    /// small-fraction incident fast path and the large-fraction whole-graph
+    /// retain — and never spuriously warms a stale shadow.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s19_remove_nodes_from_advances_shadow() {
+        let mut g = MultiGraph::strict();
+        for i in 0..12u32 {
+            let _ = g.add_edge(&i.to_string(), &((i + 1) % 12).to_string());
+        }
+        let _ = g.add_edge("0", "6"); // a chord
+        let _ = g.add_edge("3", "3"); // a self-loop
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Fast path: small fraction (2*4 <= 12 nodes).
+        let (rn, _) = g.remove_nodes_from(["3", "9"].into_iter());
+        assert_eq!(rn, 2);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "remove_nodes_from fast path must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // Fall-through path: large fraction (5*4 > 10 remaining nodes).
+        let (rn2, _) = g.remove_nodes_from(["0", "1", "2", "4", "5"].into_iter());
+        assert_eq!(rn2, 5);
+        assert!(
+            g.slab_shadow_is_warm(),
+            "remove_nodes_from fall-through must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+        }
+
+        // A STALE shadow must not be spuriously warmed by the removal.
+        g.add_node("island"); // structural (empty attrs) -> stales
+        assert!(!g.slab_shadow_is_warm());
+        let _ = g.remove_nodes_from(["island"].into_iter());
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "remove_nodes_from must not warm a stale shadow"
+        );
+        g.sync_slab_shadow();
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S20: batch `extend_nodes_with_attrs_unrecorded` advances
+    /// the warm shadow — including the latent attr-only case (no NEW nodes, so
+    /// no revision bump) where a warm shadow would otherwise carry stale attrs.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s20_extend_nodes_with_attrs_advances_shadow() {
+        let mut g = MultiGraph::strict();
+        for i in 0..6u32 {
+            let _ = g.add_edge(&i.to_string(), &((i + 1) % 6).to_string());
+        }
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        // Batch: 2 new attr-only nodes + an attr update on existing node "0".
+        let ins = g.extend_nodes_with_attrs_unrecorded(vec![
+            ("new_a".to_owned(), attr("c", 1)),
+            ("new_b".to_owned(), attr("c", 2)),
+            ("0".to_owned(), attr("k", 3)),
+        ]);
+        assert_eq!(ins, 2, "two new nodes");
+        assert!(
+            g.slab_shadow_is_warm(),
+            "node-attr batch must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(shadow.1.node_attrs_for("new_a"), g.nodes.get("new_a"));
+            assert_eq!(shadow.1.node_attrs_for("0"), g.nodes.get("0"));
+        }
+
+        // ATTR-ONLY batch (no new nodes -> no revision bump): the shadow must
+        // still carry the updated attr, not stay warm-but-stale.
+        let ins2 = g.extend_nodes_with_attrs_unrecorded(vec![("new_a".to_owned(), attr("c", 99))]);
+        assert_eq!(ins2, 0, "no new nodes");
+        assert!(
+            g.slab_shadow_is_warm(),
+            "attr-only batch keeps the shadow warm"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_eq!(
+                shadow.1.node_attrs_for("new_a"),
+                g.nodes.get("new_a"),
+                "attr-only update must be reflected in the (still-warm) shadow"
+            );
+        }
+    }
+
+    /// br-r37-c1-thp6w S21: `replace_node_attrs` (node attr OVERWRITE) advances
+    /// the warm shadow; a no-op replace (no revision bump) and a missing-node
+    /// replace leave it warm and uncorrupted.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s21_replace_node_attrs_advances_shadow() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_node_with_attrs("x", attr("c", 1));
+        let _ = g.add_edge("x", "y");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Overwrite x's attrs -> advances the warm shadow.
+        assert!(g.replace_node_attrs("x", attr("d", 2)));
+        assert!(
+            g.slab_shadow_is_warm(),
+            "replace_node_attrs must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            assert_eq!(
+                shadow.1.node_attrs_for("x"),
+                g.nodes.get("x"),
+                "shadow must reflect the overwrite"
+            );
+        }
+
+        // No-op replace (same attrs) does not bump revision; shadow stays warm.
+        let same = g.nodes.get("x").cloned().unwrap_or_default();
+        assert!(g.replace_node_attrs("x", same));
+        assert!(g.slab_shadow_is_warm());
+
+        // Replace on a missing node returns false and leaves the shadow warm.
+        assert!(!g.replace_node_attrs("missing", attr("z", 9)));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S22: `replace_edge_attrs` (edge-cell attr OVERWRITE)
+    /// advances the warm shadow, leaves parallel cells untouched, and a no-op
+    /// or missing-edge replace leaves the shadow warm/uncorrupted.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s22_replace_edge_attrs_advances_shadow() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attr("w", 1));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, attr("w", 2)); // parallel
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+
+        // Overwrite the (a,b,0) cell attrs -> advances the warm shadow.
+        assert!(g.replace_edge_attrs("a", "b", 0, attr("x", 5)));
+        assert!(
+            g.slab_shadow_is_warm(),
+            "replace_edge_attrs must advance the shadow"
+        );
+        {
+            let shadow = g.slab_shadow.as_deref().expect("shadow present");
+            assert_slab_matches_mg(&g, &shadow.1);
+            // a=slot0, b=slot1 (fresh graph) -> the a,b bucket is (0,1).
+            assert_eq!(
+                shadow.1.edges[&(0, 1)].attrs_for(0),
+                g.edges
+                    .get(&super::EdgeKeyRef::new("a", "b"))
+                    .and_then(|kb| kb.get(&0)),
+                "advanced shadow must carry the overwritten cell attrs"
+            );
+            assert_eq!(
+                shadow.1.edges[&(0, 1)].attrs_for(1),
+                g.edges
+                    .get(&super::EdgeKeyRef::new("a", "b"))
+                    .and_then(|kb| kb.get(&1)),
+                "the parallel cell (key 1) must be untouched"
+            );
+        }
+
+        // No-op replace (same attrs): no revision bump, shadow stays warm.
+        let same = g.edge_attrs("a", "b", 0).cloned().unwrap_or_default();
+        assert!(g.replace_edge_attrs("a", "b", 0, same));
+        assert!(g.slab_shadow_is_warm());
+
+        // Missing edge -> false, shadow left warm/uncorrupted.
+        assert!(!g.replace_edge_attrs("a", "z", 0, attr("q", 1)));
+        assert!(g.slab_shadow_is_warm());
+        let shadow = g.slab_shadow.as_deref().expect("shadow present");
+        assert_slab_matches_mg(&g, &shadow.1);
+    }
+
+    /// br-r37-c1-thp6w S23: feature-on `node_attrs` READS route through the
+    /// always-warm slab. Verified against the unrouted String ground truth
+    /// (`g.nodes` direct field access) — non-circular — across present (with
+    /// and without attrs) and missing nodes, and after a mutation keeps the
+    /// shadow warm so the routed read stays correct.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s23_node_attrs_reads_route_to_slab() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_node_with_attrs("x", attr("c", 1));
+        let _ = g.add_edge("x", "y"); // y born attr-less
+        // A fresh graph built by individual adds has no shadow yet; sync it warm
+        // (individual adds only ADVANCE an existing warm shadow, never create one).
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // Routed read (-> slab) == String field ground truth.
+        assert_eq!(
+            g.node_attrs("x"),
+            g.nodes.get("x"),
+            "attr node routes to slab"
+        );
+        assert_eq!(g.node_attrs("y"), g.nodes.get("y"), "attr-less node routes");
+        assert_eq!(g.node_attrs("missing"), g.nodes.get("missing"), "both None");
+        assert!(g.node_attrs("x").is_some_and(|a| a.get("c").is_some()));
+        // After an overwrite the shadow stays warm; the routed read reflects it.
+        assert!(g.replace_node_attrs("x", attr("d", 9)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.node_attrs("x"),
+            g.nodes.get("x"),
+            "routed read tracks overwrite"
+        );
+        // With a STALE/absent shadow the read falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_node_with_attrs("p", attr("c", 3));
+        assert!(
+            !h.slab_shadow_is_warm(),
+            "fresh individual-add graph has no shadow"
+        );
+        assert_eq!(
+            h.node_attrs("p"),
+            h.nodes.get("p"),
+            "unrouted fallback still correct"
+        );
+    }
+
+    /// br-r37-c1-thp6w S24: feature-on `edge_attrs` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.edges` direct access) across present cells (incl. a parallel
+    /// key), a missing key, and a missing edge, plus the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s24_edge_attrs_reads_route_to_slab() {
+        let attr = |k: &str, v: i64| {
+            let mut a = AttrMap::new();
+            a.insert(k.to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let gt = |g: &MultiGraph, l: &str, r: &str, k: usize| {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .and_then(|kb| kb.get(&k))
+                .cloned()
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attr("w", 1));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, attr("w", 2)); // parallel
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // Routed read (-> slab) == String field ground truth.
+        assert_eq!(g.edge_attrs("a", "b", 0).cloned(), gt(&g, "a", "b", 0));
+        assert_eq!(g.edge_attrs("a", "b", 1).cloned(), gt(&g, "a", "b", 1));
+        assert_eq!(g.edge_attrs("a", "b", 9), None, "missing key");
+        assert_eq!(g.edge_attrs("a", "z", 0), None, "missing edge");
+        // Overwrite advances the shadow; the routed read reflects it.
+        assert!(g.replace_edge_attrs("a", "b", 0, attr("x", 8)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.edge_attrs("a", "b", 0).cloned(), gt(&g, "a", "b", 0));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge_with_key_and_attrs("p", "q", 0, attr("z", 5));
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.edge_attrs("p", "q", 0).cloned(), gt(&h, "p", "q", 0));
+    }
+
+    /// br-r37-c1-thp6w S25: feature-on `edge_keys_vec` READS route through the
+    /// always-warm slab (`key_order`). Verified against the unrouted String
+    /// field ground truth (`g.edges` bucket keys), incl. parallel keys, a
+    /// removal advance, missing edge, and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s25_edge_keys_vec_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, l: &str, r: &str| -> Vec<usize> {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .map(|b| b.keys().copied().collect())
+                .unwrap_or_default()
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b"); // auto key 0
+        let _ = g.add_edge("a", "b"); // auto key 1
+        let _ = g.add_edge("a", "b"); // auto key 2
+        let _ = g.add_edge("b", "c");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.edge_keys_vec("a", "b"),
+            gt(&g, "a", "b"),
+            "routed key order"
+        );
+        assert_eq!(g.edge_keys_vec("b", "c"), gt(&g, "b", "c"));
+        assert_eq!(
+            g.edge_keys_vec("a", "z"),
+            Vec::<usize>::new(),
+            "missing edge"
+        );
+        // A per-key removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", Some(1)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.edge_keys_vec("a", "b"), gt(&g, "a", "b"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.edge_keys_vec("p", "q"), gt(&h, "p", "q"));
+    }
+
+    /// br-r37-c1-thp6w S26: feature-on `neighbors` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.adjacency` row keys) incl. row order, a removal advance, a
+    /// missing node (None), and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s26_neighbors_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph, n: &str) -> Option<Vec<&'a str>> {
+            g.adjacency
+                .get(n)
+                .map(|row| row.keys().map(String::as_str).collect())
+        }
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "b"); // parallel — distinct neighbor unchanged
+        let _ = g.add_edge("c", "d");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.neighbors("a"),
+            gt(&g, "a"),
+            "routed distinct neighbors, row order"
+        );
+        assert_eq!(g.neighbors("c"), gt(&g, "c"));
+        assert_eq!(g.neighbors("missing"), None, "absent node -> None");
+        assert_eq!(g.neighbors("missing"), gt(&g, "missing"));
+        // A removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "c", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.neighbors("a"), gt(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.neighbors("p"), gt(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S27: feature-on `degree` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (same self-loop-double + parallel-count formula over
+    /// `g.adjacency`) incl. a removal advance, a missing node (0), and the
+    /// no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s27_degree_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, n: &str| -> usize {
+            g.adjacency.get(n).map_or(0, |row| {
+                let mut d = 0;
+                for (nbr, keys) in row {
+                    let c = keys.len();
+                    if nbr.as_str() == n {
+                        d += c * 2;
+                    } else {
+                        d += c;
+                    }
+                }
+                d
+            })
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "b"); // parallel
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "a"); // self-loop -> +2 to a
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.degree("a"), gt(&g, "a"), "self-loop double + parallel");
+        assert_eq!(g.degree("b"), gt(&g, "b"));
+        assert_eq!(g.degree("missing"), 0, "absent node -> 0");
+        assert_eq!(g.degree("missing"), gt(&g, "missing"));
+        // A removal advances the shadow; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.degree("a"), gt(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.degree("p"), gt(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S28: feature-on `has_node` / `has_edge` membership READS
+    /// route through the always-warm slab. Verified against the unrouted String
+    /// field ground truth incl. isolated node, undirected symmetry, a removal
+    /// advance, missing node/edge, and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s28_membership_reads_route_to_slab() {
+        let he = |g: &MultiGraph, l: &str, r: &str| {
+            g.edges
+                .get(&super::EdgeKeyRef::new(l, r))
+                .is_some_and(|b| !b.is_empty())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("b", "c");
+        let _ = g.add_node("iso"); // isolated node
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        // has_node
+        assert_eq!(g.has_node("a"), g.nodes.contains_key("a"));
+        assert_eq!(g.has_node("iso"), g.nodes.contains_key("iso"));
+        assert_eq!(g.has_node("missing"), g.nodes.contains_key("missing"));
+        assert!(g.has_node("iso") && !g.has_node("missing"));
+        // has_edge (undirected: symmetric; missing nodes -> false)
+        assert_eq!(g.has_edge("a", "b"), he(&g, "a", "b"));
+        assert_eq!(g.has_edge("b", "a"), he(&g, "b", "a"));
+        assert_eq!(g.has_edge("a", "c"), he(&g, "a", "c"));
+        assert_eq!(g.has_edge("x", "y"), he(&g, "x", "y"));
+        assert!(g.has_edge("a", "b") && g.has_edge("b", "a") && !g.has_edge("a", "c"));
+        // A removal advances the shadow; membership reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.has_edge("a", "b"), he(&g, "a", "b"));
+        assert!(!g.has_edge("a", "b"));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.has_edge("p", "q"), he(&h, "p", "q"));
+        assert_eq!(h.has_node("p"), h.nodes.contains_key("p"));
+    }
+
+    /// br-r37-c1-thp6w S29: feature-on `nodes_ordered` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth (`g.nodes.keys()`) + exact insertion order, a node-removal advance
+    /// (order compaction), and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s29_nodes_ordered_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph) -> Vec<&'a str> {
+            g.nodes.keys().map(String::as_str).collect()
+        }
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("c", "a"); // insertion: c, a
+        let _ = g.add_edge("a", "b"); // b
+        let _ = g.add_node("z"); // z
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.nodes_ordered(), gt(&g), "routed node order == String");
+        assert_eq!(
+            g.nodes_ordered(),
+            vec!["c", "a", "b", "z"],
+            "insertion order"
+        );
+        // A node removal advances the shadow; order compacts.
+        assert!(g.remove_node("a"));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.nodes_ordered(), gt(&g), "after removal");
+        assert_eq!(g.nodes_ordered(), vec!["c", "b", "z"]);
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.nodes_ordered(), gt(&h));
+    }
+
+    /// br-r37-c1-thp6w S30: feature-on `is_isolate` READS route through the
+    /// always-warm slab. Verified against the unrouted String field ground
+    /// truth incl. an isolated node, a self-loop node (NOT isolated), a node
+    /// with edges, a missing node, a removal that isolates, and the no-shadow
+    /// fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s30_is_isolate_reads_route_to_slab() {
+        let gt = |g: &MultiGraph, n: &str| -> bool {
+            g.nodes.contains_key(n) && g.adjacency.get(n).is_none_or(|row| row.is_empty())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_node("iso"); // isolated
+        let _ = g.add_edge("s", "s"); // self-loop -> NOT isolated
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.is_isolate("iso"), gt(&g, "iso"));
+        assert!(g.is_isolate("iso"));
+        assert_eq!(g.is_isolate("a"), gt(&g, "a"));
+        assert!(!g.is_isolate("a"));
+        assert_eq!(g.is_isolate("s"), gt(&g, "s"));
+        assert!(!g.is_isolate("s"), "self-loop node is not isolated");
+        assert_eq!(g.is_isolate("missing"), gt(&g, "missing"));
+        assert!(!g.is_isolate("missing"));
+        // A removal isolates node "a"; the routed read reflects it.
+        assert!(g.remove_edge("a", "b", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.is_isolate("a"), gt(&g, "a"));
+        assert!(g.is_isolate("a"));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_node("lonely");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.is_isolate("lonely"), gt(&h, "lonely"));
+    }
+
+    /// br-r37-c1-thp6w S31: feature-on `weighted_size_int` READS route through
+    /// the always-warm slab. Verified against the unrouted String field ground
+    /// truth (same int-sum/missing=1/non-int=None formula over `g.edges`) incl.
+    /// parallel + self-loop weights, a removal advance, a non-int (Float) weight
+    /// -> None, and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s31_weighted_size_int_routes_to_slab() {
+        fn gt(g: &MultiGraph, w: &str) -> Option<i128> {
+            let mut total = 0i128;
+            for bucket in g.edges.values() {
+                for attrs in bucket.values() {
+                    let v = match attrs.get(w) {
+                        Some(fnx_runtime::CgseValue::Int(x)) => i128::from(*x),
+                        Some(_) => return None,
+                        None => 1,
+                    };
+                    total = total.checked_add(v)?;
+                }
+            }
+            Some(total)
+        }
+        let w = |v: i64| -> AttrMap {
+            let mut a = AttrMap::new();
+            a.insert("weight".to_owned(), fnx_runtime::CgseValue::Int(v));
+            a
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, w(5));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 1, w(3)); // parallel
+        let _ = g.add_edge("b", "c"); // no weight -> counts as 1
+        let _ = g.add_edge_with_key_and_attrs("c", "c", 0, w(2)); // self-loop
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            g.weighted_size_int("weight"),
+            gt(&g, "weight"),
+            "routed == String"
+        );
+        assert_eq!(g.weighted_size_int("weight"), Some(11), "5+3+1+2");
+        // A removal advances the shadow; the routed sum reflects it.
+        assert!(g.remove_edge("a", "b", Some(0)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.weighted_size_int("weight"), gt(&g, "weight"));
+        assert_eq!(g.weighted_size_int("weight"), Some(6), "3+1+2");
+        // A non-int (Float) weight makes it None on both arms.
+        let mut fattr = AttrMap::new();
+        fattr.insert("weight".to_owned(), fnx_runtime::CgseValue::Float(1.5));
+        let _ = g.add_edge_with_key_and_attrs("d", "e", 0, fattr);
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(g.weighted_size_int("weight"), gt(&g, "weight"));
+        assert!(
+            g.weighted_size_int("weight").is_none(),
+            "non-int weight -> None"
+        );
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge_with_key_and_attrs("p", "q", 0, w(7));
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(h.weighted_size_int("weight"), gt(&h, "weight"));
+        assert_eq!(h.weighted_size_int("weight"), Some(7));
+    }
+
+    /// br-r37-c1-thp6w S32: feature-on `neighbors_iter` READS route through the
+    /// always-warm slab via the `MgNeighborNames` enum iterator. Collected
+    /// output verified against the unrouted String field ground truth
+    /// (`g.adjacency` row keys) incl. row order, a removal advance, a missing
+    /// node (None), and the no-shadow fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s32_neighbors_iter_reads_route_to_slab() {
+        fn gt<'a>(g: &'a MultiGraph, n: &str) -> Option<Vec<&'a str>> {
+            g.adjacency
+                .get(n)
+                .map(|row| row.keys().map(String::as_str).collect())
+        }
+        let collect = |g: &MultiGraph, n: &str| -> Option<Vec<String>> {
+            g.neighbors_iter(n)
+                .map(|it| it.map(str::to_owned).collect())
+        };
+        let want = |g: &MultiGraph, n: &str| -> Option<Vec<String>> {
+            gt(g, n).map(|v| v.into_iter().map(str::to_owned).collect())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        let _ = g.add_edge("a", "c");
+        let _ = g.add_edge("a", "b"); // parallel — distinct neighbor unchanged
+        let _ = g.add_edge("c", "d");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(
+            collect(&g, "a"),
+            want(&g, "a"),
+            "routed iter == String, row order"
+        );
+        assert_eq!(collect(&g, "c"), want(&g, "c"));
+        assert!(g.neighbors_iter("missing").is_none(), "absent node -> None");
+        // A removal advances the shadow; the routed iteration reflects it.
+        assert!(g.remove_edge("a", "c", None));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a"), want(&g, "a"), "after removal");
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(collect(&h, "p"), want(&h, "p"));
+    }
+
+    /// br-r37-c1-thp6w S33: feature-on `edge_keys_iter` READS route through the
+    /// always-warm slab via the `MgEdgeKeys` enum iterator. Collected output
+    /// verified against the unrouted String field ground truth (`g.adjacency`
+    /// key set) incl. the Many bucket (parallel keys), the One bucket (single
+    /// key), a per-key removal advance, a missing edge (None), and the no-shadow
+    /// fallback.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s33_edge_keys_iter_reads_route_to_slab() {
+        fn gt(g: &MultiGraph, l: &str, r: &str) -> Option<Vec<usize>> {
+            g.adjacency
+                .get(l)?
+                .get(r)
+                .map(|keys| keys.iter().copied().collect())
+        }
+        let collect = |g: &MultiGraph, l: &str, r: &str| -> Option<Vec<usize>> {
+            g.edge_keys_iter(l, r).map(|it| it.copied().collect())
+        };
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b"); // key 0
+        let _ = g.add_edge("a", "b"); // key 1
+        let _ = g.add_edge("a", "b"); // key 2 (Many bucket)
+        let _ = g.add_edge("b", "c"); // single key (One bucket)
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a", "b"), gt(&g, "a", "b"), "Many == String");
+        assert_eq!(collect(&g, "a", "b"), Some(vec![0, 1, 2]));
+        assert_eq!(collect(&g, "b", "c"), gt(&g, "b", "c"), "One == String");
+        assert_eq!(collect(&g, "b", "c"), Some(vec![0]));
+        assert!(g.edge_keys_iter("a", "z").is_none(), "missing edge -> None");
+        // A per-key removal advances the shadow; iteration reflects it.
+        assert!(g.remove_edge("a", "b", Some(1)));
+        assert!(g.slab_shadow_is_warm());
+        assert_eq!(collect(&g, "a", "b"), gt(&g, "a", "b"), "after removal");
+        assert_eq!(collect(&g, "a", "b"), Some(vec![0, 2]));
+        // No-shadow graph falls through to the String store.
+        let mut h = MultiGraph::strict();
+        let _ = h.add_edge("p", "q");
+        assert!(!h.slab_shadow_is_warm());
+        assert_eq!(collect(&h, "p", "q"), gt(&h, "p", "q"));
+    }
+
+    /// br-r37-c1-thp6w S11 GAUNTLET (production dual-write shadow): with the
+    /// `mg-int-storage` feature on, every instrumented mutation (single-edge
+    /// add incl. autocreate/parallel/self-loop/attr-merge, keyed batch,
+    /// edge/node removal with slot recycling, node-attr set (S17), copy-walk
+    /// row reorder (S18)) must ADVANCE the shadow in place (warm +
+    /// byte-identical), and every UNINSTRUMENTED mutation must leave it stale
+    /// (revision key) — never silently wrong.
+    #[cfg(any())]
+    #[test]
+    fn thp6w_s11_slab_shadow_dual_write_gauntlet() {
+        let shadow_parity = |g: &MultiGraph| {
+            let shadow = g.slab_shadow.as_deref().expect("shadow must be present");
+            assert_eq!(shadow.0, g.revision, "shadow must be warm (advanced)");
+            assert_slab_matches_mg(g, &shadow.1);
+        };
+
+        let mut g = MultiGraph::strict();
+        let _ = g.add_edge("a", "b");
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        shadow_parity(&g);
+
+        // Instrumented single-edge adds.
+        let _ = g.add_edge("b", "c"); // autocreated endpoint
+        shadow_parity(&g);
+        let _ = g.add_edge("a", "b"); // parallel key
+        shadow_parity(&g);
+        let _ = g.add_edge("d", "d"); // self-loop, fresh node
+        shadow_parity(&g);
+        let mut attrs = AttrMap::new();
+        attrs.insert("w".to_owned(), fnx_runtime::CgseValue::Int(3));
+        let _ = g.add_edge_with_key_and_attrs("a", "b", 0, attrs); // attr merge
+        shadow_parity(&g);
+
+        // Instrumented keyed batch (write-through).
+        let _ = g.extend_keyed_edges_with_attrs_unrecorded(vec![
+            ("x".to_owned(), "y".to_owned(), 0, AttrMap::new()),
+            ("y".to_owned(), "x".to_owned(), 1, AttrMap::new()),
+            ("a".to_owned(), "x".to_owned(), 0, AttrMap::new()),
+        ]);
+        shadow_parity(&g);
+
+        // Instrumented removals: parallel key (next_back), last key, node
+        // removal, then slot recycling via a fresh name.
+        assert!(g.remove_edge("a", "b", None));
+        shadow_parity(&g);
+        assert!(g.remove_edge("a", "b", None));
+        shadow_parity(&g);
+        assert!(g.remove_node("b"));
+        shadow_parity(&g);
+        let _ = g.add_edge("recycled", "c");
+        shadow_parity(&g);
+
+        // br-r37-c1-thp6w S18: an order-only mutation (copy-walk reorder) now
+        // ADVANCES the warm shadow in place — rows reordered on the slab,
+        // revision unchanged so it stays warm and byte-identical.
+        g.reorder_rows_for_nx_copy_walk();
+        assert!(
+            g.slab_shadow_is_warm(),
+            "apply_row_orders must advance (not drop) the warm shadow"
+        );
+        shadow_parity(&g);
+        // A full rebuild still reproduces the same post-reorder row orders.
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+
+        // Uninstrumented content mutations leave the shadow STALE, never wrong.
+        g.add_node("island");
+        assert!(
+            !g.slab_shadow_is_warm(),
+            "uninstrumented mutation must stale the shadow"
+        );
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+        g.clear_edges();
+        assert!(!g.slab_shadow_is_warm());
+        g.sync_slab_shadow();
+        shadow_parity(&g);
+
+        // br-r37-c1-thp6w S13 ROUTE GATE: with a warm shadow the production
+        // `edges_ordered_borrowed` serves from the slab; the sequence must be
+        // byte-identical to what the String walk produced while the shadow
+        // was STALE (owned snapshot so it survives the sync).
+        let _ = g.add_edge("r1", "r2"); // stales nothing — shadow advances...
+        g.add_node("stale_maker"); // ...so force staleness via an uninstrumented op
+        assert!(!g.slab_shadow_is_warm());
+        let _ = g.add_edge("r2", "r1"); // parallel via reverse orientation (shadow stays stale)
+        let _ = g.add_edge("r3", "r3");
+        let expected: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered_borrowed() // stale shadow -> String walk
+            .into_iter()
+            .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
+            .collect();
+        // Same gate for the OWNED `edges_ordered` route (captured stale first).
+        let expected_owned: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered() // stale shadow -> String walk (owned)
+            .into_iter()
+            .map(|e| (e.left, e.right, e.key, e.attrs))
+            .collect();
+        g.sync_slab_shadow();
+        assert!(g.slab_shadow_is_warm());
+        let served: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered_borrowed() // warm shadow -> slab walk
+            .into_iter()
+            .map(|(l, r, k, a)| (l.to_owned(), r.to_owned(), k, a.clone()))
+            .collect();
+        assert_eq!(
+            served, expected,
+            "shadow-served edges_ordered must equal the String walk"
+        );
+        let served_owned: Vec<(String, String, usize, AttrMap)> = g
+            .edges_ordered() // warm shadow -> slab walk (owned)
+            .into_iter()
+            .map(|e| (e.left, e.right, e.key, e.attrs))
+            .collect();
+        assert_eq!(
+            served_owned, expected_owned,
+            "shadow-served owned edges_ordered must equal the String walk"
+        );
+    }
+
+    /// br-r37-c1-thp6w S5 A/B: pure storage-representation tax of the String-
+    /// keyed MultiGraph core vs the index-keyed prototype layout, on the SAME
+    /// pre-resolved (u_idx, v_idx, key) stream via the SAME-shape bulk loaders
+    /// (`extend_fresh_int_prefix_keyed_edges_unrecorded` vs
+    /// `bulk_load_int_prefix`) — no canonicalization, no Python boundary, no
+    /// per-edge ledger in either arm. Paired-interleaved (current, proto,
+    /// current-null per round), medians over 9 rounds.
+    /// `cargo test --release -p fnx-classes --lib thp6w_s5_int_storage_construction_ab -- --ignored --nocapture`
+    #[test]
+    #[ignore = "paired A/B benchmark; run --release with --ignored --nocapture"]
+    fn thp6w_s5_int_storage_construction_ab() {
+        use super::multigraph_storage::MgIntStorageProto;
+        use std::collections::HashMap;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        fn push_edge(
+            stream: &mut Vec<(usize, usize, usize)>,
+            key_counter: &mut HashMap<(usize, usize), usize>,
+            u: usize,
+            v: usize,
+        ) {
+            let entry = key_counter.entry((u.min(v), u.max(v))).or_insert(0);
+            stream.push((u, v, *entry));
+            *entry += 1;
+        }
+
+        let n = 20000usize;
+        let mut stream = Vec::new();
+        let mut key_counter = HashMap::new();
+        for i in 0..n {
+            push_edge(&mut stream, &mut key_counter, i, (i + 1) % n);
+        }
+        // Deterministic LCG chords (incl. incidental self-loops) + explicit parallels.
+        let mut state = 0x2545_F491_4F6C_DD1D_u64;
+        let draw = |state: &mut u64| -> usize {
+            *state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            usize::try_from(*state >> 33).unwrap() % n
+        };
+        for _ in 0..3 * n {
+            let u = draw(&mut state);
+            let v = draw(&mut state);
+            push_edge(&mut stream, &mut key_counter, u, v);
+        }
+        for i in (0..2000).step_by(2) {
+            push_edge(&mut stream, &mut key_counter, i, i + 1);
+        }
+
+        let time_current = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let mut g = MultiGraph::strict();
+            let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&g);
+            dt
+        };
+        let time_proto = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&proto);
+            dt
+        };
+        // br-r37-c1-thp6w S6: compact One/Many bucket arm.
+        let time_compact = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let compact = super::multigraph_storage::MgIntStorageProtoCompact::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&compact);
+            dt
+        };
+
+        // Structural agreement between the arms (once, outside timing):
+        // the real store's derived integer rows must equal both proto rows.
+        let mut g = MultiGraph::strict();
+        let _ = g.extend_fresh_int_prefix_keyed_edges_unrecorded(n, stream.iter().copied());
+        let proto = MgIntStorageProto::bulk_load_int_prefix(n, stream.iter().copied());
+        let compact = super::multigraph_storage::MgIntStorageProtoCompact::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        g.with_int_adjacency(|adj| {
+            for (i, row) in adj.iter().enumerate() {
+                let proto_row: Vec<usize> = proto.rows[i].keys().copied().collect();
+                assert_eq!(row, &proto_row, "derived integer row {i} must agree");
+                let compact_row: Vec<usize> = compact.rows[i].keys().copied().collect();
+                assert_eq!(row, &compact_row, "compact integer row {i} must agree");
+            }
+        });
+        assert_eq!(
+            proto.edge_count,
+            g.edge_count(),
+            "A/B arms built different graphs"
+        );
+        assert_eq!(
+            compact.edge_count,
+            g.edge_count(),
+            "compact arm built a different graph"
+        );
+        // br-r37-c1-thp6w S9: slab arm — must hold the compact win.
+        let time_slab = |stream: &[(usize, usize, usize)]| -> f64 {
+            let t0 = Instant::now();
+            let slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+                n,
+                stream.iter().copied(),
+            );
+            let dt = t0.elapsed().as_secs_f64();
+            black_box(&slab);
+            dt
+        };
+        let slab = super::multigraph_storage::MgSlabStorage::bulk_load_int_prefix(
+            n,
+            stream.iter().copied(),
+        );
+        g.with_int_adjacency(|adj| {
+            for (i, row) in adj.iter().enumerate() {
+                let slab_row: Vec<usize> = slab.rows[i].keys().copied().collect();
+                assert_eq!(row, &slab_row, "slab integer row {i} must agree");
+            }
+        });
+        assert_eq!(
+            slab.edge_count,
+            g.edge_count(),
+            "slab arm built a different graph"
+        );
+
+        let median = |samples: &mut Vec<f64>| -> f64 {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let (mut cur, mut pro, mut com, mut sla, mut nul) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        for _ in 0..9 {
+            cur.push(time_current(&stream));
+            pro.push(time_proto(&stream));
+            com.push(time_compact(&stream));
+            sla.push(time_slab(&stream));
+            nul.push(time_current(&stream));
+        }
+        let (mc, mp, mk, ms, mn) = (
+            median(&mut cur),
+            median(&mut pro),
+            median(&mut com),
+            median(&mut sla),
+            median(&mut nul),
+        );
+        println!(
+            "THP6W_S5_AB n={n} m={} current={mc:.6}s proto={mp:.6}s compact={mk:.6}s slab={ms:.6}s ratio_current_over_proto={:.3} ratio_current_over_compact={:.3} ratio_current_over_slab={:.3} ratio_compact_over_slab={:.3} null_current_over_current={:.3}",
+            stream.len(),
+            mc / mp,
+            mc / mk,
+            mc / ms,
+            mk / ms,
+            mc / mn,
+        );
+    }
+
+    #[test]
+    fn thp6w_int_adjacency_cache_is_fresh_per_clone() {
+        let mut g = MultiGraph::strict();
+        for i in 0..4 {
+            g.add_node(format!("n{i}"));
+        }
+        let _ = g.add_edge("n0", "n1");
+        // Populate g's memo.
+        assert_int_adjacency_matches(&g);
+        // Clone, then mutate the CLONE differently. The clone must NOT serve g's rows
+        // (fresh-per-clone memo), and g must keep its own.
+        let mut clone = g.clone();
+        let _ = clone.add_edge("n2", "n3");
+        assert_int_adjacency_matches(&clone);
+        assert_int_adjacency_matches(&g);
+        // And mutate g after the clone; both stay self-consistent.
+        let _ = g.add_edge("n0", "n2");
+        assert_int_adjacency_matches(&g);
+        assert_int_adjacency_matches(&clone);
+    }
+
+    fn single_attr(key: &str, value: &str) -> AttrMap {
+        let mut attrs = AttrMap::new();
+        attrs.insert(key.to_owned(), CgseValue::from(value));
+        attrs
+    }
+
+    #[test]
+    fn edge_slot_rows_follow_adj_order_and_refresh_after_mutation() {
+        let mut graph = Graph::strict();
+        let weighted = |value| {
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), CgseValue::Int(value));
+            attrs
+        };
+        graph
+            .add_edge_with_attrs("a", "b", weighted(1))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", weighted(2))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", weighted(3))
+            .expect("edge add should succeed");
+
+        let a = graph.get_node_index("a").expect("a exists");
+        graph.with_edge_slots_by_neighbor(|rows| {
+            let weights = rows[a]
+                .iter()
+                .map(|&slot| {
+                    graph
+                        .edge_attrs_by_slot(slot)
+                        .and_then(|attrs| attrs.get("weight"))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                weights,
+                vec![Some(&CgseValue::Int(1)), Some(&CgseValue::Int(2))]
+            );
+        });
+
+        graph.apply_row_orders(&[("a".to_owned(), vec!["c".to_owned(), "b".to_owned()])]);
+        graph.with_edge_slots_by_neighbor(|rows| {
+            let weights = rows[a]
+                .iter()
+                .map(|&slot| {
+                    graph
+                        .edge_attrs_by_slot(slot)
+                        .and_then(|attrs| attrs.get("weight"))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                weights,
+                vec![Some(&CgseValue::Int(2)), Some(&CgseValue::Int(1))]
+            );
+        });
+
+        assert!(graph.remove_edge("a", "c"));
+        graph.with_edge_slots_by_neighbor(|rows| {
+            assert_eq!(rows[a].len(), 1);
+            assert_eq!(
+                graph
+                    .edge_attrs_by_slot(rows[a][0])
+                    .and_then(|attrs| attrs.get("weight")),
+                Some(&CgseValue::Int(1))
+            );
+        });
+    }
+
+    #[test]
+    fn edges_ordered_tracks_node_and_neighbor_iteration_order() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", AttrMap::new())
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let pairs = graph
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(
+            pairs,
+            vec![
+                ("a".to_owned(), "b".to_owned()),
+                ("a".to_owned(), "c".to_owned()),
+                ("b".to_owned(), "c".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn edges_ordered_preserves_traversed_endpoint_orientation() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("2", "1", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let pairs = graph
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(pairs, vec![("2".to_owned(), "1".to_owned())]);
+
+        let borrowed_pairs = graph
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(borrowed_pairs, vec![("2".to_owned(), "1".to_owned())]);
+    }
+
+    #[test]
+    fn edges_ordered_uses_node_order_for_preexisting_nodes() {
+        let mut graph = Graph::strict();
+        graph.add_node("1".to_owned());
+        graph.add_node("2".to_owned());
+        graph
+            .add_edge_with_attrs("2", "1", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let pairs = graph
+            .edges_ordered()
+            .into_iter()
+            .map(|edge| (edge.left, edge.right))
+            .collect::<Vec<(String, String)>>();
+        assert_eq!(pairs, vec![("1".to_owned(), "2".to_owned())]);
+    }
+
+    #[test]
+    fn edge_storage_order_index_iter_tracks_mutations() {
+        let mut graph = Graph::strict();
+        graph.add_node("c");
+        graph.add_node("a");
+        graph.add_node("b");
+        graph
+            .add_edge_with_attrs("c", "a", single_attr("weight", "1"))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", single_attr("weight", "2"))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", single_attr("color", "red"))
+            .expect("duplicate edge update should succeed");
+
+        let indexed_edges = |graph: &Graph| {
+            graph
+                .edges_storage_order_index_iter()
+                .map(|(left, right, attrs)| {
+                    (
+                        graph
+                            .get_node_name(left)
+                            .expect("left endpoint index should resolve")
+                            .to_owned(),
+                        graph
+                            .get_node_name(right)
+                            .expect("right endpoint index should resolve")
+                            .to_owned(),
+                        attrs.get("weight").cloned(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(
+            indexed_edges(&graph),
+            vec![
+                (
+                    "a".to_owned(),
+                    "c".to_owned(),
+                    Some(CgseValue::String("1".to_owned())),
+                ),
+                (
+                    "b".to_owned(),
+                    "c".to_owned(),
+                    Some(CgseValue::String("2".to_owned())),
+                ),
+            ]
+        );
+
+        assert!(graph.remove_edge("a", "c"));
+        assert_eq!(
+            indexed_edges(&graph),
+            vec![(
+                "b".to_owned(),
+                "c".to_owned(),
+                Some(CgseValue::String("2".to_owned())),
+            )]
+        );
+
+        assert!(graph.remove_node("b"));
+        assert!(indexed_edges(&graph).is_empty());
+    }
+
+    fn assert_graph_core_invariants(graph: &Graph) {
+        let mut unique_edges = BTreeSet::new();
+        for node in graph.nodes_ordered() {
+            let neighbors = graph
+                .neighbors(node)
+                .expect("graph nodes should always have adjacency buckets");
+            for neighbor in neighbors {
+                assert!(graph.has_node(neighbor));
+                assert!(graph.has_edge(node, neighbor));
+                let reverse_neighbors = graph
+                    .neighbors(neighbor)
+                    .expect("neighbor should always have adjacency bucket");
+                assert!(reverse_neighbors.contains(&node));
+                unique_edges.insert(canonical_edge(node, neighbor));
+            }
+        }
+        assert_eq!(graph.edge_count(), unique_edges.len());
+    }
+
+    fn assert_multigraph_core_invariants(graph: &MultiGraph) {
+        let mut edge_instances = BTreeSet::new();
+        for node in graph.nodes_ordered() {
+            let neighbors = graph
+                .neighbors(node)
+                .expect("multigraph nodes should always have adjacency buckets");
+            for neighbor in neighbors {
+                assert!(graph.has_node(neighbor));
+                assert!(graph.has_edge(node, neighbor));
+                let reverse_neighbors = graph
+                    .neighbors(neighbor)
+                    .expect("neighbor should always have adjacency bucket");
+                assert!(reverse_neighbors.contains(&node));
+                let keys = graph
+                    .edge_keys(node, neighbor)
+                    .expect("parallel edge bucket should exist");
+                for key in keys {
+                    let canonical = canonical_edge(node, neighbor);
+                    edge_instances.insert((canonical.0, canonical.1, key));
+                }
+            }
+        }
+        assert_eq!(graph.edge_count(), edge_instances.len());
+    }
+
+    fn assert_decision_record_schema(record: &DecisionRecord, expected_mode: CompatibilityMode) {
+        assert!(record.ts_unix_ms > 0);
+        assert!(!record.operation.trim().is_empty());
+        assert_eq!(record.mode, expected_mode);
+        assert!((0.0..=1.0).contains(&record.incompatibility_probability));
+        assert!(!record.rationale.trim().is_empty());
+        assert!(!record.evidence.is_empty());
+        for term in &record.evidence {
+            assert!(!term.signal.trim().is_empty());
+            assert!(!term.observed_value.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn add_edge_autocreates_nodes_and_preserves_order() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge insert should succeed");
+        graph
+            .add_edge_with_attrs("a", "c", AttrMap::new())
+            .expect("edge insert should succeed");
+
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.edge_count(), 2);
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b", "c"]);
+        assert_eq!(graph.neighbors("a"), Some(vec!["b", "c"]));
+    }
+
+    #[test]
+    fn add_edge_empty_endpoint_resolution_preserves_autocreation_effects() {
+        let mut graph = Graph::strict();
+        let before = graph.revision();
+
+        graph
+            .add_edge("c", "a")
+            .expect("fresh endpoints should be autocreated");
+
+        // The single-probe endpoint resolver keeps the public storage effects
+        // of two empty add_node calls plus the new edge mutation: first-seen
+        // node order, one adjacency bucket per node, and three revision bumps.
+        assert_eq!(graph.nodes_ordered(), vec!["c", "a"]);
+        assert_eq!(graph.neighbors("c"), Some(vec!["a"]));
+        assert_eq!(graph.neighbors("a"), Some(vec!["c"]));
+        assert_eq!(graph.revision(), before + 3);
+
+        graph
+            .add_edge("a", "c")
+            .expect("an existing empty edge is a no-op");
+        assert_eq!(graph.nodes_ordered(), vec!["c", "a"]);
+        assert_eq!(graph.revision(), before + 3);
+    }
+
+    #[test]
+    fn extend_edges_unrecorded_preserves_adjacency_and_records_once() {
+        let mut graph = Graph::strict();
+        graph.add_node("a");
+        graph.add_node("b");
+        graph.add_node("c");
+        let before = graph.evidence_ledger().records().len();
+
+        let inserted = graph.extend_edges_unrecorded([("a", "b"), ("a", "c"), ("b", "a")]);
+
+        assert_eq!(inserted, 2);
+        assert_eq!(graph.edge_count(), 2);
+        assert_eq!(graph.neighbors("a"), Some(vec!["b", "c"]));
+        let records = graph.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_ref()),
+            Some("extend_edges_unrecorded")
+        );
+    }
+
+    #[test]
+    fn extend_existing_index_edges_unrecorded_matches_string_batch_on_int_prefix() {
+        let nodes = (0..12).map(|node| node.to_string()).collect::<Vec<_>>();
+        let edge_indices = vec![(10usize, 2usize), (2, 10), (3, 3), (1, 11), (11, 1)];
+        let edge_strings = edge_indices
+            .iter()
+            .map(|(left, right)| (left.to_string(), right.to_string()))
+            .collect::<Vec<_>>();
+
+        let mut by_string = Graph::strict();
+        let mut by_index = Graph::strict();
+        let _ = by_string.extend_nodes_unrecorded(nodes.clone());
+        let _ = by_index.extend_nodes_unrecorded(nodes);
+
+        assert!(by_index.nodes_are_contiguous_int_prefix());
+        assert_eq!(by_string.extend_edges_unrecorded(edge_strings), 3);
+        assert_eq!(
+            by_index.extend_existing_index_edges_unrecorded(edge_indices),
+            3
+        );
+
+        assert_eq!(by_index.snapshot(), by_string.snapshot());
+        assert_graph_core_invariants(&by_index);
+    }
+
+    #[test]
+    fn extend_edges_with_attrs_unrecorded_matches_add_edge_with_attrs() {
+        // br-r37-c1-pr8q6: bulk attributed insertion must be observationally
+        // identical to a sequence of add_edge_with_attrs calls (node order,
+        // adjacency order, attr merge on duplicates) minus the per-edge
+        // ledger records.
+        let mut attrs1 = AttrMap::new();
+        attrs1.insert("w".to_owned(), CgseValue::Int(1));
+        let mut attrs2 = AttrMap::new();
+        attrs2.insert("w".to_owned(), CgseValue::Int(7));
+        attrs2.insert("c".to_owned(), CgseValue::String("x".to_owned()));
+
+        let mut reference = Graph::strict();
+        reference
+            .add_edge_with_attrs("a", "b", attrs1.clone())
+            .unwrap();
+        reference
+            .add_edge_with_attrs("b", "c", AttrMap::new())
+            .unwrap();
+        // duplicate edge: attrs merge
+        reference
+            .add_edge_with_attrs("b", "a", attrs2.clone())
+            .unwrap();
+        // self-loop
+        reference
+            .add_edge_with_attrs("d", "d", attrs1.clone())
+            .unwrap();
+
+        let mut bulk = Graph::strict();
+        let before = bulk.evidence_ledger().records().len();
+        let inserted = bulk.extend_edges_with_attrs_unrecorded([
+            ("a".to_owned(), "b".to_owned(), attrs1.clone()),
+            ("b".to_owned(), "c".to_owned(), AttrMap::new()),
+            ("b".to_owned(), "a".to_owned(), attrs2.clone()),
+            ("d".to_owned(), "d".to_owned(), attrs1.clone()),
+        ]);
+
+        assert_eq!(inserted, 3);
+        assert_eq!(bulk.edge_count(), reference.edge_count());
+        assert_eq!(bulk.nodes_ordered(), reference.nodes_ordered());
+        for node in bulk.nodes_ordered() {
+            assert_eq!(bulk.neighbors(node), reference.neighbors(node));
+        }
+        assert_eq!(bulk.edge_attrs("a", "b"), reference.edge_attrs("a", "b"));
+        assert_eq!(bulk.edge_attrs("d", "d"), reference.edge_attrs("d", "d"));
+        // one summary record, not one per edge
+        assert_eq!(bulk.evidence_ledger().records().len(), before + 1);
+    }
+
+    #[test]
+    fn multigraph_int_prefix_keyed_edges_match_string_batch() {
+        let indexed_edges = vec![
+            (0usize, 1usize, 0usize),
+            (1, 2, 0),
+            (2, 0, 0),
+            (0, 1, 1),
+            (2, 2, 0),
+        ];
+        let string_edges = indexed_edges
+            .iter()
+            .map(|(left, right, key)| (left.to_string(), right.to_string(), *key, AttrMap::new()))
+            .collect::<Vec<_>>();
+
+        let mut by_string = MultiGraph::strict();
+        let mut by_index = MultiGraph::strict();
+
+        assert_eq!(
+            by_string.extend_keyed_edges_with_attrs_unrecorded(string_edges),
+            indexed_edges.len()
+        );
+        assert_eq!(
+            by_index.extend_fresh_int_prefix_keyed_edges_unrecorded(3, indexed_edges),
+            5
+        );
+
+        assert_eq!(by_index.snapshot(), by_string.snapshot());
+        assert_multigraph_core_invariants(&by_index);
+    }
+
+    #[test]
+    fn extend_nodes_unrecorded_preserves_order_and_records_once() {
+        let mut graph = Graph::strict();
+        graph.add_node("1");
+        let before = graph.evidence_ledger().records().len();
+
+        let inserted =
+            graph.extend_nodes_unrecorded(["0".to_owned(), "1".to_owned(), "2".to_owned()]);
+
+        assert_eq!(inserted, 2);
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.nodes_ordered(), vec!["1", "0", "2"]);
+        assert_eq!(graph.neighbor_count("0"), 0);
+        assert_eq!(graph.neighbor_count("2"), 0);
+        let records = graph.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_ref()),
+            Some("extend_nodes_unrecorded")
+        );
+    }
+
+    #[test]
+    fn neighbors_iter_preserves_deterministic_order() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_edge("a", "d").expect("edge add should succeed");
+
+        let neighbors = graph
+            .neighbors_iter("a")
+            .expect("neighbors should exist")
+            .collect::<Vec<&str>>();
+        assert_eq!(neighbors, vec!["b", "c", "d"]);
+    }
+
+    #[test]
+    fn neighbor_count_matches_neighbors_len() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        assert_eq!(graph.neighbor_count("a"), 2);
+        assert_eq!(graph.neighbor_count("missing"), 0);
+    }
+
+    #[test]
+    fn repeated_edge_updates_attrs_in_place() {
+        let mut graph = Graph::strict();
+        let mut first = AttrMap::new();
+        first.insert("weight".to_owned(), "1".into());
+        graph
+            .add_edge_with_attrs("a", "b", first)
+            .expect("edge insert should succeed");
+
+        let mut second = AttrMap::new();
+        second.insert("color".to_owned(), "blue".into());
+        graph
+            .add_edge_with_attrs("b", "a", second)
+            .expect("edge update should succeed");
+
+        let attrs = graph
+            .edge_attrs("a", "b")
+            .expect("edge attrs should be present");
+        assert_eq!(
+            attrs.get("weight"),
+            Some(&CgseValue::String("1".to_owned()))
+        );
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("blue".to_owned()))
+        );
+        assert_eq!(graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn complete_graph_bulk_constructor_preserves_ordered_contract() {
+        let graph = Graph::complete_graph(CompatibilityMode::Strict, 5);
+
+        assert_eq!(graph.node_count(), 5);
+        assert_eq!(graph.edge_count(), 10);
+        assert_eq!(graph.nodes_ordered(), vec!["0", "1", "2", "3", "4"]);
+        assert_eq!(
+            graph.neighbors("0").expect("node 0 should exist"),
+            vec!["1", "2", "3", "4"]
+        );
+        assert_eq!(
+            graph.neighbors("4").expect("node 4 should exist"),
+            vec!["0", "1", "2", "3"]
+        );
+        assert_eq!(
+            graph
+                .edges_ordered()
+                .into_iter()
+                .map(|edge| (edge.left, edge.right))
+                .collect::<Vec<_>>(),
+            vec![
+                ("0".to_owned(), "1".to_owned()),
+                ("0".to_owned(), "2".to_owned()),
+                ("0".to_owned(), "3".to_owned()),
+                ("0".to_owned(), "4".to_owned()),
+                ("1".to_owned(), "2".to_owned()),
+                ("1".to_owned(), "3".to_owned()),
+                ("1".to_owned(), "4".to_owned()),
+                ("2".to_owned(), "3".to_owned()),
+                ("2".to_owned(), "4".to_owned()),
+                ("3".to_owned(), "4".to_owned()),
+            ]
+        );
+
+        let operations = graph
+            .evidence_ledger()
+            .records()
+            .iter()
+            .map(|record| record.operation.as_ref())
+            .collect::<Vec<_>>();
+        assert_eq!(operations, vec!["complete_graph_bulk"]);
+    }
+
+    #[test]
+    fn remove_node_removes_incident_edges() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        assert!(graph.remove_node("b"));
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 0);
+    }
+
+    /// br-r37-c1-8n3j3: attribution bench for the per-mutation CGSE decision
+    /// record. `Graph::add_edge_with_attrs` calls `record_decision` twice per
+    /// edge (5 `EvidenceTerm`s total), and every field of a `DecisionRecord`
+    /// that comes from a `&'static str` is materialised as an owned `String`.
+    /// This measures, in one invocation and interleaved, how much of a single
+    /// `add_edge_with_attrs` is the ledger: arm A records the exact terms
+    /// `add_edge_with_attrs` builds, arm B builds the identical terms and
+    /// discards them. `add_edge_full` is the denominator the ratio is against.
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib ledger_record_cost_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn ledger_record_cost_ab() {
+        use fnx_runtime::{EvidenceTerm, RuntimePolicy, bool_evidence, count_evidence};
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        const EDGES: usize = 20_000;
+        const ROUNDS: usize = 21;
+        const RATIONALE: &str = "argmin expected loss over {allow,full_validate,fail_closed}";
+
+        // The exact evidence `add_edge_with_attrs` builds for a fresh
+        // non-self-loop edge between two autocreated nodes.
+        fn gate_terms() -> Vec<EvidenceTerm> {
+            vec![EvidenceTerm {
+                signal: "unknown_incompatible_feature".into(),
+                observed_value: bool_evidence(false),
+                log_likelihood_ratio: 12.0,
+            }]
+        }
+        fn outcome_terms(edge_attr_count: usize) -> Vec<EvidenceTerm> {
+            vec![
+                EvidenceTerm {
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(false),
+                    log_likelihood_ratio: -0.5,
+                },
+                EvidenceTerm {
+                    signal: "edge_attr_count".into(),
+                    observed_value: count_evidence(edge_attr_count),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(true),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(true),
+                    log_likelihood_ratio: -1.25,
+                },
+            ]
+        }
+
+        // br-r37-c1-jc9e4: the record the AUTOCREATED ENDPOINT files.
+        // `add_edge_with_attrs` creates a missing endpoint via `add_node` ->
+        // `add_node_with_attrs`, which calls `record_decision` UNCONDITIONALLY,
+        // so an edge-BUILDING workload files this record in addition to the
+        // outcome record. Two evidence terms, against the outcome record's four.
+        fn node_terms() -> Vec<EvidenceTerm> {
+            vec![
+                EvidenceTerm {
+                    signal: "node_preexisting".into(),
+                    observed_value: bool_evidence(false),
+                    log_likelihood_ratio: -3.0,
+                },
+                EvidenceTerm {
+                    signal: "attrs_count".into(),
+                    observed_value: count_evidence(0),
+                    log_likelihood_ratio: -1.0,
+                },
+            ]
+        }
+
+        // Arm A: build the terms AND record them (the shipped behaviour).
+        let recorded = || {
+            let mut policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                policy.record("add_edge", action, 0.08, RATIONALE, gate_terms());
+                policy.record(
+                    "add_edge",
+                    action,
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                );
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(policy.decision_log().total_recorded(), (EDGES * 2) as u64);
+            elapsed
+        };
+
+        // Arm A1: the shipped path after br-r37-c1-eo88t — the gate decision is
+        // taken without a record, so an allowed edge writes only the outcome
+        // record. Same bounded ledger as arm A, half the traffic.
+        let recorded_single = || {
+            let mut policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                policy.record(
+                    "add_edge",
+                    action,
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                );
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(policy.decision_log().total_recorded(), EDGES as u64);
+            elapsed
+        };
+
+        // Arm A2: two records per edge — the autocreated endpoint's `add_node`
+        // record PLUS the `add_edge` outcome record. This was the shipped
+        // behaviour until br-r37-c1-wa1b9 stopped the internal autocreation
+        // filing its own record; it is now the COUNTERFACTUAL that prices what
+        // that change removed, and A1 is the shipped path. Keep it: it is the
+        // only arm that shows what a per-call (rather than per-operation)
+        // ledger contract would cost on the hottest mutation path.
+        let recorded_edge_build = || {
+            let mut policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let node_action = policy.action_for(0.0, false);
+                policy.record("add_node", node_action, 0.0, RATIONALE, node_terms());
+                let action = policy.action_for(0.08, false);
+                policy.record(
+                    "add_edge",
+                    action,
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                );
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(policy.decision_log().total_recorded(), (EDGES * 2) as u64);
+            elapsed
+        };
+
+        // Arm A0: the pre-br-r37-c1-8n3j3 ledger — the identical records pushed
+        // into an unbounded `Vec` that is never retired. This is the incumbent
+        // arm for the bound, run in the SAME invocation as arm A.
+        let unbounded = || {
+            let policy = RuntimePolicy::strict();
+            let mode = policy.mode();
+            let mut records: Vec<DecisionRecord> = Vec::new();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                records.push(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".into(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.into(),
+                    evidence: gate_terms(),
+                });
+                records.push(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".into(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.into(),
+                    evidence: outcome_terms(index & 3),
+                });
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(records.len(), EDGES * 2);
+            elapsed
+        };
+
+        // Arm B: build the identical terms, skip only the recording.
+        let discarded = || {
+            let policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                black_box((action, "add_edge", 0.08, RATIONALE, gate_terms()));
+                black_box((
+                    action,
+                    "add_edge",
+                    0.08,
+                    RATIONALE,
+                    outcome_terms(index & 3),
+                ));
+            }
+            let elapsed = start.elapsed();
+            assert!(policy.decision_log().records().is_empty());
+            elapsed
+        };
+
+        // Arm C: terms + the clock read, discarded. Isolates `unix_time_ms`.
+        let clocked = || {
+            let policy = RuntimePolicy::strict();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                black_box((action, fnx_runtime::unix_time_ms(), gate_terms()));
+                black_box((
+                    action,
+                    fnx_runtime::unix_time_ms(),
+                    outcome_terms(index & 3),
+                ));
+            }
+            start.elapsed()
+        };
+
+        // Arm D: terms + clock + the two owned `&'static str` clones + the whole
+        // `DecisionRecord`, discarded instead of pushed. Isolates the ledger Vec
+        // push and its growth memcpy from the per-record materialisation cost.
+        let materialized = || {
+            let policy = RuntimePolicy::strict();
+            let mode = policy.mode();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                black_box(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".into(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.into(),
+                    evidence: gate_terms(),
+                });
+                black_box(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".into(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.into(),
+                    evidence: outcome_terms(index & 3),
+                });
+            }
+            start.elapsed()
+        };
+
+        // Denominator: the whole shipped add_edge_with_attrs path.
+        let add_edge_full = || {
+            let mut graph = Graph::strict();
+            let keys = (0..=EDGES).map(|n| n.to_string()).collect::<Vec<_>>();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                graph
+                    .add_edge_with_attrs(
+                        keys[index].clone(),
+                        keys[index + 1].clone(),
+                        AttrMap::new(),
+                    )
+                    .expect("edge add should succeed");
+            }
+            let elapsed = start.elapsed();
+            assert_eq!(graph.edge_count(), EDGES);
+            elapsed
+        };
+
+        let mut record_ns = Vec::with_capacity(ROUNDS);
+        let mut single_ns = Vec::with_capacity(ROUNDS);
+        let mut edge_build_ns = Vec::with_capacity(ROUNDS);
+        let mut unbounded_ns = Vec::with_capacity(ROUNDS);
+        let mut discard_ns = Vec::with_capacity(ROUNDS);
+        let mut clock_ns = Vec::with_capacity(ROUNDS);
+        let mut material_ns = Vec::with_capacity(ROUNDS);
+        let mut full_ns = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            record_ns.push(recorded().as_nanos() as f64 / EDGES as f64);
+            single_ns.push(recorded_single().as_nanos() as f64 / EDGES as f64);
+            edge_build_ns.push(recorded_edge_build().as_nanos() as f64 / EDGES as f64);
+            unbounded_ns.push(unbounded().as_nanos() as f64 / EDGES as f64);
+            discard_ns.push(discarded().as_nanos() as f64 / EDGES as f64);
+            clock_ns.push(clocked().as_nanos() as f64 / EDGES as f64);
+            material_ns.push(materialized().as_nanos() as f64 / EDGES as f64);
+            full_ns.push(add_edge_full().as_nanos() as f64 / EDGES as f64);
+        }
+        let median = |samples: &mut Vec<f64>| {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let recorded_ns = median(&mut record_ns);
+        let single_median_ns = median(&mut single_ns);
+        let edge_build_median_ns = median(&mut edge_build_ns);
+        let unbounded_median_ns = median(&mut unbounded_ns);
+        let discarded_ns = median(&mut discard_ns);
+        let clocked_ns = median(&mut clock_ns);
+        let materialized_ns = median(&mut material_ns);
+        let full = median(&mut full_ns);
+        println!("ledger_record_cost_ab n={EDGES} rounds={ROUNDS} (2 records/edge)");
+        println!("  A  bounded ledger, 2 records: {recorded_ns:8.1} ns/edge");
+        println!("  A1 bounded ledger, 1 record : {single_median_ns:8.1} ns/edge  (SHIPPED)");
+        println!(
+            "  A2 two records per edge      : {edge_build_median_ns:8.1} ns/edge  (pre-wa1b9 counterfactual)"
+        );
+        println!("  A0 unbounded Vec (incumbent): {unbounded_median_ns:8.1} ns/edge");
+        println!("  B  build terms only         : {discarded_ns:8.1} ns/edge");
+        println!("  C  terms + clock            : {clocked_ns:8.1} ns/edge");
+        println!("  D  terms + clock + record   : {materialized_ns:8.1} ns/edge");
+        println!("  add_edge_with_attrs (total) : {full:8.1} ns/edge");
+        println!(
+            "  -> clock (C-B)              : {:8.1} ns/edge",
+            clocked_ns - discarded_ns
+        );
+        println!(
+            "  -> static str clones (D-C)  : {:8.1} ns/edge",
+            materialized_ns - clocked_ns
+        );
+        println!(
+            "  -> unbounded retention (A0-D): {:8.1} ns/edge",
+            unbounded_median_ns - materialized_ns
+        );
+        println!(
+            "  -> bounded retention (A-D)  : {:8.1} ns/edge",
+            recorded_ns - materialized_ns
+        );
+        println!(
+            "  -> bound speedup (A0/A)     : {:8.4}x",
+            unbounded_median_ns / recorded_ns
+        );
+        println!(
+            "  -> single-record (A/A1)     : {:8.4}x",
+            recorded_ns / single_median_ns
+        );
+        println!(
+            "  -> both levers (A0/A1)      : {:8.4}x",
+            unbounded_median_ns / single_median_ns
+        );
+        println!(
+            "  -> ledger share, SHIPPED    : {:6.1}%  (A1/full — one record per add_edge)",
+            single_median_ns / full * 100.0
+        );
+        println!(
+            "  -> ledger share, pre-wa1b9  : {:6.1}%  (A2/full — when autocreation also recorded)",
+            edge_build_median_ns / full * 100.0
+        );
+    }
+
+    /// br-r37-c1-g2nev: is the `Cow<'static, str>` field migration worth 110
+    /// hand-edited construction sites?
+    ///
+    /// The bead proposes changing `DecisionRecord.operation`/`.rationale` and
+    /// `EvidenceTerm.signal`/`.observed_value` from `String` to
+    /// `Cow<'static, str>`, because 13 of the 14 owned strings a shipped
+    /// `add_edge` materialises are compile-time constants. It has been REJECTed
+    /// twice — not on the merits, but because it is an all-surface mechanical
+    /// conversion across seven crates that `AGENTS.md` forbids scripting, and
+    /// nobody had a number saying whether the payoff justifies it.
+    ///
+    /// This produces that number WITHOUT doing the migration first. Both arms
+    /// run in ONE invocation and differ in exactly one thing: the field type.
+    ///
+    /// WHAT IS SIMULATED, AND WHY THE DELTA STILL TRANSFERS. The real ledger
+    /// retires selectively (oldest `Allow` only) inside `RuntimePolicy`, which
+    /// a local type cannot reuse. Both arms here therefore use the same plain
+    /// capped `Vec` instead. That shifts the ABSOLUTE ns/edge away from the
+    /// shipped path — so these are not ledger-share numbers and must not be
+    /// quoted as such — but it shifts BOTH arms identically, and the quantity
+    /// this bead turns on is the DIFFERENCE between them. `ledger_record_cost_ab`
+    /// above remains the authority on the shipped path's absolute cost.
+    ///
+    /// A `Cow` record is also WIDER than a `String` one (a `Cow<str>` carries a
+    /// discriminant), so a migration trades N allocations for a larger memcpy on
+    /// every push and retire. That trade is exactly what is being measured, and
+    /// it is why the answer was not obvious enough to skip measuring.
+    ///
+    /// `#[ignore]`; run with
+    /// `cargo test --release -p fnx-classes --lib ledger_cow_field_cost_ab -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement; run with --release --ignored --nocapture"]
+    fn ledger_cow_field_cost_ab() {
+        use fnx_runtime::{
+            DecisionAction, EvidenceTerm, RuntimePolicy, bool_evidence, count_evidence,
+        };
+        use std::borrow::Cow;
+        use std::hint::black_box;
+        use std::time::{Duration, Instant};
+
+        const EDGES: usize = 20_000;
+        const ROUNDS: usize = 21;
+        const CAP: usize = fnx_runtime::DECISION_LEDGER_RETAINED_RECORDS;
+        const RATIONALE: &str = "argmin expected loss over {allow,full_validate,fail_closed}";
+
+        /// Shape-for-shape mirror of `DecisionRecord` with borrowed fields.
+        struct CowRecord {
+            ts_unix_ms: u128,
+            operation: Cow<'static, str>,
+            action: DecisionAction,
+            incompatibility_probability: f64,
+            rationale: Cow<'static, str>,
+            evidence: Vec<CowTerm>,
+        }
+        struct CowTerm {
+            signal: Cow<'static, str>,
+            observed_value: Cow<'static, str>,
+            log_likelihood_ratio: f64,
+        }
+
+        // The exact four terms a shipped allowed edge records, in both forms.
+        // Only `edge_attr_count` is genuinely dynamic; the other nine strings
+        // are constants, which is the whole premise of the bead.
+        fn owned_terms(edge_attr_count: usize) -> Vec<EvidenceTerm> {
+            vec![
+                EvidenceTerm {
+                    signal: "self_loop".into(),
+                    observed_value: bool_evidence(false),
+                    log_likelihood_ratio: -0.5,
+                },
+                EvidenceTerm {
+                    signal: "edge_attr_count".into(),
+                    observed_value: count_evidence(edge_attr_count),
+                    log_likelihood_ratio: -2.0,
+                },
+                EvidenceTerm {
+                    signal: "left_autocreated".into(),
+                    observed_value: bool_evidence(true),
+                    log_likelihood_ratio: -1.25,
+                },
+                EvidenceTerm {
+                    signal: "right_autocreated".into(),
+                    observed_value: bool_evidence(true),
+                    log_likelihood_ratio: -1.25,
+                },
+            ]
+        }
+        fn borrowed_terms(edge_attr_count: usize) -> Vec<CowTerm> {
+            vec![
+                CowTerm {
+                    signal: Cow::Borrowed("self_loop"),
+                    observed_value: Cow::Borrowed("false"),
+                    log_likelihood_ratio: -0.5,
+                },
+                CowTerm {
+                    signal: Cow::Borrowed("edge_attr_count"),
+                    // The one field a migration cannot borrow.
+                    observed_value: Cow::Owned(edge_attr_count.to_string()),
+                    log_likelihood_ratio: -2.0,
+                },
+                CowTerm {
+                    signal: Cow::Borrowed("left_autocreated"),
+                    observed_value: Cow::Borrowed("true"),
+                    log_likelihood_ratio: -1.25,
+                },
+                CowTerm {
+                    signal: Cow::Borrowed("right_autocreated"),
+                    observed_value: Cow::Borrowed("true"),
+                    log_likelihood_ratio: -1.25,
+                },
+            ]
+        }
+
+        let owned_arm = || -> Duration {
+            let policy = RuntimePolicy::strict();
+            let mode = policy.mode();
+            let mut log: Vec<DecisionRecord> = Vec::new();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                if log.len() == CAP {
+                    log.clear();
+                }
+                log.push(DecisionRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: "add_edge".into(),
+                    mode,
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: RATIONALE.into(),
+                    evidence: owned_terms(index & 3),
+                });
+            }
+            let elapsed = start.elapsed();
+            // Consume every field AFTER timing. Both arms do this, symmetrically:
+            // it keeps the record contents observable so neither arm can have
+            // its construction elided as dead, which would compare a real build
+            // against an optimised-away one.
+            let mut sink = 0usize;
+            for record in &log {
+                sink ^= record.operation.len()
+                    ^ record.rationale.len()
+                    ^ (record.ts_unix_ms as usize)
+                    ^ (record.incompatibility_probability.to_bits() as usize)
+                    ^ usize::from(matches!(record.action, DecisionAction::Allow));
+                for term in &record.evidence {
+                    sink ^= term.signal.len()
+                        ^ term.observed_value.len()
+                        ^ (term.log_likelihood_ratio.to_bits() as usize);
+                }
+            }
+            black_box(sink);
+            elapsed
+        };
+
+        let borrowed_arm = || -> Duration {
+            let policy = RuntimePolicy::strict();
+            let mut log: Vec<CowRecord> = Vec::new();
+            let start = Instant::now();
+            for index in 0..EDGES {
+                let action = policy.action_for(0.08, false);
+                if log.len() == CAP {
+                    log.clear();
+                }
+                log.push(CowRecord {
+                    ts_unix_ms: fnx_runtime::unix_time_ms(),
+                    operation: Cow::Borrowed("add_edge"),
+                    action,
+                    incompatibility_probability: 0.08,
+                    rationale: Cow::Borrowed(RATIONALE),
+                    evidence: borrowed_terms(index & 3),
+                });
+            }
+            let elapsed = start.elapsed();
+            let mut sink = 0usize;
+            for record in &log {
+                sink ^= record.operation.len()
+                    ^ record.rationale.len()
+                    ^ (record.ts_unix_ms as usize)
+                    ^ (record.incompatibility_probability.to_bits() as usize)
+                    ^ usize::from(matches!(record.action, DecisionAction::Allow));
+                for term in &record.evidence {
+                    sink ^= term.signal.len()
+                        ^ term.observed_value.len()
+                        ^ (term.log_likelihood_ratio.to_bits() as usize);
+                }
+            }
+            black_box(sink);
+            elapsed
+        };
+
+        // Order-balanced ABBA, and an A/A null measured through the identical
+        // scheme. br-r37-c1-vz4v9 found a fixed-order sibling bench reporting a
+        // 12% "effect" that was purely which arm ran first; the null is what
+        // makes this readable.
+        let balanced =
+            |first: &dyn Fn() -> Duration, second: &dyn Fn() -> Duration| -> (f64, f64) {
+                let a1 = first();
+                let b1 = second();
+                let b2 = second();
+                let a2 = first();
+                let scale = (2 * EDGES) as f64;
+                (
+                    (a1 + a2).as_nanos() as f64 / scale,
+                    (b1 + b2).as_nanos() as f64 / scale,
+                )
+            };
+
+        owned_arm();
+        borrowed_arm();
+
+        let mut owned_ns = Vec::with_capacity(ROUNDS);
+        let mut cow_ns = Vec::with_capacity(ROUNDS);
+        let mut null_a_ns = Vec::with_capacity(ROUNDS);
+        let mut null_b_ns = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
+            let (na, nb) = balanced(&owned_arm, &owned_arm);
+            let (owned, cow) = balanced(&owned_arm, &borrowed_arm);
+            null_a_ns.push(na);
+            null_b_ns.push(nb);
+            owned_ns.push(owned);
+            cow_ns.push(cow);
+        }
+
+        let median = |samples: &mut Vec<f64>| {
+            samples.sort_by(f64::total_cmp);
+            samples[samples.len() / 2]
+        };
+        let owned = median(&mut owned_ns);
+        let cow = median(&mut cow_ns);
+        let null_a = median(&mut null_a_ns);
+        let null_b = median(&mut null_b_ns);
+
+        println!("ledger_cow_field_cost_ab n={EDGES} rounds={ROUNDS} cap={CAP}");
+        println!("  S  String fields   : {owned:8.1} ns/edge  (incumbent)");
+        println!("  C  Cow fields      : {cow:8.1} ns/edge  (proposed)");
+        println!("  N1 String, null A  : {null_a:8.1} ns/edge");
+        println!("  N2 String, null B  : {null_b:8.1} ns/edge");
+        println!("  -> A/A null (N2/N1): {:8.4}x", null_b / null_a);
+        println!("  -> Cow gain (S/C)  : {:8.4}x", owned / cow);
+        println!("  -> saving          : {:8.1} ns/edge", owned - cow);
+    }
+
+    // br-r37-c1-p6bxu: A/B substrate bench for MultiGraph::remove_node
+    // (O(degree) swap_remove vs the old O(|E|) retain). Ignored by default;
+    // run with `cargo test -p fnx-classes --release ab_bench_multigraph_remove_node
+    // -- --ignored --nocapture`. Also asserts byte-exact parity (node_count,
+    // edge_count, edges_ordered) between the two paths.
+    #[test]
+    #[ignore]
+    fn ab_bench_multigraph_remove_node() {
+        use std::time::Instant;
+        const N: usize = 1000;
+        const M: usize = 8000;
+        const ITERS: usize = 500;
+        let build = || {
+            let mut g = MultiGraph::new(CompatibilityMode::Strict);
+            for i in 0..N {
+                let _ = g.add_node(i.to_string());
+            }
+            let mut s: u64 = 0x9E3779B97F4A7C15;
+            let mut next = || {
+                s = s
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                (s >> 33) as usize % N
+            };
+            for _ in 0..M {
+                let a = next();
+                let b = next();
+                let _ = g.add_edge(a.to_string(), b.to_string());
+            }
+            g
+        };
+
+        let mut gnew = build();
+        let victims: Vec<String> = gnew
+            .nodes_ordered()
+            .into_iter()
+            .take(ITERS)
+            .map(str::to_owned)
+            .collect();
+        let t = Instant::now();
+        for node in &victims {
+            gnew.remove_node(node);
+        }
+        let new_t = t.elapsed();
+
+        // A/A null path: the sole store must produce the same state under the
+        // same removal sequence.
+        let mut gold = build();
+        let t = Instant::now();
+        for node in &victims {
+            gold.remove_node(node);
+        }
+        let null_t = t.elapsed();
+
+        assert_eq!(gnew.node_count(), gold.node_count());
+        assert_eq!(gnew.edge_count(), gold.edge_count());
+        assert_eq!(gnew.edges_ordered(), gold.edges_ordered());
+        eprintln!(
+            "MultiGraph remove_node A/A x{ITERS}: candidate {new_t:?}, null {null_t:?}, ratio={:.3}",
+            null_t.as_secs_f64() / new_t.as_secs_f64()
+        );
+    }
+
+    #[test]
+    fn remove_nodes_from_matches_repeated_removal_and_rebuilds_indices() {
+        let edges = [
+            ("0", "1"),
+            ("1", "2"),
+            ("2", "3"),
+            ("3", "4"),
+            ("4", "5"),
+            ("0", "5"),
+            ("1", "4"),
+            ("2", "5"),
+        ];
+        let mut batch = Graph::strict();
+        let mut repeated = Graph::strict();
+        for (left, right) in edges {
+            batch.add_edge(left, right).expect("batch edge add");
+            repeated.add_edge(left, right).expect("repeated edge add");
+        }
+
+        let victims = ["1", "3", "99", "1"];
+        let removed = batch.remove_nodes_from(victims);
+        for victim in victims {
+            let _ = repeated.remove_node(victim);
+        }
+
+        assert_eq!(removed, (2, 5));
+        assert_eq!(batch.snapshot(), repeated.snapshot());
+        let ordered_nodes = batch
+            .nodes_ordered()
+            .into_iter()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for (node_index, node) in ordered_nodes.iter().enumerate() {
+            let names_from_strings = batch.neighbors(node).expect("node should exist");
+            let names_from_indices = batch
+                .neighbors_indices(node_index)
+                .expect("index should exist")
+                .iter()
+                .map(|index| batch.get_node_name(*index).expect("index should resolve"))
+                .collect::<Vec<_>>();
+            assert_eq!(names_from_indices, names_from_strings);
+        }
+        let names_from_edge_indices = batch
+            .edges_storage_order_index_iter()
+            .map(|(left, right, _)| {
+                (
+                    batch
+                        .get_node_name(left)
+                        .expect("left endpoint should resolve")
+                        .to_owned(),
+                    batch
+                        .get_node_name(right)
+                        .expect("right endpoint should resolve")
+                        .to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let names_from_edge_storage = batch
+            .edges_storage_order_iter()
+            .map(|(left, right, _)| (left.to_owned(), right.to_owned()))
+            .collect::<Vec<_>>();
+        assert_eq!(names_from_edge_indices, names_from_edge_storage);
+    }
+
+    /// yr2oc.1: every reader that speaks positions agrees with the name-based
+    /// readers (the slot store) — the as50i invariant.
+    fn assert_graph_positions_agree_with_names(g: &Graph) {
+        let names: Vec<String> = g.nodes_ordered().into_iter().map(str::to_owned).collect();
+        for (position, name) in names.iter().enumerate() {
+            assert_eq!(g.get_node_index(name), Some(position));
+            assert_eq!(g.get_node_name(position), Some(name.as_str()));
+            let by_name = g.neighbors(name).expect("live node");
+            let by_position: Vec<&str> = g
+                .neighbors_indices(position)
+                .expect("live position")
+                .iter()
+                .map(|&p| g.get_node_name(p).expect("neighbour position"))
+                .collect();
+            assert_eq!(by_position, by_name, "row of {name}");
+            // yr2oc.4: the slot-read incident edges follow the same row.
+            let incident: Vec<(bool, &AttrMap)> =
+                g.incident_edge_attrs(name).expect("live node").collect();
+            let expected: Vec<(bool, &AttrMap)> = by_name
+                .iter()
+                .map(|&nbr| (nbr == name, g.edge_attrs(name, nbr).expect("edge")))
+                .collect();
+            assert_eq!(incident, expected, "incident edges of {name}");
+        }
+        assert!(g.neighbors_indices(names.len()).is_none());
+        let by_positions: Vec<(&str, &str)> = g
+            .edges_storage_order_index_iter()
+            .map(|(l, r, _)| (g.get_node_name(l).unwrap(), g.get_node_name(r).unwrap()))
+            .collect();
+        let by_storage: Vec<(&str, &str)> = g
+            .edges_storage_order_iter()
+            .map(|(l, r, _)| (l, r))
+            .collect();
+        assert_eq!(by_positions, by_storage);
+        g.with_edge_slots_by_neighbor(|rows| {
+            assert_eq!(rows.len(), names.len());
+            for (position, row) in rows.iter().enumerate() {
+                let neighbours = g.neighbors_indices(position).unwrap();
+                assert_eq!(row.len(), neighbours.len());
+                for (&edge_slot, &neighbour) in row.iter().zip(neighbours) {
+                    assert_eq!(
+                        g.edge_attrs_by_slot(edge_slot),
+                        g.edge_attrs(&names[position], &names[neighbour])
+                    );
+                }
+            }
+        });
+    }
+
+    /// yr2oc.1: a run of removals leaves slots apart from positions (no
+    /// compaction per removal), and the positional readers must still agree
+    /// with the names. Reading the slot rows by position, which is what
+    /// dropping the per-removal compaction alone would do, fails the row check
+    /// on the first non-tail removal.
+    #[test]
+    fn removal_runs_keep_positional_readers_in_step_with_names() {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for round in 0..40 {
+            let n = 12 + round % 20;
+            let mut g = Graph::strict();
+            for i in 0..n {
+                let _ = g.add_node(format!("n{i}"));
+            }
+            for _ in 0..3 * n {
+                let (u, v) = (next(n), next(n));
+                let mut attrs = AttrMap::new();
+                attrs.insert(
+                    "w".into(),
+                    CgseValue::Int(i64::try_from(u * 100 + v).unwrap()),
+                );
+                g.add_edge_with_attrs(format!("n{u}"), format!("n{v}"), attrs)
+                    .expect("edge");
+            }
+            assert!(g.is_compact());
+            // Fewer than half the nodes, never the last position: no compaction.
+            for _ in 0..n / 3 {
+                let names: Vec<String> = g.nodes_ordered().into_iter().map(str::to_owned).collect();
+                let victim = names[next(names.len() - 1)].clone();
+                assert!(g.remove_node(&victim));
+                assert!(!g.is_compact(), "round {round}: slots should stay apart");
+                assert_graph_positions_agree_with_names(&g);
+            }
+            // The first insertion compacts, once.
+            g.add_edge("fresh", "n0").expect("edge");
+            assert!(g.is_compact());
+            assert_graph_positions_agree_with_names(&g);
+        }
+    }
+
+    /// yr2oc.1: removals past half the live nodes compact, so the slot arrays
+    /// stay within twice the live nodes.
+    #[test]
+    fn removal_runs_compact_once_freed_slots_outnumber_live_nodes() {
+        let mut g = Graph::strict();
+        for i in 0..10 {
+            g.add_edge(format!("n{i}"), format!("n{}", (i + 1) % 10))
+                .expect("edge");
+        }
+        for i in 0..5 {
+            assert!(g.remove_node(&format!("n{i}")));
+            assert!(!g.is_compact());
+        }
+        assert!(g.remove_node("n5"));
+        assert!(g.is_compact(), "6 freed slots against 4 live nodes");
+        assert_graph_positions_agree_with_names(&g);
+    }
+
+    /// yr2oc.1: the node table's rank/select after O(1) removals, against the
+    /// order a plain insertion-ordered list keeps.
+    #[test]
+    fn node_order_positions_follow_removals_and_compaction() {
+        use super::NodeOrder;
+        let names: Vec<String> = (0..12).map(|i| format!("v{i}")).collect();
+        let mut order = NodeOrder::from_names(names.clone());
+        let mut model = names.clone();
+        let check = |order: &NodeOrder, model: &[String]| {
+            assert_eq!(order.len(), model.len());
+            assert_eq!(order.keys().cloned().collect::<Vec<_>>(), model);
+            for (position, name) in model.iter().enumerate() {
+                assert_eq!(order.get_index_of(name), Some(position));
+                let (at, slot) = order.get_index(position).expect("live position");
+                assert_eq!(at, name);
+                assert_eq!(order.slot_at(position), Some(slot));
+                assert_eq!(order.position_of(slot), Some(position));
+                assert_eq!(order.get(name), Some(&slot));
+            }
+            assert_eq!(order.get_index(model.len()), None);
+        };
+        for victim in ["v3", "v0", "v7", "v11", "v10"] {
+            let (slot, popped) = order.remove(victim).expect("live name");
+            model.retain(|name| name != victim);
+            assert!(
+                !popped,
+                "{victim} is not the last live entry of a dense table"
+            );
+            assert_eq!(order.position_of(slot), None);
+            assert!(order.get(victim).is_none());
+            assert!(!order.is_dense());
+            check(&order, &model);
+        }
+        assert!(order.remove("v3").is_none());
+        // A push after removals appends at the end of the order.
+        order.push("late".to_owned());
+        model.push("late".to_owned());
+        check(&order, &model);
+        // Compaction renumbers the live entries in order and keeps every name.
+        let old_to_new = order.compact();
+        assert!(order.is_dense());
+        assert_eq!(order.slot_count(), model.len());
+        assert_eq!(old_to_new[3], usize::MAX);
+        assert_eq!(old_to_new[1], 0);
+        check(&order, &model);
+        // On a dense table the last entry is popped, not tombstoned.
+        let last = model.pop().expect("non-empty");
+        assert_eq!(order.remove(&last).map(|(_, popped)| popped), Some(true));
+        assert!(order.is_dense());
+        check(&order, &model);
+    }
+
+    /// sfq4w.3: `names_are_positions` is never true when some name is not the
+    /// decimal of its position, through random appends and removals, and a
+    /// fresh table computes it exactly. `is_decimal_of` accepts only the
+    /// canonical spelling.
+    #[test]
+    fn names_are_positions_is_never_true_when_a_name_is_off_position() {
+        use super::{NodeOrder, is_decimal_of};
+        assert!(is_decimal_of("0", 0));
+        assert!(is_decimal_of("10", 10));
+        assert!(is_decimal_of(&usize::MAX.to_string(), usize::MAX));
+        for (name, n) in [
+            ("", 0),
+            ("00", 0),
+            ("01", 1),
+            ("+1", 1),
+            ("-1", 1),
+            ("1 ", 1),
+            ("11", 1),
+            ("1", 11),
+            ("str:1:1", 1),
+        ] {
+            assert!(!is_decimal_of(name, n), "{name:?} spelled {n}");
+        }
+        let truth = |names: &[String]| {
+            names
+                .iter()
+                .enumerate()
+                .all(|(position, name)| *name == position.to_string())
+        };
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for round in 0..200 {
+            let mut order = NodeOrder::default();
+            let mut model: Vec<String> = Vec::new();
+            for step in 0..40 {
+                match next(5) {
+                    // Mostly the next position, sometimes any other name.
+                    0..=2 => {
+                        let name = if next(4) == 0 {
+                            format!("{}", next(50))
+                        } else {
+                            model.len().to_string()
+                        };
+                        if !order.contains_key(&name) {
+                            order.push(name.clone());
+                            model.push(name);
+                        }
+                    }
+                    3 if !model.is_empty() => {
+                        let victim = model.pop().expect("non-empty");
+                        order.remove(&victim);
+                    }
+                    4 if !model.is_empty() => {
+                        let victim = model.remove(next(model.len()));
+                        order.remove(&victim);
+                    }
+                    _ => {}
+                }
+                if step % 3 == 0 {
+                    let flag = order.names_are_positions();
+                    assert!(
+                        !flag || truth(&model),
+                        "round {round} step {step}: {model:?}"
+                    );
+                    assert_eq!(
+                        NodeOrder::from_names(model.clone()).names_are_positions(),
+                        truth(&model)
+                    );
+                }
+            }
+        }
+    }
+
+    /// br-r37-c1-qaqog: the MultiGraph table's copy of the flag - never true
+    /// while some live name is off its position, through inserts (reusing
+    /// freed slots), removals of the last and of other entries, and batch
+    /// removals; and exactly the truth on a table built fresh.
+    #[test]
+    fn slot_order_names_are_positions_is_never_true_when_a_name_is_off_position() {
+        use super::SlotOrder;
+        let truth = |names: &[String]| {
+            names
+                .iter()
+                .enumerate()
+                .all(|(position, name)| *name == position.to_string())
+        };
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for round in 0..200 {
+            let mut order = SlotOrder::default();
+            let mut model: Vec<String> = Vec::new();
+            for step in 0..40 {
+                match next(6) {
+                    0..=2 => {
+                        let name = if next(4) == 0 {
+                            format!("{}", next(50))
+                        } else {
+                            model.len().to_string()
+                        };
+                        if !order.contains_key(&name) {
+                            order.insert(name.clone());
+                            model.push(name);
+                        }
+                    }
+                    3 if !model.is_empty() => {
+                        let victim = model.pop().expect("non-empty");
+                        order.remove(&victim);
+                    }
+                    4 if !model.is_empty() => {
+                        let victim = model.remove(next(model.len()));
+                        order.remove(&victim);
+                    }
+                    5 if model.len() > 1 => {
+                        let victim = model.remove(next(model.len()));
+                        let slot = *order.get(&victim).expect("live");
+                        order.remove_slots(&std::iter::once(slot).collect());
+                    }
+                    _ => {}
+                }
+                if step % 3 == 0 {
+                    let flag = order.names_are_positions();
+                    assert!(
+                        !flag || truth(&model),
+                        "round {round} step {step}: {model:?}"
+                    );
+                    let mut fresh = SlotOrder::default();
+                    for name in &model {
+                        fresh.insert(name.clone());
+                    }
+                    assert_eq!(fresh.names_are_positions(), truth(&model));
+                }
+            }
+        }
+    }
+
+    /// yr2oc.1: the multigraph node table against a plain insertion-ordered
+    /// list, through random insertions (reusing freed slots), removals and
+    /// batch removals, with positional reads interleaved so the rank tree is
+    /// both rebuilt and carried through later appends and removals.
+    #[test]
+    fn slot_order_positions_follow_reuse_removals_and_compaction() {
+        use super::SlotOrder;
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        let check = |order: &SlotOrder, model: &[String]| {
+            assert_eq!(order.len(), model.len());
+            assert_eq!(order.keys().cloned().collect::<Vec<_>>(), model);
+            for (position, name) in model.iter().enumerate() {
+                assert_eq!(order.get_index_of(name), Some(position));
+                let (at, slot) = order.get_index(position).expect("live position");
+                assert_eq!(at, name);
+                assert_eq!(order.slot_at(position), Some(slot));
+                assert_eq!(order.get(name), Some(&slot));
+                assert_eq!(order.name(slot), Some(name.as_str()));
+            }
+            assert_eq!(order.slot_at(model.len()), None);
+            assert_eq!(
+                order.slot_count(),
+                order.len() + order.free_slots().len(),
+                "a slot is neither live nor free"
+            );
+            // Compaction keeps the entry list within twice the live nodes.
+            assert!(order.entries.len() <= 2 * order.len());
+        };
+        let mut order = SlotOrder::default();
+        let mut model: Vec<String> = Vec::new();
+        let mut fresh = 0;
+        let mut saw_tombstones = false;
+        for step in 0..3000 {
+            match next(10) {
+                0..=4 => {
+                    let name = format!("v{fresh}");
+                    fresh += 1;
+                    let free_before = order.free_slots().last().copied();
+                    let (slot, grew) = order.insert(name.clone());
+                    // A freed slot is reused, most recently freed first.
+                    assert_eq!(grew, free_before.is_none());
+                    if let Some(reused) = free_before {
+                        assert_eq!(slot, reused);
+                    }
+                    model.push(name);
+                }
+                5..=8 if !model.is_empty() => {
+                    let victim = model.remove(next(model.len()));
+                    let slot = order.remove(&victim).expect("live name");
+                    assert_eq!(order.free_slots().last(), Some(&slot));
+                    assert_eq!(order.remove(&victim), None);
+                }
+                9 if model.len() > 3 => {
+                    let doomed: rustc_hash::FxHashSet<usize> = (0..3)
+                        .map(|_| *order.get(&model[next(model.len())]).expect("live"))
+                        .collect();
+                    model.retain(|name| !doomed.contains(order.get(name).expect("live")));
+                    order.remove_slots(&doomed);
+                }
+                _ => {}
+            }
+            saw_tombstones |= order.entries.len() > order.len();
+            // Read positions on most steps, so later steps meet a built tree.
+            if step % 4 != 3 {
+                check(&order, &model);
+            }
+        }
+        assert!(
+            saw_tombstones,
+            "the run never left a tombstone to rank past"
+        );
+    }
+
+    #[test]
+    fn multigraph_ordered_indices_match_borrowed_edges() {
+        let mut graph = MultiGraph::strict();
+        graph
+            .add_edge_with_key_and_attrs("b", "a", 2, single_attr("w", "left"))
+            .expect("first keyed edge should be added");
+        graph
+            .add_edge_with_key_and_attrs("a", "b", 0, single_attr("w", "right"))
+            .expect("parallel keyed edge should be added");
+        graph
+            .add_edge_with_key_and_attrs("a", "c", 3, AttrMap::new())
+            .expect("third edge should be added");
+        graph
+            .add_edge_with_key_and_attrs("c", "c", 1, single_attr("w", "loop"))
+            .expect("self-loop should be added");
+
+        let nodes = graph.nodes_ordered();
+        let from_indices = graph
+            .edges_ordered_indices_borrowed()
+            .into_iter()
+            .map(|(left, right, key, attrs)| {
+                (
+                    nodes[left].to_owned(),
+                    nodes[right].to_owned(),
+                    key,
+                    attrs.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let from_borrowed = graph
+            .edges_ordered_borrowed()
+            .into_iter()
+            .map(|(left, right, key, attrs)| {
+                (left.to_owned(), right.to_owned(), key, attrs.clone())
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(from_indices, from_borrowed);
+    }
+
+    #[test]
+    fn multigraph_edge_view_positions_survive_compaction_and_slot_recycling() {
+        let visit = |graph: &MultiGraph| {
+            let nodes = graph.nodes_ordered();
+            let mut observed = Vec::new();
+            graph
+                .try_for_each_indexed_edge_view_ordered_borrowed(
+                    |left, right, left_name, right_name, key, _attrs| {
+                        assert_eq!(nodes.get(left).copied(), Some(left_name));
+                        assert_eq!(nodes.get(right).copied(), Some(right_name));
+                        observed.push((left, right, key));
+                        Ok::<(), std::convert::Infallible>(())
+                    },
+                )
+                .expect("infallible visitor");
+            observed
+        };
+
+        for batch in [false, true] {
+            let mut graph = MultiGraph::strict();
+            for name in ["discard0", "discard1", "discard2", "tail", "head"] {
+                let _ = graph.add_node(name);
+            }
+            for (left, right, key) in [
+                ("tail", "head", 7),
+                ("tail", "head", 2),
+                ("tail", "tail", 5),
+                ("head", "head", 11),
+            ] {
+                graph
+                    .add_edge_with_key_and_attrs(left, right, key, AttrMap::new())
+                    .expect("edge");
+            }
+            let removed = ["discard0", "discard1", "discard2"];
+            if batch {
+                assert_eq!(graph.remove_nodes_from(removed), (3, 0));
+            } else {
+                for name in removed {
+                    assert!(graph.remove_node(name));
+                }
+            }
+            assert_eq!(visit(&graph), [(0, 1, 7), (0, 1, 2), (0, 0, 5), (1, 1, 11)]);
+            assert_eq!(visit(&graph.clone_with_fresh_policy()), visit(&graph));
+
+            // Refill all freed slots in a different insertion order. Every
+            // slot is now in bounds, but using it as a position is still wrong.
+            for name in ["discard2", "discard1", "discard0"] {
+                let _ = graph.add_node(name);
+            }
+            graph
+                .add_edge_with_key_and_attrs("head", "discard2", 9, AttrMap::new())
+                .expect("recycled target");
+            graph.add_edge("discard0", "tail").expect("recycled source");
+            assert_eq!(
+                visit(&graph),
+                [
+                    (0, 1, 7),
+                    (0, 1, 2),
+                    (0, 0, 5),
+                    (0, 4, 0),
+                    (1, 1, 11),
+                    (1, 2, 9)
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn multigraph_node_index_accessors_follow_remove_readd() {
+        let mut graph = MultiGraph::strict();
+        for node in ["prefix", "s", "a", "b", "t"] {
+            let _ = graph.add_node(node);
+        }
+
+        for (expected_index, node) in ["prefix", "s", "a", "b", "t"].into_iter().enumerate() {
+            assert_eq!(graph.get_node_index(node), Some(expected_index));
+            assert_eq!(graph.get_node_name(expected_index), Some(node));
+        }
+
+        assert!(graph.remove_node("prefix"));
+        assert!(graph.remove_node("a"));
+        let _ = graph.add_node("a");
+
+        for (expected_index, node) in ["s", "b", "t", "a"].into_iter().enumerate() {
+            assert_eq!(graph.get_node_index(node), Some(expected_index));
+            assert_eq!(graph.get_node_name(expected_index), Some(node));
+        }
+        assert_eq!(graph.get_node_index("prefix"), None);
+        assert_eq!(graph.get_node_name(graph.node_count()), None);
+    }
+
+    #[test]
+    fn strict_mode_fails_closed_for_unknown_incompatible_feature() {
+        let mut graph = Graph::strict();
+        let mut attrs = AttrMap::new();
+        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
+        let err = graph
+            .add_edge_with_attrs("a", "b", attrs)
+            .expect_err("strict mode should fail closed");
+
+        assert_eq!(
+            err,
+            GraphError::FailClosed {
+                operation: "add_edge",
+                reason: "incompatible edge metadata".to_owned(),
+            }
+        );
+
+        let last_record = graph
+            .evidence_ledger()
+            .records()
+            .last()
+            .expect("strict fail-closed path should emit a ledger row");
+        assert_decision_record_schema(last_record, CompatibilityMode::Strict);
+        assert_eq!(last_record.operation, "add_edge");
+        assert_eq!(last_record.action, DecisionAction::FailClosed);
+        assert!(
+            last_record
+                .evidence
+                .iter()
+                .any(|term| term.signal == "unknown_incompatible_feature")
+        );
+    }
+
+    /// br-r37-c1-eo88t: an ALLOWED edge add writes exactly one `add_edge`
+    /// ledger record, and it is the outcome record. Asserting the surviving
+    /// record's evidence is the point: an implementation that kept the gate
+    /// record instead of the outcome one would still pass a bare count check
+    /// but would have thrown away the richer decision.
+    fn add_edge_records(graph_records: &[DecisionRecord]) -> Vec<Vec<&str>> {
+        graph_records
+            .iter()
+            .filter(|record| record.operation == "add_edge")
+            .map(|record| {
+                record
+                    .evidence
+                    .iter()
+                    .map(|term| term.signal.as_ref())
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn allowed_add_edge_records_only_the_outcome_decision() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        assert_eq!(
+            add_edge_records(graph.evidence_ledger().records()),
+            vec![vec![
+                "self_loop",
+                "edge_attr_count",
+                "left_autocreated",
+                "right_autocreated",
+            ]]
+        );
+        assert_eq!(
+            graph
+                .evidence_ledger()
+                .records()
+                .iter()
+                .filter(|record| record.operation == "add_edge")
+                .map(|record| record.action)
+                .collect::<Vec<_>>(),
+            vec![DecisionAction::Allow]
+        );
+    }
+
+    #[test]
+    fn add_edge_autocreation_files_no_add_node_record() {
+        // br-r37-c1-wa1b9: autocreating an endpoint is an internal STEP of
+        // add_edge, so the ledger's per-OPERATION contract means add_edge files
+        // exactly ONE record however many endpoints it had to create. The
+        // information is not lost — it is in that record's autocreated terms.
+        // A caller-visible add_node still records, which the second half pins.
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        let records = graph.evidence_ledger().records();
+        assert_eq!(
+            records.len(),
+            1,
+            "add_edge creating two nodes must file one record, got {:?}",
+            records
+                .iter()
+                .map(|record| record.operation.as_ref())
+                .collect::<Vec<_>>()
+        );
+        let record = &records[0];
+        assert_eq!(record.operation, "add_edge");
+        assert_eq!(
+            record
+                .evidence
+                .iter()
+                .filter(
+                    |term| term.signal == "left_autocreated" || term.signal == "right_autocreated"
+                )
+                .map(|term| term.observed_value.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["true", "true"],
+            "the autocreation event must still be auditable from the outcome record"
+        );
+
+        // A user-visible add_node keeps its own record.
+        let before = graph.evidence_ledger().records().len();
+        graph.add_node("c");
+        let records = graph.evidence_ledger().records();
+        assert_eq!(records.len(), before + 1);
+        assert_eq!(
+            records.last().map(|record| record.operation.as_ref()),
+            Some("add_node")
+        );
+    }
+
+    /// br-r37-c1-4c29a: `MultiGraph::add_edge_impl` now resolves each endpoint
+    /// to a storage slot ONCE and calls the `_by_pair` variants, instead of
+    /// re-resolving both endpoint strings inside six separate storage calls.
+    /// The behaviour that could break is key assignment and the self-loop
+    /// shortcut (`left == right` reuses the source slot rather than probing),
+    /// so both are pinned here against the observable key sequence.
+    #[test]
+    fn multigraph_slot_resolution_preserves_key_assignment() {
+        let mut graph = MultiGraph::strict();
+
+        // Parallel edges take successive keys, and the pair is order-insensitive.
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "b", AttrMap::new())
+                .expect("edge is allowed"),
+            0
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "b", AttrMap::new())
+                .expect("edge is allowed"),
+            1
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("b", "a", AttrMap::new())
+                .expect("reversed endpoints are the same undirected pair"),
+            2
+        );
+
+        // Self-loop takes the shortcut branch and must key independently.
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "a", AttrMap::new())
+                .expect("self-loop is allowed"),
+            0
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_attrs("a", "a", AttrMap::new())
+                .expect("parallel self-loop is allowed"),
+            1
+        );
+
+        // An explicit key still lands where asked, on both branches.
+        assert_eq!(
+            graph
+                .add_edge_with_key_and_attrs("a", "b", 9, AttrMap::new())
+                .expect("explicit key is allowed"),
+            9
+        );
+        assert_eq!(
+            graph
+                .add_edge_with_key_and_attrs("a", "a", 9, AttrMap::new())
+                .expect("explicit key is allowed"),
+            9
+        );
+
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.edge_count(), 7);
+    }
+
+    /// br-r37-c1-jc9e4: `add_edge_with_attrs` now TAKES the caller's attribute
+    /// map when the edge bucket is empty instead of extending entry by entry.
+    /// That is a new branch on a CGSE-critical path, so this pins the four
+    /// bucket-state / incoming-attrs combinations it splits, including the
+    /// non-obvious one: an edge that already exists but carries NO attributes
+    /// still takes the empty-bucket branch on a later attributed add.
+    #[test]
+    fn add_edge_fresh_bucket_take_matches_merge_semantics() {
+        fn weight(value: i64) -> AttrMap {
+            let mut attrs = AttrMap::new();
+            attrs.insert("w".to_owned(), CgseValue::Int(value));
+            attrs
+        }
+        fn stored(graph: &Graph, left: &str, right: &str) -> Vec<(String, CgseValue)> {
+            graph
+                .edge_attrs(left, right)
+                .expect("edge exists")
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        }
+
+        // New edge WITH attrs: the taken map is the stored map.
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", weight(1))
+            .expect("edge is allowed");
+        assert_eq!(
+            stored(&graph, "a", "b"),
+            vec![("w".to_owned(), CgseValue::Int(1))]
+        );
+
+        // New edge with EMPTY attrs: bucket stays empty, edge still exists.
+        graph
+            .add_edge_with_attrs("c", "d", AttrMap::new())
+            .expect("edge is allowed");
+        assert!(stored(&graph, "c", "d").is_empty());
+
+        // EXISTING edge whose bucket is still empty — takes the same branch a
+        // brand-new edge does, and must land the attrs just the same.
+        graph
+            .add_edge_with_attrs("c", "d", weight(7))
+            .expect("edge is allowed");
+        assert_eq!(
+            stored(&graph, "c", "d"),
+            vec![("w".to_owned(), CgseValue::Int(7))]
+        );
+
+        // EXISTING edge with a NON-empty bucket still merges, and a differing
+        // value overwrites rather than being dropped by the take.
+        graph
+            .add_edge_with_attrs("a", "b", weight(9))
+            .expect("edge is allowed");
+        let mut extra = AttrMap::new();
+        extra.insert("k".to_owned(), CgseValue::Int(2));
+        graph
+            .add_edge_with_attrs("a", "b", extra)
+            .expect("edge is allowed");
+        // A merged key goes after the ones already there, as dict.update puts
+        // it (br-r37-c1-6hyf1: the store keeps insertion order).
+        assert_eq!(
+            stored(&graph, "a", "b"),
+            vec![
+                ("w".to_owned(), CgseValue::Int(9)),
+                ("k".to_owned(), CgseValue::Int(2)),
+            ]
+        );
+    }
+
+    #[test]
+    fn add_edge_entry_probe_keeps_existing_empty_edge_structurally_unchanged() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("initial edge is allowed");
+        let revision_before = graph.revision;
+
+        graph
+            .add_edge_with_attrs("b", "a", AttrMap::new())
+            .expect("duplicate edge is allowed");
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.neighbors("a"), Some(vec!["b"]));
+        assert_eq!(graph.neighbors("b"), Some(vec!["a"]));
+        assert_eq!(graph.revision, revision_before);
+    }
+
+    /// br-r37-c1-jc9e4: locks the endpoint-resolution cases that collapsing the
+    /// per-endpoint `contains_key` + `get_index_of` pair restructured.
+    ///
+    /// The self-loop branch is the delicate one: it now returns the left index
+    /// directly instead of probing the map for the right endpoint, and it
+    /// still has to report `right_autocreated` as a COPY of `left_autocreated`
+    /// — true when the loop created its node, false when the node was already
+    /// there. Node insertion order after autocreation is asserted alongside,
+    /// because the left endpoint is resolved before the right one and an
+    /// `IndexMap` append is what keeps the left index valid across the right
+    /// endpoint's insertion.
+    #[test]
+    fn add_edge_endpoint_resolution_preserves_autocreation_and_order() {
+        fn autocreated(graph: &Graph) -> (String, String) {
+            let record = graph
+                .evidence_ledger()
+                .records()
+                .last()
+                .expect("add_edge files an outcome record");
+            let read = |signal: &str| {
+                record
+                    .evidence
+                    .iter()
+                    .find(|term| term.signal == signal)
+                    .map(|term| term.observed_value.to_string())
+                    .unwrap_or_else(|| panic!("{signal} must be present"))
+            };
+            (read("left_autocreated"), read("right_autocreated"))
+        }
+
+        // Self-loop that CREATES its node: both flags true, one node added.
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("s", "s", AttrMap::new())
+            .expect("self-loop is allowed");
+        assert_eq!(autocreated(&graph), ("true".to_owned(), "true".to_owned()));
+        assert_eq!(graph.node_count(), 1);
+
+        // Self-loop on an EXISTING node: both flags false, nothing added.
+        graph
+            .add_edge_with_attrs("s", "s", AttrMap::new())
+            .expect("re-adding a self-loop is allowed");
+        assert_eq!(
+            autocreated(&graph),
+            ("false".to_owned(), "false".to_owned())
+        );
+        assert_eq!(graph.node_count(), 1);
+
+        // Left exists, right is new — the asymmetric case.
+        graph
+            .add_edge_with_attrs("s", "t", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(autocreated(&graph), ("false".to_owned(), "true".to_owned()));
+
+        // Both new: left is resolved and inserted BEFORE right, so insertion
+        // order is left-then-right and the earlier indices are unmoved.
+        graph
+            .add_edge_with_attrs("z", "a", AttrMap::new())
+            .expect("edge is allowed");
+        assert_eq!(autocreated(&graph), ("true".to_owned(), "true".to_owned()));
+        assert_eq!(graph.get_node_index("s"), Some(0));
+        assert_eq!(graph.get_node_index("t"), Some(1));
+        assert_eq!(graph.get_node_index("z"), Some(2));
+        assert_eq!(graph.get_node_index("a"), Some(3));
+    }
+
+    /// br-r37-c1-g2nev: the ledger's compile-time-constant strings must reach
+    /// the record as BORROWED `Cow`s. That is the whole lever — every one of
+    /// them used to be a per-mutation heap allocation — so this pins it on the
+    /// shipped `add_edge`/`add_node` path rather than on a bench mirror. The
+    /// value assertions pin the other half: the bytes are unchanged, so the
+    /// CGSE audit trail is untouched.
+    #[test]
+    fn mutation_ledger_constants_are_borrowed_not_allocated() {
+        use std::borrow::Cow;
+        use std::collections::BTreeMap;
+
+        let mut graph = Graph::strict();
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), CgseValue::Int(3));
+        graph
+            .add_edge_with_attrs("a", "b", attrs)
+            .expect("strict add_edge with an int attribute is allowed");
+        graph.add_node("c");
+
+        let records = graph.evidence_ledger().records();
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| record.operation.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["add_edge", "add_node"],
+            "ledger shape must be unchanged by the Cow migration"
+        );
+
+        // Constant `observed_value`s, by signal, exactly as `bool::to_string()`
+        // rendered them before the migration.
+        let expected_borrowed: BTreeMap<&str, &str> = [
+            ("self_loop", "false"),
+            ("left_autocreated", "true"),
+            ("right_autocreated", "true"),
+            ("node_preexisting", "false"),
+        ]
+        .into_iter()
+        .collect();
+
+        for record in records {
+            assert!(
+                matches!(record.operation, Cow::Borrowed(_)),
+                "operation `{}` must be borrowed",
+                record.operation
+            );
+            assert!(
+                matches!(record.rationale, Cow::Borrowed(_)),
+                "rationale `{}` must be borrowed",
+                record.rationale
+            );
+            for term in &record.evidence {
+                assert!(
+                    matches!(term.signal, Cow::Borrowed(_)),
+                    "signal `{}` must be borrowed",
+                    term.signal
+                );
+                if let Some(expected) = expected_borrowed.get(term.signal.as_ref()) {
+                    assert_eq!(&term.observed_value, expected);
+                    assert!(
+                        matches!(term.observed_value, Cow::Borrowed(_)),
+                        "boolean observed_value for `{}` must be borrowed",
+                        term.signal
+                    );
+                }
+            }
+        }
+
+        // The genuinely dynamic counts still allocate, and still read the same.
+        let edge_record = &records[0];
+        assert_eq!(
+            edge_record
+                .evidence
+                .iter()
+                .find(|term| term.signal == "edge_attr_count")
+                .map(|term| term.observed_value.as_ref()),
+            Some("1")
+        );
+    }
+
+    #[test]
+    fn allowed_multigraph_add_edge_records_only_the_outcome_decision() {
+        let mut graph = MultiGraph::strict();
+        let _ = graph
+            .add_edge_with_attrs("a", "b", AttrMap::new())
+            .expect("edge add should succeed");
+
+        assert_eq!(
+            add_edge_records(graph.evidence_ledger().records()),
+            vec![vec![
+                "edge_key",
+                "edge_attr_count",
+                "left_autocreated",
+                "right_autocreated",
+            ]]
+        );
+    }
+
+    #[test]
+    fn refused_multigraph_add_edge_still_records_its_gate_decision() {
+        // The negative case for the pairing above: a refusal returns before the
+        // outcome record runs, so dropping the gate record unconditionally would
+        // leave a rejected mutation with no audit trail at all.
+        let mut graph = MultiGraph::strict();
+        let mut attrs = AttrMap::new();
+        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
+        let err = graph
+            .add_edge_with_attrs("a", "b", attrs)
+            .expect_err("strict mode should fail closed");
+        assert_eq!(
+            err,
+            GraphError::FailClosed {
+                operation: "add_edge",
+                reason: "incompatible edge metadata".to_owned(),
+            }
+        );
+
+        assert_eq!(
+            add_edge_records(graph.evidence_ledger().records()),
+            vec![vec!["unknown_incompatible_feature"]]
+        );
+        assert_eq!(
+            graph
+                .evidence_ledger()
+                .records()
+                .last()
+                .map(|record| record.action),
+            Some(DecisionAction::FailClosed)
+        );
+    }
+
+    #[test]
+    fn revision_increments_on_mutating_operations() {
+        let mut graph = Graph::strict();
+        let r0 = graph.revision();
+        let _ = graph.add_node("a");
+        let r1 = graph.revision();
+        assert!(r1 > r0);
+
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+
+        let _ = graph.remove_edge("a", "b");
+        let r3 = graph.revision();
+        assert!(r3 > r2);
+    }
+
+    #[test]
+    fn add_node_with_attrs_reports_change_on_existing_node() {
+        let mut graph = Graph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        let r1 = graph.revision();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "blue")));
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+        let expected = CgseValue::from("blue");
+        assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
+    }
+
+    #[test]
+    fn add_node_with_identical_attrs_keeps_order_and_revision() {
+        let mut graph = Graph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        assert!(graph.add_node("b"));
+        let revision_before = graph.revision();
+
+        assert!(!graph.add_node_with_attrs("a", single_attr("color", "red")));
+
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_eq!(graph.revision(), revision_before);
+        assert_eq!(
+            graph.node_attrs("a").and_then(|attrs| attrs.get("color")),
+            Some(&CgseValue::from("red"))
+        );
+    }
+
+    #[test]
+    fn add_node_with_attrs_keeps_fresh_node_order_and_attrs() {
+        let mut graph = Graph::strict();
+        assert!(graph.add_node("before"));
+        assert!(graph.add_node_with_attrs("fresh", single_attr("color", "red")));
+        assert!(graph.add_node("after"));
+
+        assert_eq!(graph.nodes_ordered(), vec!["before", "fresh", "after"]);
+        assert_eq!(
+            graph
+                .node_attrs("fresh")
+                .and_then(|attrs| attrs.get("color")),
+            Some(&CgseValue::from("red"))
+        );
+    }
+
+    #[test]
+    fn multigraph_add_node_with_attrs_reports_change_on_existing_node() {
+        let mut graph = MultiGraph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        let r1 = graph.revision();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "blue")));
+        let r2 = graph.revision();
+        assert!(r2 > r1);
+        let expected = CgseValue::from("blue");
+        assert_eq!(graph.node_attrs("a").unwrap().get("color"), Some(&expected));
+    }
+
+    #[test]
+    fn hardened_self_loop_records_allow_decision() {
+        let mut graph = Graph::hardened();
+        graph
+            .add_edge("loop", "loop")
+            .expect("hardened self-loop edge should be accepted");
+
+        let add_edge_record = graph
+            .evidence_ledger()
+            .records()
+            .iter()
+            .rev()
+            .find(|record| record.operation == "add_edge")
+            .expect("add_edge operation should emit ledger row");
+        assert_decision_record_schema(add_edge_record, CompatibilityMode::Hardened);
+        assert_eq!(add_edge_record.action, DecisionAction::Allow);
+        assert!(
+            add_edge_record
+                .evidence
+                .iter()
+                .any(|term| term.signal == "self_loop" && term.observed_value == "true")
+        );
+    }
+
+    #[test]
+    fn runtime_policy_tracks_hardened_graph_recovery() {
+        let mut graph = Graph::hardened();
+        graph
+            .add_edge("a", "b")
+            .expect("hardened graph edge add should succeed");
+
+        assert_eq!(graph.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert!(!graph.runtime_policy().decision_log().records().is_empty());
+        assert!(graph.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
+    fn snapshot_roundtrip_replays_to_identical_state() {
+        let mut graph = Graph::strict();
+
+        let mut first_attrs = AttrMap::new();
+        first_attrs.insert("weight".to_owned(), "7".into());
+        graph
+            .add_edge_with_attrs("a", "b", first_attrs)
+            .expect("edge insert should succeed");
+
+        let mut second_attrs = AttrMap::new();
+        second_attrs.insert("color".to_owned(), "green".into());
+        graph
+            .add_edge_with_attrs("b", "c", second_attrs)
+            .expect("edge insert should succeed");
+
+        let snapshot = graph.snapshot();
+        let mut replayed = Graph::new(snapshot.mode);
+        for node in &snapshot.nodes {
+            let _ = replayed.add_node(node.clone());
+        }
+        for edge in &snapshot.edges {
+            replayed
+                .add_edge_with_attrs(edge.left.clone(), edge.right.clone(), edge.attrs.clone())
+                .expect("snapshot replay should be valid");
+        }
+
+        assert_eq!(replayed.snapshot(), snapshot);
+        assert_graph_core_invariants(&replayed);
+    }
+
+    #[test]
+    fn multigraph_tracks_parallel_edges_with_distinct_keys() {
+        let mut graph = MultiGraph::strict();
+        let first = graph.add_edge("a", "b").expect("edge add should succeed");
+        let second = graph.add_edge("a", "b").expect("edge add should succeed");
+
+        assert_ne!(first, second);
+        assert_eq!(graph.edge_count(), 2);
+        assert_eq!(graph.edge_keys("a", "b"), Some(vec![0, 1]));
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_counts_parallel_selfloops_only() {
+        let mut graph = MultiGraph::strict();
+        let _ = graph
+            .add_edge("a", "a")
+            .expect("self-loop add should succeed");
+        let _ = graph
+            .add_edge("a", "a")
+            .expect("self-loop add should succeed");
+        let _ = graph
+            .add_edge("b", "b")
+            .expect("self-loop add should succeed");
+        let _ = graph.add_edge("a", "b").expect("edge add should succeed");
+        let _ = graph.add_edge("a", "b").expect("edge add should succeed");
+
+        assert_eq!(graph.number_of_selfloops(), 3);
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_add_fresh_edge_unrecorded_rejects_occupied_bucket() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(graph.add_fresh_edge_unrecorded("a", "b"), Some(0));
+        let revision = graph.revision();
+        let edge_count = graph.edge_count();
+
+        assert_eq!(graph.add_fresh_edge_unrecorded("b", "a"), None);
+
+        assert_eq!(graph.revision(), revision);
+        assert_eq!(graph.edge_count(), edge_count);
+        assert_eq!(graph.edge_keys("a", "b"), Some(vec![0]));
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_add_fresh_edge_with_key_unrecorded_preserves_key() {
+        let mut graph = MultiGraph::strict();
+
+        assert_eq!(
+            graph.add_fresh_edge_with_key_unrecorded("a", "b", 42),
+            Some(42)
+        );
+
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.edge_keys("a", "b"), Some(vec![42]));
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_remove_edge_without_key_removes_latest_instance() {
+        let mut graph = MultiGraph::strict();
+        let first = graph.add_edge("a", "b").expect("edge add should succeed");
+        let second = graph.add_edge("a", "b").expect("edge add should succeed");
+
+        assert!(graph.remove_edge("a", "b", None));
+        assert_eq!(graph.edge_count(), 1);
+        assert_eq!(graph.edge_keys("a", "b"), Some(vec![first]));
+        assert_ne!(first, second);
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_remove_node_clears_parallel_incident_edges() {
+        let mut graph = MultiGraph::strict();
+        let _ = graph.add_edge("a", "b").expect("edge add should succeed");
+        let _ = graph.add_edge("a", "b").expect("edge add should succeed");
+        let _ = graph.add_edge("b", "c").expect("edge add should succeed");
+
+        assert!(graph.remove_node("b"));
+        assert_eq!(graph.edge_count(), 0);
+        assert!(!graph.has_node("b"));
+        assert_eq!(graph.neighbors("a"), Some(vec![]));
+        assert_eq!(graph.neighbors("c"), Some(vec![]));
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_clear_edges_preserves_nodes_attrs_and_rows() {
+        let mut graph = MultiGraph::strict();
+        assert!(graph.add_node_with_attrs("a", single_attr("color", "red")));
+        assert!(graph.add_node_with_attrs("b", single_attr("color", "blue")));
+        let _ = graph
+            .add_edge_with_key_and_attrs("a", "b", 7, single_attr("weight", "3"))
+            .expect("edge add should succeed");
+        let _ = graph
+            .add_edge_with_key_and_attrs("b", "a", 2, single_attr("weight", "5"))
+            .expect("edge add should succeed");
+        let before_revision = graph.revision();
+
+        graph.clear_edges();
+
+        assert_eq!(graph.node_count(), 2);
+        assert_eq!(graph.nodes_ordered(), vec!["a", "b"]);
+        assert_eq!(graph.edge_count(), 0);
+        assert!(graph.edges_ordered().is_empty());
+        assert_eq!(graph.neighbors("a"), Some(vec![]));
+        assert_eq!(graph.neighbors("b"), Some(vec![]));
+        assert_eq!(
+            graph.node_attrs("a").unwrap().get("color"),
+            Some(&CgseValue::from("red"))
+        );
+        assert!(graph.revision() > before_revision);
+        assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn runtime_policy_tracks_hardened_multigraph_recovery() {
+        let mut graph = MultiGraph::hardened();
+        graph
+            .add_edge("a", "b")
+            .expect("hardened multigraph edge add should succeed");
+
+        assert_eq!(graph.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert!(!graph.runtime_policy().decision_log().records().is_empty());
+        assert!(graph.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
+    fn multigraph_roundtrips_sparse_snapshot_keys() {
+        let mut graph = MultiGraph::strict();
+        assert_eq!(
+            graph.add_edge("a", "b").expect("edge add should succeed"),
+            0
+        );
+        assert_eq!(
+            graph.add_edge("a", "b").expect("edge add should succeed"),
+            1
+        );
+        assert_eq!(
+            graph.add_edge("a", "b").expect("edge add should succeed"),
+            2
+        );
+        assert!(graph.remove_edge("a", "b", Some(1)));
+        assert_eq!(
+            graph.add_edge("a", "b").expect("edge add should succeed"),
+            3
+        );
+
+        let snapshot = graph.snapshot();
+        assert_eq!(
+            snapshot
+                .edges
+                .iter()
+                .map(|edge| edge.key)
+                .collect::<Vec<_>>(),
+            vec![0, 2, 3]
+        );
+
+        let mut replayed = MultiGraph::new(snapshot.mode);
+        for node in &snapshot.nodes {
+            let _ = replayed.add_node(node.clone());
+        }
+        for edge in &snapshot.edges {
+            replayed
+                .add_edge_with_key_and_attrs(
+                    edge.left.clone(),
+                    edge.right.clone(),
+                    edge.key,
+                    edge.attrs.clone(),
+                )
+                .expect("snapshot replay should preserve explicit keys");
+        }
+
+        assert_eq!(replayed.snapshot(), snapshot);
+        assert_multigraph_core_invariants(&replayed);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_core_invariants_hold_for_mixed_edge_mutations(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8, any::<bool>()), 1..80),
+        ) {
+            let mut graph = Graph::strict();
+            let mut last_revision = graph.revision();
+
+            for (left_id, right_id, is_add) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                if is_add {
+                    prop_assert!(graph.add_edge(left.clone(), right.clone()).is_ok());
+                } else {
+                    let _ = graph.remove_edge(&left, &right);
+                }
+                let revision = graph.revision();
+                prop_assert!(revision >= last_revision);
+                last_revision = revision;
+                assert_graph_core_invariants(&graph);
+            }
+        }
+
+        #[test]
+        fn prop_snapshot_is_deterministic_for_same_operation_stream(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8, 0_u8..3), 0..64),
+        ) {
+            let mut graph_left = Graph::hardened();
+            let mut graph_right = Graph::hardened();
+
+            for (left_id, right_id, attrs_variant) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                let mut attrs = AttrMap::new();
+                if attrs_variant == 1 {
+                    attrs.insert("weight".to_owned(), (left_id % 5).to_string().into());
+                } else if attrs_variant == 2 {
+                    attrs.insert("tag".to_owned(), format!("k{}", right_id % 4).into());
+                }
+                prop_assert!(
+                    graph_left
+                        .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
+                        .is_ok()
+                );
+                prop_assert!(
+                    graph_right
+                        .add_edge_with_attrs(left, right, attrs)
+                        .is_ok()
+                );
+            }
+
+            prop_assert_eq!(graph_left.snapshot(), graph_right.snapshot());
+            prop_assert_eq!(graph_left.snapshot(), graph_left.snapshot());
+        }
+
+        #[test]
+        fn prop_reapplying_identical_edge_attrs_is_revision_stable(
+            left_id in 0_u8..8,
+            right_id in 0_u8..8,
+            weight in 0_u16..5000,
+        ) {
+            let mut graph = Graph::strict();
+            let left = node_name(left_id);
+            let right = node_name(right_id);
+            let mut attrs = AttrMap::new();
+            attrs.insert("weight".to_owned(), weight.to_string().into());
+
+            prop_assert!(
+                graph
+                    .add_edge_with_attrs(left.clone(), right.clone(), attrs.clone())
+                    .is_ok()
+            );
+            let revision_after_first = graph.revision();
+            prop_assert!(
+                graph
+                    .add_edge_with_attrs(left, right, attrs)
+                    .is_ok()
+            );
+            prop_assert_eq!(graph.revision(), revision_after_first);
+        }
+
+        #[test]
+        fn prop_remove_node_clears_incident_edges(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8), 1..64),
+            target_id in 0_u8..8,
+        ) {
+            let mut graph = Graph::strict();
+            for (left_id, right_id) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                prop_assert!(graph.add_edge(left, right).is_ok());
+            }
+
+            let target = node_name(target_id);
+            let removed = graph.remove_node(&target);
+            if removed {
+                prop_assert!(!graph.has_node(&target));
+                for node in graph.nodes_ordered() {
+                    let neighbors = graph
+                        .neighbors(node)
+                        .expect("graph nodes should always have adjacency buckets");
+                    prop_assert!(!neighbors.contains(&target.as_str()));
+                    prop_assert!(!graph.has_edge(node, &target));
+                }
+            }
+            assert_graph_core_invariants(&graph);
+        }
+
+        #[test]
+        fn prop_decision_ledger_records_follow_schema(
+            ops in prop::collection::vec((0_u8..8, 0_u8..8, 0_u8..4), 1..72),
+        ) {
+            let mut graph = Graph::strict();
+            for (left_id, right_id, attrs_kind) in ops {
+                let left = node_name(left_id);
+                let right = node_name(right_id);
+                let mut attrs = AttrMap::new();
+                match attrs_kind {
+                    0 => {}
+                    1 => {
+                        attrs.insert("weight".to_owned(), (left_id % 9).to_string().into());
+                    }
+                    2 => {
+                        attrs.insert("color".to_owned(), format!("c{}", right_id % 6).into());
+                    }
+                    _ => {
+                        attrs.insert("__fnx_incompatible_decoder".to_owned(), "v2".into());
+                    }
+                }
+                let _ = graph.add_edge_with_attrs(left, right, attrs);
+            }
+
+            let records = graph.evidence_ledger().records();
+            prop_assert!(!records.is_empty());
+            for record in records {
+                assert_decision_record_schema(record, CompatibilityMode::Strict);
+                if record.operation == "add_node" {
+                    prop_assert_eq!(record.action, DecisionAction::Allow);
+                    prop_assert!(record.evidence.iter().any(|term| term.signal == "node_preexisting"));
+                    prop_assert!(record.evidence.iter().any(|term| term.signal == "attrs_count"));
+                } else {
+                    prop_assert_eq!(&record.operation, "add_edge");
+                    if record.action == DecisionAction::FailClosed {
+                        prop_assert!(
+                            record
+                                .evidence
+                                .iter()
+                                .any(|term| term.signal == "unknown_incompatible_feature")
+                        );
+                    } else {
+                        prop_assert_eq!(record.action, DecisionAction::Allow);
+                        // add_edge records two decisions: a pre-check (only
+                        // unknown_incompatible_feature) and a post-check (with
+                        // self_loop, edge_attr_count, etc.). Both are valid.
+                        let is_precheck = record
+                            .evidence
+                            .iter()
+                            .any(|term| term.signal == "unknown_incompatible_feature")
+                            && !record
+                                .evidence
+                                .iter()
+                                .any(|term| term.signal == "edge_attr_count");
+                        if !is_precheck {
+                            prop_assert!(record.evidence.iter().any(|term| term.signal == "edge_attr_count"));
+                            prop_assert!(record.evidence.iter().any(|term| term.signal == "self_loop"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// br-r37-c1-jc9e4: how much of a no-op `add_node` is the DECISION LEDGER?
+///
+/// The closed self-time ladder in `fnx-python` puts `Graph::add_node_with_attrs` at
+/// `+128` ns of a `~243` ns no-op call — the single largest term inside the body. That
+/// call is exactly two things: `add_node_with_attrs_unrecorded`, which does the store
+/// work, and `record_decision`, which builds a `Vec<EvidenceTerm>`, reads the clock via
+/// `unix_time_ms`, updates the posterior and pushes into the decision log. Which of the
+/// two carries the 128 ns has never been measured, and the answer decides whether there
+/// is anything worth trading against the audit doctrine at all.
+///
+/// This lives in `fnx-classes` because `add_node_with_attrs_unrecorded` is private to
+/// this crate; measuring it from the binding would have meant widening its visibility
+/// for a benchmark, which is a worse trade than putting the probe where the code is.
+///
+/// It changes NO shipped behaviour — both arms are existing functions, and the node is
+/// already present so neither mutates anything.
+///
+/// CONTROLS: `recorded/recorded` is an A/A null through the identical ABBA scheme; if it
+/// is not ~1.0 the instrument is measuring slot position, not the arms.
+///
+/// `#[ignore]`; run with
+/// `rch exec -- cargo test --release -j 2 -p fnx-classes --lib
+///  node_decision_ledger_self_time_ab -- --ignored --nocapture`.
+#[test]
+#[ignore = "measurement; run with --release --ignored --nocapture"]
+fn node_decision_ledger_self_time_ab() {
+    use std::hint::black_box;
+    use std::time::{Duration, Instant};
+
+    const NODES: usize = 2000;
+    const REPS: usize = 200;
+    const ROUNDS: usize = 41;
+
+    let keys: Vec<String> = (0..NODES).map(|n| format!("n{n}")).collect();
+    let mut graph = Graph::strict();
+    for key in &keys {
+        let _ = graph.add_node_with_attrs(key.clone(), AttrMap::new());
+    }
+    let before = graph.node_count();
+
+    // Both arms re-add nodes that are ALREADY PRESENT, so neither changes the store and
+    // repeating them is idempotent — the property that makes a no-op control timeable.
+    let recorded = |g: &mut Graph| -> Duration {
+        let start = Instant::now();
+        for _ in 0..REPS {
+            for key in &keys {
+                black_box(g.add_node_with_attrs(key.as_str(), AttrMap::new()));
+            }
+        }
+        start.elapsed()
+    };
+    let unrecorded = |g: &mut Graph| -> Duration {
+        let start = Instant::now();
+        for _ in 0..REPS {
+            for key in &keys {
+                black_box(g.add_node_with_attrs_unrecorded(key.as_str(), AttrMap::new()));
+            }
+        }
+        start.elapsed()
+    };
+
+    // ABBA: each arm runs at both ends of a four-slot block, so any cost that depends on
+    // slot rather than work cancels.
+    let balanced = |first: &dyn Fn(&mut Graph) -> Duration,
+                    second: &dyn Fn(&mut Graph) -> Duration,
+                    g: &mut Graph|
+     -> (f64, f64) {
+        let a1 = first(g);
+        let b1 = second(g);
+        let b2 = second(g);
+        let a2 = first(g);
+        let scale = (2 * NODES * REPS) as f64;
+        (
+            (a1 + a2).as_nanos() as f64 / scale,
+            (b1 + b2).as_nanos() as f64 / scale,
+        )
+    };
+
+    for _ in 0..3 {
+        recorded(&mut graph);
+        unrecorded(&mut graph);
+    }
+
+    let mut rec_ns = Vec::with_capacity(ROUNDS);
+    let mut unrec_ns = Vec::with_capacity(ROUNDS);
+    let mut null_a = Vec::with_capacity(ROUNDS);
+    let mut null_b = Vec::with_capacity(ROUNDS);
+    for _ in 0..ROUNDS {
+        let (na, nb) = balanced(&recorded, &recorded, &mut graph);
+        null_a.push(na);
+        null_b.push(nb);
+        let (r, u) = balanced(&recorded, &unrecorded, &mut graph);
+        rec_ns.push(r);
+        unrec_ns.push(u);
+    }
+
+    assert_eq!(
+        graph.node_count(),
+        before,
+        "a no-op control that changed the node count measured a real insert"
+    );
+
+    let median = |v: &mut Vec<f64>| -> f64 {
+        v.sort_by(f64::total_cmp);
+        v[(v.len() - 1) / 2]
+    };
+    let rec = median(&mut rec_ns);
+    let unrec = median(&mut unrec_ns);
+    let na = median(&mut null_a);
+    let nb = median(&mut null_b);
+
+    println!("node_decision_ledger_self_time_ab nodes={NODES} reps={REPS} rounds={ROUNDS}");
+    println!("  A/A null (recorded/recorded) : {:8.4}x", nb / na);
+    println!("  A  add_node_with_attrs       : {rec:8.1} ns/call  (store + ledger)");
+    println!("  B  ..._unrecorded            : {unrec:8.1} ns/call  (store only)");
+    println!(
+        "  -> decision ledger costs     : {:8.1} ns/call",
+        rec - unrec
+    );
+    println!(
+        "  -> ledger share of the pair  : {:8.1}%",
+        100.0 * (rec - unrec) / rec
+    );
+}

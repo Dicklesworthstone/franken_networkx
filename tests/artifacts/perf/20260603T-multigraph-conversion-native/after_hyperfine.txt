@@ -1,0 +1,21 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_directed --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):     374.2 ms ±  23.7 ms    [User: 4083.8 ms, System: 66.5 ms]
+  Range (min … max):   348.0 ms … 394.4 ms    5 runs
+ 
+Benchmark 2: .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_undirected --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):     348.8 ms ±  18.5 ms    [User: 3880.8 ms, System: 62.5 ms]
+  Range (min … max):   327.9 ms … 377.0 ms    5 runs
+ 
+Benchmark 3: .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_directed --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):     333.4 ms ±  21.6 ms    [User: 3879.3 ms, System: 63.7 ms]
+  Range (min … max):   305.8 ms … 357.3 ms    5 runs
+ 
+Benchmark 4: .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_undirected --nodes 160 --edges 800 --repeat 3
+  Time (mean ± σ):     342.1 ms ±  18.1 ms    [User: 3895.8 ms, System: 63.6 ms]
+  Range (min … max):   320.2 ms … 363.5 ms    5 runs
+ 
+Summary
+  .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_directed --nodes 160 --edges 800 --repeat 3 ran
+    1.03 ± 0.09 times faster than .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_undirected --nodes 160 --edges 800 --repeat 3
+    1.05 ± 0.09 times faster than .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_undirected --nodes 160 --edges 800 --repeat 3
+    1.12 ± 0.10 times faster than .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_directed --nodes 160 --edges 800 --repeat 3

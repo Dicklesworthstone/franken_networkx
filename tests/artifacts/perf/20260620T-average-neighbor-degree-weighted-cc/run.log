@@ -1,0 +1,7 @@
+== timing (interleaved min-of-9) ==
+undir/wt           1.118x  fnx    5.60ms  nx    6.27ms
+dir/wt in+out      1.305x  fnx   10.50ms  nx   13.70ms
+dir/wt in/out      1.018x  fnx    9.23ms  nx    9.40ms
+dir/wt out/in      0.766x  fnx    9.13ms  nx    7.00ms
+== parity: 2000 checks, 0 fails ==
+golden sha256: 3894077d8fddf691343580fc08461f188cf573e6b87f8749a15668a3658e72aa

@@ -1,0 +1,356 @@
+{
+  "all_compared_mutations_match": true,
+  "all_edge_outputs_byte_equal": true,
+  "all_match": true,
+  "bundle_sha256": "b5a3612fc8fa20203ecd578e5e05ffaabf004cf668a3d7f3deab51210708c3f5",
+  "edge_output_cases": [
+    {
+      "byte_equal": true,
+      "case": "edges",
+      "first_3": [
+        [
+          0,
+          1
+        ],
+        [
+          0,
+          2
+        ],
+        [
+          0,
+          3
+        ]
+      ],
+      "fnx_sha256": "d50eec7dd8b2c741b0691f53318a4bacf74e2158d9f056059219670f641cfc70",
+      "last_3": [
+        [
+          4999,
+          5
+        ],
+        [
+          4999,
+          6
+        ],
+        [
+          4999,
+          7
+        ]
+      ],
+      "length": 40000,
+      "nx_sha256": "d50eec7dd8b2c741b0691f53318a4bacf74e2158d9f056059219670f641cfc70"
+    },
+    {
+      "byte_equal": true,
+      "case": "edges_data_true",
+      "first_3": [
+        [
+          0,
+          1,
+          {
+            "w": 31152
+          }
+        ],
+        [
+          0,
+          2,
+          {
+            "w": 62304
+          }
+        ],
+        [
+          0,
+          3,
+          {
+            "w": 27920
+          }
+        ]
+      ],
+      "fnx_sha256": "a654ddb1a61cf27fa82e3f1baa619b95e387c0a12dc68a5a9143021acad6e220",
+      "last_3": [
+        [
+          4999,
+          5,
+          {
+            "w": 18274
+          }
+        ],
+        [
+          4999,
+          6,
+          {
+            "w": 64816
+          }
+        ],
+        [
+          4999,
+          7,
+          {
+            "w": 29902
+          }
+        ]
+      ],
+      "length": 40000,
+      "nx_sha256": "a654ddb1a61cf27fa82e3f1baa619b95e387c0a12dc68a5a9143021acad6e220"
+    },
+    {
+      "byte_equal": true,
+      "case": "edges_data_w",
+      "first_3": [
+        [
+          0,
+          1,
+          31152
+        ],
+        [
+          0,
+          2,
+          62304
+        ],
+        [
+          0,
+          3,
+          27920
+        ]
+      ],
+      "fnx_sha256": "b023395f7c27f94d3a93ce234dceef381af647df96445be7096fa7bda1c85e5a",
+      "last_3": [
+        [
+          4999,
+          5,
+          18274
+        ],
+        [
+          4999,
+          6,
+          64816
+        ],
+        [
+          4999,
+          7,
+          29902
+        ]
+      ],
+      "length": 40000,
+      "nx_sha256": "b023395f7c27f94d3a93ce234dceef381af647df96445be7096fa7bda1c85e5a"
+    },
+    {
+      "byte_equal": true,
+      "case": "out_edges_data_true",
+      "first_3": [
+        [
+          0,
+          1,
+          {
+            "w": 31152
+          }
+        ],
+        [
+          0,
+          2,
+          {
+            "w": 62304
+          }
+        ],
+        [
+          0,
+          3,
+          {
+            "w": 27920
+          }
+        ]
+      ],
+      "fnx_sha256": "a654ddb1a61cf27fa82e3f1baa619b95e387c0a12dc68a5a9143021acad6e220",
+      "last_3": [
+        [
+          4999,
+          5,
+          {
+            "w": 18274
+          }
+        ],
+        [
+          4999,
+          6,
+          {
+            "w": 64816
+          }
+        ],
+        [
+          4999,
+          7,
+          {
+            "w": 29902
+          }
+        ]
+      ],
+      "length": 40000,
+      "nx_sha256": "a654ddb1a61cf27fa82e3f1baa619b95e387c0a12dc68a5a9143021acad6e220"
+    },
+    {
+      "byte_equal": true,
+      "case": "edges_data_view_w",
+      "first_3": [
+        [
+          0,
+          1,
+          31152
+        ],
+        [
+          0,
+          2,
+          62304
+        ],
+        [
+          0,
+          3,
+          27920
+        ]
+      ],
+      "fnx_sha256": "b023395f7c27f94d3a93ce234dceef381af647df96445be7096fa7bda1c85e5a",
+      "last_3": [
+        [
+          4999,
+          5,
+          18274
+        ],
+        [
+          4999,
+          6,
+          64816
+        ],
+        [
+          4999,
+          7,
+          29902
+        ]
+      ],
+      "length": 40000,
+      "nx_sha256": "b023395f7c27f94d3a93ce234dceef381af647df96445be7096fa7bda1c85e5a"
+    }
+  ],
+  "fnx_current_guard_obligations_pass": true,
+  "isomorphism_obligations": {
+    "floating_point": "N/A: integer node ids and integer edge attribute w only.",
+    "guard_semantics": "Future guard-token lever must preserve current FNX RuntimeError behavior for nodes_seq/edges_seq changes and attr-only non-structural updates.",
+    "ordering": "Exact node-major, successor-insertion edge order compared by byte hash against NetworkX for all timed edge-view cases.",
+    "rng": "N/A: graph construction is deterministic and seed-free.",
+    "tie_breaking": "N/A: edge-view drain has no algorithmic tie-break beyond insertion order."
+  },
+  "metadata": {
+    "bead": "br-r37-c1-2a00r",
+    "franken_networkx_file": "/data/projects/.scratch/franken_networkx-2a00r-data-key-baseline-20260614T2350/python/franken_networkx/__init__.py",
+    "graph": {
+      "construction": "circulant directed edge list, span 1..8, stable insertion order, int attr w",
+      "edges": 40000,
+      "kind": "DiGraph",
+      "nodes": 5000
+    },
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "target": "combined _FailFastEdgeIterator guard-token residual"
+  },
+  "mutation_cases": [
+    {
+      "case": "node_add_after_edges_iter",
+      "compare_to_networkx": false,
+      "fnx": {
+        "kind": "err",
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      },
+      "fnx_expected": {
+        "kind": "err",
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      },
+      "fnx_obligation_match": true,
+      "nx": {
+        "kind": "ok",
+        "value": [
+          [
+            0,
+            1
+          ],
+          [
+            0,
+            2
+          ]
+        ]
+      },
+      "reason": "Current FNX guard_edge_count=True watches nodes_seq and raises on node structural mutation; NetworkX permits isolated node mutations during DiGraph edge iteration."
+    },
+    {
+      "case": "edge_add_after_edges_iter",
+      "compare_to_networkx": true,
+      "fnx": {
+        "kind": "err",
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      },
+      "match": true,
+      "nx": {
+        "kind": "err",
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      }
+    },
+    {
+      "case": "edge_remove_add_same_count_after_edges_iter",
+      "compare_to_networkx": true,
+      "fnx": {
+        "kind": "err",
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      },
+      "match": true,
+      "nx": {
+        "kind": "err",
+        "message": "dictionary changed size during iteration",
+        "type": "RuntimeError"
+      }
+    },
+    {
+      "case": "edge_attr_update_after_edges_data_iter",
+      "compare_to_networkx": true,
+      "fnx": {
+        "kind": "ok",
+        "value": [
+          [
+            0,
+            1,
+            {
+              "w": 999
+            }
+          ],
+          [
+            0,
+            2,
+            {
+              "w": 2
+            }
+          ]
+        ]
+      },
+      "match": true,
+      "nx": {
+        "kind": "ok",
+        "value": [
+          [
+            0,
+            1,
+            {
+              "w": 999
+            }
+          ],
+          [
+            0,
+            2,
+            {
+              "w": 2
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

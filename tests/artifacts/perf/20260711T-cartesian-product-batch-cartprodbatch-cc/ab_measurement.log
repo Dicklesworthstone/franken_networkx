@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib cartesian_product_batch_ab -- --ignored --nocapture
+
+CARTPROD_BATCH_AB K60xK60 rounds=61 (>1 = batch faster)
+CARTPROD_BATCH_AB BATCH_vs_string: median=4.3177x win_rate=61/61 p5_p95=[3.1950,6.0091]
+CARTPROD_BATCH_AB NULL_batch_vs_batch: median=1.0223x win_rate=35/61 p5_p95=[0.8275,1.2215]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 967 filtered out; finished in 40.82s
+
+Gate: candidate p5 (3.1950) >> NULL p95 (1.2215); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on K60xK60) passed before timing. The win = materializing the
+h/g edge lists once (they were rebuilt once per outer node -> O(|g|*|h_edges|+|h|*|g_edges|) throwaway
+edge-Vec allocations) + batching the product edges (one policy record instead of per-edge).

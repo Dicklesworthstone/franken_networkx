@@ -1,0 +1,38 @@
+{
+  "n400_p0.05": {
+    "before_ms": 9.987,
+    "after_ms": 2.94,
+    "nx_ms": 3.967,
+    "self_speedup": 3.397,
+    "before_vs_nx": 2.518,
+    "after_vs_nx": 0.741,
+    "sha_after": "8dbfdc26c89074ee81668946fc3f71b4d5266056207a3bc5badd45f757c2d94d",
+    "sha_before": "8dbfdc26c89074ee81668946fc3f71b4d5266056207a3bc5badd45f757c2d94d",
+    "sha_nx": "8dbfdc26c89074ee81668946fc3f71b4d5266056207a3bc5badd45f757c2d94d",
+    "sha_match": true
+  },
+  "n800_p0.03": {
+    "before_ms": 27.784,
+    "after_ms": 7.055,
+    "nx_ms": 8.715,
+    "self_speedup": 3.938,
+    "before_vs_nx": 3.188,
+    "after_vs_nx": 0.809,
+    "sha_after": "647fab5e41438d419d548197ba706d5612707f3e02eaa26f177868c94ebc2ea8",
+    "sha_before": "647fab5e41438d419d548197ba706d5612707f3e02eaa26f177868c94ebc2ea8",
+    "sha_nx": "647fab5e41438d419d548197ba706d5612707f3e02eaa26f177868c94ebc2ea8",
+    "sha_match": true
+  },
+  "n1500_p0.02": {
+    "before_ms": 67.083,
+    "after_ms": 16.782,
+    "nx_ms": 19.668,
+    "self_speedup": 3.997,
+    "before_vs_nx": 3.411,
+    "after_vs_nx": 0.853,
+    "sha_after": "f406904b27005849c63e2a9c5fdd99ab6cceeb1fe8f2f2b4d43597bd968db0f6",
+    "sha_before": "f406904b27005849c63e2a9c5fdd99ab6cceeb1fe8f2f2b4d43597bd968db0f6",
+    "sha_nx": "f406904b27005849c63e2a9c5fdd99ab6cceeb1fe8f2f2b4d43597bd968db0f6",
+    "sha_match": true
+  }
+}

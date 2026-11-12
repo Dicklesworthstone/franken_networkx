@@ -1,0 +1,16 @@
+         452 function calls in 0.036 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.006    0.006    0.036    0.036 <stdin>:4(run)
+       50    0.000    0.000    0.029    0.001 __init__.py:45438(wrapper)
+       50    0.000    0.000    0.029    0.001 __init__.py:43244(grid_graph)
+       50    0.029    0.001    0.029    0.001 {built-in method franken_networkx._fnx.grid_graph_native}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+      150    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+       50    0.000    0.000    0.000    0.000 __init__.py:20397(_validate_backend_dispatch_keywords)
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+
+

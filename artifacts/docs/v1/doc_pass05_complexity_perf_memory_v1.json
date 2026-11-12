@@ -1,0 +1,1614 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "doc-pass-05-complexity-perf-memory-v1",
+  "generated_at_utc": "2026-02-17T03:22:39.066393+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12",
+  "characterization_summary": {
+    "family_count": 6,
+    "operation_count": 20,
+    "high_risk_operation_count": 13,
+    "hotspot_hypothesis_count": 8,
+    "optimization_risk_note_count": 20
+  },
+  "operation_families": [
+    {
+      "family_id": "graph_storage_semantics",
+      "name": "Graph Storage and Mutation Semantics",
+      "legacy_scope_paths": [
+        "networkx/classes/graph.py",
+        "networkx/classes/digraph.py",
+        "networkx/classes/multigraph.py"
+      ],
+      "rust_crates": [
+        "fnx-classes"
+      ],
+      "operations": [
+        {
+          "operation_id": "graph_add_node_with_attrs",
+          "symbol": "Graph::add_node_with_attrs",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_node_with_attrs",
+            "line_start": 176
+          },
+          "complexity_time": "O(1) amortized",
+          "complexity_space": "O(1) incremental",
+          "memory_growth_driver": "node table growth and per-node attribute map expansion",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Deterministic insertion order for node iteration is preserved.",
+            "Strict/hardened mode cannot silently drop nodes."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_classes::tests::add_node_with_attrs"
+            ],
+            "property": [
+              "property::fnx_classes::mutation_invariants"
+            ],
+            "differential": [
+              "fixture::graph_core_mutation_hardened"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::graph_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-classes --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::graph_add_node_with_attrs"
+          ]
+        },
+        {
+          "operation_id": "graph_add_edge_with_attrs",
+          "symbol": "Graph::add_edge_with_attrs",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_edge_with_attrs",
+            "line_start": 225
+          },
+          "complexity_time": "O(1) amortized",
+          "complexity_space": "O(1) incremental",
+          "memory_growth_driver": "adjacency map expansion and edge attribute clone cost",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Edge endpoint ordering and tie-break behavior must remain deterministic.",
+            "Unknown incompatible metadata paths remain fail-closed."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_classes::tests::add_edge_autocreates_nodes_and_preserves_order"
+            ],
+            "property": [
+              "property::fnx_classes::mutation_invariants"
+            ],
+            "differential": [
+              "fixture::graph_core_mutation_hardened"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::graph_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-classes --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::graph_add_edge_with_attrs"
+          ]
+        },
+        {
+          "operation_id": "graph_remove_node",
+          "symbol": "Graph::remove_node",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::remove_node",
+            "line_start": 354
+          },
+          "complexity_time": "O(deg(v))",
+          "complexity_space": "O(1) additional",
+          "memory_growth_driver": "neighbor edge tear-down touching incident adjacency sets",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Incident edge cleanup must be complete and deterministic.",
+            "Revision bumps occur exactly once per committed mutation."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_classes::tests::remove_node_removes_incident_edges"
+            ],
+            "property": [
+              "property::fnx_classes::mutation_invariants"
+            ],
+            "differential": [
+              "fixture::graph_core_mutation_hardened"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::graph_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-classes --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::graph_remove_node"
+          ]
+        },
+        {
+          "operation_id": "graph_neighbors_projection",
+          "symbol": "Graph::neighbors",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::neighbors",
+            "line_start": 139
+          },
+          "complexity_time": "O(deg(v))",
+          "complexity_space": "O(deg(v)) output-bound",
+          "memory_growth_driver": "temporary neighbor vector materialization for deterministic reads",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Neighbor ordering must mirror canonical adjacency insertion order.",
+            "Missing node behavior remains NetworkX-observable for scoped API."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_classes::tests::neighbors_are_deterministic"
+            ],
+            "property": [
+              "property::fnx_classes::mutation_invariants"
+            ],
+            "differential": [
+              "fixture::view_neighbors_strict"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::view_api"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-classes --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::graph_neighbors_projection"
+          ]
+        }
+      ]
+    },
+    {
+      "family_id": "algorithmic_core",
+      "name": "Algorithms: Path, Components, and Centrality",
+      "legacy_scope_paths": [
+        "networkx/algorithms/shortest_paths/unweighted.py",
+        "networkx/algorithms/components/connected.py",
+        "networkx/algorithms/centrality/"
+      ],
+      "rust_crates": [
+        "fnx-algorithms"
+      ],
+      "operations": [
+        {
+          "operation_id": "algo_shortest_path_unweighted",
+          "symbol": "shortest_path_unweighted",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "shortest_path_unweighted",
+            "line_start": 53
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V)",
+          "memory_growth_driver": "BFS frontier, predecessor maps, and visited set growth",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+            "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+          ],
+          "parity_constraints": [
+            "Tie-break ordering in frontier traversal must remain deterministic.",
+            "Unreachable target semantics must match legacy output contract."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_algorithms::tests::shortest_path_handles_unreachable"
+            ],
+            "property": [
+              "property::fnx_algorithms::shortest_path_invariants"
+            ],
+            "differential": [
+              "fixture::generated/shortest_path_basic"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::algo_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-algorithms --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::algo_shortest_path_unweighted"
+          ]
+        },
+        {
+          "operation_id": "algo_connected_components",
+          "symbol": "connected_components",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "connected_components",
+            "line_start": 135
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V)",
+          "memory_growth_driver": "visited bookkeeping plus component vector materialization",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Component ordering and membership ordering stay deterministic.",
+            "Strict/hardened mode cannot alter component cardinality outputs."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_algorithms::tests::connected_components_empty_graph"
+            ],
+            "property": [
+              "property::fnx_algorithms::component_partition_invariants"
+            ],
+            "differential": [
+              "fixture::generated/components_basic"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::algo_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-algorithms --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::algo_connected_components"
+          ]
+        },
+        {
+          "operation_id": "algo_degree_centrality",
+          "symbol": "degree_centrality",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "degree_centrality",
+            "line_start": 203
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V)",
+          "memory_growth_driver": "centrality score map over all nodes",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Normalized score computation preserves exact legacy denominator semantics.",
+            "Output key ordering remains deterministic for equal scores."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_algorithms::tests::degree_centrality_path_graph"
+            ],
+            "property": [
+              "property::fnx_algorithms::centrality_bounds"
+            ],
+            "differential": [
+              "fixture::generated/degree_centrality_basic"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::algo_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-algorithms --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::algo_degree_centrality"
+          ]
+        },
+        {
+          "operation_id": "algo_closeness_centrality",
+          "symbol": "closeness_centrality",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "closeness_centrality",
+            "line_start": 252
+          },
+          "complexity_time": "O(V * (V + E))",
+          "complexity_space": "O(V)",
+          "memory_growth_driver": "all-source shortest-path sweeps and score accumulation",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "WF-improved normalization behavior remains identical to scoped legacy semantics.",
+            "Node ordering and floating-point output stability are preserved within drift budget."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_algorithms::tests::closeness_centrality_path_graph"
+            ],
+            "property": [
+              "property::fnx_algorithms::centrality_bounds"
+            ],
+            "differential": [
+              "fixture::generated/closeness_centrality_basic"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::algo_core"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-algorithms --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::algo_closeness_centrality"
+          ]
+        }
+      ]
+    },
+    {
+      "family_id": "generator_workloads",
+      "name": "Graph Generator Workloads",
+      "legacy_scope_paths": [
+        "networkx/generators/classic.py",
+        "networkx/generators/random_graphs.py"
+      ],
+      "rust_crates": [
+        "fnx-generators"
+      ],
+      "operations": [
+        {
+          "operation_id": "gen_cycle_graph",
+          "symbol": "GraphGenerator::cycle_graph",
+          "code_anchor": {
+            "crate_name": "fnx-generators",
+            "file_path": "crates/fnx-generators/src/lib.rs",
+            "symbol": "GraphGenerator::cycle_graph",
+            "line_start": 105
+          },
+          "complexity_time": "O(V)",
+          "complexity_space": "O(V)",
+          "memory_growth_driver": "deterministic node and edge insertion for cycle topology",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Edge insertion order must match NetworkX cycle contract.",
+            "Strict/hardened guards cannot reorder generated topology."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_generators::tests::cycle_graph_edge_order_matches_networkx_for_n_five"
+            ],
+            "property": [
+              "property::fnx_generators::edge_count_invariants"
+            ],
+            "differential": [
+              "fixture::generated/generator_cycle_graph"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::generators"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-generators --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::gen_cycle_graph"
+          ]
+        },
+        {
+          "operation_id": "gen_complete_graph",
+          "symbol": "GraphGenerator::complete_graph",
+          "code_anchor": {
+            "crate_name": "fnx-generators",
+            "file_path": "crates/fnx-generators/src/lib.rs",
+            "symbol": "GraphGenerator::complete_graph",
+            "line_start": 155
+          },
+          "complexity_time": "O(V^2)",
+          "complexity_space": "O(V^2)",
+          "memory_growth_driver": "quadratic edge surface materialization for dense topology",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Dense edge ordering remains deterministic and reproducible.",
+            "Validation guards preserve strict/hardened observable behavior."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_generators::tests::complete_graph_node_and_edge_counts"
+            ],
+            "property": [
+              "property::fnx_generators::edge_count_invariants"
+            ],
+            "differential": [
+              "fixture::generated/generator_complete_graph"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::generators"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-generators --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::gen_complete_graph"
+          ]
+        },
+        {
+          "operation_id": "gen_gnp_random_graph",
+          "symbol": "GraphGenerator::gnp_random_graph",
+          "code_anchor": {
+            "crate_name": "fnx-generators",
+            "file_path": "crates/fnx-generators/src/lib.rs",
+            "symbol": "GraphGenerator::gnp_random_graph",
+            "line_start": 179
+          },
+          "complexity_time": "O(V^2) expected",
+          "complexity_space": "O(V + E)",
+          "memory_growth_driver": "pairwise edge sampling loop and seeded RNG state",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Seeded randomness remains deterministic for identical seed/p parameters.",
+            "Tie-break and edge-order outputs are reproducible across runs."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_generators::tests::gnp_random_graph_seed_is_deterministic"
+            ],
+            "property": [
+              "property::fnx_generators::seeded_reproducibility"
+            ],
+            "differential": [
+              "fixture::generated/generator_gnp_seeded"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::generators"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-generators --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::gen_gnp_random_graph"
+          ]
+        }
+      ]
+    },
+    {
+      "family_id": "conversion_and_io",
+      "name": "Conversion and Read/Write Pipelines",
+      "legacy_scope_paths": [
+        "networkx/convert.py",
+        "networkx/readwrite/edgelist.py",
+        "networkx/readwrite/json_graph/"
+      ],
+      "rust_crates": [
+        "fnx-convert",
+        "fnx-readwrite"
+      ],
+      "operations": [
+        {
+          "operation_id": "convert_from_edge_list",
+          "symbol": "GraphConverter::from_edge_list",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_edge_list",
+            "line_start": 133
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V + E)",
+          "memory_growth_driver": "intermediate edge payload and graph builder state",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Strict mode malformed endpoint handling stays fail-closed.",
+            "Hardened mode bounded recovery emits explicit warnings."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_convert::tests::edge_list_conversion_is_deterministic"
+            ],
+            "property": [
+              "property::fnx_convert::roundtrip_payload_invariants"
+            ],
+            "differential": [
+              "fixture::generated/convert_edge_list_strict"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::convert_rw"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-convert --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::convert_from_edge_list"
+          ]
+        },
+        {
+          "operation_id": "convert_from_adjacency",
+          "symbol": "GraphConverter::from_adjacency",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_adjacency",
+            "line_start": 220
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V + E)",
+          "memory_growth_driver": "adjacency list fan-out and warning accumulation",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Strict mode rejects malformed adjacency entries deterministically.",
+            "Hardened recovery remains bounded and fully auditable."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_convert::tests::adjacency_conversion_preserves_edges"
+            ],
+            "property": [
+              "property::fnx_convert::roundtrip_payload_invariants"
+            ],
+            "differential": [
+              "fixture::generated/convert_adjacency_hardened"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::convert_rw"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-convert --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::convert_from_adjacency"
+          ]
+        },
+        {
+          "operation_id": "rw_read_edgelist",
+          "symbol": "EdgeListEngine::read_edgelist",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_edgelist",
+            "line_start": 127
+          },
+          "complexity_time": "O(L) where L is input lines",
+          "complexity_space": "O(V + E)",
+          "memory_growth_driver": "line tokenization plus warning buffers for malformed rows",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Line-level malformed input behavior must remain strict/hardened split.",
+            "Parser must preserve deterministic edge insertion sequence."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_readwrite::tests::strict_mode_fails_closed_for_malformed_line"
+            ],
+            "property": [
+              "property::fnx_readwrite::roundtrip_stability"
+            ],
+            "differential": [
+              "fixture::generated/readwrite_hardened_malformed"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::convert_rw"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-readwrite --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::rw_read_edgelist"
+          ]
+        },
+        {
+          "operation_id": "rw_write_json_graph",
+          "symbol": "EdgeListEngine::write_json_graph",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::write_json_graph",
+            "line_start": 194
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V + E) serialization buffer",
+          "memory_growth_driver": "snapshot serialization and pretty-print buffer expansion",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Serialized graph ordering remains deterministic across identical snapshots.",
+            "Serialization failures stay fail-closed with diagnostics."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_readwrite::tests::json_roundtrip_is_deterministic"
+            ],
+            "property": [
+              "property::fnx_readwrite::roundtrip_stability"
+            ],
+            "differential": [
+              "fixture::generated/readwrite_json_roundtrip"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::convert_rw"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-readwrite --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::rw_write_json_graph"
+          ]
+        },
+        {
+          "operation_id": "rw_read_json_graph",
+          "symbol": "EdgeListEngine::read_json_graph",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_json_graph",
+            "line_start": 219
+          },
+          "complexity_time": "O(V + E)",
+          "complexity_space": "O(V + E)",
+          "memory_growth_driver": "decoded snapshot objects and warning recovery queue",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "JSON parse errors preserve strict fail-closed versus hardened bounded recovery.",
+            "Node/edge reconstruction ordering remains deterministic."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_readwrite::tests::hardened_mode_recovers_from_invalid_json"
+            ],
+            "property": [
+              "property::fnx_readwrite::roundtrip_stability"
+            ],
+            "differential": [
+              "fixture::generated/readwrite_json_hardened_invalid"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::convert_rw"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-readwrite --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::rw_read_json_graph"
+          ]
+        }
+      ]
+    },
+    {
+      "family_id": "dispatch_runtime_policy",
+      "name": "Dispatch + Runtime Policy Evaluation",
+      "legacy_scope_paths": [
+        "networkx/utils/backends.py",
+        "networkx/exception.py"
+      ],
+      "rust_crates": [
+        "fnx-dispatch",
+        "fnx-runtime"
+      ],
+      "operations": [
+        {
+          "operation_id": "dispatch_backend_resolve",
+          "symbol": "BackendRegistry::resolve",
+          "code_anchor": {
+            "crate_name": "fnx-dispatch",
+            "file_path": "crates/fnx-dispatch/src/lib.rs",
+            "symbol": "BackendRegistry::resolve",
+            "line_start": 100
+          },
+          "complexity_time": "O(B * F) where B=backends and F=feature checks",
+          "complexity_space": "O(B)",
+          "memory_growth_driver": "backend candidate filtering and decision ledger updates",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Unknown incompatible features fail closed in both strict and hardened mode.",
+            "Priority then lexical tie-break ordering remains deterministic."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_dispatch::tests::strict_mode_rejects_unknown_incompatible_request"
+            ],
+            "property": [
+              "property::fnx_dispatch::deterministic_selection"
+            ],
+            "differential": [
+              "fixture::generated/dispatch_route_strict"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::dispatch"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-dispatch --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::dispatch_backend_resolve"
+          ]
+        },
+        {
+          "operation_id": "runtime_decision_theoretic_action",
+          "symbol": "decision_theoretic_action",
+          "code_anchor": {
+            "crate_name": "fnx-runtime",
+            "file_path": "crates/fnx-runtime/src/lib.rs",
+            "symbol": "decision_theoretic_action",
+            "line_start": 1146
+          },
+          "complexity_time": "O(1)",
+          "complexity_space": "O(1)",
+          "memory_growth_driver": "constant-size decision state and risk threshold checks",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+          ],
+          "parity_constraints": [
+            "Risk-threshold transitions preserve strict/hardened policy semantics.",
+            "Unknown incompatible features must map to fail-closed action."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_runtime::tests::strict_mode_fail_closed_for_unknown_incompatible_feature"
+            ],
+            "property": [
+              "property::fnx_runtime::decision_action_threshold_monotonicity"
+            ],
+            "differential": [
+              "fixture::generated/dispatch_route_strict"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::dispatch"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-runtime --lib -- --nocapture",
+          "risk_tier": "medium",
+          "optimization_risk_note_ids": [
+            "risk::runtime_decision_theoretic_action"
+          ]
+        }
+      ]
+    },
+    {
+      "family_id": "conformance_execution",
+      "name": "Conformance Harness Execution",
+      "legacy_scope_paths": [
+        "networkx/tests/",
+        "networkx/testing/"
+      ],
+      "rust_crates": [
+        "fnx-conformance"
+      ],
+      "operations": [
+        {
+          "operation_id": "conformance_run_smoke",
+          "symbol": "run_smoke",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "run_smoke",
+            "line_start": 276
+          },
+          "complexity_time": "O(F * (V + E)) where F is fixture count",
+          "complexity_space": "O(F + mismatch_count)",
+          "memory_growth_driver": "fixture reports, mismatch vectors, and structured log emission",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+            "artifacts/conformance/latest/structured_logs.jsonl"
+          ],
+          "parity_constraints": [
+            "Fixture execution order and packet routing remain deterministic.",
+            "Structured logs must keep replay metadata complete."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_conformance::tests::smoke_harness_reports_zero_drift_for_bootstrap_fixtures"
+            ],
+            "property": [
+              "property::fnx_conformance::log_schema_invariants"
+            ],
+            "differential": [
+              "fixture::all_generated_fixtures"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::conformance"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-conformance --test smoke -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::conformance_run_smoke"
+          ]
+        },
+        {
+          "operation_id": "conformance_run_fixture",
+          "symbol": "run_fixture",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "run_fixture",
+            "line_start": 747
+          },
+          "complexity_time": "O(op_count * (V + E)) per fixture",
+          "complexity_space": "O(mismatch_count + witness_count)",
+          "memory_growth_driver": "operation result aggregation and mismatch serialization",
+          "hotspot_signals": [
+            "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+            "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+            "artifacts/perf/phase2c/perf_regression_gate_report_v1.json",
+            "artifacts/conformance/latest/structured_logs.jsonl"
+          ],
+          "parity_constraints": [
+            "Mismatch taxonomy separation (strict violation vs hardened allowlist) remains intact.",
+            "Replay command references stay deterministic and complete."
+          ],
+          "validation_hooks": {
+            "unit": [
+              "fnx_conformance::tests::packet_id_for_fixture_maps_known_prefixes"
+            ],
+            "property": [
+              "property::fnx_conformance::log_schema_invariants"
+            ],
+            "differential": [
+              "fixture::all_generated_fixtures"
+            ],
+            "e2e": [
+              "scripts/run_phase2c_readiness_e2e.sh::conformance"
+            ]
+          },
+          "replay_command": "rch exec -- cargo test -q -p fnx-conformance --lib -- --nocapture",
+          "risk_tier": "high",
+          "optimization_risk_note_ids": [
+            "risk::conformance_run_fixture"
+          ]
+        }
+      ]
+    }
+  ],
+  "hotspot_hypotheses": [
+    {
+      "hypothesis_id": "HS-001",
+      "operation_id": "algo_shortest_path_unweighted",
+      "statement": "BFS frontier allocation churn dominates p95 latency on medium-density graphs.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/bfs_neighbor_iter_delta.json"
+      ],
+      "test_plan": "Profile queue growth + allocator samples on fixed graph density buckets.",
+      "expected_signal": "queue push/pop hotspots exceed 30% of inclusive CPU time.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.8.1",
+        "bd-315.8.2"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-002",
+      "operation_id": "algo_connected_components",
+      "statement": "Visited-set hash pressure is the dominant memory tail contributor for large sparse graphs.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+      ],
+      "test_plan": "Track allocations and resident memory while sweeping node cardinality with fixed degree.",
+      "expected_signal": "visited-state allocations account for majority of retained bytes at p99.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.8.1"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-003",
+      "operation_id": "algo_closeness_centrality",
+      "statement": "Repeated all-source traversals dominate runtime; batch-level caching may reduce wall-clock without parity drift.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+      ],
+      "test_plan": "Compare baseline against one-lever cache memoization with deterministic keying.",
+      "expected_signal": "single-lever memoization lowers p95 latency while preserving exact output ordering.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.8.2",
+        "bd-315.8.4"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-004",
+      "operation_id": "rw_read_edgelist",
+      "statement": "Line tokenization and malformed-row handling dominate parser CPU under adversarial input mix.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_plan": "Replay malformed-heavy corpora and sample parser branch hit rates.",
+      "expected_signal": "malformed-row branches exceed nominal parse path in adversarial fixtures.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.6"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-005",
+      "operation_id": "convert_from_adjacency",
+      "statement": "High fan-out adjacency payloads create allocation spikes in edge materialization.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+      ],
+      "test_plan": "Run adjacency fan-out sweeps and compare allocation histograms.",
+      "expected_signal": "allocation peaks scale superlinearly with fan-out unless pre-sized buffers are used.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.6"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-006",
+      "operation_id": "gen_gnp_random_graph",
+      "statement": "Random graph generation becomes quadratic bottleneck at higher node counts.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+      ],
+      "test_plan": "Sweep n/p grids with fixed seed to isolate candidate loop costs.",
+      "expected_signal": "edge sampling loop dominates total runtime above target density threshold.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.8.1"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-007",
+      "operation_id": "dispatch_backend_resolve",
+      "statement": "Backend capability filtering is negligible at current scale but can become visible with expanded registry breadth.",
+      "evidence_refs": [
+        "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+        "artifacts/conformance/latest/structured_logs.jsonl"
+      ],
+      "test_plan": "Synthetic backend fan-out benchmark with deterministic feature vectors.",
+      "expected_signal": "resolve latency scales linearly with backend count and feature cardinality.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.23"
+      ]
+    },
+    {
+      "hypothesis_id": "HS-008",
+      "operation_id": "conformance_run_fixture",
+      "statement": "Structured-log emission and mismatch serialization dominate harness runtime for larger fixture bundles.",
+      "evidence_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+      ],
+      "test_plan": "Measure fixture replay with/without structured log compression while preserving schema fidelity.",
+      "expected_signal": "log serialization and mismatch formatting consume majority of post-execution wall-clock.",
+      "linked_bead_ids": [
+        "bd-315.24.6",
+        "bd-315.6",
+        "bd-315.10"
+      ]
+    }
+  ],
+  "optimization_risk_notes": [
+    {
+      "risk_note_id": "risk::graph_add_node_with_attrs",
+      "operation_id": "graph_add_node_with_attrs",
+      "parity_constraint": "Deterministic insertion order for node iteration is preserved.",
+      "risk_statement": "Optimization drift in `Graph::add_node_with_attrs` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `graph_add_node_with_attrs` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `graph_add_node_with_attrs`",
+        "structured logs include replay metadata for `graph_add_node_with_attrs`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::graph_add_edge_with_attrs",
+      "operation_id": "graph_add_edge_with_attrs",
+      "parity_constraint": "Edge endpoint ordering and tie-break behavior must remain deterministic.",
+      "risk_statement": "Optimization drift in `Graph::add_edge_with_attrs` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `graph_add_edge_with_attrs` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `graph_add_edge_with_attrs`",
+        "structured logs include replay metadata for `graph_add_edge_with_attrs`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::graph_remove_node",
+      "operation_id": "graph_remove_node",
+      "parity_constraint": "Incident edge cleanup must be complete and deterministic.",
+      "risk_statement": "Optimization drift in `Graph::remove_node` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `graph_remove_node` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `graph_remove_node`",
+        "structured logs include replay metadata for `graph_remove_node`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::graph_neighbors_projection",
+      "operation_id": "graph_neighbors_projection",
+      "parity_constraint": "Neighbor ordering must mirror canonical adjacency insertion order.",
+      "risk_statement": "Optimization drift in `Graph::neighbors` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `graph_neighbors_projection` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `graph_neighbors_projection`",
+        "structured logs include replay metadata for `graph_neighbors_projection`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::algo_shortest_path_unweighted",
+      "operation_id": "algo_shortest_path_unweighted",
+      "parity_constraint": "Tie-break ordering in frontier traversal must remain deterministic.",
+      "risk_statement": "Optimization drift in `shortest_path_unweighted` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `algo_shortest_path_unweighted` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `algo_shortest_path_unweighted`",
+        "structured logs include replay metadata for `algo_shortest_path_unweighted`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::algo_connected_components",
+      "operation_id": "algo_connected_components",
+      "parity_constraint": "Component ordering and membership ordering stay deterministic.",
+      "risk_statement": "Optimization drift in `connected_components` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `algo_connected_components` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `algo_connected_components`",
+        "structured logs include replay metadata for `algo_connected_components`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::algo_degree_centrality",
+      "operation_id": "algo_degree_centrality",
+      "parity_constraint": "Normalized score computation preserves exact legacy denominator semantics.",
+      "risk_statement": "Optimization drift in `degree_centrality` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `algo_degree_centrality` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `algo_degree_centrality`",
+        "structured logs include replay metadata for `algo_degree_centrality`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::algo_closeness_centrality",
+      "operation_id": "algo_closeness_centrality",
+      "parity_constraint": "WF-improved normalization behavior remains identical to scoped legacy semantics.",
+      "risk_statement": "Optimization drift in `closeness_centrality` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `algo_closeness_centrality` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `algo_closeness_centrality`",
+        "structured logs include replay metadata for `algo_closeness_centrality`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::gen_cycle_graph",
+      "operation_id": "gen_cycle_graph",
+      "parity_constraint": "Edge insertion order must match NetworkX cycle contract.",
+      "risk_statement": "Optimization drift in `GraphGenerator::cycle_graph` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `gen_cycle_graph` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `gen_cycle_graph`",
+        "structured logs include replay metadata for `gen_cycle_graph`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::gen_complete_graph",
+      "operation_id": "gen_complete_graph",
+      "parity_constraint": "Dense edge ordering remains deterministic and reproducible.",
+      "risk_statement": "Optimization drift in `GraphGenerator::complete_graph` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `gen_complete_graph` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `gen_complete_graph`",
+        "structured logs include replay metadata for `gen_complete_graph`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::gen_gnp_random_graph",
+      "operation_id": "gen_gnp_random_graph",
+      "parity_constraint": "Seeded randomness remains deterministic for identical seed/p parameters.",
+      "risk_statement": "Optimization drift in `GraphGenerator::gnp_random_graph` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `gen_gnp_random_graph` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `gen_gnp_random_graph`",
+        "structured logs include replay metadata for `gen_gnp_random_graph`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::convert_from_edge_list",
+      "operation_id": "convert_from_edge_list",
+      "parity_constraint": "Strict mode malformed endpoint handling stays fail-closed.",
+      "risk_statement": "Optimization drift in `GraphConverter::from_edge_list` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `convert_from_edge_list` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `convert_from_edge_list`",
+        "structured logs include replay metadata for `convert_from_edge_list`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::convert_from_adjacency",
+      "operation_id": "convert_from_adjacency",
+      "parity_constraint": "Strict mode rejects malformed adjacency entries deterministically.",
+      "risk_statement": "Optimization drift in `GraphConverter::from_adjacency` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `convert_from_adjacency` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `convert_from_adjacency`",
+        "structured logs include replay metadata for `convert_from_adjacency`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::rw_read_edgelist",
+      "operation_id": "rw_read_edgelist",
+      "parity_constraint": "Line-level malformed input behavior must remain strict/hardened split.",
+      "risk_statement": "Optimization drift in `EdgeListEngine::read_edgelist` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `rw_read_edgelist` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `rw_read_edgelist`",
+        "structured logs include replay metadata for `rw_read_edgelist`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::rw_write_json_graph",
+      "operation_id": "rw_write_json_graph",
+      "parity_constraint": "Serialized graph ordering remains deterministic across identical snapshots.",
+      "risk_statement": "Optimization drift in `EdgeListEngine::write_json_graph` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `rw_write_json_graph` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `rw_write_json_graph`",
+        "structured logs include replay metadata for `rw_write_json_graph`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::rw_read_json_graph",
+      "operation_id": "rw_read_json_graph",
+      "parity_constraint": "JSON parse errors preserve strict fail-closed versus hardened bounded recovery.",
+      "risk_statement": "Optimization drift in `EdgeListEngine::read_json_graph` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `rw_read_json_graph` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `rw_read_json_graph`",
+        "structured logs include replay metadata for `rw_read_json_graph`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::dispatch_backend_resolve",
+      "operation_id": "dispatch_backend_resolve",
+      "parity_constraint": "Unknown incompatible features fail closed in both strict and hardened mode.",
+      "risk_statement": "Optimization drift in `BackendRegistry::resolve` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `dispatch_backend_resolve` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `dispatch_backend_resolve`",
+        "structured logs include replay metadata for `dispatch_backend_resolve`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::runtime_decision_theoretic_action",
+      "operation_id": "runtime_decision_theoretic_action",
+      "parity_constraint": "Risk-threshold transitions preserve strict/hardened policy semantics.",
+      "risk_statement": "Optimization drift in `decision_theoretic_action` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `runtime_decision_theoretic_action` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `runtime_decision_theoretic_action`",
+        "structured logs include replay metadata for `runtime_decision_theoretic_action`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::conformance_run_smoke",
+      "operation_id": "conformance_run_smoke",
+      "parity_constraint": "Fixture execution order and packet routing remain deterministic.",
+      "risk_statement": "Optimization drift in `run_smoke` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `conformance_run_smoke` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `conformance_run_smoke`",
+        "structured logs include replay metadata for `conformance_run_smoke`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    },
+    {
+      "risk_note_id": "risk::conformance_run_fixture",
+      "operation_id": "conformance_run_fixture",
+      "parity_constraint": "Mismatch taxonomy separation (strict violation vs hardened allowlist) remains intact.",
+      "risk_statement": "Optimization drift in `run_fixture` can violate deterministic behavior or strict/hardened compatibility boundaries.",
+      "allowed_optimization_levers": [
+        "allocation pre-sizing with identical iteration order",
+        "branch hoisting that preserves observable outcomes",
+        "single-lever data-structure tuning under differential parity checks"
+      ],
+      "forbidden_changes": [
+        "non-deterministic iteration or randomized tie-break behavior",
+        "strict/hardened policy collapse or silent fallback broadening",
+        "output-schema changes without explicit contract update"
+      ],
+      "rollback_trigger": "Any strict-mode parity mismatch or missing replay metadata in `conformance_run_fixture` gate runs.",
+      "verification_requirements": [
+        "differential parity remains drift-free for `conformance_run_fixture`",
+        "structured logs include replay metadata for `conformance_run_fixture`",
+        "benchmark delta does not exceed declared regression thresholds"
+      ]
+    }
+  ],
+  "verification_bead_crosswalk": [
+    {
+      "bead_id": "bd-315.24.6",
+      "title": "[DOC-PASS-05] Complexity, Performance, and Memory Characterization",
+      "linked_operation_ids": [
+        "algo_shortest_path_unweighted",
+        "algo_connected_components",
+        "algo_closeness_centrality",
+        "rw_read_edgelist",
+        "conformance_run_fixture"
+      ],
+      "status": "in_progress",
+      "closure_signal": "artifact + schema + gate test all pass"
+    },
+    {
+      "bead_id": "bd-315.8.1",
+      "title": "[PERF-A] Baseline matrix + reproducible perf protocol",
+      "linked_operation_ids": [
+        "algo_shortest_path_unweighted",
+        "algo_connected_components",
+        "gen_gnp_random_graph"
+      ],
+      "status": "linked",
+      "closure_signal": "baseline matrix evidence refreshed for hotspot families"
+    },
+    {
+      "bead_id": "bd-315.8.2",
+      "title": "[PERF-B] Hotspot profiling evidence + one-lever backlog",
+      "linked_operation_ids": [
+        "algo_closeness_centrality",
+        "rw_read_edgelist",
+        "convert_from_adjacency"
+      ],
+      "status": "linked",
+      "closure_signal": "hotspot hypotheses map to profiler-backed one-lever candidates"
+    },
+    {
+      "bead_id": "bd-315.8.4",
+      "title": "[PERF-D] Continuous perf regression gate + drift forensics",
+      "linked_operation_ids": [
+        "algo_shortest_path_unweighted",
+        "algo_closeness_centrality",
+        "conformance_run_smoke"
+      ],
+      "status": "linked",
+      "closure_signal": "p50/p95/p99 deltas bounded and forensics artifact attached"
+    },
+    {
+      "bead_id": "bd-315.6",
+      "title": "[FOUNDATION] E2E orchestrator + replay/forensics logging",
+      "linked_operation_ids": [
+        "rw_read_edgelist",
+        "rw_read_json_graph",
+        "conformance_run_fixture"
+      ],
+      "status": "linked",
+      "closure_signal": "e2e replay logs cover hotspot failure envelopes"
+    },
+    {
+      "bead_id": "bd-315.5",
+      "title": "[FOUNDATION] Unit/property conventions + structured log contract",
+      "linked_operation_ids": [
+        "graph_add_edge_with_attrs",
+        "dispatch_backend_resolve",
+        "runtime_decision_theoretic_action"
+      ],
+      "status": "linked",
+      "closure_signal": "unit/property evidence traces include deterministic replay metadata"
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "ev_score": 2.33,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Explicit complexity/memory envelopes and hotspot hypotheses reduce optimization churn while preserving strict/hardened parity guarantees."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "optimization_lever_policy": {
+    "rule": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "measure",
+      "hypothesize",
+      "optimize",
+      "verify",
+      "fail_closed"
+    ],
+    "actions": [
+      "record_baseline",
+      "declare_hotspot_hypothesis",
+      "apply_single_lever",
+      "prove_isomorphism",
+      "rollback"
+    ],
+    "loss_model": "Minimize expected semantic drift by allowing optimizations only when complexity improves without changing tie-break or observable output semantics.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_unverified_hotspots": 0,
+      "max_parity_breaking_optimizations": 0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "missing_complexity_rows": 1,
+        "missing_hotspot_hypotheses": 1,
+        "missing_risk_notes": 1,
+        "parity_mismatch_events": 1
+      },
+      "fallback_action": "halt optimization rollout and require fail-closed verification rerun",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+    "artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"
+  ]
+}

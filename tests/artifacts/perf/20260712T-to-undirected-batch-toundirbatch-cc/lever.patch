@@ -1,0 +1,137 @@
+diff --git a/crates/fnx-classes/src/digraph.rs b/crates/fnx-classes/src/digraph.rs
+index 2637cfd69..337346455 100644
+--- a/crates/fnx-classes/src/digraph.rs
++++ b/crates/fnx-classes/src/digraph.rs
+@@ -1793,9 +1793,20 @@ impl DiGraph {
+         // reciprocal-edge merge order (for a<->b the later-processed direction's
+         // attrs win) AND keeps the `edges` map order unobservable, so
+         // `remove_node` can drop incident edges with O(1) swap_remove.
+-        for snap in self.edges_ordered() {
+-            let _ = g.add_edge_with_attrs(snap.left, snap.right, snap.attrs);
+-        }
++        //
++        // br-r37-c1-toundirbatch (cc): collect the directed edges (same
++        // edges_ordered order) + one extend_edges_with_attrs_unrecorded instead
++        // of per-edge add_edge_with_attrs (a policy record EACH — and for a<->b
++        // reciprocal digraphs HALF the calls are merge-dups). The batch helper
++        // dedups on the canonical endpoint pair and merges attrs via the same
++        // `extend` (later direction wins), in the identical order; all nodes are
++        // pre-added so endpoints resolve to existing indices → byte-identical.
++        let edges: Vec<(String, String, AttrMap)> = self
++            .edges_ordered()
++            .into_iter()
++            .map(|snap| (snap.left, snap.right, snap.attrs))
++            .collect();
++        let _ = g.extend_edges_with_attrs_unrecorded(edges);
+         g
+     }
+ 
+@@ -3770,6 +3781,108 @@ mod tests {
+         assert_runtime_policy_preserved(&expected_policy, ug.runtime_policy());
+     }
+ 
++    /// br-r37-c1-toundirbatch: paired-interleaved median A/B for DiGraph::to_undirected —
++    /// inline per-edge baseline vs the shipped batch, one binary / one worker with a NULL
++    /// control. A complete digraph K100 (every ordered pair a->b) makes 9900 directed edges
++    /// collapse to 4950 undirected, so HALF the add_edge_with_attrs calls are merge-dups and
++    /// each paid a per-edge policy record. Byte-identity asserted first.
++    /// `#[ignore]`; run with
++    /// `cargo test --release -p fnx-classes --lib to_undirected_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn to_undirected_batch_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let mut input = DiGraph::strict();
++        for i in 0..200 {
++            input.add_node(format!("{i}"));
++        }
++        for a in 0..200 {
++            for b in 0..200 {
++                if a != b {
++                    input.add_edge(format!("{a}"), format!("{b}")).unwrap();
++                }
++            }
++        }
++
++        let build = |g: &DiGraph, batch: bool| -> crate::Graph {
++            let mut out = crate::Graph::with_runtime_policy(g.runtime_policy.clone());
++            for (node, attrs) in &g.nodes {
++                out.add_node_with_attrs(node.clone(), attrs.clone());
++            }
++            if batch {
++                let edges: Vec<(String, String, AttrMap)> = g
++                    .edges_ordered()
++                    .into_iter()
++                    .map(|snap| (snap.left, snap.right, snap.attrs))
++                    .collect();
++                let _ = out.extend_edges_with_attrs_unrecorded(edges);
++            } else {
++                for snap in g.edges_ordered() {
++                    let _ = out.add_edge_with_attrs(snap.left, snap.right, snap.attrs);
++                }
++            }
++            out
++        };
++
++        let old = build(&input, false);
++        let new = build(&input, true);
++        assert_eq!(
++            old.edges_ordered_borrowed(),
++            new.edges_ordered_borrowed(),
++            "batch to_undirected must equal the per-edge baseline"
++        );
++        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(&input, batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "TOUNDIR_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("TOUNDIR_BATCH_AB K200_complete rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     #[test]
+     fn snapshot_roundtrip() {
+         let mut g = DiGraph::strict();

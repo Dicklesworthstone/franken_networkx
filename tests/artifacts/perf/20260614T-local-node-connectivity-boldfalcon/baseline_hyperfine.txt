@@ -1,0 +1,11 @@
+Benchmark 1: env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py loop --which fnx --loops 2000
+  Time (mean ± σ):      1.051 s ±  0.032 s    [User: 5.002 s, System: 0.067 s]
+  Range (min … max):    0.994 s …  1.082 s    10 runs
+ 
+Benchmark 2: env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py loop --which nx --loops 2000
+  Time (mean ± σ):     875.5 ms ±  27.8 ms    [User: 4933.3 ms, System: 66.7 ms]
+  Range (min … max):   832.7 ms … 904.5 ms    10 runs
+ 
+Summary
+  env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py loop --which nx --loops 2000 ran
+    1.20 ± 0.05 times faster than env PYTHONPATH=python python3 tests/artifacts/perf/20260614T-local-node-connectivity-boldfalcon/bench_local_node_connectivity.py loop --which fnx --loops 2000

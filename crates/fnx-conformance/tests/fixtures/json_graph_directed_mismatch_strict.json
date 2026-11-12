@@ -1,0 +1,12 @@
+{
+  "suite": "readwrite",
+  "mode": "strict",
+  "fixture_id": "json_graph_directed_mismatch_strict",
+  "operations": [
+    {
+      "op": "read_json_graph",
+      "input": "{\"directed\": false, \"nodes\": [{\"id\": \"0\"}], \"links\": []}"
+    }
+  ],
+  "expected": {}
+}

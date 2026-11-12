@@ -1,0 +1,1 @@
+{"impl": "fnx", "max_seconds": 0.08062944599078037, "mean_seconds": 0.07614819670852739, "min_seconds": 0.07355650901445188, "n": 1500, "op": "all", "p50_seconds": 0.07521895400714129, "repeat": 10, "sha256": "ded31e37db96e807e690e4092edffee407a0ef980cf0ca7274dd4806ac8caf12"}

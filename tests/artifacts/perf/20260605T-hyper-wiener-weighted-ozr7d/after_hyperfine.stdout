@@ -1,0 +1,11 @@
+Benchmark 1: env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl fnx --weighted --nodes 80 --repeats 30
+  Time (mean ± σ):     478.1 ms ±  32.5 ms    [User: 4358.7 ms, System: 63.7 ms]
+  Range (min … max):   429.6 ms … 542.9 ms    10 runs
+ 
+Benchmark 2: env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl nx --weighted --nodes 80 --repeats 30
+  Time (mean ± σ):     613.0 ms ±  52.1 ms    [User: 4057.0 ms, System: 63.4 ms]
+  Range (min … max):   549.9 ms … 710.2 ms    10 runs
+ 
+Summary
+  env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl fnx --weighted --nodes 80 --repeats 30 ran
+    1.28 ± 0.14 times faster than env VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python tests/artifacts/perf/20260605T-hyper-wiener-weighted-ozr7d/bench_hyper_wiener.py --mode bench --impl nx --weighted --nodes 80 --repeats 30

@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib circulant -- --nocapture
+running 4 tests (+1 ignored measurement)
+test tests::circulant_graph_matches_networkx_complete_case ... ok
+test tests::circulant_graph_matches_networkx_cycle_case ... ok
+test tests::circulant_graph_matches_networkx_empty_graph_case ... ok
+test tests::circulant_graph_matches_networkx_self_loop_case ... ok
+test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 206 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings).

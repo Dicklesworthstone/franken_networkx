@@ -1,0 +1,17 @@
+=== correctness vs numpy.eigvalsh (random symmetric) ===
+n=   5 maxabs=4.44e-15 maxrel=1.08e-15
+n=  20 maxabs=1.24e-14 maxrel=2.50e-15
+n=  50 maxabs=3.91e-14 maxrel=4.11e-15
+n= 100 maxabs=7.82e-14 maxrel=8.70e-15
+
+=== crossover: native eigvals vs np.linalg.eigvalsh (symmetric) ===
+n=  10  fnx=  0.0076ms  np=  0.0110ms   0.69x  <-- fnx wins
+n=  20  fnx=  0.0315ms  np=  0.0233ms   1.36x
+n=  30  fnx=  0.0730ms  np=  0.0380ms   1.92x
+n=  40  fnx=  0.1371ms  np=  0.0708ms   1.93x
+n=  50  fnx=  0.1864ms  np=  0.0971ms   1.92x
+n=  75  fnx=  0.4688ms  np=  0.1679ms   2.79x
+n= 100  fnx=  0.9314ms  np=  0.2811ms   3.31x
+n= 150  fnx=  2.4750ms  np=  0.6268ms   3.95x
+n= 200  fnx=  5.2218ms  np=  1.2722ms   4.10x
+n= 300  fnx= 15.1131ms  np=  5.1273ms   2.95x

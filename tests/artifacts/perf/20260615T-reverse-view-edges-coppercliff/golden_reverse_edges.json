@@ -1,0 +1,184 @@
+{
+  "cases": {
+    "edge_count_after_live_mutation": {
+      "fnx_sha256": "2934118e292b0506a41e364633d2b2323e3341279b77691d52d0e224cc819d68",
+      "match": true,
+      "nx_sha256": "2934118e292b0506a41e364633d2b2323e3341279b77691d52d0e224cc819d68"
+    },
+    "edge_data_attr_default": {
+      "fnx_sha256": "b801fb64742bea854b872d7956c2cc85f758f373f1ab82c5b86a46e40e062f15",
+      "match": true,
+      "nx_sha256": "b801fb64742bea854b872d7956c2cc85f758f373f1ab82c5b86a46e40e062f15"
+    },
+    "edge_data_true": {
+      "fnx_sha256": "43424037259d33a9b8ee6fff4c45f88dec8fd7cd415e48fc90eebb74061db402",
+      "match": true,
+      "nx_sha256": "43424037259d33a9b8ee6fff4c45f88dec8fd7cd415e48fc90eebb74061db402"
+    },
+    "edge_order": {
+      "fnx_sha256": "9fb5c4bcd0df001d60351eae641147b76d21b81a182bdadb84ef401ae5698b6d",
+      "match": true,
+      "nx_sha256": "9fb5c4bcd0df001d60351eae641147b76d21b81a182bdadb84ef401ae5698b6d"
+    },
+    "frozen_errors": {
+      "fnx_sha256": "901578ff074b8a34a1516199ba874a330d2d2188484e6db7128bdbb8db452f1d",
+      "match": true,
+      "nx_sha256": "901578ff074b8a34a1516199ba874a330d2d2188484e6db7128bdbb8db452f1d"
+    },
+    "live_after_source_mutation": {
+      "fnx_sha256": "c5fcd90efa4013c6bbbb9e255a98386c1ba69350ef4430fbc26f90d59c9dffed",
+      "match": true,
+      "nx_sha256": "c5fcd90efa4013c6bbbb9e255a98386c1ba69350ef4430fbc26f90d59c9dffed"
+    },
+    "live_new_edge_expected": {
+      "fnx_sha256": "db72cdf06b60c9e4d04d036c8b52b6ed74cb3bac4413aa4a34cb1c7506159661",
+      "match": true,
+      "nx_sha256": "db72cdf06b60c9e4d04d036c8b52b6ed74cb3bac4413aa4a34cb1c7506159661"
+    },
+    "node_count_after_live_mutation": {
+      "fnx_sha256": "da26b77becf8bcc17aa4e59a0205d8910373e5a25e0d7993fd5b2856c21ecdbb",
+      "match": true,
+      "nx_sha256": "da26b77becf8bcc17aa4e59a0205d8910373e5a25e0d7993fd5b2856c21ecdbb"
+    }
+  },
+  "fnx_sha256": "2e13b616a395c926d715ab7843bd713b1626a5cba9957d1348916f059c5105f3",
+  "match": true,
+  "metadata": {
+    "bead": "br-r37-c1-04z53.9110",
+    "franken_networkx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "DiGraph(watts_strogatz_graph(n, k, p, seed))",
+      "k": 8,
+      "n": 1200,
+      "p": 0.2,
+      "seed": 3
+    },
+    "head": "4c31f5185dc5a0878a4ce1e39b977c43b90db89d",
+    "head_short": "4c31f5185 test(perf): add perf evidence for dijkstra, guard-token & json-builder work",
+    "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/franken_networkx",
+    "workload": "list(DG.reverse(copy=False).edges())"
+  },
+  "mismatches": [],
+  "nx_sha256": "2e13b616a395c926d715ab7843bd713b1626a5cba9957d1348916f059c5105f3",
+  "samples": {
+    "edge_order_first_8": [
+      [
+        0,
+        1
+      ],
+      [
+        0,
+        2
+      ],
+      [
+        0,
+        3
+      ],
+      [
+        0,
+        4
+      ],
+      [
+        0,
+        1196
+      ],
+      [
+        0,
+        1197
+      ],
+      [
+        0,
+        1199
+      ],
+      [
+        1,
+        0
+      ]
+    ],
+    "edge_order_last_8": [
+      [
+        1199,
+        0
+      ],
+      [
+        1199,
+        1
+      ],
+      [
+        1199,
+        2
+      ],
+      [
+        1199,
+        3
+      ],
+      [
+        1199,
+        794
+      ],
+      [
+        1199,
+        1195
+      ],
+      [
+        1199,
+        1196
+      ],
+      [
+        1199,
+        1197
+      ]
+    ],
+    "frozen_errors": {
+      "add_edge": {
+        "message": "Frozen graph can't be modified",
+        "type": "NetworkXError"
+      },
+      "clear": {
+        "message": "Frozen graph can't be modified",
+        "type": "NetworkXError"
+      },
+      "remove_node": {
+        "message": "Frozen graph can't be modified",
+        "type": "NetworkXError"
+      }
+    },
+    "live_after_source_mutation_last_8": [
+      [
+        1199,
+        1
+      ],
+      [
+        1199,
+        2
+      ],
+      [
+        1199,
+        3
+      ],
+      [
+        1199,
+        794
+      ],
+      [
+        1199,
+        1195
+      ],
+      [
+        1199,
+        1196
+      ],
+      [
+        1199,
+        1197
+      ],
+      [
+        1200,
+        1201
+      ]
+    ]
+  }
+}

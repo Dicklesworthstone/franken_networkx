@@ -1,0 +1,69 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "harmonic_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        }
+      ]
+    },
+    "harmonic_centrality": [
+      {
+        "node": "a",
+        "score": 2.5
+      },
+      {
+        "node": "b",
+        "score": 2.5
+      },
+      {
+        "node": "c",
+        "score": 1.8333333333333333
+      },
+      {
+        "node": "d",
+        "score": 1.8333333333333333
+      }
+    ]
+  }
+}

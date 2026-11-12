@@ -1,0 +1,1 @@
+{"digest": "c22a5febbe363b33eaad5df75b24b8c29435d05ce70f5f7eb281ec4d3e5bc6d4", "engine": "nx", "label": "balanced_tree(2, 12)", "mean_s": 0.012850900533764312, "median_s": 0.008803606498986483, "min_s": 0.00782740709837526, "p95_s": 0.03265582793392241, "samples": 30, "scenario": "balanced_2_12"}

@@ -1,0 +1,27 @@
+         23001 function calls in 0.036 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.008    0.000    0.036    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/tests/artifacts/perf/20260613T-pyp75-non-neighbors-boldfalcon/non_neighbors_harness.py:127(<lambda>)
+     1000    0.015    0.000    0.029    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:43438(non_neighbors)
+     1000    0.007    0.000    0.007    0.000 {method '_native_node_key_set' of 'franken_networkx.MultiDiGraph' objects}
+     1000    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:1209(__iter__)
+     1000    0.001    0.000    0.002    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:1439(_multidigraph_getitem_from_native_row)
+     1000    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:36193(__contains__)
+     1000    0.001    0.000    0.001    0.000 {built-in method fromkeys}
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:1203(_atlas)
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:35670(_private_override)
+     2000    0.001    0.000    0.001    0.000 {method '_native_successor_row' of 'franken_networkx.MultiDiGraph' objects}
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:35696(_raw_neighbors_dispatch)
+     1000    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:1447(<lambda>)
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+     2000    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+     1000    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-nextperf-alt-20260613T1323Z/python/franken_networkx/__init__.py:1198(__init__)
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+     1000    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

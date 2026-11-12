@@ -1,0 +1,36 @@
+         1998572 function calls (1998532 primitive calls) in 2.809 seconds
+
+   Ordered by: cumulative time
+   List reduced from 169 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    2.809    2.809 /data/projects/franken_networkx/tests/artifacts/perf/20260602T-maximal-independent-set-index/bench_mis.py:91(sample)
+       30    0.000    0.000    2.710    0.090 /data/projects/franken_networkx/tests/artifacts/perf/20260602T-maximal-independent-set-index/bench_mis.py:29(call_mis)
+       30    0.015    0.001    2.710    0.090 /data/projects/franken_networkx/python/franken_networkx/__init__.py:12879(maximal_independent_set)
+       30    2.383    0.079    2.426    0.081 {built-in method franken_networkx._fnx.maximal_independent_set}
+    90000    0.042    0.000    0.259    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28902(has_edge)
+    90000    0.044    0.000    0.177    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28367(_has_networkx_private_storage)
+   360060    0.076    0.000    0.133    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28359(_private_override)
+        1    0.000    0.000    0.086    0.086 /data/projects/franken_networkx/tests/artifacts/perf/20260602T-maximal-independent-set-index/bench_mis.py:21(build_pair)
+    46557    0.021    0.000    0.054    0.000 /usr/lib/python3.13/random.py:345(choice)
+      6/1    0.000    0.000    0.044    0.044 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.043    0.043 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_barabasi_albert_graph_1)
+      4/1    0.000    0.000    0.043    0.043 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      4/1    0.000    0.000    0.043    0.043 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.004    0.004    0.043    0.043 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:659(barabasi_albert_graph)
+        1    0.007    0.007    0.036    0.036 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2316(add_edges_from)
+   360060    0.031    0.000    0.031    0.000 {built-in method builtins.vars}
+   369079    0.027    0.000    0.027    0.000 {method 'get' of 'dict' objects}
+    90000    0.027    0.000    0.027    0.000 {function Graph.has_edge at 0x7427733bafc0}
+    46557    0.017    0.000    0.026    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+        1    0.023    0.023    0.023    0.023 {function Graph.add_edges_from at 0x74277333e840}
+     2997    0.015    0.000    0.020    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+     2996    0.005    0.000    0.018    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:644(_random_subset)
+   203982    0.014    0.000    0.014    0.000 {built-in method builtins.hash}
+        1    0.011    0.011    0.011    0.011 {built-in method gc.collect}
+       30    0.010    0.000    0.010    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28759(__iter__)
+132164/132163    0.010    0.000    0.010    0.000 {built-in method builtins.len}
+        1    0.001    0.001    0.006    0.006 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2139(add_nodes_from)
+    65515    0.005    0.000    0.005    0.000 {method 'getrandbits' of '_random.Random' objects}
+     3000    0.001    0.000    0.005    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2107(add_node)
+    46557    0.004    0.000    0.004    0.000 {method 'bit_length' of 'int' objects}

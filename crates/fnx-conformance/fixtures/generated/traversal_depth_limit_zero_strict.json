@@ -1,0 +1,72 @@
+{
+  "suite": "traversal_v1",
+  "mode": "strict",
+  "fixture_id": "traversal::depth_limit_zero",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "1"
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "2"
+    },
+    {
+      "op": "b_f_s_edges_query",
+      "source": "0",
+      "depth_limit": 0
+    },
+    {
+      "op": "d_f_s_edges_query",
+      "source": "0",
+      "depth_limit": 0
+    },
+    {
+      "op": "d_f_s_preorder_nodes_query",
+      "source": "0",
+      "depth_limit": 0
+    },
+    {
+      "op": "d_f_s_postorder_nodes_query",
+      "source": "0",
+      "depth_limit": 0
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "2"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "2",
+          "attrs": {}
+        }
+      ]
+    },
+    "bfs_edges": [],
+    "dfs_edges": [
+      {
+        "left": "0",
+        "right": "1"
+      }
+    ],
+    "dfs_preorder_nodes": [
+      "0",
+      "1"
+    ],
+    "dfs_postorder_nodes": [
+      "0"
+    ]
+  }
+}

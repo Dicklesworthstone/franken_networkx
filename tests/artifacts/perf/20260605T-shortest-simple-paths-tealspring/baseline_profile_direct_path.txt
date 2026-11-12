@@ -1,0 +1,54 @@
+{"case": "path_2000_first1", "impl": "direct", "loops": 10, "path_nodes": 20000, "paths": 10, "seconds": 0.12754404300358146}
+         480133 function calls in 0.132 seconds
+
+   Ordered by: cumulative time
+   List reduced from 52 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.132    0.132 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:160(bench)
+       10    0.000    0.000    0.127    0.013 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:422(shortest_simple_paths)
+       10    0.002    0.000    0.127    0.013 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:595(_bidirectional_shortest_path)
+       10    0.018    0.002    0.119    0.012 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:658(_bidirectional_pred_succ)
+    19990    0.008    0.000    0.095    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31251(neighbors)
+    19990    0.012    0.000    0.048    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30575(_has_networkx_private_storage)
+    19990    0.016    0.000    0.040    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:310(neighbors)
+    79980    0.021    0.000    0.036    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30567(_private_override)
+    19990    0.013    0.000    0.013    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7aeb941a54e0}
+    79980    0.008    0.000    0.008    0.000 {built-in method builtins.vars}
+    79980    0.007    0.000    0.007    0.000 {method 'get' of 'dict' objects}
+    19990    0.005    0.000    0.005    0.000 {method 'insert' of 'list' objects}
+        1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:54(build_graph)
+        1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:26(_path_graph)
+        1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16380(path_graph)
+        1    0.005    0.005    0.005    0.005 {built-in method franken_networkx._fnx.path_graph}
+    19990    0.004    0.000    0.004    0.000 {built-in method fromkeys}
+    40020    0.004    0.000    0.004    0.000 {built-in method builtins.len}
+    20000    0.003    0.000    0.003    0.000 {method 'append' of 'list' objects}
+    19990    0.002    0.000    0.002    0.000 {built-in method builtins.hash}
+    19990    0.002    0.000    0.002    0.000 {built-in method builtins.iter}
+    20013    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:582(push)
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:588(pop)
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:75(shortest_simple_paths)
+       10    0.000    0.000    0.000    0.000 {method 'remove' of 'set' objects}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30987(__contains__)
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5429(predicate)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:40573(_nodes_or_number_local)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/__init__.py:183(dumps)
+       10    0.000    0.000    0.000    0.000 {method 'add' of 'set' objects}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/encoder.py:183(encode)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/encoder.py:205(iterencode)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.sum}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        1    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+       10    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7aeb93eceac0}
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:574(__init__)
+        1    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+       20    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py:173(<genexpr>)
+       10    0.000    0.000    0.000    0.000 {built-in method _heapq.heappush}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.print}
+       10    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/algorithms/simple_paths.py:579(__len__)
+
+

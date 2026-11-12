@@ -1,0 +1,2 @@
+{"digest": "a316d777cf3e4070855b2fca932a4f8f993dee8bbacf6d430f95624dd04d41bf", "label": "current_guard", "max_sec": 0.5354014789918438, "mean_sec": 0.40599208109779283, "median_sec": 0.402576392996707, "min_sec": 0.2744602359889541}
+{"digest": "a316d777cf3e4070855b2fca932a4f8f993dee8bbacf6d430f95624dd04d41bf", "label": "old_explicit_key_wrapper", "max_sec": 0.5128174290002789, "mean_sec": 0.395163464001962, "median_sec": 0.40785998350474983, "min_sec": 0.20093078701756895}

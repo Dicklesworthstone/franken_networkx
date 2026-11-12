@@ -1,0 +1,23 @@
+{"bead": "br-r37-c1-f0zo8", "profile": {"graph": "multigraph", "library": "fnx", "loops": 200000, "neighbors": 720, "observed_len_accumulator": 3200000, "operation": "guv", "parallel_edges_per_neighbor": 16}}
+         3800002 function calls (3600002 primitive calls) in 1.023 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.077    0.077    1.023    1.023 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py:174(run_loops)
+   200000    0.073    0.000    0.579    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py:166(operation)
+400000/200000    0.077    0.000    0.367    0.000 {built-in method builtins.len}
+   200000    0.068    0.000    0.328    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1101(__len__)
+   200000    0.162    0.000    0.300    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1163(__getitem__)
+   200000    0.038    0.000    0.222    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1098(_atlas)
+   400000    0.071    0.000    0.218    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1145(_atlas)
+   200000    0.135    0.000    0.206    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1349(_multigraph_getitem_from_native_row)
+   200000    0.076    0.000    0.184    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1173(<lambda>)
+   400000    0.066    0.000    0.148    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1357(<lambda>)
+   600000    0.124    0.000    0.124    0.000 {method '_native_adjacency_row' of 'franken_networkx.MultiGraph' objects}
+   400000    0.026    0.000    0.026    0.000 {built-in method builtins.hash}
+   200000    0.016    0.000    0.016    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1142(__init__)
+   200000    0.015    0.000    0.015    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1095(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

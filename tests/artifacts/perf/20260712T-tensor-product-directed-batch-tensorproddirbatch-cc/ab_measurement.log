@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib tensor_product_directed_batch_ab -- --ignored --nocapture
+
+TENSORPRODDIR_BATCH_AB K25xK25 rounds=61 (>1 = batch faster)
+TENSORPRODDIR_BATCH_AB BATCH_vs_string: median=4.5399x win_rate=61/61 p5_p95=[3.6748,5.5426]
+TENSORPRODDIR_BATCH_AB NULL_batch_vs_batch: median=1.0012x win_rate=31/61 p5_p95=[0.8032,1.2375]
+test tests::tensor_product_directed_batch_ab ... ok  (parity assert passed)
+
+Gate: candidate p5 (3.6748) >> NULL p95 (1.2375); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on complete-digraph K25xK25) passed before timing. The edge
+Vecs were already materialized, so the win is the per-edge policy record folded to one bulk
+DiGraph::extend_edges_unrecorded (which dedups on the directed key + handles self-loops).

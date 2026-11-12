@@ -1,0 +1,1300 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "complete_bipartite_2_3",
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "complete_bipartite_3_5",
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "complete_multipartite_3_3_3",
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        6,
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "complete_multipartite_2_4_5",
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        6,
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "10",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "disjoint_complete_multipartite",
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 7,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        7,
+        6,
+        5,
+        4,
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 7,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 6,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 5,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 4,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4"
+              ],
+              "type": "set"
+            },
+            {
+              "nodes": [
+                "10",
+                "11",
+                "12",
+                "13",
+                "14",
+                "15",
+                "16",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "missing_cross_edge_delegates",
+      "fnx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "4",
+                "5",
+                "6"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        3,
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "4",
+                "5",
+                "6"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 3,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "components": [
+            {
+              "nodes": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6"
+              ],
+              "type": "set"
+            }
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    }
+  ],
+  "flow_func_cases": [
+    {
+      "case": "complete_bipartite_2_3",
+      "fnx": [
+        "RuntimeError",
+        "flow called"
+      ],
+      "match": true,
+      "nx": [
+        "RuntimeError",
+        "flow called"
+      ]
+    },
+    {
+      "case": "complete_bipartite_3_5",
+      "fnx": [
+        "RuntimeError",
+        "flow called"
+      ],
+      "match": true,
+      "nx": [
+        "RuntimeError",
+        "flow called"
+      ]
+    },
+    {
+      "case": "complete_multipartite_3_3_3",
+      "fnx": [
+        "RuntimeError",
+        "flow called"
+      ],
+      "match": true,
+      "nx": [
+        "RuntimeError",
+        "flow called"
+      ]
+    },
+    {
+      "case": "complete_multipartite_2_4_5",
+      "fnx": [
+        "RuntimeError",
+        "flow called"
+      ],
+      "match": true,
+      "nx": [
+        "RuntimeError",
+        "flow called"
+      ]
+    }
+  ],
+  "fnx_file": "/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/python/franken_networkx/__init__.py",
+  "isomorphism": {
+    "floating_point": "N/A",
+    "ordering_preserved": "components are emitted in connected_components order; each level descends from vertex-connectivity to 1, matching NetworkX for complete multipartite cases",
+    "rng": "N/A",
+    "tie_breaking_unchanged": "closed-form cases contain one maximal component per connected complete multipartite component at each k; non-matching graphs delegate"
+  },
+  "nx_version": "3.6.1"
+}

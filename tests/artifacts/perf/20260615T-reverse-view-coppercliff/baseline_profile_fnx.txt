@@ -1,0 +1,44 @@
+{"impl": "fnx", "loops": 100, "marker": [12000, "042baf3e7f3df78ebd2f0449150004d3f1db72722c268721b598f173efc5d73b"]}
+         8070401 function calls in 2.195 seconds
+
+   Ordered by: cumulative time
+   List reduced from 62 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.007    0.000    2.195    0.022 reverse_view_edges_harness.py:64(materialize_from_graph)
+      100    0.001    0.000    2.182    0.022 __init__.py:35261(__call__)
+      100    0.628    0.006    2.181    0.022 __init__.py:34637(_edges)
+  1320000    0.254    0.000    0.850    0.000 __init__.py:1138(<genexpr>)
+  1200000    0.355    0.000    0.596    0.000 __init__.py:1252(__getitem__)
+  1320000    0.287    0.000    0.300    0.000 __init__.py:1210(_keydict)
+   120000    0.029    0.000    0.206    0.000 __init__.py:37498(<lambda>)
+   120000    0.048    0.000    0.177    0.000 __init__.py:36609(_private_pred_mapping)
+   120000    0.043    0.000    0.156    0.000 __init__.py:1136(__iter__)
+  1200000    0.118    0.000    0.118    0.000 {method 'append' of 'list' objects}
+  1202000    0.116    0.000    0.116    0.000 {built-in method builtins.isinstance}
+   120000    0.042    0.000    0.113    0.000 __init__.py:1234(__iter__)
+   120200    0.039    0.000    0.068    0.000 __init__.py:36505(_private_override)
+   120000    0.036    0.000    0.061    0.000 __init__.py:1513(_accessor)
+   120000    0.039    0.000    0.059    0.000 __init__.py:1324(__getitem__)
+   120000    0.036    0.000    0.047    0.000 __init__.py:1185(_adjacency_view_items)
+   367698    0.045    0.000    0.045    0.000 {method 'get' of 'dict' objects}
+   244100    0.030    0.000    0.030    0.000 {built-in method builtins.vars}
+   120000    0.013    0.000    0.013    0.000 {built-in method builtins.iter}
+     1200    0.004    0.000    0.012    0.000 __init__.py:36622(_cached_adj_row_keydict)
+   120000    0.011    0.000    0.011    0.000 __init__.py:1133(__init__)
+      100    0.000    0.000    0.006    0.000 __init__.py:4388(reverse)
+      100    0.000    0.000    0.006    0.000 __init__.py:44530(reverse_view)
+     1200    0.006    0.000    0.006    0.000 {method '_native_predecessor_row_dict' of 'franken_networkx.DiGraph' objects}
+      100    0.000    0.000    0.005    0.000 __init__.py:53054(wrapper)
+      100    0.000    0.000    0.005    0.000 __init__.py:39126(reverse)
+      100    0.000    0.000    0.004    0.000 __init__.py:35139(_reverse_directed_view_for)
+      100    0.001    0.000    0.003    0.000 __init__.py:34521(__init__)
+      100    0.002    0.000    0.002    0.000 __init__.py:34627(_nbunch)
+      100    0.000    0.000    0.001    0.000 __init__.py:34513(__new__)
+      600    0.001    0.000    0.001    0.000 __init__.py:6169(predicate)
+     1200    0.000    0.000    0.001    0.000 __init__.py:1306(_atlas)
+      100    0.001    0.000    0.001    0.000 {built-in method __new__ of type object at 0xa15020}
+      200    0.000    0.000    0.001    0.000 __init__.py:5974(__get__)
+     1200    0.000    0.000    0.001    0.000 __init__.py:36513(_has_networkx_private_storage)
+
+

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding2="UTF-8"?>
+<gexfversion="1.2">
+  <graph mode="static" defaultedgetype="dire
+"t ced>   <attributes clasn="edge">
+      <attrib<attribute id="weight-class" tit%le="weilcthg-ass" type="integer"/>
+    </attributes>
+    <nov"weighU-class" value="nnteger"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

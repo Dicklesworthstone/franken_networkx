@@ -1,0 +1,192 @@
+"""Regression test for PyO3 instance dictionary leak (br-r37-c1-839yx).
+
+Verifies that Graph, DiGraph, MultiGraph, and MultiDiGraph do not leak their
+CPython instance dictionaries (__dict__) or view caches on deallocation or
+during cyclic garbage collection.
+"""
+
+import copy
+import gc
+import os
+import sys
+import pytest
+import franken_networkx as fnx
+
+
+def _get_rss_mb() -> float:
+    """Read VmRSS from /proc/self/status or fallback to resource."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        import resource
+
+        raw_rss = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        if sys.platform == "darwin":
+            return raw_rss / (1024.0 * 1024.0)
+        return raw_rss / 1024.0
+    except Exception:
+        return 0.0
+
+
+@pytest.mark.parametrize("graph_cls", [fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph])
+def test_graph_instance_dict_deallocation_zero_leaks(graph_cls):
+    """Creating and dropping graph instances must not leak empty or populated instance dicts."""
+    gc.collect()
+    gc.collect()
+    before_dicts = set(id(obj) for obj in gc.get_objects() if isinstance(obj, dict))
+
+    for _ in range(500):
+        g = graph_cls()
+        g.add_edge("u", "v", weight=42.0)
+        _ = g.adj
+        _ = vars(g)
+
+    del g
+    gc.collect()
+    gc.collect()
+
+    after_dicts = [
+        obj for obj in gc.get_objects()
+        if isinstance(obj, dict) and id(obj) not in before_dicts
+    ]
+    # Allow at most small constant overhead for one-off interned keys/test frames, but zero per-graph leak
+    assert len(after_dicts) <= 10, f"Leaked {len(after_dicts)} dicts for {graph_cls.__name__}"
+
+
+def test_tight_loop_rss_stays_flat():
+    """10,000 graph allocations must maintain a flat memory RSS profile."""
+    # Warmup
+    for _ in range(1000):
+        g = fnx.Graph()
+        g.add_edge(1, 2)
+        _ = vars(g)
+    del g
+    gc.collect()
+
+    start_rss = _get_rss_mb()
+
+    for _ in range(10000):
+        g = fnx.Graph()
+        g.add_edge(1, 2)
+        _ = vars(g)
+    del g
+    gc.collect()
+
+    end_rss = _get_rss_mb()
+    rss_growth_mb = end_rss - start_rss
+    assert rss_growth_mb < 20.0, f"RSS grew by {rss_growth_mb:.2f} MB across 10,000 graphs"
+
+
+def test_cyclic_references_are_garbage_collected():
+    """Graphs involved in reference cycles must be fully reclaimed by cyclic GC."""
+    gc.collect()
+    before_graphs = [obj for obj in gc.get_objects() if isinstance(obj, fnx.Graph)]
+
+    def make_cycle():
+        g = fnx.Graph()
+        g.add_edge("a", "b")
+        g.graph["self"] = g
+        g.graph["adj"] = g.adj
+        vars(g)["cycle"] = g
+
+    for _ in range(200):
+        make_cycle()
+
+    gc.collect()
+    gc.collect()
+
+    after_graphs = [obj for obj in gc.get_objects() if isinstance(obj, fnx.Graph)]
+    surviving = len(after_graphs) - len(before_graphs)
+    assert surviving == 0, f"{surviving} cyclic graphs survived garbage collection"
+
+
+def test_shallow_copy_deallocation_zero_leaks():
+    """copy.copy(G) must not leak instance dicts on deallocation."""
+    gc.collect()
+    before_dicts = set(id(obj) for obj in gc.get_objects() if isinstance(obj, dict))
+
+    for _ in range(500):
+        g = fnx.Graph()
+        g.add_node("n")
+        h = copy.copy(g)
+        _ = h.adj
+        _ = vars(h)
+
+    del g, h
+    gc.collect()
+    gc.collect()
+
+    after_dicts = [
+        obj for obj in gc.get_objects()
+        if isinstance(obj, dict) and id(obj) not in before_dicts
+    ]
+    assert len(after_dicts) <= 10, f"Leaked {len(after_dicts)} dicts during copy.copy"
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("touch", ["none", "is_multigraph", "self_reference"])
+def test_graph_attr_dict_held_by_the_caller_survives_collection(cls, touch):
+    # br-r37-c1-erfbd: the tp_clear half emptied G.graph in place, so a caller
+    # holding the dict saw {} once G was collected; nx's dict is just a dict. A
+    # graph stored in its own G.graph (a cycle through the dict) must still be
+    # collected.
+    import weakref
+
+    g = getattr(fnx, cls)([(0, 1)])
+    g.graph["name"] = "kept"
+    held = g.graph
+    if touch == "is_multigraph":
+        g.is_multigraph()
+    elif touch == "self_reference":
+        g.graph["self"] = g
+    probe = weakref.ref(g)
+    del g
+    gc.collect()
+    gc.collect()
+
+    assert held["name"] == "kept"
+    if touch == "self_reference":
+        # the held dict keeps its graph alive, exactly as a plain dict would
+        assert held["self"] is probe()
+        del held
+        gc.collect()
+        gc.collect()
+        assert probe() is None
+
+
+@pytest.mark.parametrize("graph_cls", [fnx.MultiGraph, fnx.MultiDiGraph])
+def test_warm_multigraph_row_and_cell_caches_zero_leaks(graph_cls):
+    """Warming C-level getitem_row_cache and MultiAtlasView.cell_cache must not leak graphs or dicts."""
+    gc.collect()
+    gc.collect()
+    before_graphs = sum(1 for obj in gc.get_objects() if isinstance(obj, graph_cls))
+    before_dicts = set(id(obj) for obj in gc.get_objects() if isinstance(obj, dict))
+
+    for _ in range(300):
+        g = graph_cls()
+        g.add_edge("u", "v", weight=1.0)
+        row = g["u"]
+        cell = g["u"]["v"]
+        attr = g["u"]["v"][0]
+
+    del g, row, cell, attr
+    gc.collect()
+    gc.collect()
+
+    after_graphs = sum(1 for obj in gc.get_objects() if isinstance(obj, graph_cls))
+    after_dicts = [
+        obj for obj in gc.get_objects()
+        if isinstance(obj, dict) and id(obj) not in before_dicts
+    ]
+    assert after_graphs == before_graphs, (
+        f"Leaked {after_graphs - before_graphs} {graph_cls.__name__} instances"
+    )
+    assert len(after_dicts) <= 10, (
+        f"Leaked {len(after_dicts)} dicts for warm {graph_cls.__name__}"
+    )
+

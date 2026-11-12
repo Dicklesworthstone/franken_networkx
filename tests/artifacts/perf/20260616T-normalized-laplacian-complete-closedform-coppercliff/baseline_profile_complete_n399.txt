@@ -1,0 +1,39 @@
+         177618 function calls (170691 primitive calls) in 5.742 seconds
+
+   Ordered by: internal time
+   List reduced from 1262 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    5.500    1.833    5.500    1.833 _linalg.py:1264(eigvalsh)
+       27    0.039    0.001    0.039    0.001 {built-in method numpy.asarray}
+        3    0.021    0.007    0.021    0.007 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+        3    0.017    0.006    0.232    0.077 __init__.py:22456(normalized_laplacian_matrix)
+      151    0.014    0.000    0.014    0.000 {built-in method marshal.loads}
+     4962    0.009    0.000    0.010    0.000 _parser.py:260(get)
+      6/3    0.009    0.001    5.742    1.914 __init__.py:53535(wrapper)
+   629/86    0.007    0.000    0.029    0.000 _parser.py:511(_parse)
+  1148/81    0.006    0.000    0.012    0.000 _compiler.py:37(_compile)
+        3    0.006    0.002    0.006    0.002 {built-in method scipy.sparse._sparsetools.csr_sort_indices}
+      221    0.006    0.000    0.006    0.000 {built-in method builtins.eval}
+        3    0.004    0.001    0.004    0.001 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+      707    0.004    0.000    0.004    0.000 {built-in method posix.stat}
+       12    0.003    0.000    0.003    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+    14/10    0.003    0.000    0.006    0.001 {built-in method _imp.exec_dynamic}
+  269/267    0.003    0.000    0.017    0.000 {built-in method builtins.__build_class__}
+     9053    0.003    0.000    0.004    0.000 _parser.py:167(__getitem__)
+      151    0.002    0.000    0.002    0.000 {built-in method _io.open_code}
+       14    0.002    0.000    0.002    0.000 {built-in method _imp.create_dynamic}
+    18780    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+      151    0.002    0.000    0.002    0.000 {method 'read' of '_io.BufferedReader' objects}
+        1    0.002    0.002    0.002    0.002 difflib.py:44(SequenceMatcher)
+18296/17124    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+    16157    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}
+      396    0.002    0.000    0.002    0.000 _compiler.py:241(_optimize_charset)
+      221    0.001    0.000    0.008    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+ 1370/410    0.001    0.000    0.002    0.000 _parser.py:177(getwidth)
+     7041    0.001    0.000    0.001    0.000 _parser.py:239(__next)
+  809/747    0.001    0.000    0.002    0.000 {built-in method __new__ of type object at 0xa15020}
+     1436    0.001    0.000    0.002    0.000 <frozen importlib._bootstrap_external>:131(_path_join)
+
+
+

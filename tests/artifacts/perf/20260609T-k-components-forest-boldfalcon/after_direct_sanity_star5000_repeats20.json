@@ -1,0 +1,25 @@
+{
+  "command": "manual in-process sanity loop after forest fast path; 7 samples, 20 k_components calls per sample",
+  "case": "star5000",
+  "fnx_times_seconds": [
+    0.013869774993509054,
+    0.013104824931360781,
+    0.01319960504770279,
+    0.013167905039153993,
+    0.013660077936947346,
+    0.014422573964111507,
+    0.013869374990463257
+  ],
+  "fnx_median_seconds": 0.013660077936947346,
+  "networkx_times_seconds": [
+    1.155774920945987,
+    1.0451924540102482,
+    1.0711238119984046,
+    1.1097702140687034,
+    1.1178727959049866,
+    1.5402035570004955,
+    1.5969909379491583
+  ],
+  "networkx_median_seconds": 1.1178727959049866,
+  "median_speedup_vs_networkx": 81.83502299827194
+}

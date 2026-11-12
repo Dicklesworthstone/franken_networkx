@@ -1,0 +1,10 @@
+attempt 1: fleet transient (ftui/no-slot)
+attempt 2: fleet transient (ftui/no-slot)
+  [2m2026-07-11T05:32:02.242020Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib schultz_index -- --include-ignored --nocapture[0m
+test tests::test_schultz_index_path ... ok
+SCHIDX_AB n=200 deg=10 rounds=61 (>1 = integer-BFS faster)
+SCHIDX_AB INT_vs_string: median=12.1541x win_rate=61/61 p5_p95=[10.3260,13.2613]
+SCHIDX_AB NULL_int_vs_int: median=0.9993x win_rate=27/61 p5_p95=[0.9780,1.0532]
+test tests::schultz_index_schidx_ab ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 944 filtered out; finished in 1.06s
+AB loop ended

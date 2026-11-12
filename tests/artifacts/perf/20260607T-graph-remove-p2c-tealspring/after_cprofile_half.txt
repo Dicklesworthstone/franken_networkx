@@ -1,0 +1,24 @@
+         1008081 function calls in 0.914 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        4    0.000    0.000    0.914    0.228 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-graph-remove-p2c-tealspring/graph_remove_p2c.py:75(remove_once)
+        4    0.022    0.005    0.810    0.203 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-graph-remove-p2c-tealspring/graph_remove_p2c.py:43(build_graph)
+        4    0.101    0.025    0.542    0.135 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2627(add_edges_from)
+        4    0.378    0.094    0.378    0.094 {function Graph.add_edges_from at 0x7675554aa480}
+        4    0.181    0.045    0.243    0.061 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-graph-remove-p2c-tealspring/graph_remove_p2c.py:21(edge_stream)
+        4    0.002    0.000    0.103    0.026 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2871(remove_nodes_from)
+        4    0.100    0.025    0.100    0.025 {function Graph.remove_nodes_from at 0x7675554aa840}
+   294000    0.033    0.000    0.033    0.000 {built-in method builtins.hash}
+   276008    0.030    0.000    0.030    0.000 {built-in method builtins.len}
+   144000    0.026    0.000    0.026    0.000 {method 'add' of 'set' objects}
+   150000    0.022    0.000    0.022    0.000 {method 'append' of 'list' objects}
+   144016    0.015    0.000    0.015    0.000 {built-in method builtins.isinstance}
+        4    0.000    0.000    0.004    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2374(add_nodes_from)
+        4    0.004    0.001    0.004    0.001 {method '_fast_add_int_nodes_range_stop' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3265(__init__)
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-graph-remove-p2c-tealspring/graph_remove_p2c.py:50(victims)
+        8    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}

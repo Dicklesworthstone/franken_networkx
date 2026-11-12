@@ -1,0 +1,1 @@
+{"case": "maximal_independent_set_ba", "digest": "ea0fa182a585f7750142786815e6c267df0a3cf238e1d3d2427ba525de378909", "impl": "fnx", "profile": "tests/artifacts/perf/20260602T-maximal-independent-set-indexed/profile_after_fnx.txt"}

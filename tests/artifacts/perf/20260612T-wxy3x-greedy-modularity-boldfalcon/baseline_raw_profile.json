@@ -1,0 +1,28 @@
+{
+  "impl": "raw",
+  "profile": "tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/baseline_raw.prof",
+  "repeat": 80,
+  "top": [
+    {
+      "cum_time_s": 0.056901583000000006,
+      "function": "/data/projects/.scratch/franken_networkx-wxy3x-boldfalcon-20260612T201124/tests/artifacts/perf/20260612T-wxy3x-greedy-modularity-boldfalcon/harness_greedy_modularity.py:101:_raw_native",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.00048186200000000006
+    },
+    {
+      "cum_time_s": 0.056419721000000006,
+      "function": "~:0:<built-in method franken_networkx._fnx.greedy_modularity_communities>",
+      "primitive_calls": 80,
+      "total_calls": 80,
+      "total_time_s": 0.056419721000000006
+    },
+    {
+      "cum_time_s": 2.0399000000000002e-05,
+      "function": "~:0:<method 'disable' of '_lsprof.Profiler' objects>",
+      "primitive_calls": 1,
+      "total_calls": 1,
+      "total_time_s": 2.0399000000000002e-05
+    }
+  ]
+}

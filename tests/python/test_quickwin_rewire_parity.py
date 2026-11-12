@@ -1,0 +1,319 @@
+"""Parity tests for quick-win FNX rewires."""
+
+import networkx as nx
+import pytest
+
+import franken_networkx as fnx
+
+
+def test_minimum_edge_cut_matches_nx_for_specific_terminals():
+    graph = fnx.Graph()
+    graph.add_edges_from([("s", "a"), ("s", "b"), ("a", "t"), ("b", "t")])
+    expected = nx.Graph()
+    expected.add_edges_from([("s", "a"), ("s", "b"), ("a", "t"), ("b", "t")])
+
+    cut = fnx.minimum_edge_cut(graph, "s", "t")
+    cut_nx = nx.minimum_edge_cut(expected, "s", "t")
+
+    assert len(cut) == len(cut_nx)
+    augmented = graph.copy()
+    augmented.remove_edges_from(list(cut))
+    assert not fnx.has_path(augmented, "s", "t")
+
+
+def test_minimum_st_node_cut_matches_nx():
+    graph = fnx.Graph()
+    graph.add_edges_from([("s", "a"), ("a", "b"), ("b", "t"), ("a", "t")])
+    expected = nx.Graph()
+    expected.add_edges_from([("s", "a"), ("a", "b"), ("b", "t"), ("a", "t")])
+
+    assert fnx.algorithms.connectivity.minimum_st_node_cut(graph, "s", "t") == nx.minimum_node_cut(expected, "s", "t")
+
+
+def test_ego_graph_matches_nx():
+    graph = fnx.path_graph(5)
+    expected = nx.path_graph(5)
+
+    ego = fnx.ego_graph(graph, 2, radius=1)
+    ego_nx = nx.ego_graph(expected, 2, radius=1)
+    assert sorted(ego.nodes(data=True)) == sorted(ego_nx.nodes(data=True))
+    assert sorted(ego.edges(data=True)) == sorted(ego_nx.edges(data=True))
+
+    ego_no_center = fnx.ego_graph(graph, 2, radius=2, center=False)
+    ego_no_center_nx = nx.ego_graph(expected, 2, radius=2, center=False)
+    assert sorted(ego_no_center.nodes(data=True)) == sorted(ego_no_center_nx.nodes(data=True))
+    assert sorted(ego_no_center.edges(data=True)) == sorted(ego_no_center_nx.edges(data=True))
+
+
+def _populate_empty_copy_graph(graph):
+    graph.graph["name"] = "base"
+    graph.add_node("a", color="red")
+    graph.add_node("b", seen=True)
+    if graph.is_multigraph():
+        graph.add_edge("a", "b", key=4, weight=2)
+    else:
+        graph.add_edge("a", "b", weight=2)
+
+
+def _node_snapshot(graph):
+    return sorted((node, dict(attrs)) for node, attrs in graph.nodes(data=True))
+
+
+@pytest.mark.parametrize(
+    ("fnx_cls", "nx_cls"),
+    [
+        (fnx.Graph, nx.Graph),
+        (fnx.DiGraph, nx.DiGraph),
+        (fnx.MultiGraph, nx.MultiGraph),
+        (fnx.MultiDiGraph, nx.MultiDiGraph),
+    ],
+    ids=["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"],
+)
+def test_create_empty_copy_matches_nx_without_fallback(monkeypatch, fnx_cls, nx_cls):
+    graph = fnx_cls()
+    expected = nx_cls()
+    _populate_empty_copy_graph(graph)
+    _populate_empty_copy_graph(expected)
+
+    copy_with_data_nx = nx.create_empty_copy(expected, with_data=True)
+    copy_without_data_nx = nx.create_empty_copy(expected, with_data=False)
+
+    def blocked_create_empty_copy(*args, **kwargs):
+        raise AssertionError("NetworkX create_empty_copy fallback used")
+
+    monkeypatch.setattr(nx, "create_empty_copy", blocked_create_empty_copy)
+
+    copy_with_data = fnx.create_empty_copy(graph, with_data=True)
+    assert type(copy_with_data).__name__ == type(copy_with_data_nx).__name__
+    assert dict(copy_with_data.graph) == dict(copy_with_data_nx.graph)
+    assert _node_snapshot(copy_with_data) == _node_snapshot(copy_with_data_nx)
+    assert copy_with_data.number_of_edges() == copy_with_data_nx.number_of_edges() == 0
+
+    copy_without_data = fnx.create_empty_copy(graph, with_data=False)
+    assert type(copy_without_data).__name__ == type(copy_without_data_nx).__name__
+    assert dict(copy_without_data.graph) == dict(copy_without_data_nx.graph) == {}
+    assert _node_snapshot(copy_without_data) == _node_snapshot(copy_without_data_nx)
+    assert copy_without_data.number_of_edges() == copy_without_data_nx.number_of_edges() == 0
+
+
+def test_node_degree_xy_matches_nx():
+    graph = fnx.DiGraph()
+    graph.add_edges_from([("a", "b"), ("a", "c"), ("b", "c")])
+    expected = nx.DiGraph()
+    expected.add_edges_from([("a", "b"), ("a", "c"), ("b", "c")])
+
+    assert sorted(fnx.node_degree_xy(graph, x="out", y="in")) == sorted(
+        nx.node_degree_xy(expected, x="out", y="in")
+    )
+
+
+def test_all_pairs_node_connectivity_matches_nx():
+    graph = fnx.cycle_graph(4)
+    expected = nx.cycle_graph(4)
+
+    assert fnx.all_pairs_node_connectivity(graph) == nx.all_pairs_node_connectivity(expected)
+    assert fnx.all_pairs_node_connectivity(graph, nbunch=[0, 2]) == nx.all_pairs_node_connectivity(
+        expected,
+        nbunch=[0, 2],
+    )
+
+
+def test_all_pairs_node_connectivity_preserves_networkx_iteration_order(monkeypatch):
+    graph = fnx.complete_graph(4)
+    expected = nx.complete_graph(4)
+    expected_result = nx.all_pairs_node_connectivity(expected)
+    expected_subset = nx.all_pairs_node_connectivity(
+        nx.complete_graph([3, 1, 2, 0]), nbunch=[3, 1]
+    )
+
+    monkeypatch.setattr(
+        nx,
+        "all_pairs_node_connectivity",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("NetworkX all_pairs_node_connectivity fallback used")
+        ),
+    )
+
+    actual = fnx.all_pairs_node_connectivity(graph)
+
+    assert actual == expected_result
+    assert list(actual) == list(expected_result)
+    assert {node: list(values) for node, values in actual.items()} == {
+        node: list(values) for node, values in expected_result.items()
+    }
+
+    reordered = fnx.Graph()
+    reordered.add_nodes_from([3, 1, 2, 0])
+    reordered.add_edges_from(
+        [
+            (3, 1),
+            (3, 2),
+            (3, 0),
+            (1, 2),
+            (1, 0),
+            (2, 0),
+        ]
+    )
+
+    subset = fnx.all_pairs_node_connectivity(reordered, nbunch=[3, 1])
+
+    assert subset == expected_subset
+    assert list(subset) == list(expected_subset)
+    assert {node: list(row) for node, row in subset.items()} == {
+        node: list(row) for node, row in expected_subset.items()
+    }
+
+
+@pytest.mark.parametrize("nbunch", [None, [0, 2, 3]])
+@pytest.mark.parametrize("directed", [False, True])
+def test_all_pairs_node_connectivity_honors_callable_flow_func(nbunch, directed):
+    """The caller's flow_func computes every pair, as in networkx.
+
+    This used to pin the ROUTE (a monkeypatched networkx function had to
+    receive flow_func unchanged); be19b0a4f replaced that delegation with an
+    in-process port, which calls flow_func itself, and the route lock went red.
+    The contract is the result and the use of flow_func: same answer as
+    networkx and the same number of flow_func calls, so an implementation that
+    ignored flow_func and ran its own kernel fails here."""
+    from networkx.algorithms.flow import shortest_augmenting_path
+
+    calls = {"nx": 0, "fnx": 0}
+
+    def counting(tag):
+        def flow_func(*args, **kwargs):
+            calls[tag] += 1
+            return shortest_augmenting_path(*args, **kwargs)
+
+        return flow_func
+
+    create = {"create_using": nx.DiGraph} if directed else {}
+    expected = nx.all_pairs_node_connectivity(
+        nx.cycle_graph(6, **create), nbunch=nbunch, flow_func=counting("nx")
+    )
+    create = {"create_using": fnx.DiGraph} if directed else {}
+    actual = fnx.all_pairs_node_connectivity(
+        fnx.cycle_graph(6, **create), nbunch=nbunch, flow_func=counting("fnx")
+    )
+    assert actual == expected
+    assert calls["fnx"] == calls["nx"] > 0
+
+
+def test_all_pairs_node_connectivity_validates_flow_func():
+    graph = fnx.path_graph(4)
+    expected = nx.path_graph(4)
+
+    with pytest.raises(nx.NetworkXError) as expected_error:
+        nx.all_pairs_node_connectivity(expected, flow_func=1)
+    with pytest.raises(fnx.NetworkXError) as actual_error:
+        fnx.all_pairs_node_connectivity(graph, flow_func=1)
+
+    assert str(actual_error.value) == str(expected_error.value)
+
+
+def _all_pairs_graph(module, graph_type):
+    graph = getattr(module, graph_type)()
+    graph.add_nodes_from([3, 1, 5, 0, 4, 2])
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (0, 2), (3, 4)])
+    if graph.is_multigraph():
+        graph.add_edge(0, 1)
+    return graph
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "nbunch",
+    [[], [0], [0, 2], [3, 1, 2, 0], [3, 1, 5, 0, 4, 2], [3, 1, 3, 2, 0], [99]],
+)
+def test_all_pairs_node_connectivity_consumes_nbunch_once(graph_type, nbunch):
+    expected = nx.all_pairs_node_connectivity(
+        _all_pairs_graph(nx, graph_type), nbunch=iter(nbunch)
+    )
+    actual = fnx.all_pairs_node_connectivity(
+        _all_pairs_graph(fnx, graph_type), nbunch=iter(nbunch)
+    )
+
+    assert actual == expected
+    assert list(actual) == list(expected)
+    assert {node: list(row) for node, row in actual.items()} == {
+        node: list(row) for node, row in expected.items()
+    }
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_all_pairs_node_connectivity_unknown_node_in_one_shot_nbunch(graph_type):
+    with pytest.raises(KeyError) as expected_error:
+        nx.all_pairs_node_connectivity(
+            _all_pairs_graph(nx, graph_type), nbunch=iter([0, 99])
+        )
+    with pytest.raises(KeyError) as actual_error:
+        fnx.all_pairs_node_connectivity(
+            _all_pairs_graph(fnx, graph_type), nbunch=iter([0, 99])
+        )
+    assert actual_error.value.args == expected_error.value.args
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("nbunch", [None, [3, 1, 0]])
+def test_all_pairs_directed_connectivity_stays_owned(monkeypatch, graph_type, nbunch):
+    import franken_networkx.backend as fnx_backend
+
+    expected = nx.all_pairs_node_connectivity(
+        _all_pairs_graph(nx, graph_type), nbunch=nbunch
+    )
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("all-pairs connectivity used a NetworkX fallback")
+
+    monkeypatch.setattr(nx, "all_pairs_node_connectivity", blocked)
+    monkeypatch.setattr(
+        nx.algorithms.connectivity.connectivity, "all_pairs_node_connectivity", blocked
+    )
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", blocked)
+    actual = fnx.all_pairs_node_connectivity(
+        _all_pairs_graph(fnx, graph_type), nbunch=nbunch
+    )
+    assert actual == expected
+    assert list(actual) == list(expected)
+    assert {node: list(row) for node, row in actual.items()} == {
+        node: list(row) for node, row in expected.items()
+    }
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("nbunch", [None, [3, 1, 0]])
+def test_all_pairs_connectivity_reuses_auxiliary_and_residual(monkeypatch, graph_type, nbunch):
+    import franken_networkx.backend as fnx_backend
+    from franken_networkx.flow import edmonds_karp
+
+    expected_calls = []
+    actual_calls = []
+
+    def reference_solver(graph, source, target, **kwargs):
+        expected_calls.append((source, target, {k: v for k, v in kwargs.items() if k != "residual"}))
+        return nx.algorithms.flow.edmonds_karp(graph, source, target, **kwargs)
+
+    expected = nx.all_pairs_node_connectivity(
+        _all_pairs_graph(nx, graph_type), nbunch=nbunch, flow_func=reference_solver
+    )
+
+    def owned_solver(graph, source, target, **kwargs):
+        assert type(graph) is fnx.DiGraph
+        residual = kwargs["residual"]
+        assert type(residual) is fnx.DiGraph
+        actual_calls.append(
+            (graph, residual, source, target, {k: v for k, v in kwargs.items() if k != "residual"})
+        )
+        return edmonds_karp(graph, source, target, **kwargs)
+
+    def blocked(*args, **kwargs):
+        raise AssertionError("custom-flow connectivity converted to NetworkX")
+
+    monkeypatch.setattr(fnx_backend, "_fnx_to_nx", blocked)
+    actual = fnx.all_pairs_node_connectivity(
+        _all_pairs_graph(fnx, graph_type), nbunch=nbunch, flow_func=owned_solver
+    )
+    assert actual == expected
+    assert len(actual_calls) > 1
+    auxiliary, residual = actual_calls[0][:2]
+    assert all(graph is auxiliary and work is residual for graph, work, *_ in actual_calls)
+    assert [(source, target, kwargs) for _, _, source, target, kwargs in actual_calls] == expected_calls

@@ -1,0 +1,1 @@
+f0bba7b6806d74abb537373e8f230338ef04a619111026026525fe4fb9a34a58  parity_proof.py output (3720 cases descendants+ancestors, dir+undir, 0 mismatches)

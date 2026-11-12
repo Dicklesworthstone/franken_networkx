@@ -1,0 +1,13 @@
+{
+  "suite": "generators_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "generate_empty_graph", "n": 5}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2", "3", "4"],
+      "edges": []
+    }
+  }
+}

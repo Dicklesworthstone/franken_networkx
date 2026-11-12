@@ -1,0 +1,105 @@
+{
+  "suite": "distance_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c"
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d"
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "e"
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d"
+    },
+    {
+      "op": "distance_measures_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {}
+        },
+        {
+          "left": "d",
+          "right": "e",
+          "attrs": {}
+        }
+      ]
+    },
+    "eccentricity": [
+      {
+        "node": "a",
+        "value": 3
+      },
+      {
+        "node": "b",
+        "value": 2
+      },
+      {
+        "node": "c",
+        "value": 2
+      },
+      {
+        "node": "d",
+        "value": 2
+      },
+      {
+        "node": "e",
+        "value": 3
+      }
+    ],
+    "diameter": 3,
+    "radius": 2,
+    "center": [
+      "b",
+      "c",
+      "d"
+    ],
+    "periphery": [
+      "a",
+      "e"
+    ]
+  }
+}

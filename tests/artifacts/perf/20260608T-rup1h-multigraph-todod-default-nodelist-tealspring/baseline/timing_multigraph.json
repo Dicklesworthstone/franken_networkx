@@ -1,0 +1,33 @@
+{
+  "fnx": {
+    "alias_pairs": 0,
+    "degree": 5,
+    "directed": false,
+    "edge_count": 17956,
+    "elapsed": 0.42639519600197673,
+    "live_mutations": 35911,
+    "module": "fnx",
+    "node_count": 1200,
+    "nodes": 1200,
+    "parallel": 3,
+    "repeats": 80,
+    "row_count": 11971,
+    "sha256": "231583cedff594f62d823fb4b31b13b96ed668cfb49879e4509e99bd1aa417a5"
+  },
+  "nx": {
+    "alias_pairs": 11970,
+    "degree": 5,
+    "directed": false,
+    "edge_count": 17956,
+    "elapsed": 0.01106317900121212,
+    "live_mutations": 35911,
+    "module": "nx",
+    "node_count": 1200,
+    "nodes": 1200,
+    "parallel": 3,
+    "repeats": 80,
+    "row_count": 11971,
+    "sha256": "5a55bbcd4cb59516aeba251c246aff4bb85b1e13903cfd7c4f3648635b1e23ba"
+  },
+  "ratio": 38.5418328633442
+}

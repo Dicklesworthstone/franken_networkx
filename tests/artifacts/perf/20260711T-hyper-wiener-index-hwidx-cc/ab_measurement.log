@@ -1,0 +1,14 @@
+attempt 1: fleet transient
+attempt 2: fleet transient
+attempt 3: fleet transient
+attempt 4: fleet transient
+attempt 5: fleet transient
+  [2m2026-07-11T05:42:13.754580Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib hyper_wiener_index -- --include-ignored --nocapture[0m
+test tests::test_hyper_wiener_index_path ... ok
+test tests::test_hyper_wiener_index_path_four_nodes ... ok
+HWIDX_AB n=200 deg=10 rounds=61 (>1 = integer-BFS faster)
+HWIDX_AB INT_vs_string: median=12.4613x win_rate=61/61 p5_p95=[10.6301,17.0721]
+HWIDX_AB NULL_int_vs_int: median=1.0111x win_rate=34/61 p5_p95=[0.8485,1.2431]
+test tests::hyper_wiener_index_hwidx_ab ... ok
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 944 filtered out; finished in 1.34s
+AB loop ended

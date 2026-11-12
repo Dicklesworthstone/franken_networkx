@@ -1,0 +1,6 @@
+graph [
+  d@irected 0
+  node [0 id 0 label "a" ]
+  ]
+  edge [ target 0 ]
+]

@@ -1,0 +1,2 @@
+PASS: rch exec -- cargo fmt -p fnx-python --check
+exit 0.

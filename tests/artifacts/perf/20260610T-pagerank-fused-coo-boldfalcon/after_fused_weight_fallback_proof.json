@@ -1,0 +1,257 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "finite_directed",
+      "fnx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.24762375484649563"
+          ],
+          [
+            1,
+            "0.28187601194648204"
+          ],
+          [
+            2,
+            "0.31099044092496253"
+          ],
+          [
+            3,
+            "0.15950979228205989"
+          ]
+        ]
+      },
+      "helper_edge_entries": 4,
+      "helper_has_nonfinite": false,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.24762375484649563"
+          ],
+          [
+            1,
+            "0.28187601194648204"
+          ],
+          [
+            2,
+            "0.31099044092496253"
+          ],
+          [
+            3,
+            "0.15950979228205989"
+          ]
+        ]
+      }
+    },
+    {
+      "case": "nan_directed",
+      "fnx": {
+        "kind": "error",
+        "message": "(PowerIterationFailedConvergence(...), 'power iteration failed to converge within 100 iterations')",
+        "type": "PowerIterationFailedConvergence"
+      },
+      "helper_edge_entries": 0,
+      "helper_has_nonfinite": true,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "error",
+        "message": "(PowerIterationFailedConvergence(...), 'power iteration failed to converge within 100 iterations')",
+        "type": "PowerIterationFailedConvergence"
+      }
+    },
+    {
+      "case": "inf_directed",
+      "fnx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.20618556738177987"
+          ],
+          [
+            1,
+            "0.20618556738177987"
+          ],
+          [
+            2,
+            "0.38144329785466047"
+          ],
+          [
+            3,
+            "0.20618556738177987"
+          ]
+        ]
+      },
+      "helper_edge_entries": 0,
+      "helper_has_nonfinite": true,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.20618556738177987"
+          ],
+          [
+            1,
+            "0.20618556738177987"
+          ],
+          [
+            2,
+            "0.38144329785466047"
+          ],
+          [
+            3,
+            "0.20618556738177987"
+          ]
+        ]
+      }
+    },
+    {
+      "case": "string_directed",
+      "fnx": {
+        "kind": "error",
+        "message": "could not convert string to float: 'heavy'",
+        "type": "ValueError"
+      },
+      "helper_edge_entries": 0,
+      "helper_has_nonfinite": true,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "error",
+        "message": "could not convert string to float: 'heavy'",
+        "type": "ValueError"
+      }
+    },
+    {
+      "case": "dirty_inf_directed",
+      "fnx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.20618556738177987"
+          ],
+          [
+            1,
+            "0.20618556738177987"
+          ],
+          [
+            2,
+            "0.38144329785466047"
+          ],
+          [
+            3,
+            "0.20618556738177987"
+          ]
+        ]
+      },
+      "helper_edge_entries": 0,
+      "helper_has_nonfinite": true,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.20618556738177987"
+          ],
+          [
+            1,
+            "0.20618556738177987"
+          ],
+          [
+            2,
+            "0.38144329785466047"
+          ],
+          [
+            3,
+            "0.20618556738177987"
+          ]
+        ]
+      }
+    },
+    {
+      "case": "finite_undirected",
+      "fnx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.21949350722844441"
+          ],
+          [
+            1,
+            "0.31581175389856442"
+          ],
+          [
+            2,
+            "0.38093798562847514"
+          ],
+          [
+            3,
+            "0.083756753244515925"
+          ]
+        ]
+      },
+      "helper_edge_entries": 8,
+      "helper_has_nonfinite": false,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "ok",
+        "rows": [
+          [
+            0,
+            "0.21949350722844441"
+          ],
+          [
+            1,
+            "0.31581175389856442"
+          ],
+          [
+            2,
+            "0.38093798562847514"
+          ],
+          [
+            3,
+            "0.083756753244515925"
+          ]
+        ]
+      }
+    },
+    {
+      "case": "nan_undirected",
+      "fnx": {
+        "kind": "error",
+        "message": "(PowerIterationFailedConvergence(...), 'power iteration failed to converge within 100 iterations')",
+        "type": "PowerIterationFailedConvergence"
+      },
+      "helper_edge_entries": 0,
+      "helper_has_nonfinite": true,
+      "helper_returned": true,
+      "matches_nx": true,
+      "nx": {
+        "kind": "error",
+        "message": "(PowerIterationFailedConvergence(...), 'power iteration failed to converge within 100 iterations')",
+        "type": "PowerIterationFailedConvergence"
+      }
+    }
+  ],
+  "floating_point": "Finite cases use the same scipy sparse power iteration; nonfinite/nonnumeric cases delegate to NetworkX.",
+  "ordering": "PageRank result dict follows dict(zip(list(G), x)); list(G) is unchanged.",
+  "proof_sha256": "c32bc489571823cacc274eb787e4680e95f11784718a8c1b8db80e778771dcd2",
+  "rng": "None.",
+  "tie_breaking": "No graph traversal tie-break policy changes; sparse matrix COO ordering is assembly-order independent."
+}

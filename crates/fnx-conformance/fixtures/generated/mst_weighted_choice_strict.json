@@ -1,0 +1,85 @@
+{
+  "suite": "mst_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {"weight": 1.0}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {"weight": 3.0}
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {"weight": 2.0}
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d",
+      "attrs": {"weight": 4.0}
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d",
+      "attrs": {"weight": 1.5}
+    },
+    {
+      "op": "minimum_spanning_tree_query",
+      "weight_attr": "weight"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {"weight": 1.0}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {"weight": 3.0}
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {"weight": 2.0}
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {"weight": 4.0}
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {"weight": 1.5}
+        }
+      ]
+    },
+    "minimum_spanning_tree": {
+      "total_weight": 4.5,
+      "edges": [
+        {"left": "a", "right": "b", "weight": 1.0},
+        {"left": "b", "right": "c", "weight": 2.0},
+        {"left": "c", "right": "d", "weight": 1.5}
+      ]
+    }
+  }
+}

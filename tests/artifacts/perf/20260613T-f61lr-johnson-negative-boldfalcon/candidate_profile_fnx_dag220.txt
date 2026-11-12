@@ -1,0 +1,24 @@
+impl=fnx case=negative_dag_220 sha256=2944c5f4ed871d1b7af7bf5ef9832cc3eeb361002425d1badb7aa7545de4f688
+         22 function calls in 0.048 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.048    0.048 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:51632(wrapper)
+        1    0.002    0.002    0.048    0.048 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:28428(johnson)
+        1    0.046    0.046    0.046    0.046 {built-in method franken_networkx._fnx.johnson_path_directed}
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:6709(_sync_rust_edge_attrs)
+        1    0.000    0.000    0.000    0.000 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.DiGraph' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:17471(_sp_edge_weights_all_int)
+        1    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.graph_edge_weights_all_int}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        2    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:5802(predicate)
+        2    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7bf289c7fce0}
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.callable}
+        1    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:23413(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+
+

@@ -1,0 +1,18 @@
+{
+  "function": "is_connected (Rust kernel, undirected)",
+  "lever": "the Rust is_connected BFS (fnx-algorithms/src/lib.rs:8722) scanned ALL O(|E|) edges even after every node was visited — no early exit. nx's _plain_bfs stops at `len(seen) == len(G)`. Add `if visited_count == n { break }` after marking a node visited: a connected graph is proven connected once all nodes are reached, so a dense/low-diameter graph costs O(|V|) not O(|E|).",
+  "parity": {
+    "cases": 47,
+    "mismatches": 0,
+    "coverage": "connected (complete/cycle/path/ba/ws), disconnected (disjoint unions, multi-component), single-node selfloop, empty(raise), 25 random gnp",
+    "pytest": "2225 passed, 12 skipped (connect/eulerian/connected_component)"
+  },
+  "bench_min_of_11_ms": {
+    "K201":      {"nx": 0.0153, "fnx_before": 0.0202, "fnx_after": 0.0013, "before_vs_nx": 1.29, "after_vs_nx": 0.09, "self_speedup": 15.5},
+    "K601":      {"nx": 0.0369, "fnx_before": 0.1581, "fnx_after": 0.0025, "before_vs_nx": 4.40, "after_vs_nx": 0.06, "self_speedup": 63.2},
+    "gnp_dense": {"nx": 0.1458, "fnx_after": 0.0051, "after_vs_nx": 0.03},
+    "ba2000":    {"nx": 0.5465, "fnx_after": 0.0175, "after_vs_nx": 0.03}
+  },
+  "headline": "is_connected dense: native BFS lacked early-exit, O(|E|) -> 4.40x slower than nx on K601. Add early-exit -> 16x FASTER than nx (63x self-speedup), byte-exact. Broadly benefits every is_connected caller (is_eulerian K601 residual 3.14x -> 1.80x). Rust kernel change.",
+  "followup": "connected_components / number_connected_components may have the same missing early-exit for the connected-graph fast path; is_eulerian undirected residual now is the DegreeView O(V) cost."
+}

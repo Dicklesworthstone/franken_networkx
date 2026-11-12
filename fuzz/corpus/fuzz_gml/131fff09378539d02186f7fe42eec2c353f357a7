@@ -1,0 +1,7 @@
+graph [
+  directed 0
+  nodeidi  [  label "a" ]
+  node [ id 1 label "b" ]
+  edge [ source 0graph [
+ write_edg 1
+  node [ id 0 target 1*] lroot

@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py bench --kind graph --mode regular --n 400 --degree 4 --samples 1 --engines fnx --skip-digest",
+      "mean": 0.94279924476,
+      "stddev": 0.020999536297143833,
+      "median": 0.9444921820600001,
+      "user": 4.179679220000001,
+      "system": 0.05516216,
+      "min": 0.91431755356,
+      "max": 0.98967307356,
+      "times": [
+        0.94973729356,
+        0.94446104856,
+        0.94452331556,
+        0.98967307356,
+        0.92768459856,
+        0.95267278256,
+        0.91431755356,
+        0.9189576995600001,
+        0.94544890256,
+        0.94051617956
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

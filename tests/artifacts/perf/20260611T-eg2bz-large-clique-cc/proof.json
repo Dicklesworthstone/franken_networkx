@@ -1,0 +1,39 @@
+{
+  "parity": {
+    "checks": 320,
+    "fails": 0
+  },
+  "raise": {
+    "directed": [
+      "NetworkXNotImplemented",
+      "NetworkXNotImplemented"
+    ],
+    "multigraph": [
+      "NetworkXNotImplemented",
+      "NetworkXNotImplemented"
+    ]
+  },
+  "speedup": {
+    "n300": {
+      "new_ms": 1.53,
+      "delegated_ms": 7.27,
+      "genuine_nx_ms": 3.68,
+      "vs_delegated": 4.76,
+      "vs_nx": 2.41
+    },
+    "n600": {
+      "new_ms": 5.37,
+      "delegated_ms": 24.79,
+      "genuine_nx_ms": 11.86,
+      "vs_delegated": 4.62,
+      "vs_nx": 2.21
+    },
+    "n1000": {
+      "new_ms": 10.57,
+      "delegated_ms": 51.35,
+      "genuine_nx_ms": 23.6,
+      "vs_delegated": 4.86,
+      "vs_nx": 2.23
+    }
+  }
+}

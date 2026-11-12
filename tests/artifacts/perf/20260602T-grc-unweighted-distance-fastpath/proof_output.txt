@@ -1,0 +1,6 @@
+err selfloop1: nx=NetworkXError fnx=NetworkXError OK
+err noedge: nx=NetworkXError fnx=NetworkXError OK
+
+total=464 bit_exact=464 diff=0
+GOLDEN_SHA256=78fbb2e383858cf51eade650c1f1efa976eec5ff53ccacdac4fe20eec71a386c
+RESULT: PASS

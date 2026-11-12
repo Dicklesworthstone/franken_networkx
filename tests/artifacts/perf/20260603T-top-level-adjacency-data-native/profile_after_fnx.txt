@@ -1,0 +1,19 @@
+         391 function calls in 0.270 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.009    0.000    0.270    0.009 __init__.py:20833(adjacency_data)
+       30    0.260    0.009    0.260    0.009 {built-in method franken_networkx._fnx.adjacency_data_simple}
+       60    0.000    0.000    0.000    0.000 __init__.py:5277(predicate)
+       30    0.000    0.000    0.000    0.000 __init__.py:5087(__get__)
+       60    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       30    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b1ebda81260}
+       30    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       30    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b1ebda81300}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       30    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       30    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       30    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+
+

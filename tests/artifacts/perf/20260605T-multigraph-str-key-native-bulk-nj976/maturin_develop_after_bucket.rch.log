@@ -1,0 +1,66 @@
+  [2m2026-06-05T15:48:27.617745Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: maturin develop --release --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+🍹 Building a mixed python/rust project
+🔗 Found pyo3 bindings with abi3 support
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+Ignoring numpy: markers 'extra == "all"' don't match your environment
+Ignoring scipy: markers 'extra == "all"' don't match your environment
+Ignoring numpy: markers 'extra == "numpy"' don't match your environment
+Ignoring scipy: markers 'extra == "scipy"' don't match your environment
+Ignoring pytest: markers 'extra == "test"' don't match your environment
+Ignoring hypothesis: markers 'extra == "test"' don't match your environment
+Ignoring networkx: markers 'extra == "test"' don't match your environment
+Requirement already satisfied: networkx>=3.0 in ./.venv/lib/python3.13/site-packages (3.6.1)
+    Blocking waiting for file lock on build directory
+   Compiling pyo3-build-config v0.28.3
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling pyo3-ffi v0.28.3
+   Compiling pyo3 v0.28.3
+   Compiling pyo3-macros v0.28.3
+   Compiling pyo3-log v0.13.3
+   Compiling fnx-python v0.1.0 (/data/projects/franken_networkx/crates/fnx-python)
+error[E0599]: no method named `edge_ordinal` found for struct `MultiGraph` in the current scope
+   --> crates/fnx-python/src/lib.rs:693:43
+    |
+693 |         if let Some(ordinal) = self.inner.edge_ordinal(u, v, key)
+    |                                           ^^^^^^^^^^^^ method not found in `MultiGraph`
+
+error[E0599]: no method named `edge_ordinal` found for struct `MultiGraph` in the current scope
+   --> crates/fnx-python/src/lib.rs:731:43
+    |
+731 |         if let Some(ordinal) = self.inner.edge_ordinal(u, v, key) {
+    |                                           ^^^^^^^^^^^^ method not found in `MultiGraph`
+
+error[E0599]: no method named `edge_ordinal` found for struct `MultiGraph` in the current scope
+   --> crates/fnx-python/src/lib.rs:766:43
+    |
+766 |         if let Some(ordinal) = self.inner.edge_ordinal(u, v, key)
+    |                                           ^^^^^^^^^^^^ method not found in `MultiGraph`
+
+error[E0599]: no method named `add_fresh_edge_with_key_unrecorded_ordinal` found for struct `MultiGraph` in the current scope
+    --> crates/fnx-python/src/lib.rs:1818:54
+     |
+1818 |         let Some((actual_key, ordinal)) = self.inner.add_fresh_edge_with_key_unrecorded_ordinal(
+     |                                           -----------^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+help: there is a method `add_fresh_edge_with_key_unrecorded` with a similar name
+     |
+1818 -         let Some((actual_key, ordinal)) = self.inner.add_fresh_edge_with_key_unrecorded_ordinal(
+1818 +         let Some((actual_key, ordinal)) = self.inner.add_fresh_edge_with_key_unrecorded(
+     |
+
+error[E0599]: no method named `edge_ordinal` found for struct `MultiGraph` in the current scope
+    --> crates/fnx-python/src/lib.rs:1833:18
+     |
+1832 | /             self.inner
+1833 | |                 .edge_ordinal(&u_canonical, &v_canonical, actual_key),
+     | |                 -^^^^^^^^^^^^ method not found in `MultiGraph`
+     | |_________________|
+     |
+
+For more information about this error, try `rustc --explain E0599`.
+error: could not compile `fnx-python` (lib) due to 5 previous errors
+💥 maturin failed
+  Caused by: Failed to build a native library through cargo
+  Caused by: Cargo build finished with "exit status: 101": `env -u CARGO PYO3_BUILD_EXTENSION_MODULE="1" PYO3_ENVIRONMENT_SIGNATURE="cpython-3.13-64bit" PYO3_PYTHON="/data/projects/franken_networkx/.venv/bin/python" PYTHON_SYS_EXECUTABLE="/data/projects/franken_networkx/.venv/bin/python" "cargo" "rustc" "--profile" "release" "--features" "pyo3/abi3-py310" "--message-format" "json-render-diagnostics" "--manifest-path" "/data/projects/franken_networkx/crates/fnx-python/Cargo.toml" "--lib" "--crate-type" "cdylib"`

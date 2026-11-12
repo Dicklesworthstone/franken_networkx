@@ -1,0 +1,38 @@
+{
+  "bead": "br-r37-c1-ry1zl",
+  "case": "fnx.normalized_laplacian_spectrum(fnx.empty_graph(799))",
+  "dtype": "float64",
+  "first_sorted_values_q9": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "fnx_mean_seconds": 0.7393987543376473,
+  "fnx_median_seconds": 0.7799348229891621,
+  "fnx_seconds": [
+    1.1161368929897435,
+    0.32212454703403637,
+    0.7799348229891621
+  ],
+  "fnx_sorted_sha256_q9_canonical": "243ec6ae37a430bfc5880a78f3bca1a7f8a85d05602286df3094554a6cb323e7",
+  "last_sorted_values_q9": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "max_sorted_abs_delta": 0.0,
+  "nx_sorted_sha256_q9_canonical": "243ec6ae37a430bfc5880a78f3bca1a7f8a85d05602286df3094554a6cb323e7",
+  "raw_sha_matches": true,
+  "samples": 3,
+  "sorted_values_match": true
+}

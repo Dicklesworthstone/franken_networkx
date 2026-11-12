@@ -1,0 +1,20 @@
+{
+  "bead": "br-r37-c1-natdiffsimple-di",
+  "function": "difference (simple directed DiGraph)",
+  "lever": "native PyDiGraph::_native_difference in G integer index space (HashSet<(usize,usize)> directed pairs, successors_indices, node_key_map copy); wrapper gate type(G) is DiGraph",
+  "parity": {
+    "cases": 49,
+    "native_hits": 49,
+    "mismatches": 0,
+    "golden_sha256": "37dcb9dfd084bedfde5749928eaf9ca617193b99659c2bd0012e0996b137dcb0"
+  },
+  "pytest": "300 passed (difference/operator/binary), 0 regressions",
+  "bench_warm_min_of_11_ms": {
+    "gnp800_minus_gnp":   {"nx": 9.954, "fnx_before": 13.95, "fnx_after": 4.435, "after_ratio": 0.45, "self_speedup": 3.14},
+    "gnp800_self_empty":  {"nx": 2.037, "fnx_after": 1.388, "after_ratio": 0.68},
+    "gnp2000_minus_gnp":  {"nx": 31.748, "fnx_after": 14.948, "after_ratio": 0.47},
+    "gnp2000_self_empty": {"nx": 6.307, "fnx_after": 5.118, "after_ratio": 0.81}
+  },
+  "headline": "directed difference 1.36x slower than nx -> 2.2x faster, byte-exact (3.14x self-speedup); faster across ALL cases (no degenerate slowdown)",
+  "scope": "simple DiGraph; symmetric_difference + intersection remain (same lever)"
+}

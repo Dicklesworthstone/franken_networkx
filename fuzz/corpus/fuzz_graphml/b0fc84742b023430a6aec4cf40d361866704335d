@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.or"/>
+   <node id="b"/>
+    <edeg source="a" target="b">
+graph id="G" edgedb"/>
+    <edeg source="a" target="b">
+      <data key="d0">1.5</data>
+    </edd0">1.5</data>
+    </edge>
+  </graph>
+</graphml>

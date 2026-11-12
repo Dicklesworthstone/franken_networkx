@@ -1,0 +1,3 @@
+GEN_GOLDEN (fnx == networkx, 8 generators, node-order + edges + node/edge data; pre==post change)
+97611327d3562505f27b521936c8d35383d17bdec4f135d8671dce01d5647b52
+Also verified: list(G.edges()) order parity, list(G.nodes()) order parity, edge+node attr mutation persistence.

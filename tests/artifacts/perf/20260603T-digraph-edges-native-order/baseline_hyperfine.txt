@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-digraph-edges-native-order/bench_digraph_edges.py --mode bench --nodes 1800 --edges 9000 --seed 23 --samples 1 --iters 20 --warmup 1
+  Time (mean ± σ):     651.1 ms ±   3.3 ms    [User: 4241.3 ms, System: 71.1 ms]
+  Range (min … max):   648.1 ms … 654.6 ms    3 runs
+ 

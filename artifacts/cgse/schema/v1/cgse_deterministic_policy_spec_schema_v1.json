@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "cgse-deterministic-policy-spec-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "source_ledger",
+    "policy_scope",
+    "policy_rows",
+    "conflict_scan",
+    "hardened_allowlisted_categories",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_policy_row_keys": [
+    "policy_id",
+    "rule_id",
+    "operation_family",
+    "tie_break_contract",
+    "ordering_contract",
+    "strict_mode_behavior",
+    "hardened_mode_behavior",
+    "strict_invariant",
+    "hardened_invariant",
+    "preconditions",
+    "postconditions",
+    "preservation_obligation",
+    "hardened_allowlist",
+    "fail_closed_default",
+    "hardened_security_rationale",
+    "verification_hooks"
+  ],
+  "required_verification_channels": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ],
+  "required_conflict_scan_keys": [
+    "status",
+    "duplicate_policy_ids",
+    "duplicate_rule_ids"
+  ],
+  "required_profile_artifact_keys": [
+    "baseline",
+    "hotspot",
+    "delta"
+  ],
+  "required_operation_families": [
+    "graph_core_mutation",
+    "view_semantics",
+    "dispatch_routing",
+    "conversion_contracts",
+    "shortest_path_algorithms",
+    "readwrite_serialization",
+    "generator_semantics",
+    "runtime_config",
+    "oracle_test_surface"
+  ],
+  "builtin_hardened_allowlist_categories": [
+    "bounded_diagnostic_enrichment",
+    "deterministic_tie_break_normalization",
+    "bounded_resource_clamp"
+  ]
+}

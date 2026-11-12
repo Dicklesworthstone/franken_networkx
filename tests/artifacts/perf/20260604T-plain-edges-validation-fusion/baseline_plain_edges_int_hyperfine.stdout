@@ -1,0 +1,11 @@
+Benchmark 1: PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl fnx --repeats 1
+  Time (mean ± σ):     393.8 ms ±  13.4 ms    [User: 4177.4 ms, System: 71.6 ms]
+  Range (min … max):   376.8 ms … 409.8 ms    5 runs
+ 
+Benchmark 2: PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl nx --repeats 1
+  Time (mean ± σ):     348.5 ms ±  31.0 ms    [User: 4340.4 ms, System: 66.5 ms]
+  Range (min … max):   316.0 ms … 399.8 ms    5 runs
+ 
+Summary
+  PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl nx --repeats 1 ran
+    1.13 ± 0.11 times faster than PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case plain_edges_int --impl fnx --repeats 1

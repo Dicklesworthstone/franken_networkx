@@ -1,0 +1,1 @@
+{"directed":false,"multigraph":false,"gr_haapttrs":{"case":"implicit_nodes"},"nodes":["declared"],"edges":[{"left":"declared","right":"implicit","attrs":{"sor_haapttrs":{"right":"declared","attrs":{}}]}

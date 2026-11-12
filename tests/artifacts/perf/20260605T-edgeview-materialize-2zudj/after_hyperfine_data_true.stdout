@@ -1,0 +1,11 @@
+Benchmark 1: python3 tests/artifacts/perf/20260605T-edgeview-materialize-2zudj/bench.py --module fnx --data true 4000 16000 30
+  Time (mean ± σ):      2.272 s ±  0.225 s    [User: 6.185 s, System: 0.080 s]
+  Range (min … max):    1.903 s …  2.636 s    20 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260605T-edgeview-materialize-2zudj/bench.py --module nx --data true 4000 16000 30
+  Time (mean ± σ):      1.220 s ±  0.034 s    [User: 5.299 s, System: 0.062 s]
+  Range (min … max):    1.177 s …  1.320 s    20 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260605T-edgeview-materialize-2zudj/bench.py --module nx --data true 4000 16000 30 ran
+    1.86 ± 0.19 times faster than python3 tests/artifacts/perf/20260605T-edgeview-materialize-2zudj/bench.py --module fnx --data true 4000 16000 30

@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-maximal-independent-set-indexed/bench_maximal_independent_set.py --impl fnx --nodes 3000 --m 4 --graph-seed 42 --mis-seed 1 --repeats 3
+  Time (mean ± σ):     347.2 ms ±  19.0 ms    [User: 4537.0 ms, System: 71.4 ms]
+  Range (min … max):   326.5 ms … 377.3 ms    7 runs
+ 

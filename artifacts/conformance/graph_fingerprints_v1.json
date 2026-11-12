@@ -1,0 +1,742 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_utc": "2026-04-13T23:28:42.675030+00:00",
+  "fixtures_path": "demo",
+  "fingerprint_count": 16,
+  "cluster_count": 15,
+  "clustering_threshold": 2.0,
+  "fingerprints": [
+    {
+      "node_count": 10,
+      "edge_count": 9,
+      "density": 0.2,
+      "degree_moments": {
+        "mean": 1.8,
+        "variance": 0.16,
+        "skewness": -1.5,
+        "kurtosis": 0.25,
+        "max": 2
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 10,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 0,
+        "min_cycle_length": 0,
+        "max_cycle_length": 0,
+        "mean_cycle_length": 0.0,
+        "betti_1": 0
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          0.060307,
+          0.233956,
+          0.5,
+          0.826352
+        ],
+        "algebraic_connectivity": 0.060307,
+        "spectral_radius": 0.826352
+      },
+      "fixture_path": "demo/path_10",
+      "fingerprint_hash": "df9bd92c40486032"
+    },
+    {
+      "node_count": 50,
+      "edge_count": 49,
+      "density": 0.04,
+      "degree_moments": {
+        "mean": 1.96,
+        "variance": 0.0384,
+        "skewness": -4.694855,
+        "kurtosis": 20.041667,
+        "max": 2
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 50,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 0,
+        "min_cycle_length": 0,
+        "max_cycle_length": 0,
+        "mean_cycle_length": 0.0,
+        "betti_1": 0
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.002055,
+          0.00821,
+          0.018441,
+          0.032705
+        ],
+        "algebraic_connectivity": 0.002055,
+        "spectral_radius": 0.032705
+      },
+      "fixture_path": "demo/path_50",
+      "fingerprint_hash": "cd9a9dcc81b1d2fc"
+    },
+    {
+      "node_count": 10,
+      "edge_count": 10,
+      "density": 0.222222,
+      "degree_moments": {
+        "mean": 2.0,
+        "variance": 0.0,
+        "skewness": 0.0,
+        "kurtosis": -3.0,
+        "max": 2
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 10,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 1,
+        "min_cycle_length": 10,
+        "max_cycle_length": 10,
+        "mean_cycle_length": 10.0,
+        "betti_1": 1
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          0.190983,
+          0.190983,
+          0.690983,
+          0.690983
+        ],
+        "algebraic_connectivity": 0.190983,
+        "spectral_radius": 0.690983
+      },
+      "fixture_path": "demo/cycle_10",
+      "fingerprint_hash": "6dd1dec9c37b542b"
+    },
+    {
+      "node_count": 50,
+      "edge_count": 50,
+      "density": 0.040816,
+      "degree_moments": {
+        "mean": 2.0,
+        "variance": 0.0,
+        "skewness": 0.0,
+        "kurtosis": -3.0,
+        "max": 2
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 50,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 1,
+        "min_cycle_length": 50,
+        "max_cycle_length": 50,
+        "mean_cycle_length": 50.0,
+        "betti_1": 1
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.007885,
+          0.007885,
+          0.031417,
+          0.031417
+        ],
+        "algebraic_connectivity": 0.007885,
+        "spectral_radius": 0.031417
+      },
+      "fixture_path": "demo/cycle_50",
+      "fingerprint_hash": "31d21351e09c3f17"
+    },
+    {
+      "node_count": 5,
+      "edge_count": 10,
+      "density": 1.0,
+      "degree_moments": {
+        "mean": 4.0,
+        "variance": 0.0,
+        "skewness": 0.0,
+        "kurtosis": -3.0,
+        "max": 4
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 5,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 6,
+        "min_cycle_length": 3,
+        "max_cycle_length": 3,
+        "mean_cycle_length": 3.0,
+        "betti_1": 6
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          1.25,
+          1.25,
+          1.25,
+          1.25
+        ],
+        "algebraic_connectivity": 1.25,
+        "spectral_radius": 1.25
+      },
+      "fixture_path": "demo/complete_5",
+      "fingerprint_hash": "ac7bc231a6eb3c6d"
+    },
+    {
+      "node_count": 10,
+      "edge_count": 45,
+      "density": 1.0,
+      "degree_moments": {
+        "mean": 9.0,
+        "variance": 0.0,
+        "skewness": 0.0,
+        "kurtosis": -3.0,
+        "max": 9
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 10,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 36,
+        "min_cycle_length": 3,
+        "max_cycle_length": 3,
+        "mean_cycle_length": 3.0,
+        "betti_1": 36
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          1.111111,
+          1.111111,
+          1.111111,
+          1.111111
+        ],
+        "algebraic_connectivity": 1.111111,
+        "spectral_radius": 1.111111
+      },
+      "fixture_path": "demo/complete_10",
+      "fingerprint_hash": "61fc9a169df8c112"
+    },
+    {
+      "node_count": 11,
+      "edge_count": 10,
+      "density": 0.181818,
+      "degree_moments": {
+        "mean": 1.818182,
+        "variance": 6.694215,
+        "skewness": 2.84605,
+        "kurtosis": 6.1,
+        "max": 10
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 11,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 0,
+        "min_cycle_length": 0,
+        "max_cycle_length": 0,
+        "mean_cycle_length": 0.0,
+        "betti_1": 0
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "algebraic_connectivity": 1.0,
+        "spectral_radius": 1.0
+      },
+      "fixture_path": "demo/star_10",
+      "fingerprint_hash": "930b447cffc1b6d7"
+    },
+    {
+      "node_count": 51,
+      "edge_count": 50,
+      "density": 0.039216,
+      "degree_moments": {
+        "mean": 1.960784,
+        "variance": 46.155325,
+        "skewness": 6.929646,
+        "kurtosis": 46.02,
+        "max": 50
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 51,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 0,
+        "min_cycle_length": 0,
+        "max_cycle_length": 0,
+        "mean_cycle_length": 0.0,
+        "betti_1": 0
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0
+        ],
+        "algebraic_connectivity": 1.0,
+        "spectral_radius": 1.0
+      },
+      "fixture_path": "demo/star_50",
+      "fingerprint_hash": "00395b9e7cb455c5"
+    },
+    {
+      "node_count": 16,
+      "edge_count": 24,
+      "density": 0.2,
+      "degree_moments": {
+        "mean": 3.0,
+        "variance": 0.5,
+        "skewness": 0.0,
+        "kurtosis": -1.0,
+        "max": 4
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 16,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 9,
+        "min_cycle_length": 4,
+        "max_cycle_length": 10,
+        "mean_cycle_length": 5.11,
+        "betti_1": 9
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.218264,
+          0.218264,
+          0.5,
+          0.666667
+        ],
+        "algebraic_connectivity": 0.218264,
+        "spectral_radius": 0.666667
+      },
+      "fixture_path": "demo/grid_4x4",
+      "fingerprint_hash": "29b57f49a7a1b875"
+    },
+    {
+      "node_count": 64,
+      "edge_count": 112,
+      "density": 0.055556,
+      "degree_moments": {
+        "mean": 3.5,
+        "variance": 0.375,
+        "skewness": -0.816497,
+        "kurtosis": -0.333333,
+        "max": 4
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 64,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 49,
+        "min_cycle_length": 4,
+        "max_cycle_length": 18,
+        "mean_cycle_length": 7.31,
+        "betti_1": 49
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.046309,
+          0.046309,
+          0.099031,
+          0.175093
+        ],
+        "algebraic_connectivity": 0.046309,
+        "spectral_radius": 0.175093
+      },
+      "fixture_path": "demo/grid_8x8",
+      "fingerprint_hash": "08c379f0ff0965f2"
+    },
+    {
+      "node_count": 10,
+      "edge_count": 15,
+      "density": 0.333333,
+      "degree_moments": {
+        "mean": 3.0,
+        "variance": 0.0,
+        "skewness": 0.0,
+        "kurtosis": -3.0,
+        "max": 3
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 10,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 6,
+        "min_cycle_length": 5,
+        "max_cycle_length": 6,
+        "mean_cycle_length": 5.33,
+        "betti_1": 6
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          0.666667,
+          0.666667,
+          0.666667,
+          0.666667
+        ],
+        "algebraic_connectivity": 0.666667,
+        "spectral_radius": 0.666667
+      },
+      "fixture_path": "demo/petersen",
+      "fingerprint_hash": "fcf6253476fd1cb4"
+    },
+    {
+      "node_count": 34,
+      "edge_count": 78,
+      "density": 0.139037,
+      "degree_moments": {
+        "mean": 4.588235,
+        "variance": 14.595156,
+        "skewness": 2.000936,
+        "kurtosis": 3.303249,
+        "max": 17
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 34,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 45,
+        "min_cycle_length": 3,
+        "max_cycle_length": 5,
+        "mean_cycle_length": 3.27,
+        "betti_1": 45
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.110074,
+          0.247349,
+          0.421459,
+          0.570465
+        ],
+        "algebraic_connectivity": 0.110074,
+        "spectral_radius": 0.570465
+      },
+      "fixture_path": "demo/karate",
+      "fingerprint_hash": "d329957d3693f223"
+    },
+    {
+      "node_count": 50,
+      "edge_count": 120,
+      "density": 0.097959,
+      "degree_moments": {
+        "mean": 4.8,
+        "variance": 3.2,
+        "skewness": 0.511501,
+        "kurtosis": 0.141875,
+        "max": 10
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 50,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 71,
+        "min_cycle_length": 3,
+        "max_cycle_length": 16,
+        "mean_cycle_length": 5.94,
+        "betti_1": 71
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.286911,
+          0.327405,
+          0.338689,
+          0.370092
+        ],
+        "algebraic_connectivity": 0.286911,
+        "spectral_radius": 0.370092
+      },
+      "fixture_path": "demo/erdos_renyi_50_01",
+      "fingerprint_hash": "3ac8cee035c70fbc"
+    },
+    {
+      "node_count": 50,
+      "edge_count": 232,
+      "density": 0.189388,
+      "degree_moments": {
+        "mean": 9.28,
+        "variance": 6.8016,
+        "skewness": -0.023412,
+        "kurtosis": -0.627857,
+        "max": 15
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 50,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 183,
+        "min_cycle_length": 3,
+        "max_cycle_length": 11,
+        "mean_cycle_length": 4.95,
+        "betti_1": 183
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          0.497221,
+          0.524733,
+          0.532153,
+          0.574872
+        ],
+        "algebraic_connectivity": 0.497221,
+        "spectral_radius": 0.574872
+      },
+      "fixture_path": "demo/erdos_renyi_50_02",
+      "fingerprint_hash": "d394f5f302a21d71"
+    },
+    {
+      "node_count": 50,
+      "edge_count": 96,
+      "density": 0.078367,
+      "degree_moments": {
+        "mean": 3.84,
+        "variance": 15.3744,
+        "skewness": 3.493898,
+        "kurtosis": 13.031316,
+        "max": 24
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 50,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 47,
+        "min_cycle_length": 3,
+        "max_cycle_length": 10,
+        "mean_cycle_length": 4.53,
+        "betti_1": 47
+      },
+      "spectral": {
+        "eigenvalues": [
+          0.0,
+          0.242172,
+          0.24754,
+          0.310633,
+          0.354386
+        ],
+        "algebraic_connectivity": 0.242172,
+        "spectral_radius": 0.354386
+      },
+      "fixture_path": "demo/barabasi_albert_50_2",
+      "fingerprint_hash": "ed3e8c904d71d90b"
+    },
+    {
+      "node_count": 50,
+      "edge_count": 100,
+      "density": 0.081633,
+      "degree_moments": {
+        "mean": 4.0,
+        "variance": 0.8,
+        "skewness": 0.33541,
+        "kurtosis": -1.0,
+        "max": 6
+      },
+      "h0": {
+        "component_count": 1,
+        "largest_component_size": 50,
+        "second_largest_size": 0,
+        "singleton_count": 0,
+        "size_gini": 0.0
+      },
+      "h1": {
+        "cycle_count": 51,
+        "min_cycle_length": 3,
+        "max_cycle_length": 15,
+        "mean_cycle_length": 6.82,
+        "betti_1": 51
+      },
+      "spectral": {
+        "eigenvalues": [
+          -0.0,
+          0.162089,
+          0.166903,
+          0.19904,
+          0.253447
+        ],
+        "algebraic_connectivity": 0.162089,
+        "spectral_radius": 0.253447
+      },
+      "fixture_path": "demo/watts_strogatz_50",
+      "fingerprint_hash": "2731156ec0f012cf"
+    }
+  ],
+  "clusters": [
+    {
+      "cluster_id": 0,
+      "size": 1,
+      "members": [
+        "demo/path_10"
+      ]
+    },
+    {
+      "cluster_id": 1,
+      "size": 1,
+      "members": [
+        "demo/path_50"
+      ]
+    },
+    {
+      "cluster_id": 2,
+      "size": 1,
+      "members": [
+        "demo/cycle_10"
+      ]
+    },
+    {
+      "cluster_id": 3,
+      "size": 1,
+      "members": [
+        "demo/cycle_50"
+      ]
+    },
+    {
+      "cluster_id": 4,
+      "size": 1,
+      "members": [
+        "demo/complete_5"
+      ]
+    },
+    {
+      "cluster_id": 5,
+      "size": 1,
+      "members": [
+        "demo/complete_10"
+      ]
+    },
+    {
+      "cluster_id": 6,
+      "size": 1,
+      "members": [
+        "demo/star_10"
+      ]
+    },
+    {
+      "cluster_id": 7,
+      "size": 1,
+      "members": [
+        "demo/star_50"
+      ]
+    },
+    {
+      "cluster_id": 8,
+      "size": 1,
+      "members": [
+        "demo/grid_4x4"
+      ]
+    },
+    {
+      "cluster_id": 9,
+      "size": 1,
+      "members": [
+        "demo/grid_8x8"
+      ]
+    },
+    {
+      "cluster_id": 10,
+      "size": 1,
+      "members": [
+        "demo/petersen"
+      ]
+    },
+    {
+      "cluster_id": 11,
+      "size": 2,
+      "members": [
+        "demo/karate",
+        "demo/barabasi_albert_50_2"
+      ]
+    },
+    {
+      "cluster_id": 12,
+      "size": 1,
+      "members": [
+        "demo/erdos_renyi_50_01"
+      ]
+    },
+    {
+      "cluster_id": 13,
+      "size": 1,
+      "members": [
+        "demo/erdos_renyi_50_02"
+      ]
+    },
+    {
+      "cluster_id": 14,
+      "size": 1,
+      "members": [
+        "demo/watts_strogatz_50"
+      ]
+    }
+  ]
+}

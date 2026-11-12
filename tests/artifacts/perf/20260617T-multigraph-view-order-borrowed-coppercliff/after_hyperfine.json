@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-post-graph-attr-routing-boldfalcon/construction_attr_survey.py once --case multigraph_attr --impl fnx --loops 50",
+      "mean": 2.71550976848,
+      "stddev": 0.059748034053567246,
+      "median": 2.71933149808,
+      "user": 6.50965698,
+      "system": 0.5531151,
+      "min": 2.65782667108,
+      "max": 2.79971983508,
+      "times": [
+        2.79971983508,
+        2.65919232808,
+        2.71933149808,
+        2.65782667108,
+        2.74147851008
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-post-graph-attr-routing-boldfalcon/construction_attr_survey.py once --case multigraph_attr --impl nx --loops 50",
+      "mean": 2.4141294688799997,
+      "stddev": 0.12788663995634816,
+      "median": 2.43094773908,
+      "user": 6.45654878,
+      "system": 0.1576837,
+      "min": 2.21238710608,
+      "max": 2.5338725370799997,
+      "times": [
+        2.5338725370799997,
+        2.50986445908,
+        2.43094773908,
+        2.38357550308,
+        2.21238710608
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

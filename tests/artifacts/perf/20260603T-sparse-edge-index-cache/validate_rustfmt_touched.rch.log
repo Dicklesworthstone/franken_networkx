@@ -1,0 +1,147 @@
+  [2m2026-06-03T16:21:56.607101Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: rustfmt --check crates/fnx-classes/src/lib.rs crates/fnx-python/src/algorithms.rs[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+error: let chains are only allowed in Rust 2024 or later
+   --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:763:20
+    |
+763 |                 && let Some(right_neighbors) = self.adjacency.get_mut(right)
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+   --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:794:24
+    |
+794 |                     && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1341:12
+     |
+1341 |         if let Some(bucket) = self.edges.get_mut(&edge_key)
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1342:16
+     |
+1342 |             && let Some(slot) = bucket.get_mut(&key)
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1412:24
+     |
+1412 |                     && let Some(remote_neighbors) = self.adjacency.get_mut(&neighbor)
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1505:12
+     |
+1505 |         if let Some(neighbors) = self.adjacency.get_mut(source)
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1506:16
+     |
+1506 |             && let Some(keys) = neighbors.get_mut(target)
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-classes/src/lib.rs:1511:29
+     |
+1511 |         if drop_neighbor && let Some(neighbors) = self.adjacency.get_mut(source) {
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+   --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:281:20
+    |
+281 |                 if let Some(keys) = mdg.inner.edge_keys(left, right)
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+   --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:282:24
+    |
+282 |                     && let Some(key) = keys.first()
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+   --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:289:20
+    |
+289 |                 if let Some(keys) = mdg.inner.edge_keys(right, left)
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+   --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:290:24
+    |
+290 |                     && let Some(key) = keys.first()
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:4529:12
+     |
+4529 |         if let Some(neighbors) = inner.neighbors(node)
+     |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:5758:8
+     |
+5758 |     if let Some(candidate) = &node_key
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:6211:16
+     |
+6211 |             && let Some(neighbors) = graph.neighbors(start)
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:6229:20
+     |
+6229 |                 && let Some(neighbors) = graph.neighbors(node)
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:6262:16
+     |
+6262 |             && let Some(succs) = digraph.successors(start)
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:6280:20
+     |
+6280 |                 && let Some(succs) = digraph.successors(node)
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:6319:20
+     |
+6319 |                 && let Some(neighbors) = graph.neighbors(node)
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:6358:20
+     |
+6358 |                 && let Some(succs) = digraph.successors(node)
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:7634:16
+     |
+7634 |             if let Some(c) = cutoff
+     |                ^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:8725:16
+     |
+8725 |             if let Ok(s) = node_key_to_string(py, ns)
+     |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:9746:20
+     |
+9746 |                 if let Some(prev_v) = mapping[prev_u]
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: let chains are only allowed in Rust 2024 or later
+    --> /data/projects/franken_networkx/crates/fnx-python/src/algorithms.rs:9893:20
+     |
+9893 |                 if let Some(prev_v) = mapping[prev_u]
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

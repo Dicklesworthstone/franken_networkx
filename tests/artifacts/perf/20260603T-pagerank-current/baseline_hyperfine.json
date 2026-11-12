@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python -c 'import sys, runpy, franken_networkx as fnx; fnx._native_adjacency_index_arrays=None; sys.argv=[\"bench\", \"--impl\", \"fnx\", \"--mode\", \"new\", \"--n\", \"1000\", \"--p\", \"0.05\", \"--seed\", \"42\", \"--repeats\", \"24\"]; runpy.run_path(\"tests/artifacts/perf/20260602T-public-algo-residual-sweep/bench_pagerank_absent_weight.py\", run_name=\"__main__\")' >/dev/null",
+      "mean": 2.3809479245399996,
+      "stddev": 0.02121098820304199,
+      "median": 2.37873181054,
+      "user": 6.45111862,
+      "system": 0.12038070285714286,
+      "min": 2.35709998054,
+      "max": 2.40854735054,
+      "times": [
+        2.38717676454,
+        2.40785405054,
+        2.36401158054,
+        2.40854735054,
+        2.37873181054,
+        2.36321393454,
+        2.35709998054
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+<?xml versi" encoding="UTF-`"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="undiretced">
+    <nodes>
+      <no<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+   <nodeCCCs>
+      <node id="a" label="A"/
+>      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" sourcelabel="B"/>
+      oed<n id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" target="b" wetg=hi"1.5"/>
+    </edg!!!!!!!!!!!!!!!!!!es>
+  </graph>
+</gexf>

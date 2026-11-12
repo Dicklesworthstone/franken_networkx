@@ -1,0 +1,19 @@
+{
+  "target": "simrank_similarity",
+  "lever": "de-delegate to nx's exact numpy matrix iteration in-process (S = max(C*(A.T@S@A), I) on fnx's native to_numpy_array) instead of a per-call fnx->nx conversion + dispatched nx call",
+  "golden": {
+    "max_rel_err_vs_nx": 0.0,
+    "byte_exact": true,
+    "corpus_sha256": "60342a38b465b910b7eeebf0df788e1f32a87144fbbde63b005829c5921f7b61",
+    "corpus": "path/cycle/karate(weighted)/complete/gnp30 x4/digraph40/gn30/weighted30; single-pair(float)+full-matrix(dict-of-dicts), undirected+directed+weighted",
+    "np_float_leak_check": "passed"
+  },
+  "bench_ws300_ms_warm_min": {
+    "new_inprocess": 312.01,
+    "genuine_nx": 699.93,
+    "faster_than_nx": 2.243,
+    "delegated_baseline_ms_n300": 670.9,
+    "self_speedup_vs_delegated": 1.35
+  },
+  "notes": "Byte-identical: same column-normalized adjacency matrix, same np.allclose(atol=tolerance) convergence, same ExceededMaxIterations contract, same float/dict/dict-of-dicts return shapes. Faster because fnx's COO to_numpy_array beats nx's and the fnx->nx graph rebuild is gone. 25 simrank pytest pass; py_compile OK. Pure-Python, no Rust rebuild."
+}

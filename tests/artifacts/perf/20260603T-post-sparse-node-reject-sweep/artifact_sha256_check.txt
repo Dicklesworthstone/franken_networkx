@@ -1,0 +1,7 @@
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/adjacency_weighted.rch.log: OK
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/profile_adjacency_weighted_fnx.jsonl: OK
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/profile_adjacency_weighted_fnx.rch.log: OK
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/profile_adjacency_weighted_fnx.txt: OK
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/sparse_sweep.jsonl: OK
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/to_scipy_default.rch.log: OK
+tests/artifacts/perf/20260603T-post-sparse-node-reject-sweep/to_scipy_weighted.rch.log: OK

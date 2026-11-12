@@ -1,0 +1,7 @@
+== timing (interleaved min-of-15; n=500, p=0.02) ==
+to_numpy MultiGraph   : 0.996x  fnx 2.44ms  nx 2.43ms
+to_scipy MultiGraph   : 0.863x  fnx 2.53ms  nx 2.18ms
+to_numpy MultiDiGraph : 0.686x  fnx 7.51ms  nx 5.15ms
+to_scipy MultiDiGraph : 0.580x  fnx 5.92ms  nx 3.44ms
+== parity: 160 configs x2 exporters, 0 fails ==
+golden sha256: bff9639b02900c23d43c585672cddf6a3e39676fa40c631efccec93bfeb44307

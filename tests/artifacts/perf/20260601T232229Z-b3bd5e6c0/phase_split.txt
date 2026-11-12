@@ -1,0 +1,2 @@
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":946.230,"accum_phase_ms":29.032,"alloc_phase_ms":19.396}
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":957.298,"accum_phase_ms":29.308,"alloc_phase_ms":21.796}

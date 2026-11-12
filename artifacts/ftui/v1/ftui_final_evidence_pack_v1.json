@@ -1,0 +1,190 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "ftui-final-evidence-pack-v1",
+  "generated_at_utc": "2026-02-15T22:30:00+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12 + frankentui@main",
+  "evidence_inventory": {
+    "contract_artifacts": [
+      "artifacts/ftui/v1/ftui_workflow_event_contract_v1.json",
+      "artifacts/ftui/schema/v1/ftui_workflow_event_contract_schema_v1.json",
+      "artifacts/ftui/v1/ftui_telemetry_adapter_v1.json",
+      "artifacts/ftui/schema/v1/ftui_telemetry_adapter_schema_v1.json",
+      "artifacts/ftui/v1/ftui_e2e_journey_script_pack_v1.json",
+      "artifacts/ftui/schema/v1/ftui_e2e_journey_script_pack_schema_v1.json"
+    ],
+    "implementation_artifacts": [
+      "crates/fnx-runtime/src/lib.rs",
+      "crates/fnx-runtime/Cargo.toml"
+    ],
+    "test_artifacts": {
+      "unit": [
+        {
+          "entry_id": "ftui_adapter_rejects_unknown_telemetry_fields",
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime ftui_adapter_rejects_unknown_telemetry_fields -- --nocapture"
+        },
+        {
+          "entry_id": "ftui_adapter_produces_deterministic_artifact_index_ordering",
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime ftui_adapter_produces_deterministic_artifact_index_ordering -- --nocapture"
+        }
+      ],
+      "property": [
+        {
+          "entry_id": "ftui_adapter_property_replay_mapping_is_deterministic_for_permuted_inputs",
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime ftui_adapter_property_replay_mapping_is_deterministic_for_permuted_inputs -- --nocapture"
+        }
+      ],
+      "snapshot": [
+        {
+          "entry_id": "ftui_adapter_snapshot_artifact_index_entry_is_stable",
+          "evidence_path": "crates/fnx-runtime/src/lib.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-runtime ftui_adapter_snapshot_artifact_index_entry_is_stable -- --nocapture"
+        }
+      ],
+      "e2e": [
+        {
+          "entry_id": "FTUI-JOURNEY-GOLDEN-001",
+          "evidence_path": "artifacts/ftui/latest/ftui_e2e_journey_golden_transcript_v1.jsonl",
+          "replay_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id FTUI-JOURNEY-GOLDEN-001 --non-interactive"
+        },
+        {
+          "entry_id": "FTUI-JOURNEY-FAIL-001",
+          "evidence_path": "artifacts/ftui/latest/ftui_e2e_journey_failure_transcript_v1.jsonl",
+          "replay_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id FTUI-JOURNEY-FAIL-001 --non-interactive"
+        }
+      ],
+      "conformance_gates": [
+        {
+          "entry_id": "FTUI-A-DIFF-001",
+          "evidence_path": "crates/fnx-conformance/tests/ftui_workflow_event_contract_gate.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test ftui_workflow_event_contract_gate -- --nocapture"
+        },
+        {
+          "entry_id": "FTUI-B-DIFF-001",
+          "evidence_path": "crates/fnx-conformance/tests/ftui_telemetry_adapter_gate.rs",
+          "replay_command": "rch exec -- cargo test -p fnx-conformance --test ftui_telemetry_adapter_gate -- --nocapture"
+        }
+      ]
+    },
+    "artifact_bundle_paths": [
+      "artifacts/ftui/latest/ftui_e2e_journey_events_v1.jsonl",
+      "artifacts/ftui/latest/ftui_e2e_journey_golden_transcript_v1.jsonl",
+      "artifacts/ftui/latest/ftui_e2e_journey_failure_transcript_v1.jsonl",
+      "artifacts/ftui/latest/ftui_e2e_journey_report_v1.json"
+    ]
+  },
+  "perf_impact_notes": {
+    "baseline_artifact_paths": [
+      "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+      "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+      "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+    ],
+    "runtime_delta_summary": "FTUI-F adds evidence and signoff metadata only; no algorithmic transition semantics changed.",
+    "memory_delta_summary": "No persistent runtime state added in fnx-runtime; evidence pack is static JSON artifacts.",
+    "regression_policy": "Any replay divergence, missing traceability link, or failed checklist row blocks FTUI signoff."
+  },
+  "ux_risk_gap_note": "Residual UX gaps are concentrated in keyboard discoverability during failure triage and verbosity of forensic hints under high-pressure incidents. Mitigations are prioritized and linked to deterministic replay evidence.",
+  "residual_ux_risk_register": [
+    {
+      "risk_id": "FTUI-UX-RISK-001",
+      "title": "Failure-triage shortcut discoverability under stress",
+      "severity": "high",
+      "priority_rank": 1,
+      "affected_journey_ids": [
+        "FTUI-JOURNEY-FAIL-001"
+      ],
+      "symptom": "Operators may need extra keystrokes to discover rollback and replay shortcuts during integrity failures.",
+      "mitigation": "Pin explicit shortcut hints in failed_closed view and include one-key copy for minimal reproducer command.",
+      "verification_artifacts": [
+        "artifacts/ftui/latest/ftui_e2e_journey_failure_transcript_v1.jsonl",
+        "artifacts/ftui/latest/ftui_e2e_journey_report_v1.json"
+      ],
+      "status": "open"
+    },
+    {
+      "risk_id": "FTUI-UX-RISK-002",
+      "title": "Dense forensic messaging may delay diagnosis",
+      "severity": "medium",
+      "priority_rank": 2,
+      "affected_journey_ids": [
+        "FTUI-JOURNEY-GOLDEN-001",
+        "FTUI-JOURNEY-FAIL-001"
+      ],
+      "symptom": "Forensic payload details can crowd primary action guidance in narrow terminal layouts.",
+      "mitigation": "Keep concise summary line first, collapse verbose fields behind deterministic detail toggle.",
+      "verification_artifacts": [
+        "artifacts/ftui/latest/ftui_e2e_journey_events_v1.jsonl",
+        "artifacts/ftui/v1/ftui_workflow_event_contract_v1.json"
+      ],
+      "status": "watch"
+    },
+    {
+      "risk_id": "FTUI-UX-RISK-003",
+      "title": "Golden-flow confirmation fatigue over long sessions",
+      "severity": "low",
+      "priority_rank": 3,
+      "affected_journey_ids": [
+        "FTUI-JOURNEY-GOLDEN-001"
+      ],
+      "symptom": "Repeated confirmation prompts can increase cognitive load in extended deterministic runs.",
+      "mitigation": "Retain deterministic safeguards but tune copy to surface intent and expected next state more clearly.",
+      "verification_artifacts": [
+        "artifacts/ftui/latest/ftui_e2e_journey_golden_transcript_v1.jsonl",
+        "artifacts/ftui/v1/ftui_telemetry_adapter_v1.json"
+      ],
+      "status": "mitigated"
+    }
+  ],
+  "audit_checklist": [
+    {
+      "check_id": "FTUI-AUDIT-001",
+      "requirement": "deterministic_replay_proven",
+      "status": "pass",
+      "evidence_refs": [
+        "scripts/run_ftui_e2e_journey_pack.sh",
+        "artifacts/ftui/latest/ftui_e2e_journey_report_v1.json"
+      ]
+    },
+    {
+      "check_id": "FTUI-AUDIT-002",
+      "requirement": "traceability_chain_complete",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/ftui/v1/ftui_workflow_event_contract_v1.json",
+        "crates/fnx-conformance/tests/ftui_workflow_event_contract_gate.rs"
+      ]
+    },
+    {
+      "check_id": "FTUI-AUDIT-003",
+      "requirement": "signoff_inputs_complete",
+      "status": "pass",
+      "evidence_refs": [
+        "artifacts/ftui/v1/ftui_final_evidence_pack_v1.json",
+        "artifacts/ftui/schema/v1/ftui_final_evidence_pack_schema_v1.json"
+      ]
+    }
+  ],
+  "reviewer_validation_package": {
+    "signoff_ready": true,
+    "review_scope": [
+      "workflow/event deterministic contract",
+      "unit/property/snapshot/e2e artifact integrity",
+      "residual UX risk prioritization and mitigation traceability"
+    ],
+    "independent_replay_command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id all --non-interactive",
+    "independent_review_steps": [
+      "Run the independent replay command and confirm report status is pass.",
+      "Run fnx-conformance FTUI contract and telemetry gates and confirm pass.",
+      "Verify each checklist requirement has evidence refs that resolve to repository paths."
+    ],
+    "traceability_proof_refs": [
+      "artifacts/ftui/v1/ftui_workflow_event_contract_v1.json",
+      "artifacts/ftui/v1/ftui_telemetry_adapter_v1.json",
+      "artifacts/ftui/v1/ftui_e2e_journey_script_pack_v1.json",
+      "artifacts/ftui/v1/ftui_final_evidence_pack_v1.json",
+      "crates/fnx-conformance/tests/ftui_workflow_event_contract_gate.rs"
+    ]
+  }
+}

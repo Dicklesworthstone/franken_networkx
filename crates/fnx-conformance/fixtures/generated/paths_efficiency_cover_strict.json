@@ -1,0 +1,187 @@
+{
+  "suite": "paths_efficiency_cover_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a"
+    },
+    {
+      "op": "add_node",
+      "node": "b"
+    },
+    {
+      "op": "add_node",
+      "node": "c"
+    },
+    {
+      "op": "add_node",
+      "node": "d"
+    },
+    {
+      "op": "add_node",
+      "node": "e"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "weight": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {
+        "weight": "1"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {
+        "weight": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d",
+      "attrs": {
+        "weight": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d",
+      "attrs": {
+        "weight": "4"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "e",
+      "attrs": {
+        "weight": "6"
+      }
+    },
+    {
+      "op": "all_simple_paths_query",
+      "source": "a",
+      "target": "e"
+    },
+    {
+      "op": "global_efficiency_query"
+    },
+    {
+      "op": "local_efficiency_query"
+    },
+    {
+      "op": "min_edge_cover_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "weight": "5"
+          }
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {
+            "weight": "1"
+          }
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {
+            "weight": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {
+            "weight": "2"
+          }
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {
+            "weight": "4"
+          }
+        },
+        {
+          "left": "d",
+          "right": "e",
+          "attrs": {
+            "weight": "6"
+          }
+        }
+      ]
+    },
+    "all_simple_paths": [
+      [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ],
+      [
+        "a",
+        "b",
+        "d",
+        "e"
+      ],
+      [
+        "a",
+        "c",
+        "b",
+        "d",
+        "e"
+      ],
+      [
+        "a",
+        "c",
+        "d",
+        "e"
+      ]
+    ],
+    "global_efficiency": 0.7833333333,
+    "local_efficiency": 0.6,
+    "min_edge_cover": [
+      {
+        "left": "a",
+        "right": "b"
+      },
+      {
+        "left": "a",
+        "right": "c"
+      },
+      {
+        "left": "d",
+        "right": "e"
+      }
+    ]
+  }
+}

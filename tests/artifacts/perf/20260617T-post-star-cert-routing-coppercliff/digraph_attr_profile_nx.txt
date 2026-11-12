@@ -1,0 +1,31 @@
+         20518433 function calls (20518268 primitive calls) in 7.932 seconds
+
+   Ordered by: cumulative time
+   List reduced from 124 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    7.932    7.932 construction_attr_survey.py:148(once)
+      160    0.120    0.001    7.931    0.050 construction_attr_survey.py:101(_measure_case)
+      160    1.080    0.007    4.706    0.029 construction_attr_survey.py:29(_digest_graph)
+      160    0.047    0.000    2.858    0.018 construction_attr_survey.py:66(_digraph_attr)
+      160    1.586    0.010    2.088    0.013 digraph.py:748(add_edges_from)
+  1709440    1.168    0.000    1.866    0.000 {built-in method builtins.sorted}
+      160    0.377    0.002    0.716    0.004 construction_attr_survey.py:25(_attr_edges)
+  2560000    0.504    0.000    0.673    0.000 construction_attr_survey.py:46(<genexpr>)
+      160    0.001    0.000    0.637    0.004 __init__.py:183(dumps)
+      160    0.001    0.000    0.635    0.004 encoder.py:183(encode)
+      160    0.634    0.004    0.634    0.004 encoder.py:205(iterencode)
+  1280160    0.481    0.000    0.621    0.000 reportviews.py:799(<genexpr>)
+  4269280    0.476    0.000    0.476    0.000 {built-in method builtins.repr}
+      160    0.339    0.002    0.339    0.002 construction_attr_survey.py:21(_int_edges)
+  2560162    0.321    0.000    0.321    0.000 {method 'update' of 'dict' objects}
+      160    0.000    0.000    0.245    0.002 graph.py:1961(number_of_edges)
+      160    0.001    0.000    0.245    0.002 graph.py:1918(size)
+      160    0.026    0.000    0.242    0.002 {built-in method builtins.sum}
+   429440    0.049    0.000    0.216    0.000 graph.py:1954(<genexpr>)
+  2139040    0.199    0.000    0.199    0.000 {method 'items' of 'dict' objects}
+   429440    0.126    0.000    0.167    0.000 reportviews.py:452(__iter__)
+  1280644    0.112    0.000    0.112    0.000 {method 'get' of 'dict' objects}
+  2139360    0.110    0.000    0.110    0.000 {built-in method builtins.len}
+  1280000    0.101    0.000    0.101    0.000 reportviews.py:785(<lambda>)
+      160    0.025    0.000    0.025    0.000 {built-in method _hashlib.openssl_sha256}

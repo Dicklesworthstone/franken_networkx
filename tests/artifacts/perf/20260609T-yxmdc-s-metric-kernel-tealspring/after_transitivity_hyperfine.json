@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260609T-yxmdc-s-metric-kernel-tealspring/harness_yxmdc.py --mode run --target transitivity --calls 200",
+      "mean": 0.4197834487,
+      "stddev": 0.013236136142913916,
+      "median": 0.4230039527,
+      "user": 4.108201157142857,
+      "system": 0.05794692571428571,
+      "min": 0.4034272507,
+      "max": 0.4389460747,
+      "times": [
+        0.4230039527,
+        0.4389460747,
+        0.4271789647,
+        0.4292436667,
+        0.4081535387,
+        0.4034272507,
+        0.40853069270000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

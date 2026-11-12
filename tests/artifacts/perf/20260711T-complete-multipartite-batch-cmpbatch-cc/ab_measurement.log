@@ -1,0 +1,4 @@
+CMP_BATCH_AB n=1000 edges=250000 rounds=61 (>1 = batch faster)
+CMP_BATCH_AB BATCH_vs_string: median=13.2407x win_rate=61/61 p5_p95=[9.3737,27.2704]
+CMP_BATCH_AB NULL_batch_vs_batch: median=0.9926x win_rate=29/61 p5_p95=[0.7986,1.2191]
+parity: edges_ordered_borrowed + nodes_ordered IDENTICAL -> byte-identical

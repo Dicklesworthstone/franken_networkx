@@ -1,0 +1,66 @@
+         1224 function calls in 0.031 seconds
+
+   Ordered by: cumulative time
+   List reduced from 157 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    0.031    0.031 __init__.py:16441(pagerank)
+        1    0.000    0.000    0.020    0.020 __init__.py:16390(_pagerank_scipy)
+        1    0.012    0.012    0.012    0.012 {built-in method franken_networkx._fnx.adjacency_arrays}
+        1    0.000    0.000    0.010    0.010 __init__.py:16357(_pagerank_needs_networkx_weight_parity)
+        1    0.010    0.010    0.010    0.010 {built-in method franken_networkx._fnx.graph_has_nonfinite_edge_weight}
+        1    0.000    0.000    0.005    0.005 _coo.py:32(__init__)
+       26    0.003    0.000    0.003    0.000 {built-in method numpy.array}
+       28    0.002    0.000    0.002    0.000 {built-in method numpy.asarray}
+        3    0.000    0.000    0.002    0.001 _coo.py:62(<genexpr>)
+       15    0.000    0.000    0.001    0.000 _base.py:1525(_get_index_dtype)
+       15    0.000    0.000    0.001    0.000 _sputils.py:264(get_index_dtype)
+        9    0.000    0.000    0.001    0.000 _sputils.py:372(isshape)
+        2    0.000    0.000    0.001    0.001 _sputils.py:350(isintlike)
+        2    0.000    0.000    0.001    0.001 fromnumeric.py:3482(ndim)
+        1    0.000    0.000    0.001    0.001 _sputils.py:142(getdata)
+        5    0.000    0.000    0.001    0.000 _base.py:788(_matmul_dispatch)
+        1    0.000    0.000    0.001    0.001 _base.py:919(__matmul__)
+        1    0.000    0.000    0.001    0.001 _compressed.py:415(_matmul_sparse)
+        1    0.000    0.000    0.001    0.001 _coo.py:349(tocsr)
+        1    0.000    0.000    0.000    0.000 __init__.py:5915(_sync_rust_edge_attrs)
+        8    0.000    0.000    0.000    0.000 _compressed.py:30(__init__)
+        1    0.000    0.000    0.000    0.000 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+        4    0.000    0.000    0.000    0.000 _base.py:925(__rmatmul__)
+        1    0.000    0.000    0.000    0.000 _coo.py:383(_coo_to_compressed)
+        4    0.000    0.000    0.000    0.000 _base.py:901(_rmatmul_dispatch)
+        1    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+        1    0.000    0.000    0.000    0.000 __init__.py:28730(__iter__)
+        1    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.csr_matmat}
+        1    0.000    0.000    0.000    0.000 _compressed.py:492(sum)
+        1    0.000    0.000    0.000    0.000 _compressed.py:516(_minor_reduce)
+        1    0.000    0.000    0.000    0.000 _dia.py:407(tocsr)
+        4    0.000    0.000    0.000    0.000 _compressed.py:387(_matmul_vector)
+        4    0.000    0.000    0.000    0.000 _csr.py:22(transpose)
+        1    0.000    0.000    0.000    0.000 _dia.py:23(__init__)
+        4    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.csc_matvec}
+        1    0.000    0.000    0.000    0.000 _coo.py:204(_check)
+        8    0.000    0.000    0.000    0.000 _compressed.py:166(check_format)
+        1    0.000    0.000    0.000    0.000 _function_base_impl.py:1402(diff)
+       14    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       10    0.000    0.000    0.000    0.000 _data.py:21(__init__)
+       10    0.000    0.000    0.000    0.000 _base.py:138(__init__)
+       20    0.000    0.000    0.000    0.000 numeric.py:1975(isscalar)
+      113    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       36    0.000    0.000    0.000    0.000 _base.py:365(nnz)
+        8    0.000    0.000    0.000    0.000 _compressed.py:1118(prune)
+        9    0.000    0.000    0.000    0.000 _sputils.py:444(check_shape)
+        2    0.000    0.000    0.000    0.000 {method 'max' of 'numpy.ndarray' objects}
+        1    0.000    0.000    0.000    0.000 {method 'reduceat' of 'numpy.ufunc' objects}
+       10    0.000    0.000    0.000    0.000 {method 'sum' of 'numpy.ndarray' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method scipy.sparse._sparsetools.csr_matmat_maxnnz}
+      182    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       10    0.000    0.000    0.000    0.000 _methods.py:47(_sum)
+       30    0.000    0.000    0.000    0.000 getlimits.py:412(__init__)
+        2    0.000    0.000    0.000    0.000 _methods.py:39(_amax)
+       10    0.000    0.000    0.000    0.000 _sputils.py:345(isscalarlike)
+        1    0.000    0.000    0.000    0.000 numeric.py:679(flatnonzero)
+        1    0.000    0.000    0.000    0.000 _arraysetops_impl.py:145(unique)
+       30    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+        1    0.000    0.000    0.000    0.000 _compressed.py:1063(sum_duplicates)
+        1    0.000    0.000    0.000    0.000 _compressed.py:1034(has_canonical_format)

@@ -1,0 +1,19 @@
+{
+  "bead": "br-r37-c1-0e9ey",
+  "fnx_edge_attr_order": [
+    "zeta",
+    "alpha",
+    "middle"
+  ],
+  "fnx_node_edge_source_identity": true,
+  "fnx_unsorted_sha256": "9c15cf097c5345bb4e84eb3e75df76fd7dde7cd3ae33ffd43e9e3a9c35289493",
+  "nx_edge_attr_order": [
+    "zeta",
+    "alpha",
+    "middle"
+  ],
+  "nx_node_edge_source_identity": true,
+  "nx_unsorted_sha256": "9c15cf097c5345bb4e84eb3e75df76fd7dde7cd3ae33ffd43e9e3a9c35289493",
+  "scoped_lever": "adjacency_data_simple node display cache",
+  "unsorted_json_match": true
+}

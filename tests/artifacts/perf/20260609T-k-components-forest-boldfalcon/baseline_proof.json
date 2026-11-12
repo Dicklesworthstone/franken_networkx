@@ -1,0 +1,309 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "empty2",
+      "fnx": [],
+      "key_order": [],
+      "match": true,
+      "nx": []
+    },
+    {
+      "case": "path5",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "star8",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "forest_path3_iso",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "forest_two_paths",
+      "fnx": [
+        {
+          "component_types": [
+            "set",
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ],
+            [
+              "3",
+              "4"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set",
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ],
+            [
+              "3",
+              "4"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "triangle_tail_delegate",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        2,
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ]
+          ],
+          "k": 2,
+          "value_type": "list"
+        },
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2",
+              "3"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    },
+    {
+      "case": "self_loop_delegate",
+      "fnx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ],
+      "key_order": [
+        1
+      ],
+      "match": true,
+      "nx": [
+        {
+          "component_types": [
+            "set"
+          ],
+          "components": [
+            [
+              "0",
+              "1",
+              "2"
+            ]
+          ],
+          "k": 1,
+          "value_type": "list"
+        }
+      ]
+    }
+  ],
+  "fnx_module": "franken_networkx",
+  "isomorphism": {
+    "floating_point": "N/A",
+    "ordering_preserved": "forest components use connected-component order; singleton components omitted like NetworkX",
+    "rng": "N/A",
+    "tie_breaking_unchanged": "forests have only k=1 non-singleton connected components"
+  },
+  "nx_version": "3.6.1"
+}

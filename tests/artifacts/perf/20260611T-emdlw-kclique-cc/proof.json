@@ -1,0 +1,62 @@
+{
+  "n300_p0.04_k3": {
+    "density": 0.04,
+    "before_ms": 6.494,
+    "after_ms": 2.718,
+    "nx_ms": 3.502,
+    "self_speedup": 2.39,
+    "after_vs_nx": 0.776,
+    "sha_after": "a0fc63e23a8b75bbaeae5972877a644848a80019f8bd5d495966b3a6eadfb1d3",
+    "sha_before": "a0fc63e23a8b75bbaeae5972877a644848a80019f8bd5d495966b3a6eadfb1d3",
+    "sha_nx": "a0fc63e23a8b75bbaeae5972877a644848a80019f8bd5d495966b3a6eadfb1d3",
+    "sha_match": true
+  },
+  "n500_p0.05_k3": {
+    "density": 0.05,
+    "before_ms": 60.121,
+    "after_ms": 16.443,
+    "nx_ms": 49.417,
+    "self_speedup": 3.656,
+    "after_vs_nx": 0.333,
+    "sha_after": "962569827824e2c3316e859789da31e6a97ff0b0c2fcb05a3394e779e33f32db",
+    "sha_before": "962569827824e2c3316e859789da31e6a97ff0b0c2fcb05a3394e779e33f32db",
+    "sha_nx": "962569827824e2c3316e859789da31e6a97ff0b0c2fcb05a3394e779e33f32db",
+    "sha_match": true
+  },
+  "n150_p0.25_k3": {
+    "density": 0.25,
+    "before_ms": 521.935,
+    "after_ms": 20.502,
+    "nx_ms": 498.521,
+    "self_speedup": 25.458,
+    "after_vs_nx": 0.041,
+    "sha_after": "0b2c0367a9867c5feb374972b8cb9f76f5eb4775e17833caf7d30f44e112f117",
+    "sha_before": "0b2c0367a9867c5feb374972b8cb9f76f5eb4775e17833caf7d30f44e112f117",
+    "sha_nx": "0b2c0367a9867c5feb374972b8cb9f76f5eb4775e17833caf7d30f44e112f117",
+    "sha_match": true
+  },
+  "n120_p0.35_k3": {
+    "density": 0.35,
+    "before_ms": 2241.139,
+    "after_ms": 36.232,
+    "nx_ms": 2210.003,
+    "self_speedup": 61.855,
+    "after_vs_nx": 0.016,
+    "sha_after": "7fedb27def8d6497bad58140116f84e90ca901f95f741f39be0113cceb586ceb",
+    "sha_before": "7fedb27def8d6497bad58140116f84e90ca901f95f741f39be0113cceb586ceb",
+    "sha_nx": "7fedb27def8d6497bad58140116f84e90ca901f95f741f39be0113cceb586ceb",
+    "sha_match": true
+  },
+  "n80_p0.5_k3": {
+    "density": 0.5,
+    "before_ms": 6272.576,
+    "after_ms": 44.165,
+    "nx_ms": 6207.814,
+    "self_speedup": 142.026,
+    "after_vs_nx": 0.007,
+    "sha_after": "db7ce437a9073fddb92cd9a1065cafd404053080b8b02152243c566ae0194834",
+    "sha_before": "db7ce437a9073fddb92cd9a1065cafd404053080b8b02152243c566ae0194834",
+    "sha_nx": "db7ce437a9073fddb92cd9a1065cafd404053080b8b02152243c566ae0194834",
+    "sha_match": true
+  }
+}

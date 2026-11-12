@@ -1,0 +1,48 @@
+         59208 function calls (59186 primitive calls) in 1.777 seconds
+
+   Ordered by: cumulative time
+   List reduced from 199 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.777    1.777 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-adjacency-spectrum-coppercliff/adjacency_spectrum_harness.py:149(bench_once)
+        3    0.000    0.000    1.756    0.585 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-adjacency-spectrum-coppercliff/adjacency_spectrum_harness.py:67(_spectrum)
+        3    0.000    0.000    1.756    0.585 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/spectrum.py:94(adjacency_spectrum)
+      6/3    0.000    0.000    1.747    0.582 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1149(wrapper)
+        3    0.000    0.000    1.747    0.582 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:841(eigvals)
+        3    1.746    0.582    1.747    0.582 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:114(eig)
+        1    0.003    0.003    0.021    0.021 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-adjacency-spectrum-coppercliff/adjacency_spectrum_harness.py:28(graph_pair)
+     10/4    0.000    0.000    0.018    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+     10/4    0.000    0.000    0.017    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        3    0.000    0.000    0.009    0.003 <class 'networkx.utils.decorators.argmap'> compilation 29:1(argmap_adjacency_matrix_26)
+        3    0.000    0.000    0.009    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/graphmatrix.py:108(adjacency_matrix)
+        3    0.000    0.000    0.009    0.003 <class 'networkx.utils.decorators.argmap'> compilation 33:1(argmap_to_scipy_sparse_array_30)
+        3    0.001    0.000    0.009    0.003 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/convert_matrix.py:489(to_scipy_sparse_array)
+        1    0.000    0.000    0.009    0.009 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_barabasi_albert_graph_1)
+        1    0.001    0.001    0.008    0.008 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:659(barabasi_albert_graph)
+     1584    0.001    0.000    0.006    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2554(add_edge)
+     1584    0.005    0.000    0.005    0.000 {function Graph.add_edge at 0x74ca98586480}
+     4755    0.001    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/convert_matrix.py:685(<genexpr>)
+     6340    0.003    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:856(__iter__)
+      396    0.003    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+      395    0.001    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:644(_random_subset)
+        3    0.000    0.000    0.003    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:32(__init__)
+     1631    0.001    0.000    0.002    0.000 /usr/lib/python3.13/random.py:345(choice)
+     1631    0.001    0.000    0.001    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2652(add_nodes_from)
+     1584    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+       24    0.001    0.000    0.001    0.000 {built-in method numpy.array}
+       30    0.001    0.000    0.001    0.000 {built-in method numpy.asarray}
+     4752    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:790(<lambda>)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2618(add_node)
+7068/7061    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+     1584    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+       12    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1525(_get_index_dtype)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:451(asformat)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:349(tocsr)
+      400    0.001    0.000    0.001    0.000 {function Graph.add_node at 0x74ca985867a0}
+       12    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:264(get_index_dtype)
+        6    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:372(isshape)
+        9    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:62(<genexpr>)
+        3    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:350(isintlike)
+
+

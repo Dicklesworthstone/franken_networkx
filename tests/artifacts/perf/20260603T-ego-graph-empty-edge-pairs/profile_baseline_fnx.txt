@@ -1,0 +1,55 @@
+         840998 function calls in 0.461 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.059    0.059    0.461    0.461 bench_ego_graph_r2.py:43(sample)
+        9    0.002    0.000    0.402    0.045 __init__.py:42841(wrapper)
+        9    0.036    0.004    0.399    0.044 __init__.py:17004(ego_graph)
+        9    0.039    0.004    0.215    0.024 __init__.py:2344(add_edges_from)
+        9    0.152    0.017    0.152    0.017 {function Graph.add_edges_from at 0x7fc868b7d620}
+        9    0.060    0.007    0.060    0.007 __init__.py:464(_materialize)
+    18162    0.005    0.000    0.026    0.000 __init__.py:2135(add_node)
+    18162    0.020    0.000    0.020    0.000 {function Graph.add_node at 0x7fc868b7cb80}
+    18171    0.007    0.000    0.018    0.000 __init__.py:29102(nodes)
+     1863    0.001    0.000    0.016    0.000 __init__.py:29353(neighbors)
+    18162    0.011    0.000    0.012    0.000 __init__.py:4431(__getitem__)
+     1863    0.001    0.000    0.011    0.000 __init__.py:289(neighbors)
+    25668    0.006    0.000    0.011    0.000 __init__.py:28669(_private_override)
+   200835    0.011    0.000    0.011    0.000 {built-in method builtins.isinstance}
+   169551    0.010    0.000    0.010    0.000 {built-in method builtins.hash}
+   158436    0.009    0.000    0.009    0.000 {built-in method builtins.len}
+    27009    0.007    0.000    0.009    0.000 __init__.py:43040(__iter__)
+     1863    0.007    0.000    0.007    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7fc868bf2b60}
+    83844    0.007    0.000    0.007    0.000 {method 'append' of 'list' objects}
+     1872    0.001    0.000    0.004    0.000 __init__.py:28677(_has_networkx_private_storage)
+    43866    0.004    0.000    0.004    0.000 {built-in method builtins.vars}
+    43866    0.004    0.000    0.004    0.000 {method 'get' of 'dict' objects}
+     1863    0.002    0.000    0.002    0.000 {built-in method fromkeys}
+     1890    0.001    0.000    0.001    0.000 __init__.py:5123(predicate)
+     1872    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7fc868b94cc0}
+     1863    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        9    0.000    0.000    0.000    0.000 __init__.py:29122(edges)
+        9    0.000    0.000    0.000    0.000 __init__.py:29089(__contains__)
+        9    0.000    0.000    0.000    0.000 weakref.py:164(__setitem__)
+        9    0.000    0.000    0.000    0.000 __init__.py:643(wrapped)
+       18    0.000    0.000    0.000    0.000 __init__.py:4933(__get__)
+        9    0.000    0.000    0.000    0.000 __init__.py:889(wrapped)
+        9    0.000    0.000    0.000    0.000 __init__.py:10909(_concrete_class_for)
+        9    0.000    0.000    0.000    0.000 __init__.py:2769(__init__)
+        9    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+        9    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+        9    0.000    0.000    0.000    0.000 __init__.py:425(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       18    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        9    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+       18    0.000    0.000    0.000    0.000 {built-in method builtins.id}
+       18    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        9    0.000    0.000    0.000    0.000 __init__.py:18847(_validate_backend_dispatch_keywords)
+       45    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        9    0.000    0.000    0.000    0.000 weakref.py:194(get)
+        9    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+       18    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7fc868b94d60}
+        9    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+
+

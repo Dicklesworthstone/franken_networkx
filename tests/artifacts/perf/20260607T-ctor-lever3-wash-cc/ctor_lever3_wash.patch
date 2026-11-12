@@ -1,0 +1,154 @@
+diff --git a/crates/fnx-classes/src/lib.rs b/crates/fnx-classes/src/lib.rs
+index efeed98e6..dc8194dd8 100644
+--- a/crates/fnx-classes/src/lib.rs
++++ b/crates/fnx-classes/src/lib.rs
+@@ -1201,6 +1201,65 @@ impl Graph {
+     /// Callers MUST pre-screen attr keys starting with
+     /// `"__fnx_incompatible"` and route those edges through
+     /// `add_edge_with_attrs`, which owns the FailClosed contract for them.
++    /// br-r37-c1-d58s8 ctor absorb lever: bulk edge insert by NODE
++    /// INDICES — zero Strings in the edge stream (callers resolve
++    /// endpoints to indices once per unique node; the index-keyed edges
++    /// map makes the whole path integer). Same merge/dedup semantics as
++    /// extend_edges_with_attrs_unrecorded; indices MUST be valid (the
++    /// caller created the nodes first).
++    pub fn extend_edges_by_indices_unrecorded<I>(&mut self, edges: I) -> usize
++    where
++        I: IntoIterator<Item = (usize, usize, AttrMap)>,
++    {
++        let iterator = edges.into_iter();
++        let (lower_bound, _) = iterator.size_hint();
++        self.edges.reserve(lower_bound);
++        self.edge_index_endpoints.reserve(lower_bound);
++
++        let mut inserted = 0usize;
++        let mut merged_changed = false;
++        for (left_idx, right_idx, attrs) in iterator {
++            debug_assert!(left_idx < self.nodes.len() && right_idx < self.nodes.len());
++            let edge_key = Self::canon_pair(left_idx, right_idx);
++            match self.edges.entry(edge_key) {
++                indexmap::map::Entry::Occupied(mut occupied) => {
++                    let existing = occupied.get_mut();
++                    if !attrs.is_empty()
++                        && attrs
++                            .iter()
++                            .any(|(key, value)| existing.get(key) != Some(value))
++                    {
++                        merged_changed = true;
++                    }
++                    existing.extend(attrs);
++                    continue;
++                }
++                indexmap::map::Entry::Vacant(vacant) => {
++                    vacant.insert(attrs);
++                }
++            }
++            // endpoints orientation: STRING-canonical (matches the other
++            // writers — snapshot derivation depends on it).
++            let left_name = self.nodes.get_index(left_idx).expect("valid index").0;
++            let right_name = self.nodes.get_index(right_idx).expect("valid index").0;
++            if left_name <= right_name {
++                self.edge_index_endpoints.push((left_idx, right_idx));
++            } else {
++                self.edge_index_endpoints.push((right_idx, left_idx));
++            }
++            self.adj_indices[left_idx].push(right_idx);
++            if left_idx != right_idx {
++                self.adj_indices[right_idx].push(left_idx);
++            }
++            inserted += 1;
++        }
++        if merged_changed {
++            self.revision = self.revision.saturating_add(1);
++        }
++        self.record_bulk_edge_summary(inserted, merged_changed);
++        inserted
++    }
++
+     pub fn extend_edges_with_attrs_unrecorded<I>(&mut self, edges: I) -> usize
+     where
+         I: IntoIterator<Item = (String, String, AttrMap)>,
+diff --git a/crates/fnx-python/src/lib.rs b/crates/fnx-python/src/lib.rs
+index 346e365e0..b4c6170eb 100644
+--- a/crates/fnx-python/src/lib.rs
++++ b/crates/fnx-python/src/lib.rs
+@@ -4359,27 +4359,58 @@ impl PyGraph {
+                 // C-level merge). Pending-state sets stand in for
+                 // inner.has_node/has_edge until the flush; non-edge items
+                 // flush first so interleaved node insertion order holds.
+-                let mut edge_batch: Vec<(String, String, AttrMap)> = Vec::new();
+-                // br-r37-c1-d58s8: node_key_map doubles as the pending-node
+-                // oracle (entries land inline below), so no separate
+-                // pending_nodes set — two String clones+hashes per edge
+-                // saved. pending_cells stays: the z6uka first-touch gate is
+-                // call-order-sensitive (maybe_store's `differs` check can
+-                // store a LATER object on dup edges if invoked again).
++                // br-r37-c1-d58s8 ctor absorb lever 3: TWO-PASS INDEX
++                // batching — endpoints resolve to node indices once per
++                // unique node (idx = nodes.len() + position in the pending
++                // node batch), and the edge stream carries ZERO Strings
++                // (the index-keyed edges map makes the whole flush
++                // integer). node_key_map doubles as the pending-node
++                // oracle; pending_cells stays for the z6uka first-touch
++                // gate (call-order-sensitive).
++                let mut node_batch: Vec<(String, AttrMap)> = Vec::new();
++                let mut local_idx: std::collections::HashMap<String, usize> =
++                    std::collections::HashMap::new();
++                let mut edge_batch: Vec<(usize, usize, AttrMap)> = Vec::new();
+                 let mut pending_cells: std::collections::HashSet<(String, String)> =
+                     std::collections::HashSet::new();
+                 macro_rules! flush_batch {
+                     () => {
+-                        if !edge_batch.is_empty() {
+-                            let drained: Vec<(String, String, AttrMap)> =
++                        if !node_batch.is_empty() || !edge_batch.is_empty() {
++                            let nodes_drained: Vec<(String, AttrMap)> =
++                                std::mem::take(&mut node_batch);
++                            let _ = g
++                                .inner
++                                .extend_nodes_with_attrs_unrecorded(nodes_drained);
++                            let drained: Vec<(usize, usize, AttrMap)> =
+                                 std::mem::take(&mut edge_batch);
+-                            let _ = g.inner.extend_edges_with_attrs_unrecorded(drained);
++                            let _ = g.inner.extend_edges_by_indices_unrecorded(drained);
++                            local_idx.clear();
+                             pending_cells.clear();
+                             g.bump_nodes_seq();
+                             g.bump_edges_seq();
+                         }
+                     };
+                 }
++                macro_rules! resolve_idx {
++                    ($canonical:expr) => {{
++                        match local_idx.get($canonical) {
++                            Some(&i) => i,
++                            None => {
++                                let i = match g.inner.get_node_index($canonical) {
++                                    Some(existing) => existing,
++                                    None => {
++                                        let i = g.inner.node_count() + node_batch.len();
++                                        node_batch
++                                            .push(($canonical.clone(), AttrMap::new()));
++                                        i
++                                    }
++                                };
++                                local_idx.insert($canonical.clone(), i);
++                                i
++                            }
++                        }
++                    }};
++                }
+                 for item in iter {
+                     let item = item?;
+                     let mut batched = false;
+@@ -4442,7 +4473,9 @@ impl PyGraph {
+                                             .bind(py)
+                                             .update(d.as_mapping())?;
+                                     }
+-                                    edge_batch.push((u_canonical, v_canonical, rust_attrs));
++                                    let u_i = resolve_idx!(&u_canonical);
++                                    let v_i = resolve_idx!(&v_canonical);
++                                    edge_batch.push((u_i, v_i, rust_attrs));
+                                     batched = true;
+                                 }
+                             }

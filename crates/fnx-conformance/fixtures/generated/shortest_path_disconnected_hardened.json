@@ -1,0 +1,72 @@
+{
+  "suite": "shortest_path_v1",
+  "mode": "hardened",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "x",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "y",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "x",
+      "right": "y",
+      "attrs": {}
+    },
+    {
+      "op": "shortest_path_query",
+      "source": "a",
+      "target": "y"
+    },
+    {
+      "op": "has_path_query",
+      "source": "a",
+      "target": "y"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "x",
+        "y"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "x",
+          "right": "y",
+          "attrs": {}
+        }
+      ]
+    },
+    "shortest_path_unweighted": null,
+    "has_path": false
+  }
+}

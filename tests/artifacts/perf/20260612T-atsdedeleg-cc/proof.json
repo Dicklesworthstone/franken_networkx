@@ -1,0 +1,20 @@
+{
+  "bead": "br-r37-c1-f1rp6 (partial: all_topological_sorts)",
+  "function": "all_topological_sorts (simple DiGraph)",
+  "lever": "de-delegate: run networkx's exact Knuth/Szwarcfiter algorithm in-process on a one-time plain-Python adjacency snapshot (list(G) + list(G.successors(u))), skipping the fnx->nx full-graph conversion. Algorithm only touches in-degree (D init = node order) + out_edges (successor adjacency order), so the order-sensitive ordering stream is byte-identical.",
+  "parity": {
+    "full_enumeration_cases": 25,
+    "mismatches": 0,
+    "adversarial": "reversed node insertion order (D-init/successor-order stress)",
+    "edge_cases": "empty -> [()], single -> [(7,)], cyclic -> raises NetworkXUnfeasible lazily",
+    "golden_sha256": "5b7733ec7922ba516e7c1574b58faa7f8f711b5bf0786b9ef2770a3fe252e175"
+  },
+  "bench_first_sort_min_of_9_us": {
+    "n250":  {"nx": 720.2,  "old_deleg": 3070.3,  "new_inproc": 598.8,  "self_speedup": 5.1},
+    "n600":  {"nx": 2419.9, "old_deleg": 14587.6, "new_inproc": 1963.2, "self_speedup": 7.4},
+    "n1200": {"nx": 7217.4, "old_deleg": 52903.6, "new_inproc": 5904.3, "self_speedup": 9.0},
+    "n2000": {"nx": 18231.4,"old_deleg": 197470.3,"new_inproc": 15206.7,"self_speedup": 13.0}
+  },
+  "headline": "all_topological_sorts simple DiGraph: ~4-11x slower than nx -> FASTER than nx, 5.1-13x self-speedup (grows with n), byte-exact. Conversion tax was the entire overhead. Pure Python, no rebuild. MultiDiGraph keeps nx delegation (per-parallel-edge counts).",
+  "scope_note": "antichains is at PARITY (nx compute dominates conversion, not a gap). dominating_set TBD."
+}

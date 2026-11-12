@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op ego_graph_r2 --repeat 10 --n 3000 --m 4 --graph-seed 42 >/dev/null
+  Time (mean ± σ):     845.0 ms ±  37.3 ms    [User: 4893.1 ms, System: 155.5 ms]
+  Range (min … max):   795.1 ms … 889.1 ms    5 runs
+ 

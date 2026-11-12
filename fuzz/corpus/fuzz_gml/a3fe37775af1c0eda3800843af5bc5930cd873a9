@@ -1,0 +1,7 @@
+# comments and entity-like labels
+graph [
+  directed 0
+  node [ id 0 lcbel "Tom &amp; label" ]  
+edge[
+""rurce 0 target 1 ]
+]

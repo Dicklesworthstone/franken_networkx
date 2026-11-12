@@ -1,0 +1,4 @@
+Benchmark 1: cargo run -q -p fnx-algorithms --profile release-perf --bin perf_harness -- --algo=harmonic --n=1600 --deg=5 --iters=1
+  Time (mean ± σ):     230.2 ms ±   3.3 ms    [User: 173.7 ms, System: 56.6 ms]
+  Range (min … max):   226.9 ms … 233.5 ms    3 runs
+ 

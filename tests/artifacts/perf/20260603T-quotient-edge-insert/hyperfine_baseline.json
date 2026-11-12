@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260603T-quotient-edge-insert/bench_quotient_graph.py bench --n 3000 --block-size 10 --extra-edges 9000 --samples 1 --engines fnx",
+      "mean": 0.48731108788000005,
+      "stddev": 0.011577545167698782,
+      "median": 0.48397156148000003,
+      "user": 3.90683304,
+      "system": 0.08730305999999999,
+      "min": 0.47414824548000006,
+      "max": 0.50042093348,
+      "times": [
+        0.50042093348,
+        0.4983380164800001,
+        0.47967668248000006,
+        0.48397156148000003,
+        0.47414824548000006
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

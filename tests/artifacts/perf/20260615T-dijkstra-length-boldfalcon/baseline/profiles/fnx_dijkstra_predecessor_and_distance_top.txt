@@ -1,0 +1,24 @@
+         332 function calls in 0.040 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    0.040    0.040 dijkstra_family_pass.py:273(repeated)
+       15    0.000    0.000    0.039    0.003 dijkstra_family_pass.py:179(<lambda>)
+       15    0.000    0.000    0.039    0.003 __init__.py:53015(wrapper)
+       15    0.000    0.000    0.039    0.003 __init__.py:28994(dijkstra_predecessor_and_distance)
+       15    0.035    0.002    0.035    0.002 {built-in method franken_networkx._fnx.dijkstra_predecessor_and_distance}
+       15    0.000    0.000    0.004    0.000 __init__.py:7012(_should_delegate_dijkstra_to_networkx)
+       15    0.004    0.000    0.004    0.000 {built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast}
+       15    0.000    0.000    0.000    0.000 __init__.py:37047(__contains__)
+       15    0.000    0.000    0.000    0.000 __init__.py:6169(predicate)
+       15    0.000    0.000    0.000    0.000 __init__.py:13126(_coerce_arg_to_fnx_graph)
+       15    0.000    0.000    0.000    0.000 __init__.py:36474(_private_override)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       90    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 {built-in method franken_networkx._fnx.dijkstra_weight_cache_token}
+       15    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x79792b819f80}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       15    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       15    0.000    0.000    0.000    0.000 __init__.py:24197(_validate_backend_dispatch_keywords)
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.callable}

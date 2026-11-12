@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "convert_route_strict",
+  "packet_id": "FNX-P2C-004",
+  "pass_label": "replay",
+  "mode": "strict",
+  "fixture_id": "generated/convert_edge_list_strict.json",
+  "bundle_id": "e2e-bundle-c3fdfe90d210605d",
+  "stable_fingerprint": "b6003043881e30ac",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode strict",
+  "env_fingerprint": "c90b76950b203491",
+  "generated_at_utc": "2026-02-18T22:04:40.450852+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::convert_route_strict",
+      "step_id": "convert_route_strict::cycle-01",
+      "step_label": "execute:regression_path",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452271289,
+      "end_unix_ms": 1771452280447,
+      "duration_ms": 9158,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode strict",
+      "input_ref": "generated/convert_edge_list_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/convert_route_strict/replay/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/convert_edge_list_strict.json --mode strict",
+      "forensic_bundle_id": "forensics::FNX-P2C-004::generated::convert_edge_list_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/convert_route_strict/replay/command.log",
+        "artifacts/e2e/latest/bundles/convert_route_strict/replay/selected_structured_log.json"
+      ],
+      "hash_id": "864b977f46972825",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

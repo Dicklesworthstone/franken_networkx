@@ -1,0 +1,7 @@
+{"scenario":"write-edgelist","sample":0,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":621.408154,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}
+{"scenario":"write-edgelist","sample":1,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":604.301944,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}
+{"scenario":"write-edgelist","sample":2,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":575.964391,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}
+{"scenario":"write-edgelist","sample":3,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":647.364181,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}
+{"scenario":"write-edgelist","sample":4,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":762.381269,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}
+{"scenario":"write-edgelist","sample":5,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":685.653615,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}
+{"scenario":"write-edgelist","sample":6,"nodes":20000,"edges":80000,"iters":5,"elapsed_ms":627.679910,"bytes":6399995,"checksum":"1f932eb9ae8bc851"}

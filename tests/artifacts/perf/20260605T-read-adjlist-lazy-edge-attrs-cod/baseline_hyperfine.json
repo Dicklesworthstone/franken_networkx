@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-read-adjlist-lazy-edge-attrs-cod/adjlist_lazy_attrs.py bench --impl fnx --loops 10 --repeat 1 >/dev/null",
+      "mean": 3.0212953106700007,
+      "stddev": 0.4004478847242886,
+      "median": 2.94235679342,
+      "user": 6.10229411,
+      "system": 0.17701573999999998,
+      "min": 2.37623509492,
+      "max": 3.55618825092,
+      "times": [
+        2.37623509492,
+        2.92963577692,
+        2.95507780992,
+        3.50571398792,
+        2.76234790892,
+        2.81357446092,
+        3.55618825092,
+        3.2715891949199998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-read-adjlist-lazy-edge-attrs-cod/adjlist_lazy_attrs.py bench --impl nx --loops 10 --repeat 1 >/dev/null",
+      "mean": 1.5207499602949999,
+      "stddev": 0.020750022386977856,
+      "median": 1.52603210292,
+      "user": 4.9665864850000006,
+      "system": 0.089577365,
+      "min": 1.48793078592,
+      "max": 1.5486280529199998,
+      "times": [
+        1.52352757792,
+        1.49174683192,
+        1.5486280529199998,
+        1.52261584292,
+        1.52853662792,
+        1.52874832092,
+        1.48793078592,
+        1.5342656419199998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,827 @@
+diff --git a/crates/fnx-algorithms/benches/algorithm_benchmarks.rs b/crates/fnx-algorithms/benches/algorithm_benchmarks.rs
+index 16a71669d..6eda5fd43 100644
+--- a/crates/fnx-algorithms/benches/algorithm_benchmarks.rs
++++ b/crates/fnx-algorithms/benches/algorithm_benchmarks.rs
+@@ -9,12 +9,13 @@ use std::collections::BTreeMap;
+ 
+ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+ use fnx_algorithms::{
+-    adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
+-    betweenness_centrality, closeness_centrality, cn_soundarajan_hopcroft,
+-    common_neighbor_centrality, common_neighbors, connected_components, degree_centrality,
+-    degree_mixing_dict, eigenvector_centrality, harmonic_centrality, jaccard_coefficient,
+-    max_flow_edmonds_karp, minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy,
+-    pagerank, preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
++    ClosenessArm, adamic_adar_index, average_degree_connectivity, average_shortest_path_length,
++    betweenness_centrality, closeness_centrality, closeness_centrality_arm,
++    closeness_reverse_csr_build_cost, cn_soundarajan_hopcroft, common_neighbor_centrality,
++    common_neighbors, connected_components, degree_centrality, degree_mixing_dict,
++    eigenvector_centrality, harmonic_centrality, jaccard_coefficient, max_flow_edmonds_karp,
++    minimum_cut_edmonds_karp, minimum_spanning_tree, node_degree_xy, pagerank,
++    preferential_attachment, ra_index_soundarajan_hopcroft, resource_allocation_index,
+     shortest_path_unweighted, shortest_path_weighted, single_source_dijkstra_path_length,
+ };
+ use fnx_classes::{Graph, digraph::DiGraph};
+@@ -74,6 +75,39 @@ fn build_grid(rows: usize, cols: usize) -> Graph {
+     g
+ }
+ 
++/// Deterministic connected low-diameter graph: a random tree (guarantees the whole
++/// graph is reachable, which the chunked-parallel eccentricity probe requires)
++/// plus `extra` random chords, which collapse the diameter to ~log_deg(n).
++///
++/// This is the shape real all-pairs centrality workloads have — social, citation
++/// and web graphs are low-diameter. The grids benchmarked elsewhere are the
++/// high-diameter worst case, kept here as the guard that must NOT regress.
++fn build_low_diameter(n: usize, extra: usize) -> Graph {
++    let mut g = Graph::strict();
++    for i in 0..n {
++        let _ = g.add_node(i.to_string());
++    }
++    let mut x: u64 = 0x2545_F491_4F6C_DD1D;
++    let mut next = || {
++        x ^= x << 13;
++        x ^= x >> 7;
++        x ^= x << 17;
++        x
++    };
++    for i in 1..n {
++        let parent = (next() as usize) % i;
++        let _ = g.add_edge(i.to_string(), parent.to_string());
++    }
++    for _ in 0..extra {
++        let u = (next() as usize) % n;
++        let v = (next() as usize) % n;
++        if u != v {
++            let _ = g.add_edge(u.to_string(), v.to_string());
++        }
++    }
++    g
++}
++
+ fn build_flow_network(paths: usize, path_len: usize) -> Graph {
+     assert!(path_len >= 1, "path_len must be at least 1");
+     let mut g = Graph::strict();
+@@ -367,6 +401,43 @@ fn bench_closeness_centrality(c: &mut Criterion) {
+     group.finish();
+ }
+ 
++/// br-r37-c1-x0jz8 A/B. BOTH arms live in this ONE group so a single
++/// `rch exec -- cargo bench` invocation measures them on the SAME worker: rch has
++/// no worker-pinning flag and its within-run ratio is not worker-invariant, so an
++/// ORIG/CAND comparison split across two invocations is meaningless
++/// (br-r37-c1-839yx). `per_source` is the pre-lever behaviour; `chunked_bitpar`
++/// forces the candidate past its gate; `auto` is what callers actually get.
++fn bench_closeness_centrality_parallel(c: &mut Criterion) {
++    let mut group = c.benchmark_group("closeness_centrality_parallel");
++    // n >= CENTRALITY_PARALLEL_THRESHOLD on both, so the per-source arm is the
++    // rayon fan-out this lever is trying to beat.
++    let workloads = [
++        ("lowdiam_2000", build_low_diameter(2000, 8000)),
++        ("grid_1600", build_grid(40, 40)), // GUARD: high diameter, must not regress
++    ];
++    let arms = [
++        ("per_source", ClosenessArm::PerSource),
++        ("chunked_bitpar", ClosenessArm::ChunkedBitpar),
++        ("auto", ClosenessArm::Auto),
++    ];
++    for (workload, g) in &workloads {
++        for (arm_name, arm) in arms {
++            group.bench_with_input(BenchmarkId::new(arm_name, workload), &arm, |b, &arm| {
++                b.iter(|| closeness_centrality_arm(g, arm))
++            });
++        }
++        // Stage cost, MEASURED not inferred: every bit-parallel arm pays this
++        // reverse-CSR build before it traverses anything, so a REJECT that blames
++        // it has to be able to point at a number.
++        group.bench_with_input(
++            BenchmarkId::new("csr_build_only", workload),
++            workload,
++            |b, _| b.iter(|| closeness_reverse_csr_build_cost(g)),
++        );
++    }
++    group.finish();
++}
++
+ fn bench_harmonic_centrality(c: &mut Criterion) {
+     let mut group = c.benchmark_group("harmonic_centrality");
+     // `complete` mirrors the closeness sizes (diameter 1). The grids are the
+@@ -628,6 +699,7 @@ criterion_group!(
+     bench_average_shortest_path_length,
+     bench_degree_centrality,
+     bench_closeness_centrality,
++    bench_closeness_centrality_parallel,
+     bench_harmonic_centrality,
+     bench_betweenness_centrality,
+     bench_eigenvector_centrality,
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 47ec413fc..57fc33453 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -2966,7 +2966,56 @@ fn harmonic_source(
+     (harmonic, reached, edges_scanned, queue_peak)
+ }
+ 
++/// Selects which `n >= CENTRALITY_PARALLEL_THRESHOLD` strategy `closeness_centrality`
++/// runs. `Auto` is the only behaviour any caller sees; the two forcing variants exist
++/// so an A/B can measure BOTH arms inside ONE benchmark binary, which is the only
++/// honest substrate available here — rch has no worker-pinning flag, so a comparison
++/// split across two `cargo bench` invocations lands on different workers and its
++/// ratio is meaningless (br-r37-c1-839yx).
++#[doc(hidden)]
++#[derive(Clone, Copy, PartialEq, Eq, Debug)]
++pub enum ClosenessArm {
++    /// Gate decides: chunked-parallel bit-parallel when it predicts a win.
++    Auto,
++    /// Always the per-source rayon sweep (the pre-x0jz8 behaviour).
++    PerSource,
++    /// Always chunked-parallel bit-parallel, gate bypassed.
++    ChunkedBitpar,
++}
++
++/// Bench/test-only entry point pinning one arm. Results are identical across arms.
++#[doc(hidden)]
++#[must_use]
++pub fn closeness_centrality_arm(graph: &Graph, arm: ClosenessArm) -> ClosenessCentralityResult {
++    closeness_centrality_generic_arm(graph, arm)
++}
++
++/// Bench-only: the reverse-CSR construction ALONE, with nothing else, so its cost
++/// can be attributed instead of inferred by subtracting arm timings. Every
++/// bit-parallel arm pays exactly this before it traverses anything. Returns a
++/// checksum so the build cannot be optimised away.
++#[doc(hidden)]
++#[must_use]
++pub fn closeness_reverse_csr_build_cost(graph: &Graph) -> usize {
++    let n = graph.nodes_ordered().len();
++    let Some(rows) = (0..n)
++        .map(|u| GraphView::in_neighbors_indices(graph, u))
++        .collect::<Option<Vec<&[usize]>>>()
++    else {
++        return 0;
++    };
++    let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
++    offsets.len() + targets.len()
++}
++
+ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityResult {
++    closeness_centrality_generic_arm(graph, ClosenessArm::Auto)
++}
++
++fn closeness_centrality_generic_arm<G: GraphView>(
++    graph: &G,
++    arm: ClosenessArm,
++) -> ClosenessCentralityResult {
+     let nodes = graph.nodes_ordered();
+     let n = nodes.len();
+     if n == 0 {
+@@ -2990,37 +3039,62 @@ fn closeness_centrality_generic<G: GraphView>(graph: &G) -> ClosenessCentralityR
+     // `closeness_score`, so the scores are bit-identical. The integer rows are
+     // precisely what `in_neighbors_iter` walks, so the CSR needs no node-name
+     // lookups — the string-keyed `reverse_adjacency` below is skipped entirely.
+-    if n < CENTRALITY_PARALLEL_THRESHOLD
++    if arm != ClosenessArm::PerSource
+         && n <= u32::MAX as usize
+         && let Some(rows) = (0..n)
+             .map(|u| graph.in_neighbors_indices(u))
+             .collect::<Option<Vec<&[usize]>>>()
+     {
+         let (offsets, targets) = build_u32_csr(n, |u| rows[u]);
+-        let mut reached = vec![0usize; n];
+-        let mut sum_dist = vec![0usize; n];
+-        let (edges_scanned, queue_peak) =
+-            closeness_all_sources(&offsets, &targets, n, &mut reached, &mut sum_dist);
+-        let scores = (0..n)
+-            .map(|s| CentralityScore {
+-                node: nodes[s].to_owned(),
+-                score: closeness_score(reached[s], sum_dist[s], n),
+-            })
+-            .collect();
+-        return ClosenessCentralityResult {
+-            scores,
+-            witness: ComplexityWitness {
+-                algorithm: "closeness_centrality".to_owned(),
+-                complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
+-                // `nodes_touched` (total reach over all sources) is identical to
+-                // the per-source path. `edges_scanned`/`queue_peak` report the
+-                // work this kernel actually does: one scan serves up to W*64
+-                // sources, so they are far below the per-source sum by design.
+-                nodes_touched: reached.iter().sum(),
+-                edges_scanned,
+-                queue_peak,
+-            },
++        // Below the parallel threshold the per-source loop is sequential anyway,
++        // so one traversal advancing W*64 sources strictly beats n sweeps and no
++        // gate is needed. At or above it the per-source path fans out over rayon,
++        // and bit-parallel only wins when the graph has far fewer BFS levels than
++        // lanes — see `bitpar_chunked_lane_width_if_profitable`.
++        let threads = rayon::current_num_threads();
++        let lane_width = if n < CENTRALITY_PARALLEL_THRESHOLD {
++            None
++        } else if arm == ClosenessArm::ChunkedBitpar {
++            Some(bitpar_chunk_lane_width(n, threads))
++        } else {
++            bitpar_chunked_lane_width_if_profitable(&offsets, &targets, n, threads)
+         };
++
++        if n < CENTRALITY_PARALLEL_THRESHOLD || lane_width.is_some() {
++            let mut reached = vec![0usize; n];
++            let mut sum_dist = vec![0usize; n];
++            let (edges_scanned, queue_peak) = match lane_width {
++                Some(w) => closeness_all_sources_chunked(
++                    &offsets,
++                    &targets,
++                    n,
++                    w,
++                    &mut reached,
++                    &mut sum_dist,
++                ),
++                None => closeness_all_sources(&offsets, &targets, n, &mut reached, &mut sum_dist),
++            };
++            let scores = (0..n)
++                .map(|s| CentralityScore {
++                    node: nodes[s].to_owned(),
++                    score: closeness_score(reached[s], sum_dist[s], n),
++                })
++                .collect();
++            return ClosenessCentralityResult {
++                scores,
++                witness: ComplexityWitness {
++                    algorithm: "closeness_centrality".to_owned(),
++                    complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
++                    // `nodes_touched` (total reach over all sources) is identical to
++                    // the per-source path. `edges_scanned`/`queue_peak` report the
++                    // work this kernel actually does: one scan serves up to W*64
++                    // sources, so they are far below the per-source sum by design.
++                    nodes_touched: reached.iter().sum(),
++                    edges_scanned,
++                    queue_peak,
++                },
++            };
++        }
+     }
+ 
+     let mut scores = Vec::with_capacity(n);
+@@ -9472,52 +9546,60 @@ fn aspl_finalize_bitpar(
+ /// replays the very same sequence of `+= 1/L` additions that BFS pop order
+ /// produces (a BFS pops in non-decreasing distance, and every addend within one
+ /// level is the identical value `1/L`).
++/// The sink is a stateless MARKER carrying its accumulator element type, not a
++/// struct borrowing the output slice. br-r37-c1-x0jz8: a borrowing sink pins one
++/// `&mut [T]` for the whole run, which cannot be split across rayon tasks. With
++/// the accumulator passed in per call, each source-chunk owns a disjoint
++/// `&mut [Acc]` sub-slice and the chunks are trivially independent.
++///
++/// Indices handed to `reach`/`init_source` are CHUNK-RELATIVE (`0..k`), so a
++/// chunk starting at absolute source `s0` writes `acc[j]` for source `s0 + j`.
+ trait ReachSink {
+     /// Value derived ONCE per BFS level, keeping per-event work to one accumulate
+     /// (harmonic's reciprocal must not be recomputed per first-reach event).
+     type LevelValue: Copy;
++    /// Per-source accumulator element (`usize` distance sum, `f64` harmonic sum).
++    type Acc: Send;
+     fn level_value(level: usize) -> Self::LevelValue;
+-    /// `source` first reached some node at the level `value` was derived from.
+-    fn reach(&mut self, source: usize, value: Self::LevelValue);
+-    /// Level 0: `source` reaches itself at distance 0.
+-    fn init_source(&mut self, source: usize);
++    /// Chunk-relative source `j` first reached some node at `value`'s level.
++    fn reach(acc: &mut [Self::Acc], j: usize, value: Self::LevelValue);
++    /// Level 0: chunk-relative source `j` reaches itself at distance 0.
++    fn init_source(acc: &mut [Self::Acc], j: usize);
+ }
+ 
+ /// `sum_dist[s]` = total distance from `s` to every node it reaches.
+-struct ClosenessSink<'a> {
+-    sum_dist: &'a mut [usize],
+-}
++struct ClosenessSink;
+ 
+-impl ReachSink for ClosenessSink<'_> {
++impl ReachSink for ClosenessSink {
+     type LevelValue = usize;
++    type Acc = usize;
+     fn level_value(level: usize) -> usize {
+         level
+     }
+-    fn reach(&mut self, source: usize, level: usize) {
+-        self.sum_dist[source] += level;
++    fn reach(acc: &mut [usize], j: usize, level: usize) {
++        acc[j] += level;
+     }
+-    fn init_source(&mut self, source: usize) {
+-        self.sum_dist[source] = 0;
++    fn init_source(acc: &mut [usize], j: usize) {
++        acc[j] = 0;
+     }
+ }
+ 
+ /// `harmonic[s]` = sum of `1/d` over every node `s` reaches at distance `d > 0`.
+-struct HarmonicSink<'a> {
+-    harmonic: &'a mut [f64],
+-}
++struct HarmonicSink;
+ 
+-impl ReachSink for HarmonicSink<'_> {
++impl ReachSink for HarmonicSink {
+     type LevelValue = f64;
++    type Acc = f64;
+     /// Exactly the value the per-source BFS adds for each node popped at this
+     /// distance (`1.0 / (d as f64)`), computed once instead of per event.
+     fn level_value(level: usize) -> f64 {
+         1.0 / (level as f64)
+     }
+-    fn reach(&mut self, source: usize, inv_level: f64) {
+-        self.harmonic[source] += inv_level;
++    fn reach(acc: &mut [f64], j: usize, inv_level: f64) {
++        acc[j] += inv_level;
+     }
+-    fn init_source(&mut self, source: usize) {
+-        self.harmonic[source] = 0.0;
++    fn init_source(acc: &mut [f64], j: usize) {
++        acc[j] = 0.0;
+     }
+ }
+ 
+@@ -9529,10 +9611,12 @@ fn bitpar_reverse_bfs_batch<const W: usize, S: ReachSink>(
+     offsets: &[u32],
+     targets: &[u32],
+     s0: usize,
+-    k: usize,
+     reached: &mut [usize],
+-    sink: &mut S,
++    acc: &mut [S::Acc],
+ ) -> (usize, usize) {
++    // `reached`/`acc` cover exactly this chunk's sources `[s0, s0 + k)`, indexed
++    // relative; `s0` still resolves the absolute NODE index of each source.
++    let k = reached.len();
+     let zero = [0u64; W];
+     scratch.seen.fill(zero);
+     scratch.frontier.fill(zero);
+@@ -9545,8 +9629,8 @@ fn bitpar_reverse_bfs_batch<const W: usize, S: ReachSink>(
+         scratch.frontier[s][j / 64] = bit;
+         scratch.cur_nodes.push(s as u32);
+         // Level 0: every source reaches itself at distance 0.
+-        reached[s] = 1;
+-        sink.init_source(s);
++        reached[j] = 1;
++        S::init_source(acc, j);
+     }
+ 
+     let mut edges_scanned = 0usize;
+@@ -9606,9 +9690,10 @@ fn bitpar_reverse_bfs_batch<const W: usize, S: ReachSink>(
+             for (lane, &word) in newly.iter().enumerate() {
+                 let mut bits = word;
+                 while bits != 0 {
+-                    let s = s0 + lane * 64 + bits.trailing_zeros() as usize;
+-                    reached[s] += 1;
+-                    sink.reach(s, level_value);
++                    // Chunk-relative source index; the absolute source is s0 + j.
++                    let j = lane * 64 + bits.trailing_zeros() as usize;
++                    reached[j] += 1;
++                    S::reach(acc, j, level_value);
+                     bits &= bits - 1; // clear lowest set bit
+                 }
+             }
+@@ -9628,24 +9713,153 @@ fn bitpar_reverse_bfs_run<const W: usize, S: ReachSink>(
+     targets: &[u32],
+     n: usize,
+     reached: &mut [usize],
+-    sink: &mut S,
++    acc: &mut [S::Acc],
+ ) -> (usize, usize) {
+     let width = W * 64;
+     let mut scratch = BitParBfsScratch::<W>::new(n);
+     let mut edges_scanned = 0usize;
+     let mut queue_peak = 0usize;
+-    let mut s0 = 0;
+-    while s0 < n {
+-        let k = (n - s0).min(width);
+-        let (edges, peak) =
+-            bitpar_reverse_bfs_batch::<W, S>(&mut scratch, offsets, targets, s0, k, reached, sink);
++    for (chunk, (reached_chunk, acc_chunk)) in reached
++        .chunks_mut(width)
++        .zip(acc.chunks_mut(width))
++        .enumerate()
++    {
++        let (edges, peak) = bitpar_reverse_bfs_batch::<W, S>(
++            &mut scratch,
++            offsets,
++            targets,
++            chunk * width,
++            reached_chunk,
++            acc_chunk,
++        );
+         edges_scanned += edges;
+         queue_peak = queue_peak.max(peak);
+-        s0 += width;
+     }
+     (edges_scanned, queue_peak)
+ }
+ 
++/// br-r37-c1-x0jz8: the SAME batches as `bitpar_reverse_bfs_run`, fanned out over
++/// rayon one source-CHUNK per task instead of one SOURCE per task.
++///
++/// Each chunk owns disjoint `reached`/`acc` sub-slices and its own scratch, so no
++/// chunk observes another's writes. Every source therefore sees the exact level
++/// sequence — and, for `HarmonicSink`, the exact addend sequence — that the
++/// sequential run produces, which is what keeps the f64 result bit-identical. The
++/// two reduced witness fields are order-free (`+` and `max` over integers), so the
++/// non-deterministic rayon reduction tree cannot perturb them either.
++fn bitpar_reverse_bfs_run_parallel<const W: usize, S: ReachSink>(
++    offsets: &[u32],
++    targets: &[u32],
++    n: usize,
++    reached: &mut [usize],
++    acc: &mut [S::Acc],
++) -> (usize, usize) {
++    use rayon::prelude::*;
++    let width = W * 64;
++    reached
++        .par_chunks_mut(width)
++        .zip(acc.par_chunks_mut(width))
++        .enumerate()
++        .map_init(
++            || BitParBfsScratch::<W>::new(n),
++            |scratch, (chunk, (reached_chunk, acc_chunk))| {
++                // `batch` leaves `next` all-zero and refills `seen`/`frontier`, so
++                // one scratch is safely reused across the chunks a worker runs.
++                bitpar_reverse_bfs_batch::<W, S>(
++                    scratch,
++                    offsets,
++                    targets,
++                    chunk * width,
++                    reached_chunk,
++                    acc_chunk,
++                )
++            },
++        )
++        .reduce(|| (0usize, 0usize), |a, b| (a.0 + b.0, a.1.max(b.1)))
++}
++
++/// Lane width for the chunked-parallel path: the WIDEST `W` that still leaves at
++/// least `threads` chunks, so the rayon pool stays saturated. (The sequential path
++/// wants the opposite — the widest single batch — because there parallelism is
++/// worth nothing and traversal count is everything.)
++fn bitpar_chunk_lane_width(n: usize, threads: usize) -> usize {
++    (1..=8)
++        .rev()
++        .find(|w| n.div_ceil(64 * w) >= threads)
++        .unwrap_or(1)
++}
++
++/// Single BFS from node 0 over the CSR. Returns `Some(eccentricity)` only when the
++/// sweep reaches every node, so a disconnected graph (where one root's eccentricity
++/// says nothing about the rest) declines the estimate instead of guessing.
++fn bitpar_probe_eccentricity(offsets: &[u32], targets: &[u32], n: usize) -> Option<usize> {
++    let mut distance = vec![u32::MAX; n];
++    let mut frontier = vec![0u32];
++    distance[0] = 0;
++    let mut ecc = 0usize;
++    let mut seen = 1usize;
++    let mut next = Vec::new();
++    while !frontier.is_empty() {
++        next.clear();
++        for &v in &frontier {
++            let (start, end) = (
++                offsets[v as usize] as usize,
++                offsets[v as usize + 1] as usize,
++            );
++            for &w in &targets[start..end] {
++                if distance[w as usize] == u32::MAX {
++                    distance[w as usize] = ecc as u32 + 1;
++                    seen += 1;
++                    next.push(w);
++                }
++            }
++        }
++        if next.is_empty() {
++            break;
++        }
++        ecc += 1;
++        std::mem::swap(&mut frontier, &mut next);
++    }
++    (seen == n).then_some(ecc)
++}
++
++/// Expected-loss gate for the chunked-parallel path — returns the lane width to
++/// use, or `None` to leave the per-source rayon path untouched.
++///
++/// A bit-parallel traversal re-scans a node's edges once per LEVEL at which some
++/// lane newly reaches it, so one chunk costs about `min(lanes, levels) * |E|`
++/// while the `lanes` per-source BFS sweeps it replaces cost `lanes * |E|`. The
++/// work it saves is therefore `lanes / min(lanes, levels)` — which is exactly 1
++/// (nothing) once `levels >= lanes`. That is the whole reason the earlier
++/// batch-parallel attempt regressed 0.27x on grid/1600: a 40x40 grid has ~78
++/// levels against 64 lanes, so it bought no edge-scan reduction and paid a 400x
++/// cut in parallelism. Meanwhile parallelism drops from `n` tasks to `chunks`.
++///
++/// So predict `speedup = (lanes / min(lanes, levels)) * (min(chunks, threads) / threads)`
++/// and only take the path when it clears a margin. `levels` is bounded above by
++/// `2 * ecc(0) + 1` (diameter <= twice any eccentricity); using the UPPER bound
++/// makes the estimate conservative — it can decline a win, never invite a loss.
++fn bitpar_chunked_lane_width_if_profitable(
++    offsets: &[u32],
++    targets: &[u32],
++    n: usize,
++    threads: usize,
++) -> Option<usize> {
++    let ecc = bitpar_probe_eccentricity(offsets, targets, n)?;
++    let levels_ub = 2 * ecc + 1;
++    let w = bitpar_chunk_lane_width(n, threads);
++    let lanes = 64 * w;
++    let chunks = n.div_ceil(lanes);
++    // Demand real edge-scan headroom (>=4x) and real parallelism, before the
++    // finer-grained expected-speedup test. Both guard the grid family out.
++    if levels_ub * 4 > lanes || chunks * 4 < threads {
++        return None;
++    }
++    let work_gain = lanes as f64 / levels_ub.min(lanes) as f64;
++    let utilisation = chunks.min(threads) as f64 / threads as f64;
++    (work_gain * utilisation >= 1.25).then_some(w)
++}
++
+ /// Bit-parallel all-pairs reverse BFS over a `u32` CSR (single-threaded), filling
+ /// `reached[s]` and driving `sink` for every source. The lane width `W` (1..=8,
+ /// 64..=512 sources per batch) is the widest that still covers all `n` sources —
+@@ -9655,17 +9869,38 @@ fn bitpar_reverse_bfs_all_sources<S: ReachSink>(
+     targets: &[u32],
+     n: usize,
+     reached: &mut [usize],
+-    sink: &mut S,
++    acc: &mut [S::Acc],
+ ) -> (usize, usize) {
+     match n.div_ceil(64).clamp(1, 8) {
+-        1 => bitpar_reverse_bfs_run::<1, S>(offsets, targets, n, reached, sink),
+-        2 => bitpar_reverse_bfs_run::<2, S>(offsets, targets, n, reached, sink),
+-        3 => bitpar_reverse_bfs_run::<3, S>(offsets, targets, n, reached, sink),
+-        4 => bitpar_reverse_bfs_run::<4, S>(offsets, targets, n, reached, sink),
+-        5 => bitpar_reverse_bfs_run::<5, S>(offsets, targets, n, reached, sink),
+-        6 => bitpar_reverse_bfs_run::<6, S>(offsets, targets, n, reached, sink),
+-        7 => bitpar_reverse_bfs_run::<7, S>(offsets, targets, n, reached, sink),
+-        _ => bitpar_reverse_bfs_run::<8, S>(offsets, targets, n, reached, sink),
++        1 => bitpar_reverse_bfs_run::<1, S>(offsets, targets, n, reached, acc),
++        2 => bitpar_reverse_bfs_run::<2, S>(offsets, targets, n, reached, acc),
++        3 => bitpar_reverse_bfs_run::<3, S>(offsets, targets, n, reached, acc),
++        4 => bitpar_reverse_bfs_run::<4, S>(offsets, targets, n, reached, acc),
++        5 => bitpar_reverse_bfs_run::<5, S>(offsets, targets, n, reached, acc),
++        6 => bitpar_reverse_bfs_run::<6, S>(offsets, targets, n, reached, acc),
++        7 => bitpar_reverse_bfs_run::<7, S>(offsets, targets, n, reached, acc),
++        _ => bitpar_reverse_bfs_run::<8, S>(offsets, targets, n, reached, acc),
++    }
++}
++
++/// Chunked-parallel twin of `bitpar_reverse_bfs_all_sources` at a chosen lane width.
++fn bitpar_reverse_bfs_all_sources_chunked<S: ReachSink>(
++    offsets: &[u32],
++    targets: &[u32],
++    n: usize,
++    lane_width: usize,
++    reached: &mut [usize],
++    acc: &mut [S::Acc],
++) -> (usize, usize) {
++    match lane_width {
++        1 => bitpar_reverse_bfs_run_parallel::<1, S>(offsets, targets, n, reached, acc),
++        2 => bitpar_reverse_bfs_run_parallel::<2, S>(offsets, targets, n, reached, acc),
++        3 => bitpar_reverse_bfs_run_parallel::<3, S>(offsets, targets, n, reached, acc),
++        4 => bitpar_reverse_bfs_run_parallel::<4, S>(offsets, targets, n, reached, acc),
++        5 => bitpar_reverse_bfs_run_parallel::<5, S>(offsets, targets, n, reached, acc),
++        6 => bitpar_reverse_bfs_run_parallel::<6, S>(offsets, targets, n, reached, acc),
++        7 => bitpar_reverse_bfs_run_parallel::<7, S>(offsets, targets, n, reached, acc),
++        _ => bitpar_reverse_bfs_run_parallel::<8, S>(offsets, targets, n, reached, acc),
+     }
+ }
+ 
+@@ -9677,8 +9912,21 @@ fn closeness_all_sources(
+     reached: &mut [usize],
+     sum_dist: &mut [usize],
+ ) -> (usize, usize) {
+-    let mut sink = ClosenessSink { sum_dist };
+-    bitpar_reverse_bfs_all_sources(offsets, targets, n, reached, &mut sink)
++    bitpar_reverse_bfs_all_sources::<ClosenessSink>(offsets, targets, n, reached, sum_dist)
++}
++
++/// Chunked-parallel closeness sweep (br-r37-c1-x0jz8).
++fn closeness_all_sources_chunked(
++    offsets: &[u32],
++    targets: &[u32],
++    n: usize,
++    lane_width: usize,
++    reached: &mut [usize],
++    sum_dist: &mut [usize],
++) -> (usize, usize) {
++    bitpar_reverse_bfs_all_sources_chunked::<ClosenessSink>(
++        offsets, targets, n, lane_width, reached, sum_dist,
++    )
+ }
+ 
+ /// Fill `reached[s]` and `harmonic[s]` for every source (harmonic centrality).
+@@ -9689,8 +9937,7 @@ fn harmonic_all_sources(
+     reached: &mut [usize],
+     harmonic: &mut [f64],
+ ) -> (usize, usize) {
+-    let mut sink = HarmonicSink { harmonic };
+-    bitpar_reverse_bfs_all_sources(offsets, targets, n, reached, &mut sink)
++    bitpar_reverse_bfs_all_sources::<HarmonicSink>(offsets, targets, n, reached, harmonic)
+ }
+ 
+ /// Computes the average shortest path length of an undirected graph.
+@@ -44244,6 +44491,198 @@ mod bitpar_closeness_tests {
+         }
+     }
+ 
++    /// Hub-and-spoke: eccentricity 1 from node 0, diameter 2 — the low-diameter
++    /// shape the chunked-parallel gate is meant to accept.
++    fn hub(n: usize) -> Graph {
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 1..n {
++            let _ = g.add_edge(0.to_string(), i.to_string());
++        }
++        g
++    }
++
++    fn csr_of(g: &Graph) -> (Vec<u32>, Vec<u32>) {
++        let n = g.node_count();
++        let rows: Vec<&[usize]> = (0..n)
++            .map(|u| super::GraphView::in_neighbors_indices(g, u).expect("integer row"))
++            .collect();
++        super::build_u32_csr(n, |u| rows[u])
++    }
++
++    #[test]
++    fn chunked_parallel_matches_sequential_kernel_at_every_lane_width() {
++        // br-r37-c1-x0jz8. The chunked driver re-indexes results CHUNK-RELATIVE
++        // while still resolving source NODES absolutely via s0. Drop the `s0 +`
++        // from the node init, or the `lane*64` from the attribution, and this
++        // fails — the two indexings must stay independent.
++        let g = grid(24, 25); // n = 600 > one W=8 batch (512)
++        let n = g.node_count();
++        let (offsets, targets) = csr_of(&g);
++
++        let mut want_reached = vec![0usize; n];
++        let mut want_sum = vec![0usize; n];
++        let want_witness =
++            closeness_all_sources(&offsets, &targets, n, &mut want_reached, &mut want_sum);
++
++        for w in 1..=8 {
++            let mut got_reached = vec![0usize; n];
++            let mut got_sum = vec![0usize; n];
++            let got_witness = super::closeness_all_sources_chunked(
++                &offsets,
++                &targets,
++                n,
++                w,
++                &mut got_reached,
++                &mut got_sum,
++            );
++            assert_eq!(
++                got_reached, want_reached,
++                "reached mismatch at lane width {w}"
++            );
++            assert_eq!(got_sum, want_sum, "sum_dist mismatch at lane width {w}");
++            // edges_scanned depends on the chunk boundaries, so it only matches
++            // the sequential run at the width the sequential run itself used.
++            if w == n.div_ceil(64).clamp(1, 8) {
++                assert_eq!(
++                    got_witness, want_witness,
++                    "witness mismatch at lane width {w}"
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn every_arm_agrees_bit_for_bit_above_the_parallel_threshold() {
++        for (label, g) in [("grid n=600", grid(24, 25)), ("hub n=600", hub(600))] {
++            assert!(g.node_count() >= CENTRALITY_PARALLEL_THRESHOLD);
++            let per_source = super::closeness_centrality_arm(&g, super::ClosenessArm::PerSource);
++            for arm in [
++                super::ClosenessArm::Auto,
++                super::ClosenessArm::ChunkedBitpar,
++            ] {
++                let got = super::closeness_centrality_arm(&g, arm);
++                assert_eq!(got.scores.len(), per_source.scores.len(), "{label} {arm:?}");
++                for (a, b) in got.scores.iter().zip(per_source.scores.iter()) {
++                    assert_eq!(a.node, b.node, "{label} {arm:?}: node order");
++                    assert_eq!(
++                        a.score.to_bits(),
++                        b.score.to_bits(),
++                        "{label} {arm:?}: score at {} — got {} want {}",
++                        a.node,
++                        a.score,
++                        b.score
++                    );
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn gate_rejects_high_diameter_and_accepts_low_diameter() {
++        // Threads is passed explicitly so the decision does not depend on the
++        // machine the test runs on.
++        let threads = 4;
++        let g = grid(24, 25);
++        let (offsets, targets) = csr_of(&g);
++        assert_eq!(
++            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, threads),
++            None,
++            "a 24x25 grid has ~47 levels against <=192 lanes: no edge-scan headroom, \
++             and it is exactly the shape the 0.27x batch-parallel attempt regressed on"
++        );
++
++        let g = hub(600);
++        let (offsets, targets) = csr_of(&g);
++        assert!(
++            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, threads)
++                .is_some(),
++            "eccentricity 1 from the hub: levels <= 3 against 192 lanes"
++        );
++    }
++
++    #[test]
++    fn gate_declines_when_the_probe_cannot_see_every_node() {
++        // Two disjoint hubs: BFS from node 0 covers half the graph, so one root's
++        // eccentricity says nothing about the rest and the estimate is refused.
++        let mut g = hub(300);
++        for i in 300..600 {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 301..600 {
++            let _ = g.add_edge(300.to_string(), i.to_string());
++        }
++        let (offsets, targets) = csr_of(&g);
++        assert_eq!(
++            super::bitpar_chunked_lane_width_if_profitable(&offsets, &targets, 600, 4),
++            None
++        );
++    }
++
++    /// Mirrors `benches/algorithm_benchmarks.rs::build_low_diameter(2000, 8000)`.
++    fn bench_low_diameter(n: usize, extra: usize) -> Graph {
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(i.to_string());
++        }
++        let mut x: u64 = 0x2545_F491_4F6C_DD1D;
++        let mut next = || {
++            x ^= x << 13;
++            x ^= x >> 7;
++            x ^= x << 17;
++            x
++        };
++        for i in 1..n {
++            let parent = (next() as usize) % i;
++            let _ = g.add_edge(i.to_string(), parent.to_string());
++        }
++        for _ in 0..extra {
++            let (u, v) = ((next() as usize) % n, (next() as usize) % n);
++            if u != v {
++                let _ = g.add_edge(u.to_string(), v.to_string());
++            }
++        }
++        g
++    }
++
++    /// LEDGER-INTEGRITY (frankenmermaid 5feb977): an A/B row is worthless if the
++    /// arm under test never executes on that input. The benchmark runs on a remote
++    /// worker whose core count we do not control, and the gate's answer depends on
++    /// it — so pin the decision for EVERY plausible thread count. This is what lets
++    /// the ledger say which path `auto` actually took on each bench workload.
++    #[test]
++    fn bench_workloads_take_the_path_the_ledger_claims_at_any_thread_count() {
++        let grid_1600 = grid(40, 40);
++        let (go, gt) = csr_of(&grid_1600);
++        let lowdiam = bench_low_diameter(2000, 8000);
++        let (lo, lt) = csr_of(&lowdiam);
++        assert_eq!(grid_1600.node_count(), 1600);
++        assert_eq!(lowdiam.node_count(), 2000);
++
++        for threads in 1..=128 {
++            assert_eq!(
++                super::bitpar_chunked_lane_width_if_profitable(&go, &gt, 1600, threads),
++                None,
++                "grid_1600 must DECLINE at {threads} threads: auto == per-source there"
++            );
++            assert!(
++                super::bitpar_chunked_lane_width_if_profitable(&lo, &lt, 2000, threads).is_some(),
++                "lowdiam_2000 must ACCEPT at {threads} threads: auto == chunked there"
++            );
++        }
++    }
++
++    #[test]
++    fn chunk_lane_width_keeps_the_pool_saturated() {
++        // Widest W that still leaves >= threads chunks; falls back to 1 when even
++        // 64 lanes cannot produce that many.
++        assert_eq!(super::bitpar_chunk_lane_width(100_000, 64), 8); // ceil(1e5/512)=196 >= 64
++        assert_eq!(super::bitpar_chunk_lane_width(600, 64), 1); // ceil(600/64)=10 < 64 -> floor
++        assert_eq!(super::bitpar_chunk_lane_width(600, 4), 3); // ceil(600/192)=4 >= 4
++    }
++
+     #[test]
+     fn empty_graph_is_empty() {
+         assert!(closeness_centrality(&Graph::strict()).scores.is_empty());

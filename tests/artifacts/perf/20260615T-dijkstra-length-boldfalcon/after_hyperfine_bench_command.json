@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260615T-dijkstra-pred-boldfalcon/dijkstra_family_pass.py --mode bench --runs 7 --warmup 2 --no-write",
+      "mean": 0.5458752179,
+      "stddev": 0.02580063115937461,
+      "median": 0.5474558962,
+      "user": 4.533402720000001,
+      "system": 0.66795866,
+      "min": 0.5146112732,
+      "max": 0.5942084992,
+      "times": [
+        0.5232387672,
+        0.5507020762,
+        0.5246618832,
+        0.5146112732,
+        0.5193281882,
+        0.5613246802,
+        0.5942084992,
+        0.5716884862,
+        0.5547786092,
+        0.5442097162
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

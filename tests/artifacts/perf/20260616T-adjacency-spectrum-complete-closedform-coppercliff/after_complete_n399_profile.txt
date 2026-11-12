@@ -1,0 +1,34 @@
+         3501 function calls in 0.523 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.045    0.000    0.523    0.005 <stdin>:34(one_fnx)
+      100    0.000    0.000    0.458    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19606(complete_graph)
+      100    0.456    0.005    0.456    0.005 {built-in method franken_networkx._fnx.complete_graph}
+      100    0.000    0.000    0.021    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53341(wrapper)
+      100    0.000    0.000    0.020    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22663(adjacency_spectrum)
+      100    0.001    0.000    0.019    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22631(_complete_adjacency_spectrum_sorted_value_safe)
+      100    0.018    0.000    0.018    0.000 {method '_native_is_complete_unweighted_graph' of 'franken_networkx.Graph' objects}
+      100    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22599(_star_adjacency_spectrum_raw_order_safe)
+      100    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48830(_nodes_or_number_local)
+      200    0.000    0.000    0.001    0.000 {built-in method builtins.len}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37234(__len__)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      100    0.000    0.000    0.000    0.000 {built-in method numpy.empty}
+      100    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+      100    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37491(number_of_edges)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36671(_private_override)
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      100    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+      100    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36679(_has_networkx_private_storage)
+      100    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x744a1e2b80e0}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:24368(_validate_backend_dispatch_keywords)
+      200    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

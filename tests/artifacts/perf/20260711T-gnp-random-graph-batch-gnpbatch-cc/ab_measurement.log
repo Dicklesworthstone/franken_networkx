@@ -1,0 +1,5 @@
+GNP_BATCH_AB n=800 edges=31920 rounds=61 (>1 = batch faster)
+GNP_BATCH_AB INSERT_batch_vs_string: median=31.0976x win_rate=61/61 p5_p95=[20.4142,47.8363]
+GNP_BATCH_AB NULL_batch_vs_batch: median=1.0264x win_rate=35/61 p5_p95=[0.8338,1.2291]
+GNP_BATCH_AB E2E_batch_vs_string: median=13.1986x win_rate=61/61 p5_p95=[9.1338,16.9519]
+parity: edges_ordered_borrowed + nodes_ordered IDENTICAL (insertion + end-to-end) -> byte-identical

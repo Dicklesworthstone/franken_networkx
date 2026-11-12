@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "doc-pass-02-symbol-api-census-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "census_summary",
+    "subsystem_families",
+    "symbol_inventory",
+    "high_regression_symbols",
+    "risk_notes",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "optimization_lever_policy",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_summary_keys": [
+    "workspace_crate_count",
+    "symbol_count_total",
+    "public_symbol_count",
+    "internal_symbol_count",
+    "high_regression_count"
+  ],
+  "required_family_keys": [
+    "family_id",
+    "description",
+    "crates",
+    "public_symbol_count",
+    "internal_symbol_count",
+    "high_regression_count"
+  ],
+  "required_symbol_keys": [
+    "symbol_id",
+    "crate_name",
+    "subsystem_family",
+    "module_path",
+    "line",
+    "symbol_name",
+    "symbol_kind",
+    "visibility",
+    "api_surface",
+    "stability_tier",
+    "regression_risk",
+    "rationale",
+    "test_bindings",
+    "replay_command"
+  ],
+  "required_risk_note_keys": [
+    "note_id",
+    "symbol_id",
+    "risk_level",
+    "reason",
+    "mitigation",
+    "baseline_comparator"
+  ],
+  "required_decision_contract_keys": [
+    "states",
+    "actions",
+    "loss_model",
+    "loss_budget",
+    "safe_mode_fallback"
+  ]
+}

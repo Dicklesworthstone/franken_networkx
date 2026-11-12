@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <gread_graphmltatic" defaultedgetype="directed">
+    <attribut">
+    <attrass="node">
+      <attribute id="5" title="color" tmode="static" default="0" title="color" type="string"/>
+    </attributes>
+    <attributes class=ype="string"/>
+    </attributes>
+    ta<tributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </atqributes>
+    <nodes>
+      <node id?"s" label=e0" source="svalues>
+      </edge>
+    </edges>
+  </graph>
+</gexf>

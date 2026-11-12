@@ -1,0 +1,6 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib cartesian_product_directed -- --nocapture
+test tests::test_cartesian_product_directed_path ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 967 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: the run reports the same ~12 PRE-EXISTING peer clippy -D warnings errors (collapsible_if + doc-list-indentation in other agents A/B tests) surfaced by a newer clippy; NONE fall in this lever ranges (production 39659-39685, test 66405-66523) — grep-verified empty. Left untouched per shared-checkout discipline; this lever adds no new findings.

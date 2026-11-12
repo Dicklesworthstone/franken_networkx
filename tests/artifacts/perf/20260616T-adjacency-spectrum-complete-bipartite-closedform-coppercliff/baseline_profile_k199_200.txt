@@ -1,0 +1,39 @@
+         311335 function calls (301191 primitive calls) in 15.255 seconds
+
+   Ordered by: internal time
+   List reduced from 1360 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3   14.685    4.895   14.686    4.895 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:114(eig)
+        3    0.184    0.061    0.184    0.061 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+       83    0.042    0.001    0.042    0.001 {built-in method numpy.array}
+       48    0.030    0.001    0.030    0.001 {built-in method numpy.asarray}
+       26    0.026    0.001    0.026    0.001 {built-in method _imp.create_dynamic}
+      182    0.025    0.000    0.025    0.000 {built-in method marshal.loads}
+        6    0.014    0.002    0.014    0.002 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+      107    0.010    0.000    0.014    0.000 /usr/lib/python3.13/inspect.py:891(cleandoc)
+    26/20    0.009    0.000    0.018    0.001 {built-in method _imp.exec_dynamic}
+   635/88    0.007    0.000    0.024    0.000 /usr/lib/python3.13/re/_parser.py:511(_parse)
+        6    0.007    0.001    0.007    0.001 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+  1158/83    0.007    0.000    0.014    0.000 /usr/lib/python3.13/re/_compiler.py:37(_compile)
+      221    0.007    0.000    0.007    0.000 {built-in method builtins.eval}
+    21866    0.006    0.000    0.006    0.000 {method 'append' of 'list' objects}
+      832    0.005    0.000    0.005    0.000 {built-in method posix.stat}
+        3    0.005    0.002   15.256    5.085 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22754(adjacency_spectrum)
+42548/41366    0.005    0.000    0.005    0.000 {built-in method builtins.len}
+      100    0.004    0.000    0.009    0.000 /usr/lib/python3.13/inspect.py:2383(_signature_from_function)
+     1188    0.004    0.000    0.004    0.000 {method 'sub' of 're.Pattern' objects}
+      722    0.004    0.000    0.004    0.000 {method 'findall' of 're.Pattern' objects}
+      182    0.003    0.000    0.029    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+  3067/78    0.003    0.000    0.008    0.000 /usr/lib/python3.13/copy.py:119(deepcopy)
+       52    0.003    0.000    0.005    0.000 <frozen abc>:105(__new__)
+     1277    0.003    0.000    0.009    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:67(read_to_condition)
+      218    0.003    0.000    0.016    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+        6    0.003    0.001    0.003    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37327(__iter__)
+      182    0.003    0.000    0.003    0.000 {built-in method _io.open_code}
+      922    0.003    0.000    0.007    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:168(_is_at_section)
+        5    0.003    0.001    0.003    0.001 {method 'copy' of 'dict' objects}
+       56    0.003    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/getlimits.py:436(max)
+
+
+

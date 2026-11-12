@@ -1,0 +1,432 @@
+  [2m2026-07-10T17:51:58.166980Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: hz2 at root@178.104.77.29 (0 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:867 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:51:58.481669Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 5ed771bfef82b38f)[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:241 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:51:58.481721Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:263 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:01.543140Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mSyncing project to worker hz2...[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:323 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:01.543193Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:12.934612Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 11391ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:12.934686Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:14.858201Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1923ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:14.858277Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:16.699010Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1840ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:16.699103Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:18.571974Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1872ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:18.572064Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:20.451533Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1879ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:20.451606Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:22.329862Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1878ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:22.329997Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:24.203292Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1873ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:24.203399Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:26.055779Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1852ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:26.055886Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:27.923425Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1867ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:27.923538Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:29.805246Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1881ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:29.805320Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:31.682162Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1876ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:31.682232Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:33.516500Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1834ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:33.516597Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:1610 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:35.393658Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1877ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1674 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:35.393711Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mSync complete: 87378 files, 9977626 bytes in 33843ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:486 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:39.461143Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo bench -p fnx-python --bench public_api_gauntlet -- multigraph_bidirectional_dijkstra_string_target --sample-size 10 --warm-up-time 0.3 --measurement-time 1.0[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:529 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:52:39.461192Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/projects/franken_networkx/target -> /data/projects/franken_networkx/.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7[0m
+    [2;3mat[0m rch/src/transfer.rs:856 [2;3mon[0m ThreadId(1)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded arrayref v0.3.9
+  Downloaded alloca v0.4.0
+  Downloaded anes v0.1.6
+  Downloaded equivalent v1.0.2
+  Downloaded cast v0.3.0
+  Downloaded anstyle v1.0.14
+  Downloaded either v1.15.0
+  Downloaded arc-swap v1.9.1
+  Downloaded zerocopy-derive v0.8.48
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded clap v4.6.1
+  Downloaded ciborium-io v0.2.2
+  Downloaded errno v0.3.14
+  Downloaded ciborium-ll v0.2.2
+  Downloaded unarray v0.1.4
+  Downloaded bit-set v0.8.0
+  Downloaded cfg-if v1.0.4
+  Downloaded inventory v0.3.24
+  Downloaded quick-error v1.2.3
+  Downloaded rustc-hash v2.1.2
+  Downloaded clap_lex v1.1.0
+  Downloaded page_size v0.6.0
+  Downloaded pyo3-macros v0.28.3
+  Downloaded wait-timeout v0.2.1
+  Downloaded rand_xorshift v0.4.0
+  Downloaded fnv v1.0.7
+  Downloaded hex v0.4.3
+  Downloaded heck v0.5.0
+  Downloaded itoa v1.0.18
+  Downloaded plotters-svg v0.3.7
+  Downloaded crossbeam-deque v0.8.6
+  Downloaded constant_time_eq v0.4.2
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded same-file v1.0.6
+  Downloaded mt19937 v3.3.0
+  Downloaded plotters-backend v0.3.7
+  Downloaded cpufeatures v0.3.0
+  Downloaded mwmatching v0.1.1
+  Downloaded rand_core v0.10.1
+  Downloaded rusty-fork v0.3.1
+  Downloaded autocfg v1.5.0
+  Downloaded target-lexicon v0.13.5
+  Downloaded walkdir v2.5.0
+  Downloaded arrayvec v0.7.6
+  Downloaded quote v1.0.45
+  Downloaded shlex v1.3.0
+  Downloaded rand_core v0.9.5
+  Downloaded chacha20 v0.10.0
+  Downloaded tinytemplate v1.2.1
+  Downloaded criterion-plot v0.8.2
+  Downloaded oorandom v11.1.5
+  Downloaded aho-corasick v1.1.4
+  Downloaded crossbeam-epoch v0.9.18
+  Downloaded zmij v1.0.21
+  Downloaded tempfile v3.27.0
+  Downloaded pyo3-build-config v0.28.3
+  Downloaded rustversion v1.0.22
+  Downloaded ciborium v0.2.2
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded pyo3-log v0.13.3
+  Downloaded fastrand v2.4.1
+  Downloaded once_cell v1.21.4
+  Downloaded half v2.7.1
+  Downloaded rand_chacha v0.9.0
+  Downloaded bit-vec v0.8.0
+  Downloaded serde_core v1.0.228
+  Downloaded bitflags v2.13.0
+  Downloaded getrandom v0.4.2
+  Downloaded getrandom v0.3.4
+  Downloaded serde_derive v1.0.228
+  Downloaded unicode-ident v1.0.24
+  Downloaded num-traits v0.2.19
+  Downloaded proc-macro2 v1.0.106
+  Downloaded pyo3-ffi v0.28.3
+  Downloaded log v0.4.29
+  Downloaded serde v1.0.228
+  Downloaded rayon-core v1.13.0
+  Downloaded pyo3-macros-backend v0.28.3
+  Downloaded cc v1.2.61
+  Downloaded indexmap v2.14.0
+  Downloaded rand v0.9.4
+  Downloaded clap_builder v4.6.0
+  Downloaded rand v0.10.1
+  Downloaded memchr v2.8.2
+  Downloaded criterion v0.8.2
+  Downloaded itertools v0.13.0
+  Downloaded regex v1.12.3
+  Downloaded serde_json v1.0.150
+  Downloaded hashbrown v0.17.0
+  Downloaded plotters v0.3.7
+  Downloaded rayon v1.12.0
+  Downloaded proptest v1.11.0
+  Downloaded quick-xml v0.39.2
+  Downloaded blake3 v1.8.4
+  Downloaded syn v2.0.117
+  Downloaded zerocopy v0.8.48
+  Downloaded regex-syntax v0.8.10
+  Downloaded rustix v1.1.4
+  Downloaded regex-automata v0.4.14
+  Downloaded libc v0.2.186
+  Downloaded pyo3 v0.28.3
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+   Compiling cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling target-lexicon v0.13.5
+   Compiling zmij v1.0.21
+   Compiling serde v1.0.228
+   Compiling memchr v2.8.2
+   Compiling serde_json v1.0.150
+   Compiling itoa v1.0.18
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling crossbeam-utils v0.8.21
+   Compiling zerocopy v0.8.48
+   Compiling hashbrown v0.17.0
+   Compiling equivalent v1.0.2
+   Compiling cpufeatures v0.3.0
+   Compiling getrandom v0.3.4
+   Compiling cc v1.2.61
+   Compiling rustc-hash v2.1.2
+   Compiling rand_core v0.10.1
+   Compiling rayon-core v1.13.0
+   Compiling either v1.15.0
+   Compiling once_cell v1.21.4
+   Compiling autocfg v1.5.0
+   Compiling heck v0.5.0
+   Compiling rustversion v1.0.22
+   Compiling getrandom v0.4.2
+   Compiling rustix v1.1.4
+   Compiling constant_time_eq v0.4.2
+   Compiling regex-syntax v0.8.10
+   Compiling arrayref v0.3.9
+   Compiling arrayvec v0.7.6
+   Compiling bitflags v2.13.0
+   Compiling linux-raw-sys v0.12.1
+   Compiling num-traits v0.2.19
+   Compiling crossbeam-epoch v0.9.18
+   Compiling pyo3-build-config v0.28.3
+   Compiling indexmap v2.14.0
+   Compiling syn v2.0.117
+   Compiling chacha20 v0.10.0
+   Compiling mt19937 v3.3.0
+   Compiling ciborium-io v0.2.2
+   Compiling clap_lex v1.1.0
+   Compiling crossbeam-deque v0.8.6
+   Compiling anstyle v1.0.14
+   Compiling inventory v0.3.24
+   Compiling plotters-backend v0.3.7
+   Compiling hex v0.4.3
+   Compiling fastrand v2.4.1
+   Compiling clap_builder v4.6.0
+   Compiling wait-timeout v0.2.1
+   Compiling rand_core v0.9.5
+   Compiling plotters-svg v0.3.7
+   Compiling arc-swap v1.9.1
+   Compiling rand v0.10.1
+   Compiling quick-xml v0.39.2
+   Compiling blake3 v1.8.4
+   Compiling alloca v0.4.0
+   Compiling itertools v0.13.0
+   Compiling log v0.4.29
+   Compiling bit-vec v0.8.0
+   Compiling quick-error v1.2.3
+   Compiling mwmatching v0.1.1
+   Compiling rayon v1.12.0
+   Compiling cast v0.3.0
+   Compiling same-file v1.0.6
+   Compiling fnv v1.0.7
+   Compiling bit-set v0.8.0
+   Compiling walkdir v2.5.0
+   Compiling plotters v0.3.7
+   Compiling rand v0.9.4
+   Compiling rand_xorshift v0.4.0
+   Compiling page_size v0.6.0
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling pyo3-ffi v0.28.3
+   Compiling pyo3 v0.28.3
+   Compiling regex-automata v0.4.14
+   Compiling anes v0.1.6
+   Compiling unarray v0.1.4
+   Compiling oorandom v11.1.5
+   Compiling tempfile v3.27.0
+   Compiling rusty-fork v0.3.1
+   Compiling criterion-plot v0.8.2
+   Compiling clap v4.6.1
+   Compiling serde_derive v1.0.228
+   Compiling zerocopy-derive v0.8.48
+   Compiling regex v1.12.3
+   Compiling pyo3-macros v0.28.3
+   Compiling fnx-runtime v0.2.0 (/data/projects/franken_networkx/crates/fnx-runtime)
+   Compiling fnx-cgse v0.2.0 (/data/projects/franken_networkx/crates/fnx-cgse)
+   Compiling tinytemplate v1.2.1
+   Compiling fnx-classes v0.2.0 (/data/projects/franken_networkx/crates/fnx-classes)
+   Compiling fnx-dispatch v0.2.0 (/data/projects/franken_networkx/crates/fnx-dispatch)
+   Compiling half v2.7.1
+   Compiling ppv-lite86 v0.2.21
+   Compiling ciborium-ll v0.2.2
+   Compiling rand_chacha v0.9.0
+   Compiling ciborium v0.2.2
+   Compiling proptest v1.11.0
+   Compiling fnx-readwrite v0.2.0 (/data/projects/franken_networkx/crates/fnx-readwrite)
+   Compiling fnx-views v0.2.0 (/data/projects/franken_networkx/crates/fnx-views)
+   Compiling fnx-algorithms v0.2.0 (/data/projects/franken_networkx/crates/fnx-algorithms)
+   Compiling fnx-convert v0.2.0 (/data/projects/franken_networkx/crates/fnx-convert)
+   Compiling fnx-generators v0.2.0 (/data/projects/franken_networkx/crates/fnx-generators)
+   Compiling criterion v0.8.2
+   Compiling pyo3-log v0.13.3
+   Compiling fnx-python v0.2.0 (/data/projects/franken_networkx/crates/fnx-python)
+    Finished `bench` profile [optimized] target(s) in 2m 31s
+     Running benches/public_api_gauntlet.rs (.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7/release/deps/public_api_gauntlet-f3fd2d3cc0c8b9da)
+Gnuplot not found, using plotters backend
+fnx bench cpu: 15
+fnx bench extension: /data/projects/franken_networkx/.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7/release/deps/lib_fnx.so sha256=2953a149407410ab7e1c86b52962da8ae1f9aeb94dc531e51f4c3614c19b2837
+PROFILE_INTEGRITY scenario=multigraph_shortest_path_string_target_current host=hetzner2 cpu=15 calls=64 self_s=0.006694501 self_pct=14.831173 checksum=5376.0
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.036714545 self_pct=81.338366 calls=64 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.006694501 self_pct=14.831173 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000251717 self_pct=0.557660 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000207497 self_pct=0.459694 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8730:shortest_path'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000202715 self_pct=0.449100 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000131771 self_pct=0.291929 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000108459 self_pct=0.240283 calls=704 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000105760 self_pct=0.234303 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000101212 self_pct=0.224228 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000084349 self_pct=0.186869 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000081239 self_pct=0.179979 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000065451 self_pct=0.145002 calls=320 code='<built-in method builtins.vars>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000063643 self_pct=0.140996 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1388:<lambda>'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000050520 self_pct=0.111923 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:15019:_coerce_arg_to_fnx_graph'
+PROFILE_FRAME scenario=multigraph_shortest_path_string_target_current self_s=0.000048900 self_pct=0.108334 calls=1 code="<method 'disable' of '_lsprof.Profiler' objects>"
+PROFILE_INTEGRITY scenario=multigraph_bidirectional_dijkstra_string_target_current host=hetzner2 cpu=15 calls=64 self_s=0.006755102 self_pct=14.975590 checksum=10688.0
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.037043430 self_pct=82.122703 calls=64 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.006755102 self_pct=14.975590 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000284175 self_pct=0.629996 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000144540 self_pct=0.320435 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000142910 self_pct=0.316822 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000101911 self_pct=0.225930 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000084980 self_pct=0.188395 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000084238 self_pct=0.186750 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000076715 self_pct=0.170072 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1396:<lambda>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000061709 self_pct=0.136805 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000059950 self_pct=0.132905 calls=320 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000048214 self_pct=0.106887 calls=192 code='<built-in method builtins.vars>'
+PROFILE_FRAME scenario=multigraph_bidirectional_dijkstra_string_target_current self_s=0.000045550 self_pct=0.100981 calls=1 code="<method 'disable' of '_lsprof.Profiler' objects>"
+PROFILE_INTEGRITY scenario=multigraph_shortest_path_dispatch_candidate host=hetzner2 cpu=15 calls=64 self_s=0.037391943 self_pct=80.627044 checksum=5376.0
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.037391943 self_pct=80.627044 calls=64 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.007069472 self_pct=15.243675 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000286563 self_pct=0.617907 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000226311 self_pct=0.487987 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8730:shortest_path'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000203510 self_pct=0.438822 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000134940 self_pct=0.290967 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000134504 self_pct=0.290027 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000123098 self_pct=0.265432 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000120359 self_pct=0.259526 calls=704 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000090304 self_pct=0.194720 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000080492 self_pct=0.173562 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000067239 self_pct=0.144985 calls=320 code='<built-in method builtins.vars>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000062900 self_pct=0.135629 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:15019:_coerce_arg_to_fnx_graph'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000060741 self_pct=0.130974 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1404:candidate_multigraph_shortest_path_dispatch_once'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_candidate self_s=0.000046470 self_pct=0.100202 calls=1 code="<method 'disable' of '_lsprof.Profiler' objects>"
+PROFILE_INTEGRITY scenario=multigraph_shortest_path_dispatch_orig host=hetzner2 cpu=15 calls=128 self_s=0.074357565 self_pct=88.567933 checksum=5376.0
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.074357565 self_pct=88.567933 calls=128 code='<built-in method franken_networkx._fnx.check_dijkstra_edge_weights_fast>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.007438618 self_pct=8.860202 calls=64 code='<built-in method franken_networkx._fnx.bidirectional_dijkstra>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000298949 self_pct=0.356081 calls=64 code='/data/projects/franken_networkx/crates/fnx-python/benches/public_api_gauntlet.py:1430:_orig_shortest_path_5abbfd8a4_template'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000272588 self_pct=0.324682 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:30326:bidirectional_dijkstra'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000232444 self_pct=0.276866 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:43120:__contains__'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000164850 self_pct=0.196354 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7989:_should_delegate_dijkstra_to_networkx'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000162589 self_pct=0.193661 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:60301:wrapper'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000144201 self_pct=0.171759 calls=64 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:8110:_sync_rust_edge_attrs'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000129591 self_pct=0.154357 calls=704 code='<built-in method builtins.isinstance>'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000109070 self_pct=0.129914 calls=256 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:42400:_private_override'
+PROFILE_FRAME scenario=multigraph_shortest_path_dispatch_orig self_s=0.000093479 self_pct=0.111344 calls=128 code='/data/projects/franken_networkx/python/franken_networkx/__init__.py:7146:predicate'
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 1.0s. You may wish to increase target time to 2.8s.
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx: Collecting 10 samples in estimated 2.8391 s (10 iterations)
+Benchmarking multigraph_bidirectional_dijkstra_string_target/fnx: Analyzing
+multigraph_bidirectional_dijkstra_string_target/fnx
+                        time:   [287.30 ms 290.78 ms 295.91 ms]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high severe
+
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 1.0s. You may wish to increase target time to 62.6s.
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig: Collecting 10 samples in estimated 62.571 s (10 iterations)
+Benchmarking multigraph_bidirectional_dijkstra_string_target/orig: Analyzing
+multigraph_bidirectional_dijkstra_string_target/orig
+                        time:   [6.2369 s 6.3134 s 6.4086 s]
+Found 1 outliers among 10 measurements (10.00%)
+  1 (10.00%) high mild
+
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx: Warming up for 300.00 ms
+
+Warning: Unable to complete 10 samples in 1.0s. You may wish to increase target time to 2.8s.
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx: Collecting 10 samples in estimated 2.7713 s (10 iterations)
+Benchmarking multigraph_bidirectional_dijkstra_string_target/networkx: Analyzing
+multigraph_bidirectional_dijkstra_string_target/networkx
+                        time:   [269.98 ms 273.46 ms 277.30 ms]
+
+  [2m2026-07-10T17:56:41.854631Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mRemote command finished: exit=0 in 242393ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:653 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:41.854958Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:702 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:41.854985Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:2328 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:44.255798Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2400ms (1 files, 2917 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2383 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:44.255832Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mArtifacts retrieved: 1 files, 2917 bytes in 2400ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:735 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:44.256021Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx/.rch-target-hz2-pool-4a7eb17ce3437e25aacd2701aa3351d7 on hz2[0m
+    [2;3mat[0m rch/src/transfer.rs:2328 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:46.313689Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2057ms (71 files, 4997 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2383 [2;3mon[0m ThreadId(1)
+
+  [2m2026-07-10T17:56:46.313721Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 71 files, 4997 bytes in 2057ms[0m
+    [2;3mat[0m rch/src/hook/transfer_orchestration.rs:859 [2;3mon[0m ThreadId(1)
+
+[RCH] remote hz2 (288.1s)

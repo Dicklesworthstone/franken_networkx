@@ -1,0 +1,220 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 92cdc4e30..08e06f039 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -25986,34 +25986,77 @@ pub fn could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+         return false;
+     }
+ 
+-    // Compare triangle counts per node (sorted)
+-    let mut tri1: Vec<usize> = nodes1
+-        .iter()
+-        .map(|&node| {
+-            let mut count = 0;
+-            if let Some(nbrs) = g1.neighbors(node) {
+-                let nbr_set: HashSet<&str> = nbrs.iter().copied().collect();
+-                for &nbr in &nbrs {
+-                    if let Some(nbr_nbrs) = g1.neighbors(nbr) {
+-                        for &nn in &nbr_nbrs {
+-                            if nbr_set.contains(nn) && nn > nbr {
+-                                count += 1;
+-                            }
+-                        }
++    // Compare triangle counts per node (sorted). br-r37-c1-isotri (cc): the
++    // per-node triangle count runs on integer adjacency + a reusable mark array
++    // instead of a per-node `HashSet<&str>` build, per-neighbour `Vec<&str>`
++    // alloc, and string `contains`/`>` probes — the same O(|V|·d^2) shape the
++    // `triangles` mark-array lever fixed, here paid once per graph.
++    let mut tri1 = could_be_isomorphic_triangle_counts(g1);
++    let mut tri2 = could_be_isomorphic_triangle_counts(g2);
++    tri1.sort_unstable();
++    tri2.sort_unstable();
++    if tri1 != tri2 {
++        return false;
++    }
++
++    true
++}
++
++/// br-r37-c1-isotri: per-node triangle counts for `could_be_isomorphic`, returned
++/// in `nodes_ordered()` order.
++///
++/// Integer-adjacency + reusable mark-array kernel: for each node `u`, mark its
++/// neighbour set in `in_nbrs`, then count the `(nbr, nn)` pairs with `nbr ∈ N(u)`,
++/// `nn ∈ N(nbr)`, `nn ∈ N(u)`, and `nn` ordered after `nbr` — i.e. the number of
++/// intra-ego edges, which is exactly the number of triangles through `u`.
++///
++/// Byte-identical to the old string kernel: the triangle count through a node is
++/// the count of edges within its neighbourhood, and requiring `nn > nbr` selects
++/// each such edge exactly once under ANY total order on the endpoints. Switching
++/// the tie-break from lexicographic name order to integer-index order therefore
++/// leaves every per-node count unchanged (asserted equal in-test).
++fn could_be_isomorphic_triangle_counts(graph: &Graph) -> Vec<usize> {
++    let n = graph.node_count();
++    let mut counts = vec![0usize; n];
++    let mut in_nbrs = vec![false; n];
++    for u in 0..n {
++        let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
++        for &x in nbrs_u {
++            in_nbrs[x] = true;
++        }
++        let mut count = 0usize;
++        for &nbr in nbrs_u {
++            if let Some(nbr_nbrs) = graph.neighbors_indices(nbr) {
++                for &nn in nbr_nbrs {
++                    if nn > nbr && in_nbrs[nn] {
++                        count += 1;
+                     }
+                 }
+             }
+-            count
+-        })
+-        .collect();
+-    let mut tri2: Vec<usize> = nodes2
++        }
++        counts[u] = count;
++        for &x in nbrs_u {
++            in_nbrs[x] = false;
++        }
++    }
++    counts
++}
++
++/// br-r37-c1-isotri A/B baseline: the pre-lever per-node triangle count that built
++/// a `HashSet<&str>` per node, allocated a `Vec<&str>` per neighbour, and probed
++/// with string `contains`/`>`. Test-only; byte-identical to
++/// `could_be_isomorphic_triangle_counts`.
++#[cfg(test)]
++fn could_be_isomorphic_triangle_counts_orig_string(graph: &Graph) -> Vec<usize> {
++    let nodes = graph.nodes_ordered();
++    nodes
+         .iter()
+         .map(|&node| {
+             let mut count = 0;
+-            if let Some(nbrs) = g2.neighbors(node) {
++            if let Some(nbrs) = graph.neighbors(node) {
+                 let nbr_set: HashSet<&str> = nbrs.iter().copied().collect();
+                 for &nbr in &nbrs {
+-                    if let Some(nbr_nbrs) = g2.neighbors(nbr) {
++                    if let Some(nbr_nbrs) = graph.neighbors(nbr) {
+                         for &nn in &nbr_nbrs {
+                             if nbr_set.contains(nn) && nn > nbr {
+                                 count += 1;
+@@ -26024,14 +26067,7 @@ pub fn could_be_isomorphic(g1: &Graph, g2: &Graph) -> bool {
+             }
+             count
+         })
+-        .collect();
+-    tri1.sort_unstable();
+-    tri2.sort_unstable();
+-    if tri1 != tri2 {
+-        return false;
+-    }
+-
+-    true
++        .collect()
+ }
+ 
+ /// Fastest NetworkX pre-check: compares order, size, and degree sequence.
+@@ -47196,6 +47232,101 @@ mod tests {
+         report("NULL_mark_vs_mark", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-isotri: paired-interleaved median A/B for the integer-adjacency +
++    /// mark-array `could_be_isomorphic` triangle-count kernel vs the old per-node
++    /// `HashSet<&str>` + per-neighbour `Vec<&str>` + string `contains`/`>` baseline,
++    /// in ONE binary / ONE worker with a NULL control. `#[ignore]` (measurement);
++    /// run with `cargo test --release -p fnx-algorithms --lib could_be_isomorphic_isotri_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn could_be_isomorphic_isotri_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Dense-ish pseudo-random ~40-degree graph on 1200 nodes: many candidate
++        // triangles per ego, so the per-node HashSet build + per-neighbour Vec
++        // alloc + string probes (baseline) vs the reusable mark array (lever)
++        // dominate — the same O(|V|·d^2) shape as the triangles kernel.
++        let n = 1200usize;
++        let deg = 40usize;
++        let mut g = Graph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++
++        // Byte-exact parity: integer mark-array counts == string HashSet baseline.
++        let mark = super::could_be_isomorphic_triangle_counts(&g);
++        let base = super::could_be_isomorphic_triangle_counts_orig_string(&g);
++        assert_eq!(
++            mark, base,
++            "mark-array triangle counts must equal the string HashSet baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::could_be_isomorphic_triangle_counts(&g));
++                } else {
++                    black_box(super::could_be_isomorphic_triangle_counts_orig_string(&g));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 121usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "ISOTRI_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("ISOTRI_AB n={n} deg={deg} rounds={rounds} (>1 = mark-array faster)");
++        report("MARK_vs_string", &paired(true, false));
++        report("NULL_mark_vs_mark", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

@@ -1,0 +1,42 @@
+         35550 function calls in 0.038 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.038    0.038 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:149(run_case)
+        1    0.000    0.000    0.031    0.031 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:141(make_bench_graph)
+        1    0.001    0.001    0.031    0.031 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:37(make_graph)
+     8320    0.003    0.000    0.030    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2313(add_edge)
+     8320    0.026    0.000    0.026    0.000 {function Graph.add_edge at 0x73923e5b7880}
+        1    0.002    0.002    0.007    0.007 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-adj-dict-mirror-tealspring/bench_and_proof.py:153(graph_neighbors)
+       64    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32149(neighbors)
+       64    0.000    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31517(_cached_adj_row_key_iter)
+       64    0.004    0.000    0.004    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+    16705    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+      128    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31432(_has_networkx_private_storage)
+      513    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31424(_private_override)
+      514    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      578    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1382(_graph_getitem_from_adj)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32255(<lambda>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31486(_private_adj_mapping)
+       64    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       64    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+       64    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       65    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1187(__getitem__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1302(_accessor)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3299(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1129(__getitem__)
+        2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1169(_atlas)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1320(<lambda>)
+        2    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1321(<lambda>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1112(_atlas)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1198(<lambda>)
+        1    0.000    0.000    0.000    0.000 {method 'split' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.min}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1164(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1106(__init__)
+
+

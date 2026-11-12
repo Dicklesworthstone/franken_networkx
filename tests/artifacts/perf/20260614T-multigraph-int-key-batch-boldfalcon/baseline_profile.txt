@@ -1,0 +1,22 @@
+case=int_keys_list sha256=3a178de5d183ef7f5908b169571990e3b38be9c6632e2d31392796389ce82d1e
+         2000076 function calls in 1.172 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.047    0.009    1.172    0.234 multigraph_int_key_batch.py:56(_make_graph)
+        5    0.202    0.040    1.125    0.225 __init__.py:2835(_multi_add_edges_from)
+   250000    0.126    0.000    0.795    0.000 __init__.py:2505(add_edge)
+   250000    0.621    0.000    0.621    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+   500000    0.103    0.000    0.103    0.000 {method 'update' of 'dict' objects}
+   750000    0.049    0.000    0.049    0.000 {built-in method builtins.hash}
+   250000    0.020    0.000    0.020    0.000 {built-in method builtins.len}
+        5    0.003    0.001    0.003    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.002    0.000    0.002    0.000 {method '_try_add_attr_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:6122(predicate)
+        5    0.000    0.000    0.000    0.000 __init__.py:3617(__init__)
+        5    0.000    0.000    0.000    0.000 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       20    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        5    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7d424abeee80}

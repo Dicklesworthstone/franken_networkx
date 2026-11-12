@@ -1,0 +1,3 @@
+n=150: OLD   108.6ms  NEW    31.1ms  self 3.49x | nx    43.2ms  new-vs-nx 1.39x (was 0.40x)
+n=300: OLD   500.4ms  NEW   192.8ms  self 2.60x | nx   172.4ms  new-vs-nx 0.89x (was 0.34x)
+n=500: OLD  1584.8ms  NEW   726.6ms  self 2.18x | nx   556.5ms  new-vs-nx 0.77x (was 0.35x)

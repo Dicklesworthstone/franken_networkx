@@ -1,0 +1,9 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib wheel_graph -- --nocapture
+running 2 tests
+test tests::wheel_graph_matches_networkx_hub_and_rim_for_n_six ... ok
+test tests::wheel_graph_matches_networkx_small_n_behavior ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-generators --lib --tests -- -D warnings
+    Checking fnx-generators v0.2.0
+CLIPPY CLEAN (no errors, no warnings). Landed after 12 static.crates.io flakes (intermittent registry).

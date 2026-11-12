@@ -1,0 +1,6 @@
+  [2m2026-06-04T05:39:30.184547Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_resistance_distance_invert_weight_parity.py tests/python/test_resistance_distance_directed_parity.py tests/python/test_unhashable_resistance_subset_astar_parity.py tests/python/test_review_mode_regression_lock.py -q -k resistance_distance[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+........................................................................ [ 98%]
+.                                                                        [100%]
+73 passed, 442 deselected in 1.03s

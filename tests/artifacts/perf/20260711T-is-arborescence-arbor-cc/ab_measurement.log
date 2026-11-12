@@ -1,0 +1,5 @@
+running 1 test
+ARBOR_AB n=60000 (binary tree) rounds=121 (>1 = no-alloc faster)
+ARBOR_AB NOALLOC_vs_string: median=41.2724x win_rate=121/121 p5_p95=[16.4750,73.7129]
+ARBOR_AB NULL_noalloc_vs_noalloc: median=1.0115x win_rate=63/121 p5_p95=[0.1508,1.3886]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 952 filtered out; finished in 34.39s

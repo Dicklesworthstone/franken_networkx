@@ -1,0 +1,8 @@
+*Vertices 2
+1 "left"
+2 "right"
+*Partition ignored
+1
+2
+*Edges
+1 2 3.5

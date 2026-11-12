@@ -1,0 +1,141 @@
+  [2m2026-06-02T01:40:42.463321Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: ts2 at ubuntu@192.168.1.124 (8 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:514 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:42.651767Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 20ad164d71ec0837)[0m
+    [2;3mat[0m rch/src/hook.rs:5987 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:42.651826Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook.rs:6009 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:45.894595Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker ts2...[0m
+    [2;3mat[0m rch/src/hook.rs:6039 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:45.894648Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:48.402824Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2508ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:48.402899Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:48.768190Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 365ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:48.768262Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:49.134444Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 366ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:49.134514Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:49.495214Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 360ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:49.495284Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:49.859246Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 363ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:49.859327Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:50.219244Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 359ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:50.219332Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:50.568178Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 348ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:50.568266Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:50.926512Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 358ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:50.926593Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:51.276967Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 350ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:51.277059Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:51.621208Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 344ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:51.621281Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:51.973774Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 352ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:51.973853Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:52.336777Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 362ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:52.336925Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:52.683944Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 346ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:52.683993Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 124852 files, 6485615 bytes in 6781ms[0m
+    [2;3mat[0m rch/src/hook.rs:6202 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:53.350226Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-algorithms --profile release-perf --features profile-pprof --bin perf_harness -- --pprof '--pprof-top=15' '--algo=harmonic' '--n=1500' '--deg=8' '--iters=1'[0m
+    [2;3mat[0m rch/src/hook.rs:6240 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:40:53.350273Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/tmp/cargo-target -> /data/projects/franken_networkx/.rch-target-ts2-job-29869223945700215-1780364445894589794-0[0m
+    [2;3mat[0m rch/src/transfer.rs:712 [2;3mon[0m ThreadId(1)
+
+{"algo":"harmonic","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":85.8986,"per_iter_ms":85.8986,"checksum":629305.204762}
+pprof_top_inclusive:
+1	84	__rust_begin_short_backtrace<fn(), ()>
+2	84	_start
+3	84	call_once<fn(), ()>
+4	84	harmonic_centrality
+5	84	harmonic_centrality_generic<fnx_classes::Graph>
+6	84	main
+7	84	run_once
+8	1	collect<core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>, alloc::vec::Vec<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global>>
+9	1	copy_nonoverlapping<u8>
+10	1	extend_trusted<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>
+11	1	fold<&str, (), core::iter::adapters::map::map_fold::{closure_env#0}<&&str, alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, (), fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>, core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>>>
+12	1	fold<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>, (), core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>>
+13	1	for_each<core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>
+14	1	from_iter<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>
+15	1	get_index_of<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, std::hash::random::RandomState, str>
+  [2m2026-06-02T01:41:49.785896Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 56435ms[0m
+    [2;3mat[0m rch/src/hook.rs:6364 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:49.786236Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook.rs:6413 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:49.786254Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:50.120866Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 334ms (1 files, 3470 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:50.120903Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 1 files, 3470 bytes in 334ms[0m
+    [2;3mat[0m rch/src/hook.rs:6446 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:50.121004Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx/.rch-target-ts2-job-29869223945700215-1780364445894589794-0 on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:52.286786Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2165ms (827 files, 1114958 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-02T01:41:52.286832Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 827 files, 1114958 bytes in 2165ms[0m
+    [2;3mat[0m rch/src/hook.rs:6570 [2;3mon[0m ThreadId(1)
+
+[RCH] remote ts2 (69.8s)

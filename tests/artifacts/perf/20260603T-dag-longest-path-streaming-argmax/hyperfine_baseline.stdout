@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-streaming-argmax/bench_dag_longest_path.py --module fnx --repeat 120
+  Time (mean ± σ):     453.5 ms ±  17.9 ms    [User: 3577.0 ms, System: 58.9 ms]
+  Range (min … max):   423.8 ms … 476.0 ms    10 runs
+ 

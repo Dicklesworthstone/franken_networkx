@@ -1,0 +1,38 @@
+         671184 function calls in 0.488 seconds
+
+   Ordered by: cumulative time
+   List reduced from 37 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.044    0.044    0.488    0.488 <stdin>:4(run)
+       50    0.000    0.000    0.444    0.009 __init__.py:45438(wrapper)
+       50    0.071    0.001    0.444    0.009 __init__.py:43244(grid_graph)
+    67200    0.029    0.000    0.246    0.000 __init__.py:2256(add_edge)
+    67200    0.206    0.000    0.206    0.000 {function Graph.add_edge at 0x79798871aca0}
+   118400    0.057    0.000    0.064    0.000 __init__.py:43301(make_node)
+    25600    0.008    0.000    0.055    0.000 __init__.py:2311(add_node)
+    25600    0.044    0.000    0.044    0.000 {function Graph.add_node at 0x79798871afc0}
+   160000    0.014    0.000    0.014    0.000 {built-in method builtins.hash}
+   205100    0.014    0.000    0.014    0.000 {built-in method builtins.len}
+      303    0.000    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+      200    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+      151    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+       50    0.000    0.000    0.000    0.000 __init__.py:3156(__init__)
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.any}
+      151    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+      200    0.000    0.000    0.000    0.000 __init__.py:43296(<genexpr>)
+      300    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 __init__.py:2129(getLogger)
+       50    0.000    0.000    0.000    0.000 __init__.py:20397(_validate_backend_dispatch_keywords)
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        1    0.000    0.000    0.000    0.000 __init__.py:1362(getLogger)
+      150    0.000    0.000    0.000    0.000 {built-in method builtins.next}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:1765(isEnabledFor)
+        1    0.000    0.000    0.000    0.000 __init__.py:1478(__init__)
+        1    0.000    0.000    0.000    0.000 <frozen _collections_abc>:292(__subclasshook__)
+        1    0.000    0.000    0.000    0.000 __init__.py:1410(_fixupParents)
+
+

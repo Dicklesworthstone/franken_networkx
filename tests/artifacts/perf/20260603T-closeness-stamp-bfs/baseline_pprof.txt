@@ -1,0 +1,153 @@
+  [2m2026-06-03T09:32:48.595245Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: vmi1293453 at ubuntu@149.102.137.103 (4 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:514 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:32:48.838454Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx (hash: 20ad164d71ec0837)[0m
+    [2;3mat[0m rch/src/hook.rs:5987 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:32:48.838498Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook.rs:6009 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:32:53.483700Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker vmi1293453...[0m
+    [2;3mat[0m rch/src/hook.rs:6039 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:32:53.483785Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx -> /data/projects/franken_networkx on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:03.923104Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 10439ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:03.923182Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-algorithms -> /data/projects/franken_networkx/crates/fnx-algorithms on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:05.768358Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1845ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:05.768435Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-cgse -> /data/projects/franken_networkx/crates/fnx-cgse on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:07.561772Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1793ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:07.561854Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-classes -> /data/projects/franken_networkx/crates/fnx-classes on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:09.372357Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1810ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:09.372434Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-conformance -> /data/projects/franken_networkx/crates/fnx-conformance on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:11.227110Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1854ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:11.227233Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-convert -> /data/projects/franken_networkx/crates/fnx-convert on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:13.058081Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1830ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:13.058178Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-dispatch -> /data/projects/franken_networkx/crates/fnx-dispatch on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:14.893829Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1835ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:14.893924Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-durability -> /data/projects/franken_networkx/crates/fnx-durability on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:16.715153Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1821ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:16.715225Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-generators -> /data/projects/franken_networkx/crates/fnx-generators on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:18.571397Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1856ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:18.571479Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-python -> /data/projects/franken_networkx/crates/fnx-python on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:20.379821Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1808ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:20.379899Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-readwrite -> /data/projects/franken_networkx/crates/fnx-readwrite on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:22.105182Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1725ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:22.105254Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-runtime -> /data/projects/franken_networkx/crates/fnx-runtime on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:24.181659Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2076ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:24.181727Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/franken_networkx/crates/fnx-views -> /data/projects/franken_networkx/crates/fnx-views on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:26.036535Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 1854ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:26.036586Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 125076 files, 9069088 bytes in 32546ms[0m
+    [2;3mat[0m rch/src/hook.rs:6202 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:30.228604Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: cargo run -q -p fnx-algorithms --profile release-perf --features profile-pprof --bin perf_harness -- --pprof '--pprof-top=30' '--algo=closeness' '--n=1600' '--deg=5' '--iters=3'[0m
+    [2;3mat[0m rch/src/hook.rs:6240 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:33:30.228652Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/tmp/cargo-target -> /data/projects/franken_networkx/.rch-target-vmi1293453-job-29869223945705364-1780479173483692976-0[0m
+    [2;3mat[0m rch/src/transfer.rs:712 [2;3mon[0m ThreadId(1)
+
+{"algo":"closeness","n":1600,"m":4000,"avg_deg":5,"iters":3,"total_ms":202.9980,"per_iter_ms":67.6660,"checksum":993.361081}
+pprof_top_inclusive:
+1	197	__rust_begin_short_backtrace<fn(), ()>
+2	197	_start
+3	197	call_once<fn(), ()>
+4	197	closeness_centrality
+5	197	closeness_centrality_generic<fnx_classes::Graph>
+6	197	main
+7	197	run_once
+8	3	collect<core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::closeness_centrality_generic::{closure_env#0}<fnx_classes::Graph>>, alloc::vec::Vec<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global>>
+9	3	copy_nonoverlapping<u8>
+10	3	extend_trusted<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::closeness_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>
+11	3	fold<&str, (), core::iter::adapters::map::map_fold::{closure_env#0}<&&str, alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, (), fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>, core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>>>
+12	3	fold<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>, (), core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>>
+13	3	for_each<core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::closeness_centrality_generic::{closure_env#0}<fnx_classes::Graph>>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::closeness_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>
+14	3	from_iter<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::closeness_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>
+15	3	get_index_of<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, std::hash::random::RandomState, str>
+16	3	get_node_index
+17	3	hash<alloc::string::String, alloc::collections::btree::map::BTreeMap<alloc::string::String, fnx_runtime::CgseValue, alloc::alloc::Global>, std::hash::random::RandomState, str>
+18	3	hash<std::hash::random::DefaultHasher>
+19	3	hash<str, std::hash::random::DefaultHasher>
+20	3	hash_one<std::hash::random::RandomState, &str>
+21	3	spec_extend<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::closeness_centrality_generic::{closure_env#0}<fnx_classes::Graph>>, alloc::alloc::Global>
+22	3	u8to64_le
+23	3	write<core::hash::sip::Sip13Rounds>
+24	3	write_str
+25	3	write_str<core::hash::sip::Sip13Rounds>
+26	3	{closure#0}<&&str, alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, (), fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>, core::iter::traits::iterator::Iterator::for_each::call::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::vec::{impl#21}::extend_trusted::{closure_env#0}<alloc::vec::Vec<core::option::Option<usize>, alloc::alloc::Global>, alloc::alloc::Global, core::iter::adapters::map::Map<core::slice::iter::Iter<&str>, fnx_algorithms::harmonic_centrality_generic::{closure_env#0}<fnx_classes::Graph>>>>>
+27	3	{closure#0}<fnx_classes::Graph>
+  [2m2026-06-03T09:34:28.794548Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 58565ms[0m
+    [2;3mat[0m rch/src/hook.rs:6364 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:28.794863Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook.rs:6413 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:28.794878Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:30.671821Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 1876ms (1 files, 3470 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:30.671859Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 1 files, 3470 bytes in 1876ms[0m
+    [2;3mat[0m rch/src/hook.rs:6446 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:30.671960Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/franken_networkx/.rch-target-vmi1293453-job-29869223945705364-1780479173483692976-0 on vmi1293453[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:34.554423Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 3882ms (825 files, 1118301 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T09:34:34.554464Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 825 files, 1118301 bytes in 3882ms[0m
+    [2;3mat[0m rch/src/hook.rs:6570 [2;3mon[0m ThreadId(1)
+
+[RCH] remote vmi1293453 (106.0s)

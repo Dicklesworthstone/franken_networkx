@@ -1,0 +1,8 @@
+  [2m2026-06-03T09:37:51.792030Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: cargo --config 'env.DUMP="1"' --config 'env.ALGO="closeness"' --config 'env.N="5"' --config 'env.DEG="2"' run -q -p fnx-algorithms --profile release-perf --bin perf_harness[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+0	4.44444444444444420e-1
+1	6.66666666666666630e-1
+2	8.00000000000000044e-1
+3	5.71428571428571397e-1
+4	5.71428571428571397e-1

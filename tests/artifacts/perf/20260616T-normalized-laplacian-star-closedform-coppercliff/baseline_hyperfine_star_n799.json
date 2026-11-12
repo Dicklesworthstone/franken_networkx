@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python -c \"import franken_networkx as fnx; G=fnx.star_graph(798); fnx.normalized_laplacian_spectrum(G)\"",
+      "mean": 0.9150088220466667,
+      "stddev": 0.44044628198332564,
+      "median": 0.71785690838,
+      "user": 39.48895376666666,
+      "system": 0.11225649333333333,
+      "min": 0.60757828938,
+      "max": 1.41959126838,
+      "times": [
+        1.41959126838,
+        0.60757828938,
+        0.71785690838
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

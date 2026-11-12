@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "clean-unsafe-policy-validation-v1",
+  "artifact": "artifacts/clean/v1/clean_unsafe_exception_registry_v1.json",
+  "schema": "artifacts/clean/schema/v1/clean_unsafe_exception_registry_schema_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "workspace_crate_count": 10,
+    "forbid_missing_count": 0,
+    "unsafe_finding_count": 0,
+    "exception_count": 0
+  }
+}

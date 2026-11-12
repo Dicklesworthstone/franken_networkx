@@ -1,0 +1,27 @@
+{"case": "gnp_700_006", "edges": 1170320, "loops": 80, "nodes": 56000, "seconds": 3.7122687050141394}
+         1852 function calls in 3.712 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.345    0.345    3.712    3.712 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py:156(bench)
+       80    0.000    0.000    3.366    0.042 /data/projects/franken_networkx/tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py:28(build_case)
+       80    3.366    0.042    3.366    0.042 {built-in method franken_networkx._fnx.gnp_random_graph}
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31212(number_of_nodes)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30554(_private_override)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:31221(number_of_edges)
+      400    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30562(_has_networkx_private_storage)
+       80    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x741436916a20}
+      400    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:295(number_of_edges)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/__init__.py:183(dumps)
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/encoder.py:183(encode)
+       80    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x741436916ca0}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/encoder.py:205(iterencode)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.print}
+        1    0.000    0.000    0.000    0.000 /usr/lib/python3.13/json/encoder.py:105(__init__)
+        2    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        2    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        1    0.000    0.000    0.000    0.000 {method 'join' of 'str' objects}

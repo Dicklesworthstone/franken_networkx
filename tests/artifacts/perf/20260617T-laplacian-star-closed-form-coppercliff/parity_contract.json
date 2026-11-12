@@ -1,0 +1,53 @@
+{
+  "allclose_fnx_closed_form_1e_8": true,
+  "allclose_fnx_networkx_1e_8": true,
+  "expected_multiplicities": {
+    "0.0": 1,
+    "1.0": 797,
+    "799.0": 1
+  },
+  "expression": "fnx.laplacian_spectrum(fnx.star_graph(798))",
+  "fnx_dtype": "float64",
+  "fnx_first5_sorted": [
+    -3.098529106768588e-15,
+    0.9999999999999897,
+    0.9999999999999911,
+    0.9999999999999916,
+    0.9999999999999921
+  ],
+  "fnx_last5_sorted": [
+    1.0000000000000067,
+    1.0000000000000095,
+    1.0000000000000118,
+    1.0000000000000147,
+    799.0
+  ],
+  "fnx_shape": [
+    799
+  ],
+  "max_sorted_delta_fnx_vs_closed_form": 1.4654943925052066e-14,
+  "max_sorted_delta_fnx_vs_networkx": 7.327994793612726e-15,
+  "n_nodes": 799,
+  "n_spokes": 798,
+  "networkx_dtype": "float64",
+  "networkx_first5_sorted": [
+    4.229465686844138e-15,
+    0.9999999999999881,
+    0.9999999999999929,
+    0.9999999999999947,
+    0.9999999999999954
+  ],
+  "networkx_last5_sorted": [
+    1.0000000000000098,
+    1.0000000000000107,
+    1.0000000000000169,
+    1.0000000000000189,
+    799.0
+  ],
+  "networkx_shape": [
+    799
+  ],
+  "q9_sorted_payload_file": "q9_sorted_payload.json",
+  "q9_sorted_sha256": "375fa52a42b6385d40091801807090bb18b6061ea6d5584bec0005bad4e5415e",
+  "sorted_value_order": "ascending"
+}

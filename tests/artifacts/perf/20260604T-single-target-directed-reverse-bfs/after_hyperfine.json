@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl fnx --size 5000 --target 4999 --repeats 20",
+      "mean": 0.40271347856000006,
+      "stddev": 0.019742065241504052,
+      "median": 0.40774137276000005,
+      "user": 4.414182460000001,
+      "system": 0.08121498,
+      "min": 0.36963759376000005,
+      "max": 0.42258170376000004,
+      "times": [
+        0.40774137276000005,
+        0.36963759376000005,
+        0.40440523376000004,
+        0.42258170376000004,
+        0.40920148876
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-single-target-directed-reverse-bfs/bench_single_target_directed.py --mode bench --impl nx --size 5000 --target 4999 --repeats 20",
+      "mean": 0.33923066916,
+      "stddev": 0.012336901772522824,
+      "median": 0.33931100776,
+      "user": 4.3542036600000005,
+      "system": 0.059900180000000004,
+      "min": 0.32498756576000004,
+      "max": 0.35158276276,
+      "times": [
+        0.33931100776,
+        0.35135453076,
+        0.32891747876000005,
+        0.32498756576000004,
+        0.35158276276
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

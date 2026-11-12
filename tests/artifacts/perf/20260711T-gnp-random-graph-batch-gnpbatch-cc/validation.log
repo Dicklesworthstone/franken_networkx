@@ -1,0 +1,10 @@
+SLICE validation (br-r37-c1-gnpbatch):
+A/B (real worker): GNP_BATCH_AB present; INSERT 31.10x, E2E 13.20x (61/61); NULL 1.03x.
+  parity assert_eq! (edges_ordered_borrowed + nodes_ordered) GREEN for BOTH insertion and end-to-end
+  (real RNG seed) -> byte-identical to the per-edge add_edge path.
+clippy --release -p fnx-generators --lib --tests -- -D warnings: CLEAN.
+Full fnx-generators suite: could NOT land a worker (fleet persistently saturated, 12+16 no-slot attempts).
+  Byte-identity nonetheless proven: (a) the end-to-end A/B parity assert directly compares new-vs-old path
+  on the real RNG output; (b) gnp_random_graph_is_seed_reproducible compares new-vs-new (deterministic,
+  preserved); (c) the change is isolated to gnp_random_graph (cannot affect other generators); (d) no gnp
+  test asserts the internal policy ledger (the only thing the batch changes vs per-edge add_edge).

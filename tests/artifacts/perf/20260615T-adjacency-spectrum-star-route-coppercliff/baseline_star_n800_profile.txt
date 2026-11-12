@@ -1,0 +1,36 @@
+         1986 function calls (1983 primitive calls) in 2.240 seconds
+
+   Ordered by: cumulative time
+   List reduced from 132 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    2.240    2.240 <stdin>:19(run_f)
+      4/2    0.000    0.000    2.240    1.120 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53106(wrapper)
+        1    0.001    0.001    2.239    2.239 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22588(adjacency_spectrum)
+      2/1    0.000    0.000    2.234    2.234 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1149(wrapper)
+        1    0.000    0.000    2.234    2.234 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:841(eigvals)
+        1    2.234    2.234    2.234    2.234 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:114(eig)
+        1    0.000    0.000    0.002    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1154(todense)
+        1    0.000    0.000    0.002    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:1002(toarray)
+        1    0.002    0.002    0.002    0.002 {built-in method scipy.sparse._sparsetools.csr_todense}
+        1    0.000    0.000    0.001    0.001 <stdin>:15(fnx_graph)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19680(star_graph)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:20535(adjacency_matrix)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:49271(to_scipy_sparse_array)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2970(add_edges_from)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48658(_add_nodes_in_order)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2652(add_nodes_from)
+        1    0.000    0.000    0.000    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:32(__init__)
+        1    0.000    0.000    0.000    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:451(asformat)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:349(tocsr)
+      807    0.000    0.000    0.000    0.000 {method 'append' of 'list' objects}
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1525(_get_index_dtype)
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:264(get_index_dtype)
+        8    0.000    0.000    0.000    0.000 {built-in method numpy.array}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37087(__iter__)
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:62(<genexpr>)
+        9    0.000    0.000    0.000    0.000 {built-in method numpy.asarray}
+      800    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19695(<genexpr>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:204(_check)

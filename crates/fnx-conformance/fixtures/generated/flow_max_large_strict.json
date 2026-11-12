@@ -1,0 +1,248 @@
+{
+  "suite": "algorithms_flow_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "d",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "e",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "f",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "s",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "t",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "d",
+      "attrs": {
+        "capacity": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "e",
+      "attrs": {
+        "capacity": "7"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "s",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d",
+      "attrs": {
+        "capacity": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "e",
+      "attrs": {
+        "capacity": "6"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "s",
+      "attrs": {
+        "capacity": "8"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "e",
+      "attrs": {
+        "capacity": "4"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "f",
+      "attrs": {
+        "capacity": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "s",
+      "attrs": {
+        "capacity": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "t",
+      "attrs": {
+        "capacity": "8"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "e",
+      "right": "t",
+      "attrs": {
+        "capacity": "9"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "f",
+      "right": "t",
+      "attrs": {
+        "capacity": "5"
+      }
+    },
+    {
+      "op": "max_flow_query",
+      "source": "s",
+      "target": "t"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+        "s",
+        "t"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "d",
+          "attrs": {
+            "capacity": "5"
+          }
+        },
+        {
+          "left": "a",
+          "right": "e",
+          "attrs": {
+            "capacity": "7"
+          }
+        },
+        {
+          "left": "a",
+          "right": "s",
+          "attrs": {
+            "capacity": "10"
+          }
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {
+            "capacity": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "e",
+          "attrs": {
+            "capacity": "6"
+          }
+        },
+        {
+          "left": "b",
+          "right": "s",
+          "attrs": {
+            "capacity": "8"
+          }
+        },
+        {
+          "left": "c",
+          "right": "e",
+          "attrs": {
+            "capacity": "4"
+          }
+        },
+        {
+          "left": "c",
+          "right": "f",
+          "attrs": {
+            "capacity": "3"
+          }
+        },
+        {
+          "left": "c",
+          "right": "s",
+          "attrs": {
+            "capacity": "5"
+          }
+        },
+        {
+          "left": "d",
+          "right": "t",
+          "attrs": {
+            "capacity": "8"
+          }
+        },
+        {
+          "left": "e",
+          "right": "t",
+          "attrs": {
+            "capacity": "9"
+          }
+        },
+        {
+          "left": "f",
+          "right": "t",
+          "attrs": {
+            "capacity": "5"
+          }
+        }
+      ]
+    },
+    "max_flow_value": 20
+  }
+}

@@ -1,0 +1,1 @@
+b92e3c60e7e762257dba23a6812138f5feae2db640bfefbd8b052e45f8953b2a  parity_proof.py (dominance_frontiers, 402 cases incl back-edges/cycles/DAGs, values+key-order+errors vs nx, 0 mismatches)

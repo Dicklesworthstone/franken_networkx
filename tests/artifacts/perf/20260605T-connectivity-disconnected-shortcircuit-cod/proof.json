@@ -1,0 +1,25 @@
+{
+  "cases": [
+    {
+      "after": 0,
+      "before": 0,
+      "case": "node_selfloop",
+      "networkx": 0
+    },
+    {
+      "after": 0,
+      "before": 0,
+      "case": "node_flow",
+      "networkx": 0
+    },
+    {
+      "after": 0,
+      "before": 0,
+      "case": "edge_cutoff",
+      "networkx": 0
+    }
+  ],
+  "failures": [],
+  "golden_sha256": "88eb452e5c8dc837120478b4af3a028caa71e2e983c46c9ce349c2b91c4c9a5c",
+  "proof_note": "scalar integer outputs; no ordering, FP, or tie-break surface; RNG seeds fixed"
+}

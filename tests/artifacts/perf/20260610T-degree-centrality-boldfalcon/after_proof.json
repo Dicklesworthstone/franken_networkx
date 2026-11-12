@@ -1,0 +1,40 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "empty",
+      "fnx_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "matches_nx": true,
+      "nx_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "case": "single",
+      "fnx_sha256": "6ff33de2618f7073a0ebd8568fbf98ab3d43721a3559bd0ff28f2304a488b035",
+      "matches_nx": true,
+      "nx_sha256": "6ff33de2618f7073a0ebd8568fbf98ab3d43721a3559bd0ff28f2304a488b035"
+    },
+    {
+      "case": "path5",
+      "fnx_sha256": "1c7161f3073b693a16eda6d72838413378123b97bfdc349a45a93df48dae2b3c",
+      "matches_nx": true,
+      "nx_sha256": "1c7161f3073b693a16eda6d72838413378123b97bfdc349a45a93df48dae2b3c"
+    },
+    {
+      "case": "self_loop",
+      "fnx_sha256": "b4a96db71c841519bec7a94700c7a50170bfb07873ce7c4a05f234757fa6a56c",
+      "matches_nx": true,
+      "nx_sha256": "b4a96db71c841519bec7a94700c7a50170bfb07873ce7c4a05f234757fa6a56c"
+    },
+    {
+      "case": "ba_5000_5",
+      "fnx_sha256": "33167ddfba501887155c89a7e4abe179c69680b5b874c628000dd177bb19f53c",
+      "matches_nx": true,
+      "nx_sha256": "33167ddfba501887155c89a7e4abe179c69680b5b874c628000dd177bb19f53c"
+    }
+  ],
+  "floating_point": "Both paths use score = degree * (1.0 / (n - 1)); exact string hashes checked.",
+  "ordering": "NetworkX and FNX both emit nodes in graph insertion order.",
+  "proof_sha256": "1710593c67cd647d3a01b25e8447ec9136abc11e01ce43c278e2a9f1ff43e18d",
+  "rng": "Only deterministic BA graph construction with seed=42.",
+  "tie_breaking": "No ties are resolved; degree centrality is per-node arithmetic."
+}

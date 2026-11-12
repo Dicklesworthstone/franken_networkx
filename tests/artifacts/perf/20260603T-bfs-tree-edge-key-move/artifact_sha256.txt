@@ -1,0 +1,8 @@
+c69af1ec3c529122370ad061316bacadd548c0280b128f209fd25880b9d3f957  tests/artifacts/perf/20260603T-fallback-residual-sweep/traversal_sweep.jsonl
+2b851b19428ce3e0c61cceb496b59305061339b954dd0e8b6922d46a78aaccd3  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/baseline_fnx.jsonl
+c62ed57c12e6cda693239d0fce69cb767df5aa93ccb2e5ccd2a025ac98c9ae45  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/baseline_nx.jsonl
+d1ba8db805070789ed6c2e7482d48d08213e59bc39a7f477b62e841cabc95c84  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/baseline_hyperfine.json
+d8764f3aeaecc7ab882e40ccfae00161e106063807e3fa63a51fd75f398dadab  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/after_fnx.jsonl
+b12fbea90220b0753fce70b15cde28924ae24ad4ec18defbd72c09ac1e6892ca  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/after_hyperfine.json
+35816fae2061241271b30837f9094280426739bc2675c8e4390dde81f75fad12  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/restored_fnx.jsonl
+220b6b41a4dec09d6892863763631e2acfd50cf1d843beffc100b98058bc268e  tests/artifacts/perf/20260603T-bfs-tree-edge-key-move/isomorphism_proof.md

@@ -1,0 +1,126 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index d303186d2..86a0ad65b 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -27117,6 +27117,28 @@ pub fn number_of_isolates(graph: &Graph) -> usize {
+ /// Return a sorted list of isolate nodes in a directed graph.
+ #[must_use]
+ pub fn isolates_directed(graph: &DiGraph) -> Vec<String> {
++    let nodes = graph.nodes_ordered();
++    let n = nodes.len();
++    let mut result = Vec::new();
++    // br-r37-c1-isodir (cc): the old kernel allocated a `Vec<&str>` via
++    // `successors(node)` AND `predecessors(node)` per node just to take `.len()` for a
++    // degree-zero test; use the no-alloc `out_degree_by_index`/`in_degree_by_index`.
++    // Byte-identical: `out_degree == successors().len()` and `in_degree ==
++    // predecessors().len()` (both are the index-slice lengths), so the `== 0 && == 0`
++    // test and the pushed nodes (in `nodes_ordered()` order) are unchanged.
++    for i in 0..n {
++        if graph.out_degree_by_index(i) == 0 && graph.in_degree_by_index(i) == 0 {
++            result.push(nodes[i].to_string());
++        }
++    }
++    result
++}
++
++/// br-r37-c1-isodir A/B baseline: the pre-lever `isolates_directed` that allocated a
++/// `Vec<&str>` via `successors()`/`predecessors()` per node just to take `.len()`.
++/// Test-only; byte-identical to `isolates_directed`.
++#[cfg(test)]
++fn isolates_directed_orig_string(graph: &DiGraph) -> Vec<String> {
+     let nodes = graph.nodes_ordered();
+     let mut result = Vec::new();
+     for &node in &nodes {
+@@ -50685,6 +50707,92 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-isodir: paired-interleaved median A/B for the no-alloc-degree
++    /// `isolates_directed` vs the old `successors()/predecessors().len()` (`Vec<&str>`)
++    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
++    /// (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib isolates_directed_isodir_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn isolates_directed_isodir_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // n=200000 nodes, a sparse path of edges over the first ~half (so most nodes
++        // are non-isolate and the rest are isolates): the function tests every node's
++        // out+in degree, allocating two Vec<&str> per node in the baseline just to take
++        // .len(). The output (isolate list) is a fraction, so the degree-alloc drop
++        // dominates.
++        let n = 200000usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..(n / 2).saturating_sub(1) {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", i + 1));
++        }
++
++        // Byte-exact parity: no-alloc-degree isolates == String baseline.
++        assert_eq!(
++            super::isolates_directed(&g),
++            super::isolates_directed_orig_string(&g),
++            "no-alloc isolates_directed must equal the String baseline"
++        );
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::isolates_directed(&g));
++                } else {
++                    black_box(super::isolates_directed_orig_string(&g));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "ISODIR_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("ISODIR_AB n={n} rounds={rounds} (>1 = no-alloc faster)");
++        report("NOALLOC_vs_string", &paired(true, false));
++        report("NULL_noalloc_vs_noalloc", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

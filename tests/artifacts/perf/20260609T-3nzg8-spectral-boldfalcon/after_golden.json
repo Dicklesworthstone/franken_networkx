@@ -1,0 +1,6 @@
+{
+  "max_rel_estrada_vs_nx": 1.055367320430568e-14,
+  "max_rel_subgraph_vs_nx": 3.278618893393505e-14,
+  "rounded_corpus_sha256": "e4e3d9adc21ecd86f77ca353537659674742a99e06a23b2fec342c1e2ed934fb",
+  "within_1e_6": true
+}

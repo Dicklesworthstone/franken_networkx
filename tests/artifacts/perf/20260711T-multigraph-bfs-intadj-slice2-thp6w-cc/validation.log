@@ -1,0 +1,12 @@
+SLICE 2 validation (br-r37-c1-thp6w):
+A/B: cargo test --release -p fnx-python --lib mg_bfs_intadj_ab -- --ignored --nocapture
+  MG_BFS_AB INTADJ_vs_string: median=11.6896x win_rate=61/61 p5_p95=[9.1766,13.8483]
+  MG_BFS_AB NULL_intadj_vs_intadj: median=0.9877x win_rate=19/61 p5_p95=[0.9015,1.0782]
+  parity assert (integer-BFS == String-BFS) PASSED for every source
+shortest-path/multigraph unit tests: 3 passed (sssp/shortest/multigraph/bfs filter), 1 ignored (the A/B)
+clippy: cargo clippy --release -p fnx-python --lib --tests -- -D warnings -> CLEAN (attempt 33; fleet saturated)
+
+UNRELATED suite noise (NOT this change): graph_fresh_exact_int_attr_batch_keeps_attrs_with_lazy_mirrors
+FAILED (PyGraph attr-batch test, lib.rs:13676) — not in this lever's call path; peer uncommitted lib.rs
+WIP synced by rch, or pre-existing origin condition (5c1f0f252/a788fbc9d). Clean-worktree disambiguation
+could not land a worker (fleet saturated). Commit is pathspec-scoped to algorithms.rs (does not touch lib.rs).

@@ -1,0 +1,9 @@
+  [2m2026-07-11T03:35:34.677093Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib dominating --[0m
+test tests::dominating_set_domint_ab ... ignored, measurement; run with --release --ignored --nocapture
+test tests::dominating_set_empty ... ok
+test tests::dominating_set_star ... ok
+test tests::is_dominating_set_invalid ... ok
+test tests::dominating_set_path ... ok
+test tests::test_connected_dominating_set_covers ... ok
+test tests::is_dominating_set_valid ... ok
+test result: ok. 6 passed; 0 failed; 1 ignored; 0 measured; 930 filtered out; finished in 0.00s

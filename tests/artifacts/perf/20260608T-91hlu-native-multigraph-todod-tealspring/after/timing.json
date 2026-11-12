@@ -1,0 +1,80 @@
+{
+  "cases": [
+    {
+      "alias_delta": -12000,
+      "directed": false,
+      "fnx": {
+        "alias_pairs": 0,
+        "cell_count": 12000,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 18000,
+        "elapsed": 0.09962635498959571,
+        "live_mutations": 36000,
+        "module": "fnx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 80,
+        "row_count": 1200,
+        "sha256": "b1b747752c67181bc0cd66916756e146dfe00d25838bfecd2b9f45afbbb8af50"
+      },
+      "matches_nx_sha": true,
+      "nx": {
+        "alias_pairs": 12000,
+        "cell_count": 12000,
+        "degree": 5,
+        "directed": false,
+        "edge_count": 18000,
+        "elapsed": 0.012008140911348164,
+        "live_mutations": 36000,
+        "module": "nx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 80,
+        "row_count": 1200,
+        "sha256": "b1b747752c67181bc0cd66916756e146dfe00d25838bfecd2b9f45afbbb8af50"
+      },
+      "ratio": 8.296567780566674
+    },
+    {
+      "alias_delta": 0,
+      "directed": true,
+      "fnx": {
+        "alias_pairs": 0,
+        "cell_count": 6000,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18000,
+        "elapsed": 0.05339486396405846,
+        "live_mutations": 18000,
+        "module": "fnx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 80,
+        "row_count": 1200,
+        "sha256": "759500ca11fcebe3ebab25ea7dd0e09a81a910e6fad4669a00822f63141eef63"
+      },
+      "matches_nx_sha": true,
+      "nx": {
+        "alias_pairs": 0,
+        "cell_count": 6000,
+        "degree": 5,
+        "directed": true,
+        "edge_count": 18000,
+        "elapsed": 0.010407588095404208,
+        "live_mutations": 18000,
+        "module": "nx",
+        "node_count": 1200,
+        "nodes": 1200,
+        "parallel": 3,
+        "repeats": 80,
+        "row_count": 1200,
+        "sha256": "759500ca11fcebe3ebab25ea7dd0e09a81a910e6fad4669a00822f63141eef63"
+      },
+      "ratio": 5.130378285016546
+    }
+  ]
+}

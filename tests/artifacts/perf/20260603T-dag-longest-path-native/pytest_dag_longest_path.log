@@ -1,0 +1,5 @@
+  [2m2026-06-03T19:18:28.158256Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_dag_extras.py tests/python/test_dag_longest_path_length_port_conformance.py -q -k dag_longest_path[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+........................................................................ [100%]
+72 passed, 27 deselected in 0.57s

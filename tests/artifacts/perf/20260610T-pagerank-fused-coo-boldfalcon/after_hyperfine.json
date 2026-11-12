@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py bench --impl fnx --n 1400 --loops 80",
+      "mean": 0.58832193468,
+      "stddev": 0.0210027570285377,
+      "median": 0.58370265818,
+      "user": 4.81193328,
+      "system": 0.08582822,
+      "min": 0.5618021136800001,
+      "max": 0.61446006068,
+      "times": [
+        0.57697209268,
+        0.61446006068,
+        0.5788866706800001,
+        0.60450825868,
+        0.61342577168,
+        0.58851864568,
+        0.56556162868,
+        0.5677194806800001,
+        0.5618021136800001,
+        0.6113646236800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pagerank-edge-sync-boldfalcon/harness_pagerank_edge_sync.py bench --impl nx --n 1400 --loops 80",
+      "mean": 0.7108848425800001,
+      "stddev": 0.030950841949235783,
+      "median": 0.7047287576800001,
+      "user": 4.773224279999999,
+      "system": 0.08637162000000001,
+      "min": 0.67397492268,
+      "max": 0.7788539966800001,
+      "times": [
+        0.6839625506800001,
+        0.7788539966800001,
+        0.7082563446800001,
+        0.72551368668,
+        0.7420263446800001,
+        0.67397492268,
+        0.6915643936800001,
+        0.7012011706800001,
+        0.6950432776800001,
+        0.70845173768
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

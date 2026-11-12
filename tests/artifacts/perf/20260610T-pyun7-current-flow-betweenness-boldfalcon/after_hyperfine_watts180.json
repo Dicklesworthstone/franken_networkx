@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py direct --impl fnx --algo node --case watts_180 --normalized --repeat 1",
+      "mean": 0.30712757434000004,
+      "stddev": 0.02698128048808023,
+      "median": 0.29377538574,
+      "user": 3.88853942,
+      "system": 0.0509451,
+      "min": 0.28731073374,
+      "max": 0.35330352974,
+      "times": [
+        0.28731073374,
+        0.35330352974,
+        0.29274499474000004,
+        0.29377538574,
+        0.30850322774
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py direct --impl nx --algo node --case watts_180 --normalized --repeat 1",
+      "mean": 0.7705126155400002,
+      "stddev": 0.13486813253980717,
+      "median": 0.75202984774,
+      "user": 21.137957019999998,
+      "system": 0.0806883,
+      "min": 0.6315347167400001,
+      "max": 0.9502376987400001,
+      "times": [
+        0.75202984774,
+        0.6315347167400001,
+        0.65800924274,
+        0.86075157174,
+        0.9502376987400001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py direct --impl fnx --algo edge --case watts_180 --normalized --repeat 1",
+      "mean": 0.31499023714,
+      "stddev": 0.016043822348171602,
+      "median": 0.31010230674,
+      "user": 4.05071382,
+      "system": 0.051333300000000005,
+      "min": 0.29484120574,
+      "max": 0.33556310274,
+      "times": [
+        0.33556310274,
+        0.30809718974,
+        0.32634738074,
+        0.29484120574,
+        0.31010230674
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-pyun7-current-flow-betweenness-boldfalcon/harness_current_flow_betweenness.py direct --impl nx --algo edge --case watts_180 --normalized --repeat 1",
+      "mean": 0.75185217954,
+      "stddev": 0.10425067563142641,
+      "median": 0.7394420097400001,
+      "user": 21.24918322,
+      "system": 0.0827715,
+      "min": 0.60112634074,
+      "max": 0.86711326974,
+      "times": [
+        0.8313297137400001,
+        0.86711326974,
+        0.60112634074,
+        0.7394420097400001,
+        0.72024956374
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

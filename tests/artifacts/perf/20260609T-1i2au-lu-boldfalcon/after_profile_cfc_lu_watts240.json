@@ -1,0 +1,20 @@
+{
+  "checksum": -742.0306549951106,
+  "edge_count": 720,
+  "func": "cfc",
+  "graph": "watts",
+  "inverse_width": 170,
+  "mode": "profile",
+  "n": 240,
+  "row_count": 720,
+  "solver": "lu",
+  "timings": {
+    "end_to_end_func": 0.015417231,
+    "flow_rows_only": 0.958762813,
+    "is_connected": 0.000162518,
+    "laplacian_csc": 0.114638693,
+    "relabel_nodes": 0.001868708,
+    "reverse_cuthill_mckee": 0.003778074,
+    "solver_init": 0.076099524
+  }
+}

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="=a" label="A"/>
+      <nkde id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++target="b" weight="1.5"/>
+    </egdes>
+  de id="a" label="A"/>
+     <node id="b" label/="B"/>
+0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+         <node id="b" label="B"/>
+    </nodes>iburead_pajektitle="capacity" " souzce="a" ta"bgrte=" weight="1.5"/>
+   `</edges>
+  </graph>
+</gexf>

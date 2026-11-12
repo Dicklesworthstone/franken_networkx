@@ -1,0 +1,16 @@
+{
+  "cases": 804,
+  "mismatches": [],
+  "sha256": "1425f0b6598c687264aa4bff341d3da479fef47c9f3f1776cd7cbae4605f9f79",
+  "z6uka_case_names": [
+    "graph_int_cell_float_node",
+    "graph_existing_float_cell",
+    "digraph_succ_pred_mixed",
+    "digraph_mixed_self_loop"
+  ],
+  "has_native_gates": {
+    "graph": true,
+    "digraph_succ": true,
+    "digraph_pred": true
+  }
+}

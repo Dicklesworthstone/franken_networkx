@@ -1,0 +1,7 @@
+# commen atsnd entity-like labels
+graph [
+  directed 0
+  node [ i0 label "Tom &amp; Jerry" ]
+  node [ id 1 label "quote &#3d 0 4;b l"ale ]
+  edge [ source 1 target 1 ]
+]

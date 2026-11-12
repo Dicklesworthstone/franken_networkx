@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0.0",
+  "run_id": "conformance-1782014222000-strict",
+  "ts_unix_ms": 1782014222073,
+  "crate_name": "fnx-conformance",
+  "suite_id": "smoke",
+  "packet_id": "FNX-P2C-006",
+  "test_name": "fixture::generated/readwrite_roundtrip_strict.json",
+  "test_id": "fixture::generated/readwrite_roundtrip_strict.json",
+  "test_kind": "differential",
+  "mode": "strict",
+  "fixture_id": "generated/readwrite_roundtrip_strict.json",
+  "seed": null,
+  "environment": {
+    "arch": "x86_64",
+    "fixture_id": "generated/readwrite_roundtrip_strict.json",
+    "hardened_allowlisted_count": "0",
+    "oracle_present": "true",
+    "os": "linux",
+    "run_id": "conformance-1782014222000-strict",
+    "strict_mode_default": "true",
+    "strict_violation_count": "0",
+    "suite": "smoke"
+  },
+  "env_fingerprint": "72c7e31cfdbce8ec",
+  "duration_ms": 0,
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+  "artifact_refs": [
+    "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
+    "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json",
+    "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json",
+    "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json"
+  ],
+  "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_roundtrip_strict.json",
+  "hash_id": "8b35da32bea78872",
+  "status": "passed",
+  "reason_code": null,
+  "failure_repro": null,
+  "e2e_step_traces": [],
+  "forensics_bundle_index": {
+    "bundle_id": "forensics::FNX-P2C-006::generated::readwrite_roundtrip_strict.json",
+    "run_id": "conformance-1782014222000-strict",
+    "test_id": "fixture::generated/readwrite_roundtrip_strict.json",
+    "bundle_hash_id": "1be57c9493db5bf4",
+    "captured_unix_ms": 1782014222073,
+    "replay_ref": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_roundtrip_strict.json --mode strict",
+    "artifact_refs": [
+      "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/smoke_report.json",
+      "/data/projects/.scratch/franken_networkx-release-v020/crates/fnx-conformance/../../artifacts/conformance/latest/generated_readwrite_roundtrip_strict_json.report.json"
+    ],
+    "raptorq_sidecar_refs": [
+      "artifacts/phase2c/FNX-P2C-006/parity_report.raptorq.json"
+    ],
+    "decode_proof_refs": [
+      "artifacts/phase2c/FNX-P2C-006/parity_report.decode_proof.json"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+  [2m2026-06-03T18:44:20.620956Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260603T-quotient-raw-edge-insert/validate_quotient_raw_edge_insert.py[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Traceback (most recent call last):
+  File "/data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-raw-edge-insert/validate_quotient_raw_edge_insert.py", line 145, in <module>
+    main()
+    ~~~~^^
+  File "/data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-raw-edge-insert/validate_quotient_raw_edge_insert.py", line 103, in main
+    weighted_result, weighted_expected = compare_default_case(
+                                         ~~~~~~~~~~~~~~~~~~~~^
+        weighted_fnx,
+        ^^^^^^^^^^^^^
+    ...<2 lines>...
+        weight="capacity",
+        ^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/data/projects/franken_networkx/tests/artifacts/perf/20260603T-quotient-raw-edge-insert/validate_quotient_raw_edge_insert.py", line 61, in compare_default_case
+    assert list(result.edges(data=True)) == list(expected.edges(data=True))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

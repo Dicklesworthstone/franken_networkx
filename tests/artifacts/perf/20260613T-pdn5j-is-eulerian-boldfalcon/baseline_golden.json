@@ -1,0 +1,160 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "empty",
+      "fnx": {
+        "exception": "networkx.exception.NetworkXPointlessConcept",
+        "message": "Connectivity is undefined for the null graph.",
+        "ok": false
+      },
+      "match": true,
+      "nx": {
+        "exception": "networkx.exception.NetworkXPointlessConcept",
+        "message": "Connectivity is undefined for the null graph.",
+        "ok": false
+      }
+    },
+    {
+      "case": "single_isolated",
+      "fnx": {
+        "ok": true,
+        "value": true
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "case": "single_self_loop",
+      "fnx": {
+        "ok": true,
+        "value": true
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "case": "two_isolates",
+      "fnx": {
+        "ok": true,
+        "value": false
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "case": "complete_5",
+      "fnx": {
+        "ok": true,
+        "value": true
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "case": "complete_6",
+      "fnx": {
+        "ok": true,
+        "value": false
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "case": "cycle_12",
+      "fnx": {
+        "ok": true,
+        "value": true
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "case": "path_12",
+      "fnx": {
+        "ok": true,
+        "value": false
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "case": "disconnected_cycles",
+      "fnx": {
+        "ok": true,
+        "value": false
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": false
+      }
+    },
+    {
+      "case": "looped_triangle",
+      "fnx": {
+        "ok": true,
+        "value": true
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "case": "directed_cycle",
+      "fnx": {
+        "ok": true,
+        "value": true
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": true
+      }
+    },
+    {
+      "case": "directed_path",
+      "fnx": {
+        "ok": true,
+        "value": false
+      },
+      "match": true,
+      "nx": {
+        "ok": true,
+        "value": false
+      }
+    }
+  ],
+  "isomorphism": {
+    "degree_order": "degree parity checked before connectivity, matching NetworkX",
+    "floating_point": "N/A",
+    "ordering": "N/A: scalar boolean or exception output only",
+    "rng": "N/A",
+    "self_loop_surface": "included in golden cases; FNX keeps existing fallback",
+    "tie_breaking": "N/A"
+  },
+  "sha256": "f6bbb72475f861ccfffd406ce2b79671ee4a93139888155add17b3a4f0360694"
+}

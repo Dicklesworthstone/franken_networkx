@@ -1,0 +1,13 @@
+{
+  "allclose_atol_1e_8": true,
+  "case": "fnx.adjacency_spectrum(fnx.complete_bipartite_graph(199, 200))",
+  "fnx_zero_imag_signbits": 0,
+  "fnx_zero_real_signbits": 0,
+  "max_sorted_abs_delta": 3.126388037344441e-13,
+  "nx_zero_imag_signbits": 105,
+  "nx_zero_real_signbits": 204,
+  "raw_fnx_q8_sha256": "5aa1c5fab4755e0936c3055526949a7989501975ac4a366f8dd77b8674a49d2e",
+  "raw_nx_q8_sha256": "b29370971ba1c8be79296b5e5726b8dbd7d94b7ad5357e909fbe0759ab8f6bc2",
+  "zero_normalized_fnx_q8_sha256": "5aa1c5fab4755e0936c3055526949a7989501975ac4a366f8dd77b8674a49d2e",
+  "zero_normalized_nx_q8_sha256": "5aa1c5fab4755e0936c3055526949a7989501975ac4a366f8dd77b8674a49d2e"
+}

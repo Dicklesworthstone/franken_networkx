@@ -1,0 +1,20 @@
+{
+  "facebook_combined": {
+    "average_clustering": "0.6055467186200862",
+    "transitivity": "0.5191742775433075",
+    "clustering_sha": "3474ca221e8100be63949456c2dcb578c36150f86e2aa20e0faba5c4a5aa8595",
+    "triangles_sha": "361455b982ad6de51d7ee8e82444b0341fa9712a9653c9d5254347e57d113cf6"
+  },
+  "ca-CondMat": {
+    "average_clustering": "0.6334130270820653",
+    "transitivity": "0.2643168246385282",
+    "clustering_sha": "73cfe1c1898956679b35a5baee24451eebcf983622ea026377ce12967fed25ed",
+    "triangles_sha": "b0f03c586a1b132ab2136301edd6d89ffe5107288f36ebb1dd02e19ad16023a8"
+  },
+  "ca-AstroPh": {
+    "average_clustering": "0.630593241170796",
+    "transitivity": "0.3180015812533629",
+    "clustering_sha": "54b912837df7fba2a344db737767655d8a8cbd1c0dd2a08ac6cc85fc6195d18a",
+    "triangles_sha": "d6f29c53b828d3a49293cb43cb8aaa989c3b0f95cf2a6c55342bf23e945f06fa"
+  }
+}

@@ -1,0 +1,15 @@
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":208.7428,"per_iter_ms":208.7428,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":195.0757,"per_iter_ms":195.0757,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":190.2745,"per_iter_ms":190.2745,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":192.8729,"per_iter_ms":192.8729,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":193.3591,"per_iter_ms":193.3591,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":193.0916,"per_iter_ms":193.0916,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":192.7675,"per_iter_ms":192.7675,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":195.2369,"per_iter_ms":195.2369,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":201.8376,"per_iter_ms":201.8376,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":190.8083,"per_iter_ms":190.8083,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":191.6951,"per_iter_ms":191.6951,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":190.8375,"per_iter_ms":190.8375,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":212.4086,"per_iter_ms":212.4086,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":201.9549,"per_iter_ms":201.9549,"checksum":2.761383}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":190.5191,"per_iter_ms":190.5191,"checksum":2.761383}

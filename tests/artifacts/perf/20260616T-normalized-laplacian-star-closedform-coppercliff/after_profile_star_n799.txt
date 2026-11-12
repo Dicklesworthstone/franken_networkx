@@ -1,0 +1,39 @@
+         862003 function calls in 0.483 seconds
+
+   Ordered by: internal time
+   List reduced from 41 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.194    0.000    0.194    0.000 __init__.py:536(_materialize)
+     1000    0.184    0.000    0.477    0.000 __init__.py:29900(_star_normalized_laplacian_spectrum_sorted_value_safe)
+   799000    0.079    0.000    0.079    0.000 __init__.py:439(_gen)
+     1000    0.003    0.000    0.004    0.000 numeric.py:170(ones)
+     1000    0.002    0.000    0.004    0.000 __init__.py:746(wrapped)
+     1000    0.001    0.000    0.002    0.000 __init__.py:414(_FailFastEdgeIterator)
+     4000    0.001    0.000    0.002    0.000 __init__.py:36944(_has_networkx_private_storage)
+     1000    0.001    0.000    0.483    0.000 __init__.py:53606(wrapper)
+     8000    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+     1000    0.001    0.000    0.004    0.000 __init__.py:37542(edges)
+     6000    0.001    0.000    0.003    0.000 {built-in method builtins.len}
+     1000    0.001    0.000    0.198    0.000 __init__.py:658(__iter__)
+     1000    0.001    0.000    0.003    0.000 __init__.py:29870(_complete_normalized_laplacian_spectrum_sorted_value_safe)
+     1000    0.001    0.000    0.002    0.000 weakref.py:164(__setitem__)
+     1000    0.001    0.000    0.001    0.000 {built-in method numpy.empty}
+     2000    0.001    0.000    0.002    0.000 __init__.py:37499(__len__)
+     1000    0.001    0.000    0.481    0.000 __init__.py:29852(normalized_laplacian_spectrum)
+     1000    0.001    0.000    0.002    0.000 __init__.py:37589(degree)
+     2000    0.001    0.000    0.001    0.000 __init__.py:36936(_private_override)
+     1000    0.001    0.000    0.001    0.000 __init__.py:497(__init__)
+     1000    0.001    0.000    0.001    0.000 weakref.py:352(__init__)
+     4000    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+     1000    0.001    0.000    0.001    0.000 __init__.py:37756(number_of_edges)
+     4000    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     3000    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+     1000    0.000    0.000    0.000    0.000 weakref.py:194(get)
+     1000    0.000    0.000    0.001    0.000 weakref.py:347(__new__)
+     1000    0.000    0.000    0.000    0.000 {method '_native_is_complete_unweighted_graph' of 'franken_networkx.Graph' objects}
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+     1000    0.000    0.000    0.000    0.000 __init__.py:315(number_of_edges)
+
+
+

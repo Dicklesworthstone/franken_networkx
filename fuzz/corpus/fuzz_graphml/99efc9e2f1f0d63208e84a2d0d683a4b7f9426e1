@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" at"d0" for="edge" attr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefaul/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <data key="d0">1.5<pkey="d0">1.5</data>
+    </edge>
+  </graph>
+</graphml>

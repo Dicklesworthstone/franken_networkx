@@ -1,0 +1,8 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib reverse_digraph -- --nocapture
+test tests::reverse_digraph_batch_ab ... ignored (measurement)
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 975 filtered out; finished in 0.00s
+(No dedicated exact-vs-nx test exists for reverse_digraph; byte-identity is established by the A/B parity
+assert, where build_old is a verbatim copy of the production per-edge add_edge_with_attrs loop.)
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: reports the same ~12 PRE-EXISTING peer errors; NONE in this lever ranges (production 37669-37690, test 67298-67418) — grep-verified empty. Left untouched per shared-checkout discipline.

@@ -1,0 +1,4 @@
+85fbc8293f149651391033a913f39ab4160c1cd8ee56d94253287e459ae93aea  tests/artifacts/perf/20260613T-rpt-degree-tree-boldfalcon/candidate_bench_fnx.json
+dc7c047fb44cf281131c4738de23b9d158b4431b967c5438392f672c36f5e4e8  tests/artifacts/perf/20260613T-rpt-degree-tree-boldfalcon/candidate_bench_nx.json
+9467bfdb009f38e628da087d329e36c1429b2019a5b1664c26a303ca7514b51d  tests/artifacts/perf/20260613T-rpt-degree-tree-boldfalcon/candidate_golden.json
+0c890f7780f7543ae2c51b0f0f4aa5a34f4f15788f78914998efd617874ef336  tests/artifacts/perf/20260613T-rpt-degree-tree-boldfalcon/candidate_profile_fnx.txt

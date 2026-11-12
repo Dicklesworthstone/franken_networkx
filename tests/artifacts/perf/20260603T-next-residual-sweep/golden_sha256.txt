@@ -1,0 +1,1 @@
+374e7f93e8213abef329baca87a2ebdddd33fa4806b637c2711247d137667376  tests/artifacts/perf/20260603T-next-residual-sweep/golden_sparse_digests.txt

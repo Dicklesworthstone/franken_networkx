@@ -1,0 +1,37 @@
+         792248 function calls in 0.619 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.010    0.010    0.619    0.619 <stdin>:19(run)
+       80    0.304    0.004    0.433    0.005 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43665(to_dict_of_dicts)
+        1    0.009    0.009    0.176    0.176 <stdin>:9(build)
+    18000    0.011    0.000    0.164    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2504(add_edge)
+    18000    0.012    0.000    0.153    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2273(add_edge)
+    18000    0.136    0.000    0.136    0.000 {function MultiDiGraph.add_edge at 0x735820143560}
+   480160    0.066    0.000    0.066    0.000 {method 'get' of 'dict' objects}
+    96000    0.038    0.000    0.038    0.000 {method '_native_successor_row' of 'franken_networkx.MultiDiGraph' objects}
+    96000    0.021    0.000    0.021    0.000 {method 'setdefault' of 'dict' objects}
+    56400    0.004    0.000    0.004    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.003    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2408(add_nodes_from)
+     1200    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2376(add_node)
+     6000    0.002    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:42394(__init__)
+     1200    0.002    0.000    0.002    0.000 {function MultiDiGraph.add_node at 0x735820143060}
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32723(nodes)
+       80    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5712(predicate)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:42470(_live_multi_edge_view_row_cache)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:943(wrapped)
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       81    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32196(_private_override)
+      241    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       80    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x73582014f380}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      160    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3308(__init__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.setattr}
+
+
+
+RESULT {"rows": 1200, "repeats": 80}

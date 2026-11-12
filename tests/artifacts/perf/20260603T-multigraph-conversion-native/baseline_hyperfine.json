@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_directed --nodes 160 --edges 800 --repeat 3",
+      "mean": 13.88229845786,
+      "stddev": 1.306920213508282,
+      "median": 13.29718888366,
+      "user": 17.384512259999997,
+      "system": 0.08163298,
+      "min": 12.91087301866,
+      "max": 16.07302892566,
+      "times": [
+        13.29718888366,
+        12.91087301866,
+        13.04283148366,
+        16.07302892566,
+        14.087569977660001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mg_to_undirected --nodes 160 --edges 800 --repeat 3",
+      "mean": 11.30507525706,
+      "stddev": 0.5954238550169414,
+      "median": 10.986910125660001,
+      "user": 14.728817659999999,
+      "system": 0.08207938000000001,
+      "min": 10.83894987166,
+      "max": 12.280209235660001,
+      "times": [
+        11.46511335966,
+        12.280209235660001,
+        10.95419369266,
+        10.83894987166,
+        10.986910125660001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_directed --nodes 160 --edges 800 --repeat 3",
+      "mean": 3.85848210626,
+      "stddev": 0.0442442503077368,
+      "median": 3.86021646266,
+      "user": 7.375974459999999,
+      "system": 0.06519517999999999,
+      "min": 3.81211371266,
+      "max": 3.91287432866,
+      "times": [
+        3.86021646266,
+        3.81705815166,
+        3.81211371266,
+        3.91287432866,
+        3.8901478756600003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python .venv/bin/python tests/artifacts/perf/20260603T-multigraph-conversion-native/bench_multigraph_conversion.py --mode bench --impl fnx --op mdg_to_undirected --nodes 160 --edges 800 --repeat 3",
+      "mean": 4.84200954946,
+      "stddev": 0.045367610966476124,
+      "median": 4.851004607659999,
+      "user": 8.462236260000001,
+      "system": 0.06831857999999999,
+      "min": 4.78459256866,
+      "max": 4.89694817166,
+      "times": [
+        4.86888236166,
+        4.80862003766,
+        4.851004607659999,
+        4.78459256866,
+        4.89694817166
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "suite": "graph_metrics_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b"},
+    {"op": "add_edge", "left": "b", "right": "c"},
+    {"op": "add_edge", "left": "c", "right": "a"},
+    {"op": "add_edge", "left": "a", "right": "d"},
+    {"op": "degree_assortativity_coefficient_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {}},
+        {"left": "a", "right": "c", "attrs": {}},
+        {"left": "a", "right": "d", "attrs": {}},
+        {"left": "b", "right": "c", "attrs": {}}
+      ]
+    },
+    "degree_assortativity_coefficient": -0.7142857142857143
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "all_ok": true,
+  "golden_sha256": "08e58495512e0b7ce1330404eac05e4d8ea8f3d19badcd42814203b2f858b4e8",
+  "cases": {
+    "plain_8": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 8,
+      "mut_ok": true
+    },
+    "attr_simple": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 10,
+      "mut_ok": true
+    },
+    "attr_mixed_plain": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 10,
+      "mut_ok": true
+    },
+    "parallel_attr": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 12,
+      "mut_ok": true
+    },
+    "selfloops": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 8,
+      "mut_ok": true
+    },
+    "str_nodes": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 8,
+      "mut_ok": true
+    },
+    "tuple_nodes": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 8,
+      "mut_ok": true
+    },
+    "global_attr": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 10,
+      "mut_ok": true
+    },
+    "global_attr_override": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 8,
+      "mut_ok": true
+    },
+    "reversed_pairs": {
+      "eq_peredge": true,
+      "eq_nx": true,
+      "n_edges": 8,
+      "mut_ok": true
+    }
+  }
+}

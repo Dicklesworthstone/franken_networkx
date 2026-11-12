@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-7"?>
+<graphml xmlns="http://graphouble"/>
+  <graph id="G" edgedefault="undirected">
+    <nod~ id="a"/>
+    <node id="b"/>
+    <edge source="a" targit="b2>
+      <data key"=>0.d"05</d a ta>
+  </edge>
+  </graph>
+</graphml>

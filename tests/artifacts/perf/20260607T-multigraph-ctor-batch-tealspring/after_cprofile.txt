@@ -1,0 +1,43 @@
+         8829921 function calls in 10.281 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      120    5.411    0.045    7.339    0.061 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:85(build_ctor)
+       40    0.184    0.005    2.942    0.074 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:96(build_add_loop)
+   280000    0.177    0.000    1.709    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2470(add_edge)
+   280000    0.155    0.000    1.532    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2239(add_edge)
+       40    0.428    0.011    1.426    0.036 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:39(mixed_edges)
+   280000    1.309    0.000    1.309    0.000 {function MultiDiGraph.add_edge at 0x724046eb7e20}
+  1120000    0.305    0.000    0.950    0.000 /usr/lib/python3.13/random.py:295(randrange)
+   280000    0.915    0.000    0.915    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+  1120000    0.374    0.000    0.580    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+       80    0.261    0.003    0.261    0.003 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:23(keyed_edges)
+       40    0.199    0.005    0.199    0.005 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:27(attr_edges)
+      160    0.004    0.000    0.175    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:3265(__init__)
+      120    0.168    0.001    0.168    0.001 {built-in method franken_networkx._fnx.validate_ctor_edge_list}
+  1826240    0.122    0.000    0.122    0.000 {method 'getrandbits' of '_random.Random' objects}
+  1120000    0.084    0.000    0.084    0.000 {method 'bit_length' of 'int' objects}
+   840000    0.068    0.000    0.068    0.000 {built-in method builtins.hash}
+  1120000    0.065    0.000    0.065    0.000 {built-in method _operator.index}
+   560000    0.047    0.000    0.047    0.000 {method 'append' of 'list' objects}
+      120    0.001    0.000    0.001    0.000 {built-in method builtins.locals}
+      120    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5652(predicate)
+       40    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      840    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+       40    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:128(seed)
+       80    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5457(__get__)
+      160    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/tests/artifacts/perf/20260607T-multigraph-ctor-batch-tealspring/multigraph_ctor_batch.py:77(graph_class)
+      720    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
+       40    0.000    0.000    0.000    0.000 {function Random.seed at 0x724048265260}
+       60    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x724046ec3b00}
+       60    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x724046ec3c40}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      360    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      200    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       80    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
+

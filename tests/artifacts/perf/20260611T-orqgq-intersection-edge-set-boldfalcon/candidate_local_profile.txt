@@ -1,0 +1,28 @@
+         11442 function calls (11222 primitive calls) in 4.058 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.025    0.025    4.058    4.058 harness_intersection_edge_set.py:165(run)
+  440/220    0.018    0.000    4.033    0.018 __init__.py:49586(wrapper)
+      220    0.001    0.000    4.033    0.018 __init__.py:12514(intersection)
+      220    0.627    0.003    4.014    0.018 __init__.py:21894(intersection_all)
+      440    2.264    0.005    2.264    0.005 {method '_native_intersection_edge_set' of 'franken_networkx.Graph' objects}
+      220    0.000    0.000    0.782    0.004 __init__.py:2694(add_edges_from)
+      220    0.781    0.004    0.781    0.004 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      220    0.001    0.000    0.337    0.002 __init__.py:2411(add_nodes_from)
+      220    0.337    0.002    0.337    0.002 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      880    0.001    0.000    0.002    0.000 __init__.py:5754(predicate)
+      440    0.001    0.000    0.001    0.000 __init__.py:34295(nodes)
+      440    0.001    0.000    0.001    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b889d7dede0}
+      220    0.001    0.000    0.001    0.000 __init__.py:3350(__init__)
+     3300    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      440    0.000    0.000    0.001    0.000 __init__.py:12158(_coerce_arg_to_fnx_graph)
+      440    0.000    0.000    0.000    0.000 __init__.py:33768(_private_override)
+      220    0.000    0.000    0.000    0.000 __init__.py:20218(_finalize_operator_result)
+      880    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      440    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7b889d7dee80}
+      880    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      220    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      440    0.000    0.000    0.000    0.000 __init__.py:22128(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

@@ -1,0 +1,76 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-bsb16-current-flow-rcm-boldfalcon/harness_current_flow_rcm.py direct --target rcm --case watts_180 --repeat 100 --output /tmp/bsb16_hf_rcm.json",
+      "mean": 0.49815637168000004,
+      "stddev": 0.017694123755157814,
+      "median": 0.49268286388000004,
+      "user": 4.65927518,
+      "system": 0.05318842,
+      "min": 0.48611247788000006,
+      "max": 0.52898760188,
+      "times": [
+        0.49268286388000004,
+        0.4871337028800001,
+        0.48611247788000006,
+        0.49586521188000005,
+        0.52898760188
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-bsb16-current-flow-rcm-boldfalcon/harness_current_flow_rcm.py direct --target node --case watts_180 --repeat 20 --output /tmp/bsb16_hf_node.json",
+      "mean": 0.34299247748000006,
+      "stddev": 0.015824531848708058,
+      "median": 0.34069921988,
+      "user": 4.41940638,
+      "system": 0.06201102000000001,
+      "min": 0.32619986488,
+      "max": 0.36715709588000006,
+      "times": [
+        0.34812078688000003,
+        0.34069921988,
+        0.32619986488,
+        0.36715709588000006,
+        0.33278541988000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260610T-bsb16-current-flow-rcm-boldfalcon/harness_current_flow_rcm.py direct --target edge --case watts_180 --repeat 20 --output /tmp/bsb16_hf_edge.json",
+      "mean": 0.39631557088,
+      "stddev": 0.012931542644719995,
+      "median": 0.40037890288000005,
+      "user": 4.16951258,
+      "system": 0.06909322,
+      "min": 0.37903377188000004,
+      "max": 0.41146716688000007,
+      "times": [
+        0.41146716688000007,
+        0.40037890288000005,
+        0.40316848788000004,
+        0.37903377188000004,
+        0.38752952488000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

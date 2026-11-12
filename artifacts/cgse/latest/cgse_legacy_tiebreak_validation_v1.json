@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "cgse-legacy-tiebreak-ordering-ledger-validation-v1",
+  "artifact": "artifacts/cgse/v1/cgse_legacy_tiebreak_ordering_ledger_v1.json",
+  "schema": "artifacts/cgse/schema/v1/cgse_legacy_tiebreak_ordering_ledger_schema_v1.json",
+  "ready": true,
+  "error_count": 0,
+  "errors": [],
+  "summary": {
+    "rule_count": 14,
+    "operation_family_count": 9,
+    "ambiguity_count": 11
+  }
+}

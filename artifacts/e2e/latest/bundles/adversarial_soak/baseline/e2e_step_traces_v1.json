@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "adversarial_soak",
+  "packet_id": "FNX-P2C-006",
+  "pass_label": "baseline",
+  "mode": "hardened",
+  "fixture_id": "generated/readwrite_hardened_malformed.json",
+  "bundle_id": "e2e-bundle-6d7e041ad44a0f50",
+  "stable_fingerprint": "ad1995178992eaf5",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+  "env_fingerprint": "284604474f6d1849",
+  "generated_at_utc": "2026-02-18T22:02:11.914872+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::adversarial_soak",
+      "step_id": "adversarial_soak::cycle-01",
+      "step_label": "execute:adversarial_soak",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452094350,
+      "end_unix_ms": 1771452103566,
+      "duration_ms": 9216,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "input_ref": "generated/readwrite_hardened_malformed.json",
+      "output_ref": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/command.log",
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "40a27ca8a4e3cb01",
+      "outcome": "passed",
+      "reason_code": null
+    },
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::adversarial_soak",
+      "step_id": "adversarial_soak::cycle-02",
+      "step_label": "execute:adversarial_soak",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452103566,
+      "end_unix_ms": 1771452113596,
+      "duration_ms": 10030,
+      "retry_count": 1,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "input_ref": "generated/readwrite_hardened_malformed.json",
+      "output_ref": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/command.log",
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "88b0685394e580a0",
+      "outcome": "passed",
+      "reason_code": null
+    },
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::adversarial_soak",
+      "step_id": "adversarial_soak::cycle-03",
+      "step_label": "execute:adversarial_soak",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452113596,
+      "end_unix_ms": 1771452122729,
+      "duration_ms": 9133,
+      "retry_count": 2,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "input_ref": "generated/readwrite_hardened_malformed.json",
+      "output_ref": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/command.log",
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "1c9d31688fdbfa45",
+      "outcome": "passed",
+      "reason_code": null
+    },
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::adversarial_soak",
+      "step_id": "adversarial_soak::cycle-04",
+      "step_label": "execute:adversarial_soak",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452122729,
+      "end_unix_ms": 1771452131912,
+      "duration_ms": 9183,
+      "retry_count": 3,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "input_ref": "generated/readwrite_hardened_malformed.json",
+      "output_ref": "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/readwrite_hardened_malformed.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-006::generated::readwrite_hardened_malformed.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/command.log",
+        "artifacts/e2e/latest/bundles/adversarial_soak/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "17aac0bf197e2072",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

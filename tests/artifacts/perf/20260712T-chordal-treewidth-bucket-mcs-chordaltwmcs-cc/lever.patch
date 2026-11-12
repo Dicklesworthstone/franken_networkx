@@ -1,0 +1,373 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index ef5b7be65..90fdb6daa 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -25100,32 +25100,51 @@ fn chordal_mcs_max_clique_size(graph: &Graph) -> Result<usize, ChordalGraphTreew
+     if nodes.is_empty() {
+         return Ok(0);
+     }
++    let n = nodes.len();
+ 
++    // rank: node name -> its index (== position in nodes_ordered).
+     let rank: HashMap<&str, usize> = nodes
+         .iter()
+         .enumerate()
+         .map(|(index, &node)| (node, index))
+         .collect();
+-    let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
+-    let mut labels: HashMap<&str, usize> = nodes.iter().map(|&node| (node, 0)).collect();
++
++    // br-r37-c1-chordaltwmcs (cc): O((|V|+|E|)·log|V|) weight-bucket MCS (same lever as is_chordal's
++    // br-r37-c1-chordalmcs) replacing the O(|V|²) `remaining.iter().max_by(label, then min rank)` full
++    // scan per round, AND indexing labels/removed by node INDEX instead of String-keyed
++    // HashMap/HashSet (dropping a String hash per neighbour per round). `buckets[l]` (a BTreeSet of node
++    // indices) holds the still-remaining nodes at label l; each round descends to the highest non-empty
++    // bucket (max label) and pops its first element (min index) — byte-identical to the old
++    // `max_by(labels[l].cmp(labels[r]).then(rank[r].cmp(rank[l])))` (max label, ties by min rank == min
++    // index). Label increments and the clique-completeness checks are unchanged, so `max_clique_size`
++    // (and the NotChordal early-return) are identical. `max_label` is always ≥ every remaining node's
++    // label (it only rises on an increment), so the descent never underflows while nodes remain.
++    let mut labels: Vec<usize> = vec![0; n];
++    let mut removed: Vec<bool> = vec![false; n];
++    let mut buckets: Vec<std::collections::BTreeSet<usize>> =
++        vec![std::collections::BTreeSet::new(); n + 1];
++    for i in 0..n {
++        buckets[0].insert(i);
++    }
++    let mut max_label = 0usize;
++    let mut remaining_count = n;
+     let mut max_clique_size = 0usize;
+ 
+-    while !remaining.is_empty() {
+-        let &chosen = remaining
+-            .iter()
+-            .max_by(|&&left, &&right| {
+-                labels[&left]
+-                    .cmp(&labels[&right])
+-                    .then_with(|| rank[&right].cmp(&rank[&left]))
+-            })
+-            .expect("remaining is non-empty");
+-        remaining.remove(chosen);
++    while remaining_count > 0 {
++        while buckets[max_label].is_empty() {
++            max_label -= 1;
++        }
++        let chosen_idx = *buckets[max_label].iter().next().expect("non-empty bucket");
++        buckets[max_label].remove(&chosen_idx);
++        removed[chosen_idx] = true;
++        remaining_count -= 1;
++        let chosen = nodes[chosen_idx];
+ 
+         let clique_wanna_be: Vec<&str> = graph
+             .neighbors_iter(chosen)
+             .map(|neighbors| {
+                 neighbors
+-                    .filter(|neighbor| neighbor != &chosen && !remaining.contains(*neighbor))
++                    .filter(|neighbor| *neighbor != chosen && removed[rank[*neighbor]])
+                     .collect()
+             })
+             .unwrap_or_default();
+@@ -25136,10 +25155,15 @@ fn chordal_mcs_max_clique_size(graph: &Graph) -> Result<usize, ChordalGraphTreew
+ 
+         if let Some(neighbors) = graph.neighbors_iter(chosen) {
+             for neighbor in neighbors {
+-                if remaining.contains(neighbor)
+-                    && let Some(label) = labels.get_mut(neighbor)
+-                {
+-                    *label += 1;
++                let ni = rank[neighbor];
++                if !removed[ni] {
++                    let old = labels[ni];
++                    buckets[old].remove(&ni);
++                    labels[ni] = old + 1;
++                    buckets[old + 1].insert(ni);
++                    if old + 1 > max_label {
++                        max_label = old + 1;
++                    }
+                 }
+             }
+         }
+@@ -35173,11 +35197,9 @@ pub fn is_edge_cover(graph: &Graph, edges: &[(&str, &str)]) -> bool {
+     }
+     let mut covered: HashSet<&str> = HashSet::new();
+     for &(u, v) in edges {
+-        // Verify edge exists in graph
+-        let exists = graph
+-            .neighbors_iter(u)
+-            .is_some_and(|mut nbrs| nbrs.any(|n| n == v));
+-        if !exists {
++        // br-r37-c1-4pchn: the indexed edge map answers the same undirected
++        // predicate without linearly scanning u's adjacency row.
++        if !graph.has_edge(u, v) {
+             return false;
+         }
+         covered.insert(u);
+@@ -49509,6 +49531,134 @@ mod tests {
+         report("NULL_bucket_vs_bucket", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-chordaltwmcs: full-function paired-interleaved median A/B for
++    /// `chordal_graph_treewidth` — inline ORIGINAL (O(V²) String-keyed `remaining.iter().max_by(...)`
++    /// MCS) vs the shipped `super::chordal_graph_treewidth` (O((V+E)logV) index-bucket MCS). Large
++    /// SPARSE chordal graph so the O(V²) scan dominates. Result parity asserted first. `#[ignore]`; run
++    /// with `cargo test --release -p fnx-algorithms --lib chordal_treewidth_mcs_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn chordal_treewidth_mcs_ab() {
++        use std::collections::{HashMap, HashSet};
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Interval graph (4th power of a path): chordal → chordal_graph_treewidth returns Ok(tw).
++        let n_nodes = 6000usize;
++        let k = 4usize;
++        let mut g = Graph::strict();
++        for i in 0..n_nodes {
++            let _ = g.add_node(i.to_string());
++        }
++        for i in 0..n_nodes {
++            for d in 1..=k {
++                if i >= d {
++                    let _ = g.add_edge(i.to_string(), (i - d).to_string());
++                }
++            }
++        }
++
++        // Inline ORIGINAL chordal_mcs_max_clique_size (O(V²) String-keyed MCS) → treewidth.
++        let old_tw = |graph: &Graph| -> usize {
++            let nodes = graph.nodes_ordered();
++            let n = nodes.len();
++            if n == 0 {
++                return 0;
++            }
++            let rank: HashMap<&str, usize> =
++                nodes.iter().enumerate().map(|(i, &nd)| (nd, i)).collect();
++            let mut remaining: HashSet<&str> = nodes.iter().copied().collect();
++            let mut labels: HashMap<&str, usize> = nodes.iter().map(|&nd| (nd, 0)).collect();
++            let mut max_clique_size = 0usize;
++            while !remaining.is_empty() {
++                let &chosen = remaining
++                    .iter()
++                    .max_by(|&&l, &&r| labels[&l].cmp(&labels[&r]).then_with(|| rank[&r].cmp(&rank[&l])))
++                    .unwrap();
++                remaining.remove(chosen);
++                let clique_wanna_be: Vec<&str> = graph
++                    .neighbors_iter(chosen)
++                    .map(|nbrs| {
++                        nbrs.filter(|nb| nb != &chosen && !remaining.contains(*nb)).collect()
++                    })
++                    .unwrap_or_default();
++                assert!(
++                    super::node_set_is_complete(graph, &clique_wanna_be),
++                    "test graph must be chordal"
++                );
++                max_clique_size = max_clique_size.max(clique_wanna_be.len() + 1);
++                if let Some(nbrs) = graph.neighbors_iter(chosen) {
++                    for nb in nbrs {
++                        if remaining.contains(nb)
++                            && let Some(label) = labels.get_mut(nb)
++                        {
++                            *label += 1;
++                        }
++                    }
++                }
++            }
++            max_clique_size.saturating_sub(1)
++        };
++
++        assert_eq!(
++            old_tw(&g),
++            super::chordal_graph_treewidth(&g).unwrap(),
++            "bucket-MCS treewidth must be byte-identical to the O(V²) scan"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand {
++                super::chordal_graph_treewidth(&g).unwrap()
++            } else {
++                old_tw(&g)
++            };
++            black_box(r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "CHORDALTWMCS_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("CHORDALTWMCS_AB chordal_graph_treewidth 6000-node interval rounds={rounds} (>1 = bucket faster)");
++        report("BUCKET_vs_scan", &paired(true, false));
++        report("NULL_bucket_vs_bucket", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact
+@@ -64566,6 +64716,133 @@ mod tests {
+         assert!(!is_edge_cover(&g, &[("a", "c")])); // a-c not in graph
+     }
+ 
++    /// br-r37-c1-4pchn: paired-interleaved A/B for edge-cover validation's
++    /// per-cover-edge existence check. The frozen baseline linearly scans the
++    /// source adjacency row; the candidate probes the indexed edge map. Exact
++    /// boolean parity is asserted before timing. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib is_edge_cover_hasedge_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn is_edge_cover_hasedge_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        fn old_is_edge_cover(graph: &Graph, edges: &[(&str, &str)]) -> bool {
++            let nodes = graph.nodes_ordered();
++            if nodes.is_empty() {
++                return true;
++            }
++            let mut covered: HashSet<&str> = HashSet::new();
++            for &(u, v) in edges {
++                let exists = graph
++                    .neighbors_iter(u)
++                    .is_some_and(|mut neighbors| neighbors.any(|neighbor| neighbor == v));
++                if !exists {
++                    return false;
++                }
++                covered.insert(u);
++                covered.insert(v);
++            }
++            nodes.iter().all(|&node| covered.contains(node))
++        }
++
++        let mut parity = Graph::strict();
++        let _ = parity.add_edge("a", "b");
++        let _ = parity.add_edge("b", "c");
++        let _ = parity.add_edge("c", "c");
++        for edges in [
++            vec![("a", "b"), ("b", "c")],
++            vec![("b", "a"), ("c", "c")],
++            vec![("a", "c")],
++            vec![("missing", "a")],
++            Vec::new(),
++        ] {
++            assert_eq!(
++                old_is_edge_cover(&parity, &edges),
++                is_edge_cover(&parity, &edges),
++                "indexed edge predicate parity for {edges:?}"
++            );
++        }
++
++        // Every even node has 64 earlier-inserted filler neighbours followed by
++        // its paired odd node. The supplied pair edges cover every node and put
++        // the baseline's successful match at the end of each scanned row.
++        let pairs = 10_000usize;
++        let fanout = 64usize;
++        let mut graph = Graph::strict();
++        for i in 0..pairs {
++            let _ = graph.add_node((2 * i).to_string());
++            let _ = graph.add_node((2 * i + 1).to_string());
++        }
++        let mut cover = Vec::with_capacity(pairs);
++        for i in 0..pairs {
++            let even = (2 * i).to_string();
++            for delta in 1..=fanout {
++                let filler_odd = (2 * ((i + delta) % pairs) + 1).to_string();
++                let _ = graph.add_edge(even.clone(), filler_odd);
++            }
++            let paired_odd = (2 * i + 1).to_string();
++            let _ = graph.add_edge(even.clone(), paired_odd.clone());
++            cover.push((even, paired_odd));
++        }
++        let cover_refs: Vec<(&str, &str)> = cover
++            .iter()
++            .map(|(u, v)| (u.as_str(), v.as_str()))
++            .collect();
++        assert!(old_is_edge_cover(&graph, &cover_refs));
++        assert!(is_edge_cover(&graph, &cover_refs));
++
++        let time = |candidate: bool| -> f64 {
++            let start = Instant::now();
++            let covered = if candidate {
++                is_edge_cover(black_box(&graph), black_box(&cover_refs))
++            } else {
++                old_is_edge_cover(black_box(&graph), black_box(&cover_refs))
++            };
++            black_box(covered);
++            start.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |values: &[f64]| {
++            let mut sorted = values.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            sorted[sorted.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |candidate: bool, baseline: bool| -> Vec<f64> {
++            let mut ratios = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (base_time, candidate_time) = if round.is_multiple_of(2) {
++                    (time(baseline), time(candidate))
++                } else {
++                    let candidate_time = time(candidate);
++                    (time(baseline), candidate_time)
++                };
++                ratios.push(base_time / candidate_time);
++            }
++            ratios
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&ratio| ratio > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "EDGECOVER_AB {name}: median={:.4}x win_rate={wins}/{rounds} p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!(
++            "EDGECOVER_AB pairs={pairs} fanout={fanout} rounds={rounds} (>1 = has_edge faster)"
++        );
++        report("HASEDGE_vs_neighbor_scan", &paired(true, false));
++        report("NULL_hasedge_vs_hasedge", &paired(true, true));
++    }
++
+     #[test]
+     fn test_max_weight_clique_triangle() {
+         let mut g = Graph::strict();

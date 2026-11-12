@@ -1,0 +1,1 @@
+a66fe1d2d36fe1f69a5966fab6d739d8b5b34ed0aae622b17565fbba8ce603d6  tests/artifacts/perf/20260603T-ego-graph-edgedataview-materialize/golden_output.json

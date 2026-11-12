@@ -1,0 +1,9 @@
+  [2m2026-07-11T04:55:31.377587Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib maximum_independent_set -- --include-ignored --nocapture[0m
+test tests::test_maximum_independent_set_triangle ... ok
+test tests::test_maximum_independent_set_path ... ok
+test tests::test_maximum_independent_set_empty ... ok
+MISMARK_AB n=500 deg=6 rounds=61 (>1 = mark-array faster)
+MISMARK_AB MARK_vs_string: median=28.1929x win_rate=61/61 p5_p95=[20.7313,59.4518]
+MISMARK_AB NULL_mark_vs_mark: median=1.0038x win_rate=32/61 p5_p95=[0.9207,1.0846]
+test tests::maximum_independent_set_mismark_ab ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 940 filtered out; finished in 1.85s

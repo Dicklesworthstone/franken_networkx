@@ -1,0 +1,58 @@
+{
+  "bead": "br-r37-c1-p80x1.34",
+  "verdict": "ADMISSIBLE",
+  "measured_at": "2026-08-28T05:20:00Z",
+  "command": "taskset -c 24 env PYTHONHASHSEED=0 PYTHONPATH=python OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 EXPECT_ELF_SHA=cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935 /data/projects/franken_networkx/.venv/bin/python scripts/balanced_square_ab.py --workload claim-weighted-shortest-path --rounds 21 --warmup 4 --reps 1 --calls-per-slot 1",
+  "incumbent": {
+    "name": "networkx",
+    "version": "3.6.1",
+    "same_process": true
+  },
+  "candidate": {
+    "elf": "/data/projects/franken_networkx/python/franken_networkx/_fnx.abi3.so",
+    "elf_sha256": "cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935",
+    "build_profile": "release",
+    "runtime_isa": "avx2,avx,sse4_2"
+  },
+  "fixture": {
+    "workload": "shortest_path(weighted)",
+    "nodes": 2000,
+    "edges": 8000,
+    "seed": 7,
+    "source": "0",
+    "target": "1999",
+    "weight": "weight",
+    "input_canonical_bytes": 398318,
+    "input_sha256": "03c62edb3bc632ec6fedf20e7a7061e42688aa1d655e9128dbc4980c2af54de0",
+    "expected_path": ["0", "1610", "1531", "1102", "184", "452", "1999"],
+    "expected_edge_weights": [4, 1, 4, 5, 3, 2],
+    "expected_total_weight": 19,
+    "output_canonical_bytes": 51,
+    "output_sha256": "52a956a6868cbe0c02c56c5b963e2739aeb19a60b4d876fe747111db192676bb",
+    "negative_case": "A different equal-cost path fails the ordered-path, per-edge-weight, and SHA-256 preflight before timing."
+  },
+  "measurement": {
+    "ratio_networkx_over_fnx": 1.7327,
+    "ratio_ci_95": [1.6760, 1.7511],
+    "aa_nulls": [0.9993, 1.0052],
+    "null_bound": 0.02,
+    "rounds": 21,
+    "warmup": 4,
+    "reps": 1,
+    "calls_per_slot": 1,
+    "clock_mhz": [4288, 4288],
+    "clock_skew_percent": 0.0,
+    "spread_percent": 1.8,
+    "cpu": 24,
+    "smt_sibling": 56,
+    "smt_sibling_busy_percent": 4,
+    "admitted_rows": "1/1"
+  },
+  "provenance": {
+    "harness_sha256": "989d2d57150e34a8f4bc319e423576d80b41f630f40463b8ba19ebcf354612a7",
+    "shim_sha256": "f4ced1a6d923b0c8d518b33ef136162af96fa6a278878bcdfa57d320857baa8d",
+    "git_head": "12d8a950fc2122897adeca5ed92e11bf298a5381",
+    "python": "3.13.7",
+    "pythonhashseed": 0
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "n1500_deg8": {
+    "before_ms": 63.075,
+    "after_ms": 19.029,
+    "nx_ms": 39.369,
+    "self_speedup": 3.315,
+    "before_vs_nx": 1.602,
+    "after_vs_nx": 0.483,
+    "sha_after": "48fed6924bcc1ef3e7194520dc538a8c6358e6a9411b7eaed52651728bca530d",
+    "sha_before": "48fed6924bcc1ef3e7194520dc538a8c6358e6a9411b7eaed52651728bca530d",
+    "sha_nx": "48fed6924bcc1ef3e7194520dc538a8c6358e6a9411b7eaed52651728bca530d",
+    "sha_match": true
+  },
+  "n3000_deg8": {
+    "before_ms": 153.484,
+    "after_ms": 48.192,
+    "nx_ms": 98.731,
+    "self_speedup": 3.185,
+    "before_vs_nx": 1.555,
+    "after_vs_nx": 0.488,
+    "sha_after": "2df37fa6a929b6ed19a3e625eb09c65b8136175c585a265cc8fddb5a1cadd546",
+    "sha_before": "2df37fa6a929b6ed19a3e625eb09c65b8136175c585a265cc8fddb5a1cadd546",
+    "sha_nx": "2df37fa6a929b6ed19a3e625eb09c65b8136175c585a265cc8fddb5a1cadd546",
+    "sha_match": true
+  }
+}

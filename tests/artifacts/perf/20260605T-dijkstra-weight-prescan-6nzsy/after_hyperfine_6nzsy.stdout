@@ -1,0 +1,24 @@
+  [2m2026-06-05T00:47:58.576264Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 7 --export-json tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/after_hyperfine_6nzsy.json 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode public --loops 100' 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-check --loops 100' 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-kernel --loops 100' 'env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode networkx --loops 100'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode public --loops 100
+  Time (mean ± σ):     618.4 ms ±  62.9 ms    [User: 1994.9 ms, System: 86.8 ms]
+  Range (min … max):   527.6 ms … 712.5 ms    7 runs
+ 
+Benchmark 2: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-check --loops 100
+  Time (mean ± σ):     503.3 ms ±  13.3 ms    [User: 3868.6 ms, System: 82.9 ms]
+  Range (min … max):   488.7 ms … 527.5 ms    7 runs
+ 
+Benchmark 3: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-kernel --loops 100
+  Time (mean ± σ):     425.5 ms ±  26.4 ms    [User: 4141.9 ms, System: 75.6 ms]
+  Range (min … max):   399.9 ms … 457.0 ms    7 runs
+ 
+Benchmark 4: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode networkx --loops 100
+  Time (mean ± σ):     392.6 ms ±  19.9 ms    [User: 4151.4 ms, System: 59.4 ms]
+  Range (min … max):   360.6 ms … 416.3 ms    7 runs
+ 
+Summary
+  env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode networkx --loops 100 ran
+    1.08 ± 0.09 times faster than env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-kernel --loops 100
+    1.28 ± 0.07 times faster than env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode native-check --loops 100
+    1.58 ± 0.18 times faster than env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260605T-dijkstra-weight-prescan-6nzsy/dijkstra_weight_prescan_bench_6nzsy.py --mode public --loops 100

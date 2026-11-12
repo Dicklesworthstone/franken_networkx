@@ -1,0 +1,10 @@
+<&xmlsi  <gbaph i#d="G2 edgedefault="undirected">
+    <node>
+   urce="a" target="b">
+      <="a" target="b">
+      id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+   ]  <="a" target="b">
+      <data key="d1">1.5<ph>
+</graphml>

@@ -1,0 +1,1 @@
+<class 'franken_networkx.Graph'>

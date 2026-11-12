@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python python3 -c \"import franken_networkx as fnx; g=fnx.random_regular_graph(4,24,seed=5); fnx.k_components(g)\"",
+      "mean": 0.81379497636,
+      "stddev": 0.021075649353745278,
+      "median": 0.82503467736,
+      "user": 4.411340780000001,
+      "system": 0.05670746,
+      "min": 0.7861526293600001,
+      "max": 0.83505049536,
+      "times": [
+        0.79683015136,
+        0.7861526293600001,
+        0.83505049536,
+        0.82590692836,
+        0.82503467736
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

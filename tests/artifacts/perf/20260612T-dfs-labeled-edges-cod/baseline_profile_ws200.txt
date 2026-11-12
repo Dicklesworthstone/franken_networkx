@@ -1,0 +1,31 @@
+         923801 function calls in 0.235 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      200    0.024    0.000    0.235    0.001 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/tests/artifacts/perf/20260612T-dfs-labeled-edges-cod/harness_dfs_labeled_edges.py:56(materialize)
+   280400    0.067    0.000    0.211    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:32603(dfs_labeled_edges)
+    40000    0.020    0.000    0.127    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:36259(neighbors)
+    40000    0.050    0.000    0.094    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:35574(_cached_adj_row_key_iter)
+    80000    0.017    0.000    0.026    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:35480(_has_networkx_private_storage)
+    40000    0.011    0.000    0.011    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+    80400    0.009    0.000    0.009    0.000 {built-in method builtins.vars}
+    80000    0.008    0.000    0.008    0.000 {built-in method builtins.iter}
+    40400    0.005    0.000    0.005    0.000 {method 'get' of 'dict' objects}
+    40000    0.004    0.000    0.004    0.000 {built-in method builtins.getattr}
+    40000    0.004    0.000    0.004    0.000 {method 'add' of 'set' objects}
+    39800    0.004    0.000    0.004    0.000 {method 'append' of 'list' objects}
+    40000    0.004    0.000    0.004    0.000 {method 'pop' of 'list' objects}
+    40800    0.004    0.000    0.004    0.000 {built-in method builtins.isinstance}
+    40000    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+      400    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:35975(__iter__)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:35985(__len__)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:51509(wrapper)
+      400    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:35472(_private_override)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:12691(_coerce_arg_to_fnx_graph)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx-cod-selfloops-land-20260612T1858/python/franken_networkx/__init__.py:23330(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+
+{"case": "ws200", "calls": 200, "total_events": 280200}

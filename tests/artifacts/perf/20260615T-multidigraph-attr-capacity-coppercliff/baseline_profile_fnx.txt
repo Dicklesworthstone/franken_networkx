@@ -1,0 +1,48 @@
+         9939842 function calls in 7.000 seconds
+
+   Ordered by: cumulative time
+   List reduced from 70 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    7.000    7.000 construction_attr_survey.py:148(once)
+      120    0.117    0.001    7.000    0.058 construction_attr_survey.py:101(_measure_case)
+      120    0.888    0.007    4.253    0.035 construction_attr_survey.py:29(_digest_graph)
+      120    0.048    0.000    2.627    0.022 construction_attr_survey.py:78(_multidigraph_attr)
+      120    0.066    0.001    2.271    0.019 __init__.py:2847(_multi_add_edges_from)
+      120    2.195    0.018    2.195    0.018 {method '_try_add_attr_edges_from_batch' of 'franken_networkx.MultiDiGraph' objects}
+  1282080    0.819    0.000    1.339    0.000 {built-in method builtins.sorted}
+      120    0.794    0.007    0.823    0.007 __init__.py:2319(__call__)
+  1920000    0.381    0.000    0.503    0.000 construction_attr_survey.py:37(<genexpr>)
+  4161960    0.456    0.000    0.456    0.000 {built-in method builtins.repr}
+      120    0.001    0.000    0.439    0.004 __init__.py:183(dumps)
+      120    0.001    0.000    0.438    0.004 encoder.py:183(encode)
+      120    0.437    0.004    0.437    0.004 encoder.py:205(iterencode)
+      120    0.194    0.002    0.307    0.003 construction_attr_survey.py:25(_attr_edges)
+   960120    0.167    0.000    0.167    0.000 __init__.py:439(_gen)
+  1281960    0.134    0.000    0.134    0.000 {method 'items' of 'dict' objects}
+      120    0.113    0.001    0.113    0.001 construction_attr_survey.py:21(_int_edges)
+      120    0.000    0.000    0.097    0.001 __init__.py:920(__iter__)
+      120    0.016    0.000    0.097    0.001 __init__.py:882(_materialize)
+      120    0.081    0.001    0.081    0.001 {function _mapping_items_view at 0x77456228d580}
+      120    0.024    0.000    0.024    0.000 {method 'extend' of 'list' objects}
+      120    0.021    0.000    0.021    0.000 {built-in method _hashlib.openssl_sha256}
+   321960    0.018    0.000    0.018    0.000 construction_attr_survey.py:30(<genexpr>)
+      120    0.010    0.000    0.010    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiDiGraph' objects}
+      120    0.003    0.000    0.004    0.000 __init__.py:5024(_wrap_edge_data_view)
+      120    0.004    0.000    0.004    0.000 {method 'encode' of 'str' objects}
+      120    0.001    0.000    0.002    0.000 __init__.py:37179(edges)
+      240    0.001    0.000    0.002    0.000 __init__.py:2197(__iter__)
+      120    0.001    0.000    0.001    0.000 __init__.py:37159(nodes)
+      120    0.001    0.000    0.001    0.000 weakref.py:164(__setitem__)
+      120    0.001    0.000    0.001    0.000 __init__.py:1031(wrapped)
+      120    0.000    0.000    0.001    0.000 __init__.py:37384(number_of_nodes)
+      120    0.000    0.000    0.001    0.000 __init__.py:414(_FailFastEdgeIterator)
+      960    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+      240    0.000    0.000    0.001    0.000 __init__.py:36573(_private_override)
+      120    0.000    0.000    0.001    0.000 __init__.py:6172(predicate)
+      840    0.001    0.000    0.001    0.000 {built-in method builtins.isinstance}
+      120    0.000    0.000    0.000    0.000 {method 'hexdigest' of '_hashlib.HASH' objects}
+      480    0.000    0.000    0.000    0.000 __init__.py:36581(_has_networkx_private_storage)
+      120    0.000    0.000    0.000    0.000 statistics.py:621(median)
+
+

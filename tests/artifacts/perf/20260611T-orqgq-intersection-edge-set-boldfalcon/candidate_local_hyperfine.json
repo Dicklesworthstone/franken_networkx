@@ -1,0 +1,28 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260611T-orqgq-intersection-edge-set-boldfalcon/harness_intersection_edge_set.py bench --label candidate_local_hf_direct --samples 3",
+      "mean": 0.48671217852000004,
+      "stddev": 0.014520238914345394,
+      "median": 0.48951572852,
+      "user": 4.71488918,
+      "system": 0.0758435,
+      "min": 0.46270321952000004,
+      "max": 0.50070691852,
+      "times": [
+        0.48600417752,
+        0.48951572852,
+        0.49463084852,
+        0.46270321952000004,
+        0.50070691852
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

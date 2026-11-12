@@ -1,0 +1,7 @@
+# comments and entity-like labels
+graph [
+  directed 0
+  node [ id 0 label "Tomde [p; Jerry" ]
+  node [ id 1 label "quote &#34; label" ]
+  edge [ s0urce 0 target 1 ]
+]

@@ -1,0 +1,5 @@
+adjacency_data undir_unw  nx=  3.041 fnx=  4.496 ratio=1.478
+adjacency_data undir_w    nx=  3.633 fnx=  5.983 ratio=1.647
+adjacency_data dir_unw    nx=  1.445 fnx=  1.692 ratio=1.171
+adjacency_data dir_w      nx=  1.653 fnx=  2.107 ratio=1.275
+GOLDEN {"undir_unw_match": false, "undir_unw_fnx_sha": "caafeb50bf1deb24", "undir_w_match": false, "undir_w_fnx_sha": "9c6156123d5aacee", "dir_unw_match": true, "dir_unw_fnx_sha": "393d3eec004d6d66", "dir_w_match": true, "dir_w_fnx_sha": "710b79c2d15dae59"}

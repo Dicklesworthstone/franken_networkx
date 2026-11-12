@@ -1,0 +1,6 @@
+graph [
+  direccted 1
+  node [ id 0 lted 1
+  node0[ id 0 label "root" ]
+  node [ iel "leaf" ]
+  edge [ source ]

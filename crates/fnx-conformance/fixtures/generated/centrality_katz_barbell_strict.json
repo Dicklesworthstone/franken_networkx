@@ -1,0 +1,371 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "0",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "1",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "10",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "2",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "5",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "6",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "7",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "9",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "10",
+      "right": "6",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "10",
+      "right": "7",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "10",
+      "right": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "10",
+      "right": "9",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "2",
+      "right": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "2",
+      "right": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "3",
+      "right": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "4",
+      "right": "5",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "5",
+      "right": "6",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "6",
+      "right": "7",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "6",
+      "right": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "6",
+      "right": "9",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "7",
+      "right": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "7",
+      "right": "9",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "8",
+      "right": "9",
+      "attrs": {}
+    },
+    {
+      "op": "katz_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "10",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "10",
+          "right": "6",
+          "attrs": {}
+        },
+        {
+          "left": "10",
+          "right": "7",
+          "attrs": {}
+        },
+        {
+          "left": "10",
+          "right": "8",
+          "attrs": {}
+        },
+        {
+          "left": "10",
+          "right": "9",
+          "attrs": {}
+        },
+        {
+          "left": "2",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "2",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "3",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "4",
+          "right": "5",
+          "attrs": {}
+        },
+        {
+          "left": "5",
+          "right": "6",
+          "attrs": {}
+        },
+        {
+          "left": "6",
+          "right": "7",
+          "attrs": {}
+        },
+        {
+          "left": "6",
+          "right": "8",
+          "attrs": {}
+        },
+        {
+          "left": "6",
+          "right": "9",
+          "attrs": {}
+        },
+        {
+          "left": "7",
+          "right": "8",
+          "attrs": {}
+        },
+        {
+          "left": "7",
+          "right": "9",
+          "attrs": {}
+        },
+        {
+          "left": "8",
+          "right": "9",
+          "attrs": {}
+        }
+      ]
+    },
+    "katz_centrality": [
+      {
+        "node": "0",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "1",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "10",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "2",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "3",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "4",
+        "score": 0.32428764604198285
+      },
+      {
+        "node": "5",
+        "score": 0.2439086806813171
+      },
+      {
+        "node": "6",
+        "score": 0.3242876460419829
+      },
+      {
+        "node": "7",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "8",
+        "score": 0.30211413421449645
+      },
+      {
+        "node": "9",
+        "score": 0.30211413421449645
+      }
+    ]
+  }
+}

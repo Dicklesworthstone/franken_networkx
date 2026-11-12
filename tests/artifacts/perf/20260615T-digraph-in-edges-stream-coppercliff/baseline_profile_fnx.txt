@@ -1,0 +1,26 @@
+         4002 function calls in 0.469 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.056    0.056    0.469    0.469 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/tests/artifacts/perf/20260615T-digraph-in-edges-stream-coppercliff/digraph_in_edges_stream_harness.py:165(target)
+      200    0.000    0.000    0.412    0.002 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:6236(__iter__)
+      200    0.097    0.000    0.412    0.002 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:207(_digraph_in_edges)
+      200    0.315    0.002    0.315    0.002 {method '_native_in_edges_no_data' of 'franken_networkx.DiGraph' objects}
+      200    0.000    0.000    0.001    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:6247(__len__)
+      200    0.000    0.000    0.001    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:37398(number_of_edges)
+      200    0.000    0.000    0.000    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:6302(__call__)
+      400    0.000    0.000    0.000    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:6177(predicate)
+      200    0.000    0.000    0.000    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:36586(_has_networkx_private_storage)
+      200    0.000    0.000    0.000    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:6520(getter)
+      200    0.000    0.000    0.000    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:315(number_of_edges)
+      400    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7dcb27bc0ea0}
+      400    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      200    0.000    0.000    0.000    0.000 {function DiGraph.number_of_edges at 0x7dcb27c0df80}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      200    0.000    0.000    0.000    0.000 /data/projects/.worktrees/franken_networkx-coppercliff-reverseview-origin/python/franken_networkx/__init__.py:6232(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

@@ -1,0 +1,36 @@
+         115373 function calls in 0.303 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.064    0.064    0.303    0.303 bench_ego_graph_r2.py:43(sample)
+        9    0.000    0.000    0.239    0.027 __init__.py:42856(wrapper)
+        9    0.009    0.001    0.239    0.027 __init__.py:17004(ego_graph)
+        9    0.202    0.022    0.202    0.022 {method '_native_ego_graph_empty_copy' of 'franken_networkx.Graph' objects}
+     1863    0.001    0.000    0.016    0.000 __init__.py:29368(neighbors)
+     1863    0.001    0.000    0.011    0.000 __init__.py:289(neighbors)
+    27009    0.006    0.000    0.009    0.000 __init__.py:43055(__iter__)
+     1863    0.007    0.000    0.007    0.000 {function _private_aware_neighbors.<locals>.neighbors at 0x7504ea1e2c00}
+     1872    0.001    0.000    0.004    0.000 __init__.py:28692(_has_networkx_private_storage)
+     7506    0.002    0.000    0.003    0.000 __init__.py:28684(_private_override)
+    27036    0.002    0.000    0.002    0.000 {built-in method builtins.len}
+     1863    0.002    0.000    0.002    0.000 {built-in method fromkeys}
+    18162    0.002    0.000    0.002    0.000 {method 'append' of 'list' objects}
+     1863    0.001    0.000    0.001    0.000 __init__.py:5123(predicate)
+     7515    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+     7515    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+     3735    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     1863    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7504ea184d60}
+     1863    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+     1863    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+        9    0.000    0.000    0.000    0.000 __init__.py:29104(__contains__)
+        9    0.000    0.000    0.000    0.000 __init__.py:29117(nodes)
+        9    0.000    0.000    0.000    0.000 __init__.py:889(wrapped)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       18    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+        9    0.000    0.000    0.000    0.000 __init__.py:18862(_validate_backend_dispatch_keywords)
+        9    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        9    0.000    0.000    0.000    0.000 {method 'keys' of 'dict' objects}
+       18    0.000    0.000    0.000    0.000 {method 'pop' of 'dict' objects}
+
+

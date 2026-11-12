@@ -1,0 +1,301 @@
+  [2m2026-06-05T16:55:24.779513Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSelected worker: ts2 at ubuntu@192.168.1.124 (22 slots remaining after reservation, speed 50.0)[0m
+    [2;3mat[0m rch/src/hook.rs:514 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:25.023393Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mStarting remote compilation pipeline for franken_networkx-pass5-clean-1618 (hash: 64e331bc1e36d38a)[0m
+    [2;3mat[0m rch/src/hook.rs:5987 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:25.023455Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mPrepared dependency sync manifest for 13 roots[0m
+    [2;3mat[0m rch/src/hook.rs:6009 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:26.980383Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSyncing project to worker ts2...[0m
+    [2;3mat[0m rch/src/hook.rs:6039 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:26.980435Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618 -> /data/projects/.scratch/franken_networkx-pass5-clean-1618 on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:29.893822Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 2913ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:29.893899Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-algorithms -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-algorithms on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:30.264233Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 370ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:30.264307Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-cgse -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-cgse on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:30.610250Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 345ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:30.610355Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-classes -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-classes on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:30.971084Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 360ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:30.971155Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-conformance -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-conformance on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:31.337455Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 366ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:31.337552Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-convert -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-convert on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:31.694598Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 357ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:31.694693Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-dispatch -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-dispatch on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:32.042342Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 347ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:32.042433Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-durability -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-durability on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:32.397901Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 355ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:32.397996Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-generators -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-generators on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:32.757379Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 359ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:32.757477Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-python -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-python on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:33.127690Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 370ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:33.127782Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-readwrite -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-readwrite on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:33.493705Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 365ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:33.493810Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-runtime -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-runtime on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:33.868831Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 375ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:33.868923Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSyncing /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-views -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-views on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:1400 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:34.218671Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mSync completed in 349ms[0m
+    [2;3mat[0m rch/src/transfer.rs:1469 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:34.218717Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mSync complete: 62978 files, 5898409 bytes in 7231ms[0m
+    [2;3mat[0m rch/src/hook.rs:6202 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:35.269336Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mExecuting command remotely: env cargo check -p fnx-algorithms --all-targets[0m
+    [2;3mat[0m rch/src/hook.rs:6240 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:35.269380Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRewriting CARGO_TARGET_DIR for remote execution (worker-scoped path): /data/projects/.scratch/franken_networkx-pass5-clean-1618/target/ozr7d-post-rebase-check-algorithms -> /data/projects/.scratch/franken_networkx-pass5-clean-1618/.rch-target-ts2-job-29872254800109391-1780678526980376630-0[0m
+    [2;3mat[0m rch/src/transfer.rs:712 [2;3mon[0m ThreadId(1)
+
+    Updating crates.io index
+ Downloading crates ...
+  Downloaded alloca v0.4.0
+  Downloaded arrayref v0.3.9
+  Downloaded arrayvec v0.7.6
+  Downloaded anes v0.1.6
+  Downloaded criterion-plot v0.8.2
+  Downloaded equivalent v1.0.2
+  Downloaded errno v0.3.14
+  Downloaded fastrand v2.4.1
+  Downloaded tinytemplate v1.2.1
+  Downloaded aho-corasick v1.1.4
+  Downloaded anstyle v1.0.14
+  Downloaded autocfg v1.5.0
+  Downloaded crossbeam-epoch v0.9.18
+  Downloaded crossbeam-utils v0.8.21
+  Downloaded shlex v1.3.0
+  Downloaded wait-timeout v0.2.1
+  Downloaded crossbeam-deque v0.8.6
+  Downloaded either v1.15.0
+  Downloaded same-file v1.0.6
+  Downloaded ciborium-ll v0.2.2
+  Downloaded constant_time_eq v0.4.2
+  Downloaded tempfile v3.27.0
+  Downloaded bit-set v0.8.0
+  Downloaded serde_core v1.0.228
+  Downloaded hex v0.4.3
+  Downloaded fnv v1.0.7
+  Downloaded rusty-fork v0.3.1
+  Downloaded ciborium-io v0.2.2
+  Downloaded serde_derive v1.0.228
+  Downloaded page_size v0.6.0
+  Downloaded cfg-if v1.0.4
+  Downloaded cpufeatures v0.3.0
+  Downloaded mwmatching v0.1.1
+  Downloaded bitflags v2.11.1
+  Downloaded ppv-lite86 v0.2.21
+  Downloaded serde v1.0.228
+  Downloaded find-msvc-tools v0.1.9
+  Downloaded cast v0.3.0
+  Downloaded rand_core v0.10.1
+  Downloaded mt19937 v3.3.0
+  Downloaded plotters-backend v0.3.7
+  Downloaded quick-error v1.2.3
+  Downloaded rand_xorshift v0.4.0
+  Downloaded itoa v1.0.18
+  Downloaded walkdir v2.5.0
+  Downloaded plotters-svg v0.3.7
+  Downloaded unarray v0.1.4
+  Downloaded zmij v1.0.21
+  Downloaded bit-vec v0.8.0
+  Downloaded quote v1.0.45
+  Downloaded clap_lex v1.1.0
+  Downloaded rand_core v0.9.5
+  Downloaded rand_chacha v0.9.0
+  Downloaded unicode-ident v1.0.24
+  Downloaded oorandom v11.1.5
+  Downloaded getrandom v0.4.2
+  Downloaded cc v1.2.61
+  Downloaded ciborium v0.2.2
+  Downloaded clap v4.6.1
+  Downloaded proc-macro2 v1.0.106
+  Downloaded num-traits v0.2.19
+  Downloaded once_cell v1.21.4
+  Downloaded serde_json v1.0.149
+  Downloaded zerocopy-derive v0.8.48
+  Downloaded getrandom v0.3.4
+  Downloaded indexmap v2.14.0
+  Downloaded rayon-core v1.13.0
+  Downloaded half v2.7.1
+  Downloaded memchr v2.8.0
+  Downloaded rand v0.9.4
+  Downloaded criterion v0.8.2
+  Downloaded rayon v1.12.0
+  Downloaded itertools v0.13.0
+  Downloaded blake3 v1.8.4
+  Downloaded hashbrown v0.17.0
+  Downloaded clap_builder v4.6.0
+  Downloaded regex v1.12.3
+  Downloaded plotters v0.3.7
+  Downloaded proptest v1.11.0
+  Downloaded zerocopy v0.8.48
+  Downloaded syn v2.0.117
+  Downloaded regex-syntax v0.8.10
+  Downloaded rustix v1.1.4
+  Downloaded regex-automata v0.4.14
+  Downloaded libc v0.2.186
+  Downloaded linux-raw-sys v0.12.1
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.45
+   Compiling unicode-ident v1.0.24
+    Checking cfg-if v1.0.4
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v1.3.0
+   Compiling serde v1.0.228
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.149
+    Checking memchr v2.8.0
+   Compiling zerocopy v0.8.48
+    Checking itoa v1.0.18
+   Compiling crossbeam-utils v0.8.21
+   Compiling getrandom v0.3.4
+   Compiling autocfg v1.5.0
+    Checking equivalent v1.0.2
+    Checking arrayvec v0.7.6
+    Checking arrayref v0.3.9
+    Checking hashbrown v0.17.0
+   Compiling getrandom v0.4.2
+    Checking cpufeatures v0.3.0
+   Compiling rustix v1.1.4
+    Checking constant_time_eq v0.4.2
+    Checking hex v0.4.3
+    Checking regex-syntax v0.8.10
+   Compiling rayon-core v1.13.0
+    Checking linux-raw-sys v0.12.1
+    Checking bitflags v2.11.1
+    Checking either v1.15.0
+    Checking rand_core v0.10.1
+    Checking plotters-backend v0.3.7
+    Checking clap_lex v1.1.0
+    Checking fastrand v2.4.1
+    Checking anstyle v1.0.14
+    Checking ciborium-io v0.2.2
+    Checking once_cell v1.21.4
+    Checking mwmatching v0.1.1
+    Checking same-file v1.0.6
+    Checking cast v0.3.0
+    Checking quick-error v1.2.3
+    Checking fnv v1.0.7
+    Checking bit-vec v0.8.0
+    Checking oorandom v11.1.5
+    Checking unarray v0.1.4
+    Checking anes v0.1.6
+   Compiling cc v1.2.61
+    Checking walkdir v2.5.0
+    Checking bit-set v0.8.0
+   Compiling num-traits v0.2.19
+    Checking mt19937 v3.3.0
+    Checking clap_builder v4.6.0
+    Checking plotters-svg v0.3.7
+    Checking itertools v0.13.0
+    Checking indexmap v2.14.0
+    Checking crossbeam-epoch v0.9.18
+    Checking crossbeam-deque v0.8.6
+   Compiling syn v2.0.117
+    Checking wait-timeout v0.2.1
+    Checking page_size v0.6.0
+   Compiling blake3 v1.8.4
+   Compiling alloca v0.4.0
+    Checking plotters v0.3.7
+    Checking rand_core v0.9.5
+    Checking rayon v1.12.0
+    Checking rand_xorshift v0.4.0
+    Checking rand v0.9.4
+    Checking regex-automata v0.4.14
+    Checking criterion-plot v0.8.2
+    Checking clap v4.6.1
+    Checking tempfile v3.27.0
+    Checking rusty-fork v0.3.1
+    Checking regex v1.12.3
+   Compiling serde_derive v1.0.228
+   Compiling zerocopy-derive v0.8.48
+    Checking fnx-runtime v0.1.0 (/data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-runtime)
+    Checking fnx-cgse v0.1.0 (/data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-cgse)
+    Checking tinytemplate v1.2.1
+    Checking fnx-classes v0.1.0 (/data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-classes)
+    Checking half v2.7.1
+    Checking ppv-lite86 v0.2.21
+    Checking fnx-algorithms v0.1.0 (/data/projects/.scratch/franken_networkx-pass5-clean-1618/crates/fnx-algorithms)
+    Checking ciborium-ll v0.2.2
+    Checking rand_chacha v0.9.0
+    Checking ciborium v0.2.2
+    Checking proptest v1.11.0
+    Checking criterion v0.8.2
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 21.22s
+  [2m2026-06-05T16:55:57.060848Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRemote command finished: exit=0 in 21791ms[0m
+    [2;3mat[0m rch/src/hook.rs:6364 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:57.061979Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mRetrieving build artifacts...[0m
+    [2;3mat[0m rch/src/hook.rs:6413 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:57.062030Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/.scratch/franken_networkx-pass5-clean-1618 on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:57.564872Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 502ms (1 files, 1200 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:57.564902Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mArtifacts retrieved: 1 files, 1200 bytes in 502ms[0m
+    [2;3mat[0m rch/src/hook.rs:6446 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:55:57.565032Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mRetrieving artifacts from /data/projects/.scratch/franken_networkx-pass5-clean-1618/.rch-target-ts2-job-29872254800109391-1780678526980376630-0 on ts2[0m
+    [2;3mat[0m rch/src/transfer.rs:2072 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:56:00.551879Z[0m [32m INFO[0m [1;32mrch::transfer[0m[32m: [32mArtifacts retrieved in 2986ms (1068 files, 17085 bytes)[0m
+    [2;3mat[0m rch/src/transfer.rs:2111 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-05T16:56:00.551918Z[0m [32m INFO[0m [1;32mrch::hook[0m[32m: [32mCustom CARGO_TARGET_DIR artifacts retrieved: 1068 files, 17085 bytes in 2986ms[0m
+    [2;3mat[0m rch/src/hook.rs:6570 [2;3mon[0m ThreadId(1)
+
+[RCH] remote ts2 (35.8s)

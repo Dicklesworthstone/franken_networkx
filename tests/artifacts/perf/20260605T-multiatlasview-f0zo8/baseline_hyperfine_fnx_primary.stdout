@@ -1,0 +1,61 @@
+Benchmark 1: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 20
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+  Time (mean ± σ):     370.7 ms ±  28.7 ms    [User: 3847.2 ms, System: 63.1 ms]
+  Range (min … max):   340.5 ms … 429.1 ms    8 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 20
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+  Time (mean ± σ):     408.5 ms ±  54.3 ms    [User: 3638.7 ms, System: 64.3 ms]
+  Range (min … max):   341.7 ms … 497.9 ms    8 runs
+ 
+Benchmark 3: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiDiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 20
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+{"checksum": 10000, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "gu", "module": "fnx"}
+  Time (mean ± σ):     372.1 ms ±  34.6 ms    [User: 3616.0 ms, System: 66.4 ms]
+  Range (min … max):   329.0 ms … 412.4 ms    8 runs
+ 
+Benchmark 4: python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiDiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 20
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+{"checksum": 80, "degree": 500, "graph": "MultiDiGraph", "keys_per_neighbor": 4, "loops": 20, "mode": "guv", "module": "fnx"}
+  Time (mean ± σ):     367.2 ms ±  22.7 ms    [User: 3716.8 ms, System: 64.4 ms]
+  Range (min … max):   343.6 ms … 414.9 ms    8 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiDiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 20 ran
+    1.01 ± 0.10 times faster than python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 20
+    1.01 ± 0.11 times faster than python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiDiGraph --mode gu --degree 500 --keys-per-neighbor 4 --loops 20
+    1.11 ± 0.16 times faster than python3 tests/artifacts/perf/20260605T-multiatlasview-f0zo8/multiatlas_bench.py one --module fnx --graph MultiGraph --mode guv --degree 500 --keys-per-neighbor 4 --loops 20

@@ -1,0 +1,3 @@
+  [2m2026-06-04T21:16:41.146590Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py profile --case plain_edges_int --impl fnx --repeats 7 --limit 80 --output tests/artifacts/perf/20260604T-plain-edges-validation-fusion/after_plain_edges_int_profile.txt[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

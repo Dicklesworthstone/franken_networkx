@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-wxy3x-greedy-modularity-boldfalcon/greedy_modularity_probe.py bench fnx_public watts_strogatz_300 --repeat 5",
+      "mean": 0.6547748317,
+      "stddev": 0.020981471657996246,
+      "median": 0.6520419211000001,
+      "user": 4.927004119999999,
+      "system": 0.0592806,
+      "min": 0.6301624851000001,
+      "max": 0.6913185961000001,
+      "times": [
+        0.6631052871,
+        0.6537697001000001,
+        0.6548549351,
+        0.6368406671000001,
+        0.6367120031000001,
+        0.6913185961000001,
+        0.6423186351000001,
+        0.6301624851000001,
+        0.6503141421,
+        0.6883518661000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-wxy3x-greedy-modularity-boldfalcon/greedy_modularity_probe.py bench nx watts_strogatz_300 --repeat 5",
+      "mean": 0.6416935927,
+      "stddev": 0.029394039321985175,
+      "median": 0.6435668346000001,
+      "user": 4.83409232,
+      "system": 0.055821399999999986,
+      "min": 0.5896376991000001,
+      "max": 0.6910068861,
+      "times": [
+        0.6419697741000001,
+        0.6910068861,
+        0.6451638951,
+        0.6416327261000001,
+        0.6010454921,
+        0.6523801071,
+        0.6321997641000001,
+        0.6574755191000001,
+        0.6644240641000001,
+        0.5896376991000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-wxy3x-greedy-modularity-boldfalcon/greedy_modularity_probe.py bench fnx_raw watts_strogatz_300 --repeat 5",
+      "mean": 0.3013738086,
+      "stddev": 0.02132895806394349,
+      "median": 0.2915012016,
+      "user": 4.49896942,
+      "system": 0.060105399999999996,
+      "min": 0.2844945081,
+      "max": 0.3437268241,
+      "times": [
+        0.3437268241,
+        0.2851802451,
+        0.2863962501,
+        0.3249700701,
+        0.3245017221,
+        0.2844945081,
+        0.2913508271,
+        0.2935574281,
+        0.2916515761,
+        0.2879086351
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

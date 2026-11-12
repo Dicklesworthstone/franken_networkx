@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import franken_networkx as nx; [nx.full_rary_tree(2, 8191) for _ in range(100)]\"",
+      "mean": 0.8834795595000001,
+      "stddev": 0.2529327414273018,
+      "median": 0.8000173787,
+      "user": 4.028126159999999,
+      "system": 0.23072132,
+      "min": 0.6906408427,
+      "max": 1.3279214627,
+      "times": [
+        0.6906408427,
+        0.8000173787,
+        0.8058463007000001,
+        0.7929718127000001,
+        1.3279214627
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import networkx as nx; [nx.full_rary_tree(2, 8191) for _ in range(100)]\"",
+      "mean": 1.7917282505000003,
+      "stddev": 0.2413622823370262,
+      "median": 1.7055147507000001,
+      "user": 1.52961356,
+      "system": 0.25719692,
+      "min": 1.6199169167,
+      "max": 2.2179940747000004,
+      "times": [
+        2.2179940747000004,
+        1.6972146077,
+        1.6199169167,
+        1.7180009027,
+        1.7055147507000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import franken_networkx as nx; [nx.balanced_tree(2, 12) for _ in range(100)]\"",
+      "mean": 0.8474090721000002,
+      "stddev": 0.08454145533774009,
+      "median": 0.8271744927000001,
+      "user": 3.8754305600000003,
+      "system": 0.22572092000000002,
+      "min": 0.7530933547,
+      "max": 0.9370845497000001,
+      "times": [
+        0.9370845497000001,
+        0.7859104677000001,
+        0.9337824957,
+        0.8271744927000001,
+        0.7530933547
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import networkx as nx; [nx.balanced_tree(2, 12) for _ in range(100)]\"",
+      "mean": 1.6325293243,
+      "stddev": 0.026764123878661745,
+      "median": 1.6401994997,
+      "user": 1.39406936,
+      "system": 0.23606412000000004,
+      "min": 1.5976725127,
+      "max": 1.6656277777,
+      "times": [
+        1.6141063217,
+        1.6401994997,
+        1.6450405097,
+        1.5976725127,
+        1.6656277777
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

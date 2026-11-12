@@ -1,0 +1,8 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib complement_d -- --nocapture
+test tests::complement_directed_test ... ok
+test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 971 filtered out; finished in 0.00s
+
+$ cargo clippy -p fnx-algorithms --lib --tests -- -D warnings
+MY CHANGE IS CLIPPY-CLEAN: reports the same ~12 PRE-EXISTING peer errors; NONE in this lever ranges
+(production 37640-37665, test 66933-67043) — grep-verified empty. Left untouched per shared-checkout
+discipline.

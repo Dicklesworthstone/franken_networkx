@@ -1,0 +1,38 @@
+         309143 function calls (299009 primitive calls) in 8.197 seconds
+
+   Ordered by: internal time
+   List reduced from 1360 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    7.586    7.586    7.587    7.587 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:114(eig)
+        1    0.261    0.261    0.261    0.261 {built-in method franken_networkx._fnx.symmetric_eigvals_rust}
+        2    0.038    0.019    0.038    0.019 {built-in method franken_networkx._fnx.adjacency_default_order_index_arrays}
+       55    0.029    0.001    0.029    0.001 {built-in method numpy.array}
+       16    0.022    0.001    0.022    0.001 {built-in method numpy.asarray}
+      182    0.020    0.000    0.036    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+       26    0.017    0.001    0.017    0.001 {built-in method _imp.create_dynamic}
+      182    0.016    0.000    0.016    0.000 {built-in method marshal.loads}
+      221    0.011    0.000    0.011    0.000 {built-in method builtins.eval}
+      5/1    0.008    0.002    8.197    8.197 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53444(wrapper)
+    26/20    0.007    0.000    0.016    0.001 {built-in method _imp.exec_dynamic}
+   635/88    0.007    0.000    0.020    0.000 /usr/lib/python3.13/re/_parser.py:511(_parse)
+        2    0.006    0.003    0.006    0.003 {built-in method scipy.sparse._sparsetools.coo_tocsr}
+  1158/83    0.005    0.000    0.012    0.000 /usr/lib/python3.13/re/_compiler.py:37(_compile)
+42354/41172    0.005    0.000    0.005    0.000 {built-in method builtins.len}
+      812    0.004    0.000    0.004    0.000 {built-in method posix.stat}
+      107    0.004    0.000    0.008    0.000 /usr/lib/python3.13/inspect.py:891(cleandoc)
+     1188    0.004    0.000    0.004    0.000 {method 'sub' of 're.Pattern' objects}
+        1    0.004    0.004    8.196    8.196 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22754(adjacency_spectrum)
+      722    0.004    0.000    0.004    0.000 {method 'findall' of 're.Pattern' objects}
+  3067/78    0.003    0.000    0.008    0.000 /usr/lib/python3.13/copy.py:119(deepcopy)
+     1277    0.003    0.000    0.009    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:67(read_to_condition)
+      922    0.003    0.000    0.007    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:168(_is_at_section)
+      182    0.003    0.000    0.003    0.000 {built-in method _io.open_code}
+  270/268    0.003    0.000    0.016    0.000 {built-in method builtins.__build_class__}
+      182    0.003    0.000    0.003    0.000 {method 'read' of '_io.BufferedReader' objects}
+    21852    0.003    0.000    0.003    0.000 {method 'append' of 'list' objects}
+        1    0.002    0.002    0.002    0.002 {built-in method numpy.ascontiguousarray}
+ 1384/416    0.002    0.000    0.002    0.000 /usr/lib/python3.13/re/_parser.py:177(getwidth)
+     9146    0.002    0.000    0.003    0.000 /usr/lib/python3.13/re/_parser.py:167(__getitem__)
+
+

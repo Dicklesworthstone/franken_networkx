@@ -1,0 +1,7 @@
+  [2m2026-06-03T14:54:34.946950Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 15 --export-json tests/artifacts/perf/20260603T-bfs-tree-inner-capacity/hyperfine_after.json '.venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op bfs_tree --repeat 5 --n 3000 --m 4 --graph-seed 42'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260602T-traversal-residual-sweep/bench_traversal.py sample --impl fnx --op bfs_tree --repeat 5 --n 3000 --m 4 --graph-seed 42
+  Time (mean ± σ):     382.4 ms ±  24.2 ms    [User: 4153.1 ms, System: 76.3 ms]
+  Range (min … max):   346.1 ms … 431.6 ms    15 runs
+ 

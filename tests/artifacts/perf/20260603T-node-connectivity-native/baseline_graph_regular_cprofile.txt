@@ -1,0 +1,58 @@
+         27431 function calls (27403 primitive calls) in 0.679 seconds
+
+   Ordered by: cumulative time
+   List reduced from 169 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.679    0.679 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py:110(run_case)
+      2/1    0.000    0.000    0.669    0.669 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43164(wrapper)
+        1    0.000    0.000    0.669    0.669 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6907(node_connectivity)
+        1    0.668    0.668    0.668    0.668 {built-in method franken_networkx._fnx.node_connectivity}
+        1    0.000    0.000    0.009    0.009 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py:91(build_graph)
+        1    0.000    0.000    0.006    0.006 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py:77(build_edges)
+        1    0.000    0.000    0.006    0.006 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py:72(build_regular_edges)
+      4/1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.005    0.005 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_random_regular_graph_1)
+      3/1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      3/1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.005    0.005 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:524(random_regular_graph)
+        1    0.001    0.001    0.003    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2472(add_edges_from)
+        1    0.000    0.000    0.002    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/random_graphs.py:604(_try_creation)
+        1    0.001    0.001    0.002    0.002 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+        2    0.000    0.000    0.002    0.001 /usr/lib/python3.13/random.py:354(shuffle)
+        1    0.002    0.002    0.002    0.002 {function Graph.add_edges_from at 0x72ebb5347060}
+        2    0.000    0.000    0.001    0.001 {built-in method builtins.sum}
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16032(number_of_selfloops)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16040(<genexpr>)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29535(has_edge)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2286(add_nodes_from)
+     1606    0.001    0.000    0.001    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+      400    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:2254(add_node)
+      404    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29000(_has_networkx_private_storage)
+        1    0.000    0.000    0.001    0.001 /data/projects/franken_networkx/tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py:98(digest_result)
+        4    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      400    0.001    0.000    0.001    0.000 {function Graph.add_node at 0x72ebb53465c0}
+     1621    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:28992(_private_override)
+        1    0.000    0.000    0.001    0.001 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+      5/4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 13:1(argmap_empty_graph_10)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/generators/classic.py:564(empty_graph)
+        4    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+     2009    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+      801    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+     2442    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3373(signature)
+     1606    0.000    0.000    0.000    0.000 {method 'bit_length' of 'int' objects}
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:3094(from_callable)
+     3221    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      7/4    0.000    0.000    0.000    0.000 /usr/lib/python3.13/inspect.py:2487(_signature_from_callable)
+      401    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43363(__iter__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+        4    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+     3200    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        3    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:503(__signature__)
+     2545    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     2306    0.000    0.000    0.000    0.000 {method 'getrandbits' of '_random.Random' objects}
+
+

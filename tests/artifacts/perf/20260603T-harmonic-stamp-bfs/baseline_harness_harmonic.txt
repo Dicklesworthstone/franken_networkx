@@ -1,0 +1,5 @@
+Command:
+RCH_ENV_ALLOWLIST=CARGO_TARGET_DIR rch exec -- cargo run -q -p fnx-algorithms --profile release-perf --bin perf_harness -- --algo=harmonic --n=1600 --deg=5 --iters=5
+
+Result:
+{"algo":"harmonic","n":1600,"m":4000,"avg_deg":5,"iters":5,"total_ms":306.3947,"per_iter_ms":61.2789,"checksum":2790554.746032}

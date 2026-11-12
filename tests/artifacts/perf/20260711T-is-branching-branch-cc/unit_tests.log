@@ -1,0 +1,4 @@
+BRANCH_AB n=60000 (binary tree) rounds=61 (>1 = integer faster)
+BRANCH_AB INT_vs_string: median=2.2840x win_rate=61/61 p5_p95=[2.0187,2.7357]
+BRANCH_AB NULL_int_vs_int: median=0.9826x win_rate=26/61 p5_p95=[0.8543,1.2248]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 954 filtered out; finished in 25.54s

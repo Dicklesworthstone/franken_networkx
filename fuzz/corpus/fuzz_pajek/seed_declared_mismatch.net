@@ -1,0 +1,6 @@
+% declared count intentionally exceeds discovered labels
+*Vertices 4
+1 "alpha"
+2 "beta"
+*Edges
+1 2 1.0

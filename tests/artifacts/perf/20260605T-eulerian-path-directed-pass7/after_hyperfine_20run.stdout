@@ -1,0 +1,11 @@
+Benchmark 1: /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl fnx --repeats 30
+  Time (mean ± σ):     450.8 ms ±  65.5 ms    [User: 3862.2 ms, System: 60.0 ms]
+  Range (min … max):   363.1 ms … 629.8 ms    20 runs
+ 
+Benchmark 2: /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl nx --repeats 30
+  Time (mean ± σ):     965.3 ms ±  87.7 ms    [User: 4193.7 ms, System: 68.2 ms]
+  Range (min … max):   833.0 ms … 1142.3 ms    20 runs
+ 
+Summary
+  /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl fnx --repeats 30 ran
+    2.14 ± 0.37 times faster than /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl nx --repeats 30

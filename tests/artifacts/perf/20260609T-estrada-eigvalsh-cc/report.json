@@ -1,0 +1,16 @@
+{
+  "golden": {
+    "max_rel_err_vs_nx": 1.1122792666648182e-14,
+    "max_rel_err_vs_old": 1.1122792666648182e-14,
+    "corpus_rounded_sha256": "61f6c614b01b9b4d49dca0196b2a9db02f8230e70d2a58b5a558c514996eda2c",
+    "tolerance_used_by_conformance": 1e-06,
+    "within_tolerance": true
+  },
+  "bench_ws400_ms_warm_min": {
+    "new_eigvalsh": 348.777,
+    "old_sum_subgraph_centrality": 819.491,
+    "genuine_nx": 818.102,
+    "speedup_vs_old": 2.35,
+    "speedup_vs_nx": 2.346
+  }
+}

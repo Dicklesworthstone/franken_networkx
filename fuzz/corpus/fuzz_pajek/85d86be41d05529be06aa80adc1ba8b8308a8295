@@ -1,0 +1,10 @@
+ plain
+2 "quoted label"
+3 "unterminated
+4 e-ish-e"
+*Edges
+1h-e"
+*Edges
+1 2 /
+3 4 2
+42  3

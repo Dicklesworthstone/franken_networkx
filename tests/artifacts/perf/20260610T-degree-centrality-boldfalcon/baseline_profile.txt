@@ -1,0 +1,19 @@
+         5101 function calls in 0.309 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      300    0.000    0.000    0.309    0.001 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/tests/artifacts/perf/20260610T-degree-centrality-boldfalcon/harness_degree_centrality.py:34(degree_call)
+      300    0.001    0.000    0.308    0.001 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:8173(degree_centrality)
+      300    0.307    0.001    0.307    0.001 {built-in method franken_networkx._fnx.degree_centrality}
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:34065(number_of_nodes)
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:12076(_coerce_arg_to_fnx_graph)
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:5735(predicate)
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:33313(_private_override)
+     1500    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      300    0.000    0.000    0.000    0.000 {function _private_aware_number_of_nodes.<locals>.number_of_nodes at 0x7fdef0335ee0}
+      300    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      300    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7fdef04ba340}
+      300    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx_opt_boldfalcon_20260610T181157Z/python/franken_networkx/__init__.py:21805(_validate_backend_dispatch_keywords)
+      300    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

@@ -1,0 +1,27 @@
+{
+  "all_match": true,
+  "results": [
+    {
+      "fnx_digest": "e3c71666e1894596d6a3e8949cafe6bb4fb192776696d48dfe08b2218dc9dcba",
+      "fnx_edge_count": 6000,
+      "fnx_node_count": 4000,
+      "label": "circular_ladder_graph(2000)",
+      "matches_nx": true,
+      "nx_digest": "e3c71666e1894596d6a3e8949cafe6bb4fb192776696d48dfe08b2218dc9dcba",
+      "nx_edge_count": 6000,
+      "nx_node_count": 4000,
+      "scenario": "circular_ladder_2000"
+    },
+    {
+      "fnx_digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24",
+      "fnx_edge_count": 6000,
+      "fnx_node_count": 1500,
+      "label": "random_regular_graph(8, 1500, seed=12345)",
+      "matches_nx": true,
+      "nx_digest": "cac80aef6f181434007d93ef151d69b54867433c4b54c30c76a3c24f3e55bf24",
+      "nx_edge_count": 6000,
+      "nx_node_count": 1500,
+      "scenario": "random_regular_8_1500"
+    }
+  ]
+}

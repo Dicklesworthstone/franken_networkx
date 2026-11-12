@@ -1,0 +1,3 @@
+  [2m2026-06-03T19:34:48.577484Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 2 --runs 8 --export-json tests/artifacts/perf/20260603T-dag-longest-path-native/hyperfine_list_vs_loop_1000x.json '.venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1000 --engines fnx-native-list --skip-digest' '.venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1000 --engines fnx-native --skip-digest'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

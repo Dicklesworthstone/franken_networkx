@@ -1,0 +1,107 @@
+bead=br-r37-c1-ucvfx which=nx loops=3 checksum=0.000000000000
+         415399 function calls (415348 primitive calls) in 0.599 seconds
+
+   Ordered by: cumulative time
+   List reduced from 265 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        3    0.000    0.000    0.611    0.204 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-ucvfx-spectral-baseline-boldfalcon/fiedler_dense_harness.py:49(run_case)
+        3    0.000    0.000    0.611    0.204 <class 'networkx.utils.decorators.argmap'> compilation 33:1(argmap_fiedler_vector_28)
+     18/3    0.000    0.000    0.611    0.204 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+     18/3    0.000    0.000    0.611    0.204 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        3    0.000    0.000    0.611    0.204 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:403(fiedler_vector)
+        3    0.000    0.000    0.582    0.194 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:264(find_fiedler)
+        3    0.027    0.009    0.582    0.194 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:149(_tracemin_fiedler)
+      554    0.004    0.000    0.380    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:40(solve)
+      554    0.088    0.000    0.376    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:50(_solve)
+    12208    0.010    0.000    0.275    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:919(__matmul__)
+    12208    0.016    0.000    0.182    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:788(_matmul_dispatch)
+    12208    0.045    0.000    0.160    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:387(_matmul_vector)
+    12211    0.015    0.000    0.082    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:345(isscalarlike)
+      557    0.008    0.000    0.054    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1149(wrapper)
+    12232    0.027    0.000    0.053    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1975(isscalar)
+      557    0.027    0.000    0.053    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:964(qr)
+    12208    0.050    0.000    0.050    0.000 {built-in method scipy.sparse._sparsetools.csr_matvec}
+      554    0.008    0.000    0.039    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_basic.py:1353(inv)
+    39589    0.021    0.000    0.034    0.000 {built-in method builtins.isinstance}
+     1111    0.003    0.000    0.031    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:423(_asarray_validated)
+      557    0.008    0.000    0.028    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:284(eigh)
+    12780    0.025    0.000    0.027    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:94(ndim)
+     1111    0.006    0.000    0.020    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:603(asarray_chkfinite)
+     1695    0.017    0.000    0.017    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+      557    0.006    0.000    0.015    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:206(project)
+    12211    0.010    0.000    0.014    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:402(isdense)
+    13364    0.007    0.000    0.014    0.000 <frozen abc>:117(__instancecheck__)
+    11651    0.014    0.000    0.014    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:214(<lambda>)
+        3    0.000    0.000    0.014    0.005 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:108(_preprocess_graph)
+        3    0.000    0.000    0.013    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1067(add_weighted_edges_from)
+        3    0.004    0.001    0.013    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+     1111    0.001    0.000    0.013    0.000 {method 'all' of 'numpy.ndarray' objects}
+      557    0.003    0.000    0.013    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/lib/_twodim_base_impl.py:510(triu)
+     1111    0.004    0.000    0.013    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:64(_all)
+        3    0.000    0.000    0.012    0.004 <class 'networkx.utils.decorators.argmap'> compilation 37:1(argmap_laplacian_matrix_34)
+        3    0.000    0.000    0.012    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/laplacianmatrix.py:22(laplacian_matrix)
+      593    0.012    0.000    0.012    0.000 {built-in method builtins.any}
+    13325    0.011    0.000    0.011    0.000 {built-in method numpy.zeros}
+    12208    0.007    0.000    0.010    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:59(upcast_char)
+    24461    0.007    0.000    0.010    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:98(_shape_as_2d)
+      557    0.001    0.000    0.009    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/lib/_twodim_base_impl.py:389(tri)
+      557    0.003    0.000    0.009    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/lapack.py:1028(_compute_lwork)
+      566    0.000    0.000    0.008    0.000 {method 'sum' of 'numpy.ndarray' objects}
+      566    0.000    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:47(_sum)
+     2358    0.001    0.000    0.008    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1115(<genexpr>)
+
+
+
+--- tottime ---
+         415399 function calls (415348 primitive calls) in 0.599 seconds
+
+   Ordered by: internal time
+   List reduced from 265 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      554    0.088    0.000    0.376    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:50(_solve)
+    12208    0.050    0.000    0.050    0.000 {built-in method scipy.sparse._sparsetools.csr_matvec}
+    12208    0.045    0.000    0.160    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_compressed.py:387(_matmul_vector)
+        3    0.027    0.009    0.582    0.194 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:149(_tracemin_fiedler)
+    12232    0.027    0.000    0.053    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/numeric.py:1975(isscalar)
+      557    0.027    0.000    0.053    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/linalg/_linalg.py:964(qr)
+    12780    0.025    0.000    0.027    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:94(ndim)
+    39589    0.021    0.000    0.034    0.000 {built-in method builtins.isinstance}
+     1695    0.017    0.000    0.017    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+    12208    0.016    0.000    0.182    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:788(_matmul_dispatch)
+    12211    0.015    0.000    0.082    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:345(isscalarlike)
+    11651    0.014    0.000    0.014    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:214(<lambda>)
+      593    0.012    0.000    0.012    0.000 {built-in method builtins.any}
+    13325    0.011    0.000    0.011    0.000 {built-in method numpy.zeros}
+    12208    0.010    0.000    0.275    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:919(__matmul__)
+    12211    0.010    0.000    0.014    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:402(isdense)
+      557    0.008    0.000    0.028    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_decomp.py:284(eigh)
+      554    0.008    0.000    0.039    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/_basic.py:1353(inv)
+      557    0.008    0.000    0.054    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1149(wrapper)
+      554    0.007    0.000    0.007    0.000 {built-in method scipy.linalg._batched_linalg._inv}
+    13364    0.007    0.000    0.007    0.000 {built-in method _abc._abc_instancecheck}
+    24461    0.007    0.000    0.010    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:98(_shape_as_2d)
+    12208    0.007    0.000    0.010    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:59(upcast_char)
+    13364    0.007    0.000    0.014    0.000 <frozen abc>:117(__instancecheck__)
+      557    0.006    0.000    0.015    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:206(project)
+       18    0.006    0.000    0.006    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:444(check_shape)
+     1111    0.006    0.000    0.020    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/lib/_function_base_impl.py:603(asarray_chkfinite)
+      557    0.005    0.000    0.005    0.000 {method 'outer' of 'numpy.ufunc' objects}
+     4716    0.005    0.000    0.006    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:856(__iter__)
+    12232    0.005    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_data.py:24(dtype)
+42307/42289    0.005    0.000    0.005    0.000 {built-in method builtins.len}
+    13948    0.005    0.000    0.005    0.000 {built-in method builtins.getattr}
+    20260    0.005    0.000    0.005    0.000 {method 'get' of 'dict' objects}
+    12223    0.005    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:385(format)
+      608    0.004    0.000    0.005    0.000 {built-in method numpy.array}
+     1671    0.004    0.000    0.005    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/lapack.py:1058(<genexpr>)
+        3    0.004    0.001    0.013    0.004 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+      554    0.004    0.000    0.380    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/linalg/algebraicconnectivity.py:40(solve)
+     1114    0.004    0.000    0.004    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_ufunc_config.py:488(__exit__)
+     1111    0.004    0.000    0.013    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/_core/_methods.py:64(_all)
+     1965    0.003    0.000    0.003    0.000 {method 'append' of 'list' objects}
+     1111    0.003    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/ma/core.py:6669(isMaskedArray)
+      557    0.003    0.000    0.013    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/lib/_twodim_base_impl.py:510(triu)
+     557    0.003    0.000    0.009    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/linalg/lapack.py:1028(_compute_lwork)
+     1111    0.003    0.000    0.031    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:423(_asarray_validated)

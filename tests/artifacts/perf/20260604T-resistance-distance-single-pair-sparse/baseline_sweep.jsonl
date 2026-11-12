@@ -1,0 +1,9 @@
+{"case": "unweighted_sparse_pair", "impl": "fnx", "max_s": 2.673125525994692, "mean_s": 2.3093819085974245, "min_s": 1.8657519920088816, "repeats": 5, "rounded_value": 0.4731653201, "value": 0.4731653201435843}
+{"case": "unweighted_sparse_pair", "impl": "nx", "max_s": 2.1639875060063787, "mean_s": 1.6850478984008077, "min_s": 1.4331315379822627, "repeats": 5, "rounded_value": 0.4731653201, "value": 0.4731653201435843}
+{"case": "unweighted_sparse_pair", "impl": "dense_exact", "max_s": 2.4617924859921914, "mean_s": 2.184022564004408, "min_s": 1.9847146329993848, "repeats": 5, "rounded_value": 0.4731653201, "value": 0.4731653201435843}
+{"case": "weighted_sparse_pair", "impl": "fnx", "max_s": 1.6687171800003853, "mean_s": 1.0344901218020823, "min_s": 0.7109825620136689, "repeats": 5, "rounded_value": 0.981260186, "value": 0.9812601860204594}
+{"case": "weighted_sparse_pair", "impl": "nx", "max_s": 1.3797149950114544, "mean_s": 0.9138494687969796, "min_s": 0.5284750669961795, "repeats": 5, "rounded_value": 0.981260186, "value": 0.9812601860204594}
+{"case": "weighted_sparse_pair", "impl": "dense_exact", "max_s": 1.4810475719859824, "mean_s": 1.2044512413966004, "min_s": 0.9169837119989097, "repeats": 5, "rounded_value": 0.981260186, "value": 0.9812601860204594}
+{"case": "weighted_multigraph_pair", "impl": "fnx", "max_s": 1.6654230060230475, "mean_s": 1.4421838504029438, "min_s": 1.2128013469919097, "repeats": 5, "rounded_value": 0.6885883548, "value": 0.6885883548175268}
+{"case": "weighted_multigraph_pair", "impl": "nx", "max_s": 0.6541574709990527, "mean_s": 0.5344218733953312, "min_s": 0.3121908239845652, "repeats": 5, "rounded_value": 0.6885883548, "value": 0.6885883548175268}
+{"case": "weighted_multigraph_pair", "impl": "dense_exact", "max_s": 5.580033316015033, "mean_s": 3.5120043712027837, "min_s": 1.7597431610047352, "repeats": 5, "rounded_value": 0.6885883548, "value": 0.6885883548175268}

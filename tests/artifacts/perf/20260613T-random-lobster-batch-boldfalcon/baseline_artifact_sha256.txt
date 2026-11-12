@@ -1,0 +1,6 @@
+91ff24b2d6d7523cdc05cf25417ba8f3c344abac87ae0570ff8c8c9f78b46c76  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/baseline_bench_fnx.json
+5beaa21d0d603ea8cae3cbde2c82e4c2d24ffc4ab928386bf60c8af49bc3c111  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/baseline_bench_nx.json
+a99459868d6a46642b2be82dd71c328f8ed177e6f50cb3178c5e78722bb8db79  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/baseline_golden.json
+e4bc10cfebf88162ba64c78e4256361ae9d4770f610a5c7f5fee593acb54d4a5  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/baseline_hyperfine_fnx_loop10.json
+0d875e1501367982948e51d2999a9a26d9d3139eea45e0415a069d5b7eb3862b  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/baseline_profile_fnx.txt
+ef77c47d08560ef690050c631a718b039b5aeddd7185c9931292d80169d4e9bc  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/env.json

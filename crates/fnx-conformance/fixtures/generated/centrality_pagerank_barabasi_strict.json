@@ -1,0 +1,359 @@
+{
+  "suite": "centrality_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "0",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "1",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "10",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "11",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "2",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "5",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "6",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "7",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "9",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "1",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "10",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "11",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "2",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "5",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "7",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "0",
+      "right": "9",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "3",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "6",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "7",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "1",
+      "right": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "10",
+      "right": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "11",
+      "right": "5",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "2",
+      "right": "4",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "3",
+      "right": "8",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "4",
+      "right": "5",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "4",
+      "right": "6",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "6",
+      "right": "9",
+      "attrs": {}
+    },
+    {
+      "op": "pagerank_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "0",
+        "1",
+        "10",
+        "11",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "edges": [
+        {
+          "left": "0",
+          "right": "1",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "10",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "11",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "2",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "5",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "7",
+          "attrs": {}
+        },
+        {
+          "left": "0",
+          "right": "9",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "3",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "6",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "7",
+          "attrs": {}
+        },
+        {
+          "left": "1",
+          "right": "8",
+          "attrs": {}
+        },
+        {
+          "left": "10",
+          "right": "8",
+          "attrs": {}
+        },
+        {
+          "left": "11",
+          "right": "5",
+          "attrs": {}
+        },
+        {
+          "left": "2",
+          "right": "4",
+          "attrs": {}
+        },
+        {
+          "left": "3",
+          "right": "8",
+          "attrs": {}
+        },
+        {
+          "left": "4",
+          "right": "5",
+          "attrs": {}
+        },
+        {
+          "left": "4",
+          "right": "6",
+          "attrs": {}
+        },
+        {
+          "left": "6",
+          "right": "9",
+          "attrs": {}
+        }
+      ]
+    },
+    "pagerank": [
+      {
+        "node": "0",
+        "score": 0.18928219367408003
+      },
+      {
+        "node": "1",
+        "score": 0.14008351597272772
+      },
+      {
+        "node": "10",
+        "score": 0.054258630256892065
+      },
+      {
+        "node": "11",
+        "score": 0.054317790130831475
+      },
+      {
+        "node": "2",
+        "score": 0.0535259844194023
+      },
+      {
+        "node": "3",
+        "score": 0.07410366847285536
+      },
+      {
+        "node": "4",
+        "score": 0.098420226281806
+      },
+      {
+        "node": "5",
+        "score": 0.07661096690876117
+      },
+      {
+        "node": "6",
+        "score": 0.07630793231495138
+      },
+      {
+        "node": "7",
+        "score": 0.05245655552674608
+      },
+      {
+        "node": "8",
+        "score": 0.07640034238525838
+      },
+      {
+        "node": "9",
+        "score": 0.05423219365568786
+      }
+    ]
+  }
+}

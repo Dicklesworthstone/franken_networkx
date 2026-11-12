@@ -1,0 +1,32 @@
+{
+  "bead": "br-r37-c1-p80x1.6",
+  "workload": "claim/k_crust complete-result incumbent gate",
+  "timestamp_utc": "2026-08-28T02:51:32Z",
+  "required_precondition": "Two otherwise-identical RCH --base plus --clean-overlay invocations must expose one identical physical managed target path before the 21-round three-clause in-process incumbent comparison may run.",
+  "attempt": {
+    "number": 1,
+    "command": "RCH_REQUIRE_REMOTE=1 RCH_NO_SELF_HEALING=1 rch --no-self-healing exec --base 8e59d67c2 --clean-overlay --no-overlay -- cargo build --release -p fnx-python",
+    "worker": "hz3 (194.140.197.98)",
+    "rch_job_id": 29995118027080027,
+    "rch_project_id": "franken_networkx-0825104d::clean-overlay::c1a54b0f01ebcdd9",
+    "result": "ABORTED_TRANSPORT",
+    "evidence": [
+      "The job disappeared from `rch queue --json` while its local rch process (pid 3227462) and ssh child (pid 3486865) remained live after more than four minutes.",
+      "A direct read-only process check on the assigned worker found no matching cargo build or clean-overlay process."
+    ]
+  },
+  "measurement": {
+    "completed_remote_invocations": 0,
+    "target_path_comparisons": 0,
+    "timing_rounds": 0,
+    "ratio_t_networkx_over_t_fnx": null,
+    "aa_null": null,
+    "in_process_elf_sha256": null
+  },
+  "candidate_elf_not_executed": {
+    "path": "python/franken_networkx/_fnx.abi3.so",
+    "sha256": "cd17e9fcc7e470b0120a59f2eb5106fecfedbb8f3a34c979255ed8c06428a935"
+  },
+  "verdict": "NO_VERDICT",
+  "rejection": "The first required clean-overlay target-reuse probe aborted at transport completion, before it exposed a managed physical target. Therefore no second probe, parity check, A/A null, ratio, or incumbent comparison was run; quoting the local ELF hash as in-process provenance would be false. The bead explicitly classifies an abort as NO-VERDICT."
+}

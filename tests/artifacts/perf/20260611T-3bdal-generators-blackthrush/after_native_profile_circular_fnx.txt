@@ -1,0 +1,17 @@
+         1321 function calls in 0.273 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      120    0.000    0.000    0.273    0.002 harness_generators.py:69(build)
+      120    0.000    0.000    0.273    0.002 harness_generators.py:30(<lambda>)
+      120    0.000    0.000    0.273    0.002 __init__.py:50182(wrapper)
+      120    0.000    0.000    0.273    0.002 __init__.py:22977(circular_ladder_graph)
+      120    0.272    0.002    0.272    0.002 {built-in method franken_networkx._fnx.circular_ladder_graph_native}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      120    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+      120    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+      120    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+      120    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+      120    0.000    0.000    0.000    0.000 __init__.py:22449(_validate_backend_dispatch_keywords)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

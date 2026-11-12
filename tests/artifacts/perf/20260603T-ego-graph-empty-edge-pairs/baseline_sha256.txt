@@ -1,0 +1,3 @@
+6e5bd65f453d1b0acc52786c2906cc953468f642ae54d30ae411d65ce847e825  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/baseline_fnx.jsonl
+9a545bd5d7e277088760c848326aa7b66c82a08495d2c721d551bfa33ee5fb60  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/baseline_nx.jsonl
+b1652015c5caf3c82d287159985bc86cc510b3226811bd679ee395004488578b  tests/artifacts/perf/20260603T-ego-graph-empty-edge-pairs/profile_baseline_fnx.jsonl

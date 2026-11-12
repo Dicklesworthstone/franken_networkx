@@ -1,0 +1,34 @@
+         3053054 function calls (3053049 primitive calls) in 1.361 seconds
+
+   Ordered by: cumulative time
+   List reduced from 97 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       30    0.504    0.017    1.361    0.045 /data/projects/franken_networkx/python/franken_networkx/backend.py:606(_fnx_to_nx)
+       30    0.314    0.010    0.460    0.015 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+       30    0.171    0.006    0.171    0.006 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+       30    0.015    0.000    0.112    0.004 /data/projects/franken_networkx/python/franken_networkx/backend.py:749(_align_rows)
+   746882    0.101    0.000    0.101    0.000 {method 'update' of 'dict' objects}
+    21001    0.044    0.000    0.090    0.000 {built-in method builtins.any}
+       30    0.022    0.001    0.047    0.002 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+   725820    0.046    0.000    0.046    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:758(<genexpr>)
+   373684    0.033    0.000    0.033    0.000 {method 'get' of 'dict' objects}
+   352442    0.032    0.000    0.032    0.000 {method 'add' of 'set' objects}
+   352451    0.029    0.000    0.029    0.000 {method 'append' of 'list' objects}
+   394470    0.021    0.000    0.021    0.000 {built-in method builtins.len}
+    21030    0.006    0.000    0.018    0.000 /data/projects/franken_networkx/python/franken_networkx/backend.py:635(<genexpr>)
+    21000    0.011    0.000    0.012    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5015(__getitem__)
+       90    0.006    0.000    0.007    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32672(__iter__)
+    21000    0.002    0.000    0.002    0.000 {method 'copy' of 'dict' objects}
+    21000    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+       30    0.000    0.000    0.001    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+       30    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      150    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5712(predicate)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      180    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:32178(_private_override)
+       30    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:349(__init__)
+
+
+

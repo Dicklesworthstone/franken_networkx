@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib gpetersen_batch_ab -- --ignored --nocapture
+
+GPETERSEN_BATCH_AB n=40000 k=3 rounds=61 (>1 = batch faster)
+GPETERSEN_BATCH_AB BATCH_vs_string: median=6.1290x win_rate=61/61 p5_p95=[2.3962,7.9258]
+GPETERSEN_BATCH_AB NULL_batch_vs_batch: median=1.0166x win_rate=37/61 p5_p95=[0.6094,1.2553]
+
+PROFILE-FIRST: this A/B ran BEFORE the production edit. Its parity asserts across 6 configs — including
+the k==n/2 inner-dup cases GP(4,2), GP(6,3), GP(8,4) — ALL passed, confirming the seen-set batch is
+byte-identical to per-edge add_edge. Gate: candidate p5 (2.3962) > NULL p95 (1.2553); 61/61 (GP is
+cubic/sparse so the construction is fast and timing noisier, hence the wider spread, but the separation
+is clean).

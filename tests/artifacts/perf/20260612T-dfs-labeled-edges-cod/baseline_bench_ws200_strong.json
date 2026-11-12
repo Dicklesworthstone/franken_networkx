@@ -1,0 +1,4 @@
+{
+  "status": "not_collected",
+  "reason": "The baseline target directory had been evicted before the stronger rerun, so the process failed to preload /data/tmp/cargo-target-fnx-dfs-cod-baseline/release/lib_fnx.so. The original baseline_bench_ws200.json remains the accepted baseline for the rejected lever."
+}

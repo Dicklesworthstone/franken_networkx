@@ -1,0 +1,18 @@
+  [2m2026-06-03T22:22:37.649647Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -c 'import hashlib,json,time; import franken_networkx as fnx, networkx as nx; edges=list(nx.gnm_random_graph(800,6000,seed=8675309).edges()); order=list(range(800));
+
+def build(mod):
+    g=mod.Graph(); g.add_nodes_from(order); g.add_edges_from(edges); return g
+
+def digest(result):
+    m, ordv = result if isinstance(result, tuple) else (result, order)
+    h=hashlib.sha256(); h.update(m.tobytes()); h.update(json.dumps(list(ordv), sort_keys=True).encode()); return h.hexdigest()
+
+def run(engine, mod):
+    g=build(mod); samples=[]
+    for _ in range(10):
+        start=time.perf_counter(); result=mod.attr_matrix(g, rc_order=order); elapsed=time.perf_counter()-start
+        samples.append({"elapsed": elapsed, "digest": digest(result)})
+    return {"engine": engine, "mean": sum(s["elapsed"] for s in samples)/len(samples), "samples": samples, "digest": samples[-1]["digest"]}
+print(json.dumps({"case":{"n":800,"m":6000,"seed":8675309,"rc_order":"range(800)","samples":10},"rows":[run("fnx",fnx),run("nx",nx)]}, sort_keys=True))'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

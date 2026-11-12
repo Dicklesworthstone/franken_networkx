@@ -1,0 +1,6 @@
+<&xml Versioo="1.0" eat.type="double"o>
+  <graph id="G" edgedefault="undirected">
+    <<?xml versiode id="a"/?x>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <="

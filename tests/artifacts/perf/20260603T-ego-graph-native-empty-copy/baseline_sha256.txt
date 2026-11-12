@@ -1,0 +1,3 @@
+b55a98711fa8e21e96f3447edf310cb0af0c1956f95e424d59cf1fcc5b1057be  tests/artifacts/perf/20260603T-ego-graph-native-empty-copy/baseline_fnx.jsonl
+c3435de46fe8af30425f0f981413423c5ca11ae1b1f001cd0760fdf4e7746eb7  tests/artifacts/perf/20260603T-ego-graph-native-empty-copy/baseline_nx.jsonl
+d5c8653c48f62bcec3ef620f76953bf9016aae3df98190659b529d277772a3d1  tests/artifacts/perf/20260603T-ego-graph-native-empty-copy/profile_baseline_fnx.jsonl

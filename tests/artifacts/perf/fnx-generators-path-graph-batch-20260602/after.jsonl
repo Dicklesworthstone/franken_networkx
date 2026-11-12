@@ -1,0 +1,7 @@
+{"scenario":"path-graph","sample":0,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1266.713212,"checksum":"ac68aa72cc8938a8"}
+{"scenario":"path-graph","sample":1,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1014.244736,"checksum":"ac68aa72cc8938a8"}
+{"scenario":"path-graph","sample":2,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1091.320958,"checksum":"ac68aa72cc8938a8"}
+{"scenario":"path-graph","sample":3,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1122.025652,"checksum":"ac68aa72cc8938a8"}
+{"scenario":"path-graph","sample":4,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1068.232160,"checksum":"ac68aa72cc8938a8"}
+{"scenario":"path-graph","sample":5,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1067.384905,"checksum":"ac68aa72cc8938a8"}
+{"scenario":"path-graph","sample":6,"nodes":100000,"edges":99999,"iters":3,"elapsed_ms":1113.664242,"checksum":"ac68aa72cc8938a8"}

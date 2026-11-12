@@ -1,0 +1,44 @@
+{
+  "results": [
+    {
+      "command": "python tests/artifacts/perf/20260609T-jfsyo-complete-multipartite-boldfalcon/harness_kcomponents_multipartite.py time --size 6 --repeats 1 --which fnx",
+      "mean": 0.8930950606133333,
+      "stddev": 0.034285367693050295,
+      "median": 0.89102282228,
+      "user": 4.5025679599999995,
+      "system": 0.06612722,
+      "min": 0.85989281228,
+      "max": 0.92836954728,
+      "times": [
+        0.89102282228,
+        0.85989281228,
+        0.92836954728
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python tests/artifacts/perf/20260609T-jfsyo-complete-multipartite-boldfalcon/harness_kcomponents_multipartite.py time --size 6 --repeats 1 --which nx",
+      "mean": 0.8424882806133334,
+      "stddev": 0.01872198756260366,
+      "median": 0.85278092428,
+      "user": 4.718403293333333,
+      "system": 0.05625255333333332,
+      "min": 0.82087809128,
+      "max": 0.85380582628,
+      "times": [
+        0.82087809128,
+        0.85278092428,
+        0.85380582628
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

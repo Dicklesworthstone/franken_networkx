@@ -1,0 +1,158 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 90b4b3ceb..e7df21842 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -38343,18 +38343,20 @@ pub fn ego_graph(graph: &Graph, center: &str, radius: usize) -> Graph {
+     for &i in &ego_nodes {
+         let _ = result.add_node(nodes[i].to_owned());
+     }
++    // br-r37-c1-egographbatch (cc): collect the induced edges (both endpoints in the ego set) in the
++    // same order + one batch insert instead of per-edge add_edge_with_attrs (a policy record each). The
++    // input edges are distinct and this loop never reads `result`, so every collected edge is unique
++    // with no self-loop → extend_edges_with_attrs_unrecorded is byte-identical to the per-edge add.
++    let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
+     for edge in graph.edges_ordered() {
+         if let (Some(&ui), Some(&vi)) = (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
+             && ego_set.contains(&ui)
+             && ego_set.contains(&vi)
+         {
+-            let _ = result.add_edge_with_attrs(
+-                edge.left.clone(),
+-                edge.right.clone(),
+-                edge.attrs.clone(),
+-            );
++            edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
+         }
+     }
++    let _ = result.extend_edges_with_attrs_unrecorded(edges);
+ 
+     result
+ }
+@@ -67668,6 +67670,127 @@ mod tests {
+         report("NULL_batch_vs_batch", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-egographbatch: paired-interleaved median A/B for ego_graph's induced-edge insertion —
++    /// inline per-edge baseline vs the shipped batch, one binary / one worker with a NULL control. Uses
++    /// the whole node set as the ego (radius >= diameter of K60) so the edge-batch is exercised; the BFS
++    /// is common to both arms. Byte-identity asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib ego_graph_batch_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn ego_graph_batch_ab() {
++        use fnx_classes::AttrMap;
++        use std::collections::{HashMap, HashSet};
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Complete graph K60 (1770 edges); ego = all nodes.
++        let mut input = Graph::strict();
++        let m = 60usize;
++        for i in 0..m {
++            let _ = input.add_node(format!("{i}"));
++        }
++        for i in 0..m {
++            for j in (i + 1)..m {
++                let _ = input.add_edge(format!("{i}"), format!("{j}"));
++            }
++        }
++        let nodes = input.nodes_ordered();
++        let idx: HashMap<&str, usize> = nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
++        let ego_nodes: Vec<usize> = (0..nodes.len()).collect();
++        let ego_set: HashSet<usize> = ego_nodes.iter().copied().collect();
++
++        let build = |batch: bool| -> Graph {
++            let mut result = Graph::with_runtime_policy(input.runtime_policy().clone());
++            for &i in &ego_nodes {
++                let _ = result.add_node(nodes[i].to_owned());
++            }
++            if batch {
++                let mut edges: Vec<(String, String, AttrMap)> = Vec::new();
++                for edge in input.edges_ordered() {
++                    if let (Some(&ui), Some(&vi)) =
++                        (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
++                        && ego_set.contains(&ui)
++                        && ego_set.contains(&vi)
++                    {
++                        edges.push((edge.left.clone(), edge.right.clone(), edge.attrs.clone()));
++                    }
++                }
++                let _ = result.extend_edges_with_attrs_unrecorded(edges);
++            } else {
++                for edge in input.edges_ordered() {
++                    if let (Some(&ui), Some(&vi)) =
++                        (idx.get(edge.left.as_str()), idx.get(edge.right.as_str()))
++                        && ego_set.contains(&ui)
++                        && ego_set.contains(&vi)
++                    {
++                        let _ = result.add_edge_with_attrs(
++                            edge.left.clone(),
++                            edge.right.clone(),
++                            edge.attrs.clone(),
++                        );
++                    }
++                }
++            }
++            result
++        };
++
++        let old = build(false);
++        let new = build(true);
++        assert_eq!(
++            old.edges_ordered_borrowed(),
++            new.edges_ordered_borrowed(),
++            "batch ego_graph induced edges must equal the per-edge baseline"
++        );
++        assert_eq!(old.nodes_ordered(), new.nodes_ordered());
++
++        let time = |batch: bool| -> f64 {
++            let t0 = Instant::now();
++            black_box(build(batch));
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "EGOGRAPH_BATCH_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("EGOGRAPH_BATCH_AB K60_all rounds={rounds} (>1 = batch faster)");
++        report("BATCH_vs_string", &paired(true, false));
++        report("NULL_batch_vs_batch", &paired(true, true));
++    }
++
+     #[test]
+     fn test_cartesian_product_label_disambiguation() {
+         let mut g1 = Graph::strict();

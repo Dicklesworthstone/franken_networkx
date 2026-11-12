@@ -1,0 +1,8 @@
+{
+  "target": "average_node_connectivity",
+  "lever": "de-delegate: average over the native all_pairs_node_connectivity result (byte-correct undirected, ~2x faster than nx's pure-Python O(n^2) max-flow loop) instead of re-delegating the whole computation to nx",
+  "golden": {"byte_exact": true, "corpus_sha256": "a74a71005aff29ba00a57b2596c980d241b5f8647a9b3c5eefd080d21c21ee9b",
+    "corpus": "path/cycle/karate/complete/petersen/single/two/empty/ws50 x3/directed30 x2/disconnected"},
+  "bench_ws120_ms": {"new": 2354, "genuine_nx": 4331, "faster_than_nx": 1.84},
+  "notes": "byte-EXACT (==) across undirected + directed + edge cases. mean over combinations (undirected) / permutations (directed) of the per-pair native connectivity. directed + custom flow_func delegate inside all_pairs_node_connectivity (native over-reports directed). 43 connectivity pytest pass. Pure-Python, no rebuild. NOTE: bench must run with PYTHONPATH=python (bare python3 imports stale site-packages)."
+}

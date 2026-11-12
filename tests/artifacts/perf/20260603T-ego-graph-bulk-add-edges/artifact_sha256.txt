@@ -1,0 +1,15 @@
+8e502397bd24c7b6542a67f43ee8c2700445e8d6e0ea50db4837da43176cf9f5  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/after_fnx.jsonl
+850273203c81d0f663919f1229a0dee61a29296b65b94561786d0db20a75398e  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/after_fnx_repeat21.jsonl
+ff443a98af590c20bb167b810c3492477f99e726a5e37354dea81f3a8ea883f5  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/alien_recommendation_card.md
+98451ec92a92c3de4c68c11470d68e338946d658403654acf82a54228213e0f3  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/baseline_fnx.jsonl
+b9b0728574c8cf7203cd04101fdad80fbe2b4147fdf495f8e0d5d60f940389dd  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/baseline_nx.jsonl
+5f88df33129f90c26b1c8b22355ded89eb947c5efde06d08648aa306eee24607  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/hyperfine_after.json
+b845f9795f7a9d9322f16139797cc18781f414e1a8247faa8cb3967c0713e78c  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/hyperfine_after.stdout
+08b383845cdb3dc70df2c51103a4a1731f6dfaf77740a8d9713d4fc1b3797538  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/hyperfine_baseline.json
+fb75d4b89348010edf3ef9558a981616fdfd8ede65dd1cf1570c219668e18efc  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/hyperfine_baseline.stdout
+d11497904f2c4245591d39c80aefa3a00dd702772f3ac274b617dc7b8d4ff8c9  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/isomorphism_proof.md
+845469429a45a7fa12df88efb42a5abbb70e3411f9a001c13acbc62672efd2d0  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/profile_after_fnx.jsonl
+e88886be90c9c883789e143c69458edb4327a3a305053b4e40b3917621d157c7  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/profile_after_fnx.txt
+436b9e3cc6ad1411af00ed2254b78c7820da8d82e13a5aaab73605e78a72aefa  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/profile_baseline_fnx.jsonl
+b9cd6278d093049f7f5a475afaed511d957ccf6e497c525a5c6d95fe5278eb8a  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/profile_baseline_fnx.txt
+43c1161523245026bf74e3bd2869fd33515d4e93c66b3989dd6f7168f29b09b4  tests/artifacts/perf/20260603T-ego-graph-bulk-add-edges/restored_fnx.jsonl

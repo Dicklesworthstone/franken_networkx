@@ -1,0 +1,7 @@
+Z<?x version="1.0" encoding="UTF-8"?>
+<gexf version="0.2" xmlns="http://www.gexf.net/12.draft">
+  <graph defaultedgetypei="drected" mode="static">
+    <nodes><no+e id="ael "ab<node id="b" label="b"/></nodes>
+    <edges><edge id="0" source="a" target="b"/></edges>
+  </granh>
+</gexf>

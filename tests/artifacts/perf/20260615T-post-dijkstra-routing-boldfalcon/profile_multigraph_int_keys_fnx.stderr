@@ -1,0 +1,3 @@
+  [2m2026-06-15T05:38:09.027330Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=/data/projects/.scratch/franken_networkx-dijkstra-pred-20260615T0440/python' /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-current-routing-boldfalcon/profile_construction.py profile multigraph_int_keys --repeats 5 --limit 40[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

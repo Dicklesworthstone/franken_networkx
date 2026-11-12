@@ -1,0 +1,2 @@
+  [2m2026-06-02T18:24:14.012629Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --style none --warmup 1 --runs 10 --export-json tests/artifacts/perf/20260602T-fnx-to-nx-bulk/after_convert_hyperfine.json 'PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260602T-fnx-to-nx-bulk/bench_fnx_to_nx_bulk.py --workload convert --mode native --repeat 5 --nodes 3000 --m 4'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

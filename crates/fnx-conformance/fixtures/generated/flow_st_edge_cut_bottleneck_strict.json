@@ -1,0 +1,216 @@
+{
+  "suite": "algorithms_flow_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "d",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "s",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "t",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "x",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "capacity": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "s",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "x",
+      "attrs": {
+        "capacity": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "s",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d",
+      "attrs": {
+        "capacity": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "t",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "x",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "t",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "x",
+      "attrs": {
+        "capacity": "10"
+      }
+    },
+    {
+      "op": "minimum_st_edge_cut_query",
+      "source": "s",
+      "target": "t"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "s",
+        "t",
+        "x"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "capacity": "5"
+          }
+        },
+        {
+          "left": "a",
+          "right": "s",
+          "attrs": {
+            "capacity": "10"
+          }
+        },
+        {
+          "left": "a",
+          "right": "x",
+          "attrs": {
+            "capacity": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "s",
+          "attrs": {
+            "capacity": "10"
+          }
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {
+            "capacity": "5"
+          }
+        },
+        {
+          "left": "c",
+          "right": "t",
+          "attrs": {
+            "capacity": "10"
+          }
+        },
+        {
+          "left": "c",
+          "right": "x",
+          "attrs": {
+            "capacity": "10"
+          }
+        },
+        {
+          "left": "d",
+          "right": "t",
+          "attrs": {
+            "capacity": "10"
+          }
+        },
+        {
+          "left": "d",
+          "right": "x",
+          "attrs": {
+            "capacity": "10"
+          }
+        }
+      ]
+    },
+    "minimum_st_edge_cut": {
+      "value": 3.0,
+      "cut_edges": [
+        [
+          "a",
+          "x"
+        ]
+      ],
+      "source_partition": [
+        "a",
+        "b",
+        "s"
+      ],
+      "sink_partition": [
+        "c",
+        "d",
+        "t",
+        "x"
+      ]
+    }
+  }
+}

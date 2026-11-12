@@ -1,0 +1,36 @@
+  [2m2026-06-02T18:02:00.415706Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: maturin develop --release --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+🍹 Building a mixed python/rust project
+🔗 Found pyo3 bindings with abi3 support
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.45
+   Compiling zmij v1.0.21
+   Compiling serde_json v1.0.149
+   Compiling itoa v1.0.18
+   Compiling cfg-if v1.0.4
+   Compiling chacha20 v0.10.0
+   Compiling blake3 v1.8.4
+   Compiling proc-macro2 v1.0.106
+   Compiling rand v0.10.1
+   Compiling syn v2.0.117
+   Compiling pyo3-macros-backend v0.28.3
+   Compiling serde_derive v1.0.228
+   Compiling serde v1.0.228
+   Compiling pyo3-macros v0.28.3
+   Compiling fnx-runtime v0.1.0 (/data/projects/franken_networkx/crates/fnx-runtime)
+   Compiling fnx-cgse v0.1.0 (/data/projects/franken_networkx/crates/fnx-cgse)
+   Compiling pyo3 v0.28.3
+   Compiling fnx-classes v0.1.0 (/data/projects/franken_networkx/crates/fnx-classes)
+   Compiling fnx-dispatch v0.1.0 (/data/projects/franken_networkx/crates/fnx-dispatch)
+   Compiling fnx-convert v0.1.0 (/data/projects/franken_networkx/crates/fnx-convert)
+   Compiling fnx-generators v0.1.0 (/data/projects/franken_networkx/crates/fnx-generators)
+   Compiling fnx-readwrite v0.1.0 (/data/projects/franken_networkx/crates/fnx-readwrite)
+   Compiling fnx-views v0.1.0 (/data/projects/franken_networkx/crates/fnx-views)
+   Compiling fnx-algorithms v0.1.0 (/data/projects/franken_networkx/crates/fnx-algorithms)
+   Compiling pyo3-log v0.13.3
+   Compiling fnx-python v0.1.0 (/data/projects/franken_networkx/crates/fnx-python)
+    Finished `release` profile [optimized] target(s) in 45.77s
+📦 Built wheel for abi3 Python ≥ 3.10 to /data/tmp/.tmp8ezb5J/franken_networkx-0.1.0-cp310-abi3-linux_x86_64.whl
+🛠 Installed franken-networkx-0.1.0

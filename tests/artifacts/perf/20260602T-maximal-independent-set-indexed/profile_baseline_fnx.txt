@@ -1,0 +1,31 @@
+         54863 function calls in 0.013 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    0.013    0.013 __init__.py:12879(maximal_independent_set)
+     3000    0.001    0.000    0.008    0.000 __init__.py:28902(has_edge)
+     3000    0.001    0.000    0.006    0.000 __init__.py:28367(_has_networkx_private_storage)
+    12002    0.002    0.000    0.004    0.000 __init__.py:28359(_private_override)
+        1    0.003    0.003    0.004    0.004 {built-in method franken_networkx._fnx.maximal_independent_set}
+    12002    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+    12002    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+     3000    0.001    0.000    0.001    0.000 {function Graph.has_edge at 0x745fb637b1a0}
+     1102    0.000    0.000    0.000    0.000 random.py:245(_randbelow_with_getrandbits)
+     6000    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+        1    0.000    0.000    0.000    0.000 __init__.py:28759(__iter__)
+     1630    0.000    0.000    0.000    0.000 {method 'getrandbits' of '_random.Random' objects}
+     1102    0.000    0.000    0.000    0.000 {method 'bit_length' of 'int' objects}
+        1    0.000    0.000    0.000    0.000 random.py:119(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 random.py:128(seed)
+        1    0.000    0.000    0.000    0.000 __init__.py:18479(_native_random_seed)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.000    0.000 __init__.py:28769(__len__)
+        1    0.000    0.000    0.000    0.000 __init__.py:10870(_coerce_arg_to_fnx_graph)
+        1    0.000    0.000    0.000    0.000 {function Random.seed at 0x745fb7227740}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        1    0.000    0.000    0.000    0.000 {method 'startswith' of 'str' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:18545(_validate_backend_dispatch_keywords)
+
+

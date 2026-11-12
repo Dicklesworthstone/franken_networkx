@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-ego-graph-r2-current/bench_ego_graph_r2.py sample --impl fnx --n 3000 --m 4 --seed 42 --repeats 9
+  Time (mean ± σ):     608.7 ms ±  19.8 ms    [User: 4256.9 ms, System: 67.8 ms]
+  Range (min … max):   578.2 ms … 641.6 ms    7 runs
+ 

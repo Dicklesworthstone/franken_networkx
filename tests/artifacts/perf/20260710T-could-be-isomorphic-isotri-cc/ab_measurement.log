@@ -1,0 +1,5 @@
+running 1 test
+ISOTRI_AB n=1200 deg=40 rounds=121 (>1 = mark-array faster)
+ISOTRI_AB MARK_vs_string: median=11.7483x win_rate=121/121 p5_p95=[10.0557,15.6273]
+ISOTRI_AB NULL_mark_vs_mark: median=0.9943x win_rate=57/121 p5_p95=[0.8194,1.1812]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 935 filtered out; finished in 49.93s

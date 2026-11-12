@@ -1,0 +1,29 @@
+  [2m2026-06-05T05:02:09.151078Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/baseline_hyperfine.json 'python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl fnx --case path_2000_first1 --loops 20' 'python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl direct --case path_2000_first1 --loops 20' 'python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl nx --case path_2000_first1 --loops 20' 'python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl fnx --case cycle_2000_first2 --loops 10' 'python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl direct --case cycle_2000_first2 --loops 10'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl fnx --case path_2000_first1 --loops 20
+  Time (mean ± σ):     558.4 ms ±  25.0 ms    [User: 3973.0 ms, System: 62.7 ms]
+  Range (min … max):   524.3 ms … 587.0 ms    10 runs
+ 
+Benchmark 2: python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl direct --case path_2000_first1 --loops 20
+  Time (mean ± σ):     390.7 ms ±  26.1 ms    [User: 3983.6 ms, System: 58.5 ms]
+  Range (min … max):   355.2 ms … 430.2 ms    10 runs
+ 
+Benchmark 3: python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl nx --case path_2000_first1 --loops 20
+  Time (mean ± σ):     360.3 ms ±  30.4 ms    [User: 3704.1 ms, System: 63.7 ms]
+  Range (min … max):   323.6 ms … 404.0 ms    10 runs
+ 
+Benchmark 4: python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl fnx --case cycle_2000_first2 --loops 10
+  Time (mean ± σ):     523.5 ms ±  57.1 ms    [User: 3717.3 ms, System: 69.0 ms]
+  Range (min … max):   445.7 ms … 619.8 ms    10 runs
+ 
+Benchmark 5: python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl direct --case cycle_2000_first2 --loops 10
+  Time (mean ± σ):     441.4 ms ±  19.6 ms    [User: 3769.2 ms, System: 59.9 ms]
+  Range (min … max):   405.5 ms … 468.3 ms    10 runs
+ 
+Summary
+  python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl nx --case path_2000_first1 --loops 20 ran
+    1.08 ± 0.12 times faster than python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl direct --case path_2000_first1 --loops 20
+    1.23 ± 0.12 times faster than python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl direct --case cycle_2000_first2 --loops 10
+    1.45 ± 0.20 times faster than python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl fnx --case cycle_2000_first2 --loops 10
+    1.55 ± 0.15 times faster than python3 tests/artifacts/perf/20260605T-shortest-simple-paths-tealspring/shortest_simple_paths_bench.py bench --impl fnx --case path_2000_first1 --loops 20

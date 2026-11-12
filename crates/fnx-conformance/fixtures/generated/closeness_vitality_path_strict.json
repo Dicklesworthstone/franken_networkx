@@ -1,0 +1,25 @@
+{
+  "suite": "vitality_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "0", "right": "1", "attrs": {}},
+    {"op": "add_edge", "left": "1", "right": "2", "attrs": {}},
+    {"op": "add_edge", "left": "2", "right": "0", "attrs": {}},
+    {"op": "closeness_vitality_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["0", "1", "2"],
+      "edges": [
+        {"left": "0", "right": "1", "attrs": {}},
+        {"left": "0", "right": "2", "attrs": {}},
+        {"left": "1", "right": "2", "attrs": {}}
+      ]
+    },
+    "closeness_vitality": [
+      {"node": "0", "vitality": 2.0},
+      {"node": "1", "vitality": 2.0},
+      {"node": "2", "vitality": 2.0}
+    ]
+  }
+}

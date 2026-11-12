@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-graph-attr-current-boldfalcon/graph_attr_construction_harness.py once --impl fnx --loops 30",
+      "mean": 0.6301742235657144,
+      "stddev": 0.03598538953421966,
+      "median": 0.63761503728,
+      "user": 4.671418999999999,
+      "system": 0.06411788571428571,
+      "min": 0.59029802628,
+      "max": 0.6904584382800001,
+      "times": [
+        0.65199728428,
+        0.64114351128,
+        0.59029802628,
+        0.59462015428,
+        0.6904584382800001,
+        0.6050871132800001,
+        0.63761503728
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-graph-attr-current-boldfalcon/graph_attr_construction_harness.py once --impl nx --loops 30",
+      "mean": 0.5375091262800001,
+      "stddev": 0.02403607068139066,
+      "median": 0.5309840962800001,
+      "user": 4.668716142857143,
+      "system": 0.08670631428571429,
+      "min": 0.5052763332800001,
+      "max": 0.56743400028,
+      "times": [
+        0.5131801662800001,
+        0.5309840962800001,
+        0.55393641928,
+        0.56743400028,
+        0.53026247928,
+        0.5614903892800001,
+        0.5052763332800001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

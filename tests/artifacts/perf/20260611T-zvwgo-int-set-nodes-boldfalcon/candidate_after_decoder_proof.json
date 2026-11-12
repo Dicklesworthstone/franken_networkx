@@ -1,0 +1,27 @@
+{
+  "cases": {
+    "add_bool_set_existing_behavior": {
+      "baseline_fnx_sha256": "a11ce739b9a23ba4af38da1654957aba7c15d023e19dfde5003a0fb2f2dc430e",
+      "baseline_fnx_sha256_equal": true,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "a11ce739b9a23ba4af38da1654957aba7c15d023e19dfde5003a0fb2f2dc430e",
+      "nx_sha256": "a11ce739b9a23ba4af38da1654957aba7c15d023e19dfde5003a0fb2f2dc430e"
+    },
+    "add_int_set": {
+      "baseline_fnx_sha256": "52ef146bc091b3df9713017f0f1193ee824105c83db64841bda43bdecbefb6d9",
+      "baseline_fnx_sha256_equal": true,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "52ef146bc091b3df9713017f0f1193ee824105c83db64841bda43bdecbefb6d9",
+      "nx_sha256": "52ef146bc091b3df9713017f0f1193ee824105c83db64841bda43bdecbefb6d9"
+    },
+    "intersection": {
+      "baseline_fnx_sha256": "a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a",
+      "baseline_fnx_sha256_equal": true,
+      "fnx_matches_nx": true,
+      "fnx_sha256": "a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a",
+      "nx_sha256": "a8ad08618e39d836fcdff54f962a7b4bfb8fe7c4b5942247ea9a0dbb0aaea13a"
+    }
+  },
+  "label": "candidate_after_decoder",
+  "n": 1800
+}

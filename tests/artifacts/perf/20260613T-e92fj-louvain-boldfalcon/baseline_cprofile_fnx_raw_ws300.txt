@@ -1,0 +1,48 @@
+         125318 function calls (125255 primitive calls) in 0.055 seconds
+
+   Ordered by: cumulative time
+   List reduced from 139 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.001    0.001    0.055    0.055 louvain_pass1.py:215(target)
+       10    0.000    0.000    0.053    0.005 louvain_pass1.py:74(run_variant)
+       10    0.000    0.000    0.025    0.003 louvain_pass1.py:44(make_case)
+       10    0.000    0.000    0.025    0.002 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_watts_strogatz_graph_1)
+    30/10    0.000    0.000    0.025    0.002 backends.py:554(_call_if_any_backends_installed)
+    30/10    0.000    0.000    0.025    0.002 backends.py:1484(_call_with_backend)
+       10    0.003    0.000    0.024    0.002 random_graphs.py:388(watts_strogatz_graph)
+       10    0.000    0.000    0.021    0.002 louvain_pass1.py:60(fnx_graph_from)
+       30    0.008    0.000    0.012    0.000 graph.py:986(add_edges_from)
+       10    0.002    0.000    0.011    0.001 __init__.py:2739(add_edges_from)
+       10    0.004    0.000    0.010    0.001 __init__.py:2456(add_nodes_from)
+       10    0.007    0.001    0.007    0.001 {built-in method franken_networkx._fnx.louvain_communities}
+       10    0.005    0.000    0.005    0.000 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+     3000    0.001    0.000    0.005    0.000 __init__.py:2422(add_node)
+      4/1    0.000    0.000    0.004    0.004 decorators.py:783(func)
+     9010    0.003    0.000    0.004    0.000 reportviews.py:856(__iter__)
+     3000    0.004    0.000    0.004    0.000 {function Graph.add_node at 0x73b915bdf740}
+    25718    0.003    0.000    0.003    0.000 {method 'update' of 'dict' objects}
+       10    0.000    0.000    0.003    0.000 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_empty_graph_6)
+     1700    0.002    0.000    0.002    0.000 graph.py:917(add_edge)
+     1700    0.001    0.000    0.002    0.000 random.py:345(choice)
+       10    0.000    0.000    0.002    0.000 <class 'networkx.utils.decorators.argmap'> compilation 13:1(argmap_empty_graph_10)
+       10    0.000    0.000    0.002    0.000 classic.py:564(empty_graph)
+       10    0.001    0.000    0.002    0.000 graph.py:584(add_nodes_from)
+     1700    0.001    0.000    0.001    0.000 random.py:245(_randbelow_with_getrandbits)
+     1700    0.001    0.000    0.001    0.000 graph.py:1118(remove_edge)
+    10739    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+        4    0.000    0.000    0.001    0.000 decorators.py:715(_lazy_compile)
+        4    0.000    0.000    0.001    0.000 decorators.py:869(compile)
+     6000    0.001    0.000    0.001    0.000 {built-in method builtins.hash}
+     3440    0.001    0.000    0.001    0.000 misc.py:645(_clear_cache)
+     9000    0.001    0.000    0.001    0.000 {method 'random' of '_random.Random' objects}
+     9224    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+    12464    0.001    0.000    0.001    0.000 {built-in method builtins.len}
+       10    0.000    0.000    0.001    0.000 louvain_pass1.py:67(normalized)
+      5/4    0.000    0.000    0.001    0.000 decorators.py:917(assemble)
+      140    0.000    0.000    0.001    0.000 {built-in method builtins.sorted}
+     9000    0.001    0.000    0.001    0.000 reportviews.py:785(<lambda>)
+        4    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+     3492    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+
+

@@ -1,0 +1,24 @@
+{
+  "n2000": {
+    "n": 2000,
+    "clo_ms": 7.37150595523417,
+    "clo_sha": "f303d28551256f173a0b72e8e61f1c86035499cea556a3679d90f354c78dc585",
+    "har_ms": 6.072036921977997,
+    "har_sha": "adaed92da8303365f47177916a9dc7da9a4eae5d0f6d1745f2792ae84430b875",
+    "clo_dir_ms": 3.884198027662933,
+    "clo_dir_sha": "3b9920b46c49fae06fcc3e2d0b4fdde4f418b8952066598fe36b4f1f49aeb7ae",
+    "har_dir_ms": 4.387118970043957,
+    "har_dir_sha": "96c3c9d00507601b578f3b4a709c95ec70ca6cf1c07310eadd4a4e1f4348d861"
+  },
+  "n3000": {
+    "n": 3000,
+    "clo_ms": 12.14695896487683,
+    "clo_sha": "911f48642d53135fe8ab09b22a503179c1f07afb03a62322260aa9089547a193",
+    "har_ms": 11.88289001584053,
+    "har_sha": "75a9393c3f8face8860802089c343be0b1e80ee4e162c97c6816119f88222432",
+    "clo_dir_ms": 4.08798293210566,
+    "clo_dir_sha": "3b9920b46c49fae06fcc3e2d0b4fdde4f418b8952066598fe36b4f1f49aeb7ae",
+    "har_dir_ms": 4.815120017156005,
+    "har_dir_sha": "96c3c9d00507601b578f3b4a709c95ec70ca6cf1c07310eadd4a4e1f4348d861"
+  }
+}

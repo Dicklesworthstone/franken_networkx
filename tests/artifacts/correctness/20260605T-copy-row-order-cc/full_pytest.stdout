@@ -1,0 +1,5 @@
+FAILED tests/python/test_coverage_gaps.py::test_generated_coverage_matrix_document_is_current
+FAILED tests/python/test_unhashable_followup_paths_parity.py::test_constructor_edge_list_unhashable_endpoint_raises[MultiGraph-list]
+FAILED tests/python/test_unhashable_followup_paths_parity.py::test_constructor_edge_list_unhashable_endpoint_raises[MultiGraph-set]
+FAILED tests/python/test_unhashable_followup_paths_parity.py::test_constructor_edge_list_unhashable_endpoint_raises[MultiGraph-dict]
+4 failed, 21503 passed, 73 skipped, 1 xpassed, 87 warnings in 139.05s (0:02:19)

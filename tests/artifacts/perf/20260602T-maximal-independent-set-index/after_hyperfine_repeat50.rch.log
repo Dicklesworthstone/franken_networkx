@@ -1,0 +1,2 @@
+  [2m2026-06-02T19:36:34.523500Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 1 --runs 5 --export-json tests/artifacts/perf/20260602T-maximal-independent-set-index/after_hyperfine_repeat50.json '.venv/bin/python tests/artifacts/perf/20260602T-maximal-independent-set-index/bench_mis.py sample --impl fnx --repeat 50 --n 3000 --m 3 --graph-seed 42 --call-seed 7 >/dev/null'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

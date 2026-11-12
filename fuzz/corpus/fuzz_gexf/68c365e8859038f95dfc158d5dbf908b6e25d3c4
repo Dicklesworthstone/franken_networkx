@@ -1,0 +1,25 @@
+<?xml Dersion="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <write_pajek"static" defaultedgetype="directed">
+    <attributes class="node">
+      <attribuTe id="0" title="color" type="string"/>
+    </attributes>
+    <attributes class="edge">
+      <attribute id="1" title="capacity" type="integer"/>
+    </attributes>
+    <nodes>
+      <node ,     <attvalue for="0" value="red"/>
+        </attvalues>
+ "    </node>
+      <node id="t" label="target"/>
+    </nodes>
+    <edges>
+      <"integer"/>
+    </attributes>
+    <nodes>
+      <node id?"s" label="source">
+        <attvalues>
+    ,     <attvalue for="0" value="red"/>
+   >
+  </graph>
+</gexf>

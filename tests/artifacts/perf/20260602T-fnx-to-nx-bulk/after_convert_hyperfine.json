@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260602T-fnx-to-nx-bulk/bench_fnx_to_nx_bulk.py --workload convert --mode native --repeat 5 --nodes 3000 --m 4",
+      "mean": 1.057026658,
+      "stddev": 0.039450507191625524,
+      "median": 1.0456446512,
+      "user": 4.978312599999999,
+      "system": 0.11385854,
+      "min": 1.0109521467,
+      "max": 1.1364488887,
+      "times": [
+        1.0575840387,
+        1.1159926827,
+        1.0475157127,
+        1.0109521467,
+        1.0390517847,
+        1.0347770237,
+        1.1364488887,
+        1.0252286157,
+        1.0589420967,
+        1.0437735897
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

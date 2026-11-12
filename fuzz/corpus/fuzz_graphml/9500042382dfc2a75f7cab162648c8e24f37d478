@@ -1,0 +1,8 @@
+<?xml versimn="1.0" encoding="UTF-8"?>
+" attr.name="d" ght" %ttr.1ype="double"/<
+  <graph id="G" eraphmfault="unweight" %ttr.type="double"/>
+  <graph id="G" edgedefault=" source="a" target="b">
+      <data key"=>*.d"05</data>
+    </edge>
+  </graph>
+</graphml>

@@ -1,0 +1,7 @@
+  [2m2026-07-11T04:21:58.250404Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib harmonic_diameter -- --include-ignored --nocapture[0m
+test tests::test_harmonic_diameter_path ... ok
+HDMARK_AB n=200 deg=10 rounds=61 (>1 = integer-BFS faster)
+HDMARK_AB INT_vs_string: median=10.9465x win_rate=61/61 p5_p95=[9.0053,13.3057]
+HDMARK_AB NULL_int_vs_int: median=1.0014x win_rate=31/61 p5_p95=[0.8839,1.1215]
+test tests::harmonic_diameter_hdmark_ab ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 940 filtered out; finished in 1.03s

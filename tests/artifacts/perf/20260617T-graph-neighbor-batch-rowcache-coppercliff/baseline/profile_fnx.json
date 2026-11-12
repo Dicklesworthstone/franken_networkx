@@ -1,0 +1,20 @@
+{
+  "loops": 180,
+  "metadata": {
+    "franken_networkx_file": "/data/projects/franken_networkx/python/franken_networkx/__init__.py",
+    "graph": {
+      "family": "Graph(gnp_random_graph(n, p, seed))",
+      "n": 2400,
+      "p": 0.0045,
+      "seed": 23
+    },
+    "head": "bb37f5f2d8e6d9ee4c56ec6356aa2fabe2b41b0b",
+    "head_short": "bb37f5f2d docs(perf): record star certificate validation",
+    "networkx_file": "/data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/__init__.py",
+    "networkx_version": "3.6.1",
+    "python": "3.13.7 (main, Mar  3 2026, 12:19:54) [GCC 15.2.0]",
+    "repo_root": "/data/projects/franken_networkx",
+    "workload": "[list(G.neighbors(n)) for n in G.nodes()]"
+  },
+  "profile_text": "tests/artifacts/perf/20260617T-graph-neighbor-batch-rowcache-coppercliff/baseline/profile_fnx.txt"
+}

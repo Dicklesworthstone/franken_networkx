@@ -1,0 +1,31 @@
+         43984353 function calls (43555068 primitive calls) in 15.320 seconds
+
+   Ordered by: cumulative time
+   List reduced from 130 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000   15.320   15.320 construction_attr_survey.py:148(once)
+      160    0.119    0.001   15.319    0.096 construction_attr_survey.py:101(_measure_case)
+      160    0.054    0.000    7.776    0.049 construction_attr_survey.py:72(_multigraph_attr)
+      160    1.764    0.011    7.049    0.044 multigraph.py:538(add_edges_from)
+      160    1.646    0.010    6.235    0.039 construction_attr_survey.py:29(_digest_graph)
+  1280000    2.253    0.000    3.175    0.000 multigraph.py:442(add_edge)
+  1709440    1.250    0.000    1.957    0.000 {built-in method builtins.sorted}
+  1280160    1.134    0.000    1.387    0.000 reportviews.py:988(__iter__)
+      160    0.000    0.000    1.188    0.007 multigraph.py:1238(number_of_edges)
+      160    0.002    0.000    1.187    0.007 graph.py:1918(size)
+429440/160    0.266    0.000    1.184    0.007 {built-in method builtins.sum}
+   429440    0.060    0.000    1.152    0.000 graph.py:1954(<genexpr>)
+   429440    0.215    0.000    1.092    0.000 reportviews.py:610(__iter__)
+  1280000    0.255    0.000    0.761    0.000 graph.py:509(__getitem__)
+  5120162    0.694    0.000    0.694    0.000 {method 'update' of 'dict' objects}
+  2560000    0.513    0.000    0.683    0.000 construction_attr_survey.py:37(<genexpr>)
+      160    0.485    0.003    0.665    0.004 construction_attr_survey.py:25(_attr_edges)
+      160    0.001    0.000    0.618    0.004 __init__.py:183(dumps)
+      160    0.001    0.000    0.617    0.004 encoder.py:183(encode)
+      160    0.615    0.004    0.615    0.004 encoder.py:205(iterencode)
+  2986720    0.479    0.000    0.607    0.000 reportviews.py:615(<genexpr>)
+  5549280    0.594    0.000    0.594    0.000 {built-in method builtins.repr}
+  1280000    0.392    0.000    0.505    0.000 coreviews.py:103(__getitem__)
+  1280000    0.365    0.000    0.468    0.000 coreviews.py:81(__getitem__)
+  1280000    0.429    0.000    0.429    0.000 multigraph.py:413(new_edge_key)

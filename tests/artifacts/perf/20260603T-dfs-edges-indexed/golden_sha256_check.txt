@@ -1,0 +1,2 @@
+tests/artifacts/perf/20260603T-dfs-edges-indexed/golden_before_sha256.txt: OK
+tests/artifacts/perf/20260603T-dfs-edges-indexed/golden_after_sha256.txt: OK

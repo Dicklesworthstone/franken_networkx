@@ -1,0 +1,1 @@
+path_len=159 nodes_touched=6400 edges_scanned=25275

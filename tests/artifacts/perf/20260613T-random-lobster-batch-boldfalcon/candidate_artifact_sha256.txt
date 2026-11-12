@@ -1,0 +1,5 @@
+b918f7358e30de2acf1e6bf879f40210b31c09a56653ae7e7b7f0eb2a215afcb  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/candidate_bench_fnx.json
+c838cc029b1d6c1e0d26a9f56e4ebb88cbc46786201df6a3d54be57b8e62d252  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/candidate_bench_nx.json
+a99459868d6a46642b2be82dd71c328f8ed177e6f50cb3178c5e78722bb8db79  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/candidate_golden.json
+881f4a7d626c82a745527709b5f89a6a01bf9c9832d4015a5c6148b7a11a3eda  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/candidate_hyperfine_fnx_loop10.json
+6987cea8a2b50e45168b13a2fced9e81297029a4fe3f4fbff72b89fa596a5023  /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon/candidate_profile_fnx.txt

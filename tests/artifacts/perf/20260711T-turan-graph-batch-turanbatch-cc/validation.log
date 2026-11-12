@@ -1,0 +1,9 @@
+SLICE validation (br-r37-c1-turanbatch):
+A/B (real worker): TURAN_BATCH_AB present; BATCH_vs_string 16.2181x (61/61, p5_p95 [9.35,27.40]); NULL 0.979x.
+  parity assert_eq! (edges_ordered_borrowed + nodes_ordered, UNEQUAL partitions) GREEN -> byte-identical.
+turan tests: 4 passed, 0 failed, 1 ignored. INCLUDES exact-vs-nx gates:
+  turan_graph_matches_networkx_uneven_partition_order ... ok
+  turan_graph_matches_networkx_balanced_bipartite_case ... ok
+  turan_graph_matches_networkx_singleton_case ... ok
+  turan_graph_rejects_invalid_partition_count_like_networkx ... ok
+clippy --release -p fnx-generators --lib --tests -- -D warnings: CLEAN.

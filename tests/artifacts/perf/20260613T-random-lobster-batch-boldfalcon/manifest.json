@@ -1,0 +1,76 @@
+{
+  "bead": "br-r37-c1-04z53.82",
+  "title": "[perf] Batch random_lobster generated edges",
+  "agent": "BoldFalcon",
+  "artifact_dir": "tests/artifacts/perf/20260613T-random-lobster-batch-boldfalcon",
+  "baseline_git_head": "b384ed2c883638e8e9500e7063a90bd59ba6dea2",
+  "case": {
+    "function": "random_lobster_graph",
+    "n": 800,
+    "p1": 0.35,
+    "p2": 0.7,
+    "seed": 11
+  },
+  "profile_target": {
+    "baseline_total_calls": 7907,
+    "candidate_total_calls": 3842,
+    "baseline_hotspot": "1347 Python Graph.add_edge calls plus native Graph.add_edge",
+    "candidate_hotspot": "one add_edges_from batch plus one native _try_add_edges_from_batch"
+  },
+  "lever": "Accumulate generated lobster non-backbone edges in order, then add them with one add_edges_from batch after preserving the existing path_graph backbone.",
+  "benchmarks": {
+    "direct_fnx_median_seconds": {
+      "before": 0.0032624199957353994,
+      "after": 0.001735889003612101,
+      "speedup": 1.8793943558296855
+    },
+    "direct_fnx_mean_seconds": {
+      "before": 0.0034621489499042537,
+      "after": 0.0019115092670800528,
+      "speedup": 1.811212223518486
+    },
+    "hyperfine_loop10_mean_seconds": {
+      "before": 0.33947073084,
+      "after": 0.31413170908000004,
+      "speedup": 1.0806636866880155
+    },
+    "hyperfine_loop10_median_seconds": {
+      "before": 0.33997316024,
+      "after": 0.31881810278,
+      "speedup": 1.0663546306672493
+    }
+  },
+  "golden": {
+    "fnx_sha256_before": "8cdf191df927b2f4bdaa38bc8070e67af67f329b74355474a97b3350cd057749",
+    "fnx_sha256_after": "8cdf191df927b2f4bdaa38bc8070e67af67f329b74355474a97b3350cd057749",
+    "networkx_sha256_before": "8cdf191df927b2f4bdaa38bc8070e67af67f329b74355474a97b3350cd057749",
+    "networkx_sha256_after": "8cdf191df927b2f4bdaa38bc8070e67af67f329b74355474a97b3350cd057749",
+    "nodes": 2071,
+    "edges": 2070,
+    "focused_parity_cases": 5,
+    "focused_parity_sha256": "0b319508c313384867b5c29a791f50479989a5953df543e212ba07b75f8113d8"
+  },
+  "score": {
+    "impact": 1.8793943558296855,
+    "confidence": 4.0,
+    "effort": 1.0,
+    "impact_times_confidence_over_effort": 7.517577423318742,
+    "decision": "keep"
+  },
+  "validation": {
+    "py_compile": "pass",
+    "focused_pytest": "pass: 5 passed in 0.46s",
+    "direct_parity": "pass: 5 cases, sha256 0b319508c313384867b5c29a791f50479989a5953df543e212ba07b75f8113d8",
+    "cargo_check": "pass: rch exec -- cargo check -p fnx-python --lib on vmi1156319",
+    "git_diff_check": "pass",
+    "ubs": "timeout after 90s with no findings emitted",
+    "known_pre_existing_noise": [
+      "fnx-generators unused-return warnings at lib.rs:538, 621, 666, 6218, 6758",
+      "workspace rustfmt drift in fnx-python Rust sources from earlier passes"
+    ]
+  },
+  "artifact_sha256_files": [
+    "baseline_artifact_sha256.txt",
+    "candidate_artifact_sha256.txt"
+  ]
+}

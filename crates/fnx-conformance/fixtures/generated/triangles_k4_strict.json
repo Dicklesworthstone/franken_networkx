@@ -1,0 +1,32 @@
+{
+  "suite": "clustering_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b", "attrs": {}},
+    {"op": "add_edge", "left": "a", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "a", "right": "d", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "c", "attrs": {}},
+    {"op": "add_edge", "left": "b", "right": "d", "attrs": {}},
+    {"op": "add_edge", "left": "c", "right": "d", "attrs": {}},
+    {"op": "triangles_query"}
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {}},
+        {"left": "a", "right": "c", "attrs": {}},
+        {"left": "a", "right": "d", "attrs": {}},
+        {"left": "b", "right": "c", "attrs": {}},
+        {"left": "b", "right": "d", "attrs": {}},
+        {"left": "c", "right": "d", "attrs": {}}
+      ]
+    },
+    "triangles": [
+      {"node": "a", "count": 3},
+      {"node": "b", "count": 3},
+      {"node": "c", "count": 3},
+      {"node": "d", "count": 3}
+    ]
+  }
+}

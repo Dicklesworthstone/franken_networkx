@@ -1,0 +1,1 @@
+{"case": "unweighted_sparse_pair", "impl": "dense_exact", "profile": "tests/artifacts/perf/20260604T-resistance-distance-single-pair-sparse/profile_dense_exact_baseline.txt", "repeats": 2, "value": 0.4731653201435843}

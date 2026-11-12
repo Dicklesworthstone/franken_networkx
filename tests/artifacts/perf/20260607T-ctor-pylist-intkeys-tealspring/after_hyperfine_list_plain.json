@@ -1,0 +1,32 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260607T-ctor-pylist-intkeys-tealspring/graph_ctor_pylist_extract.py fnx-loop --kind list --case plain --loops 80",
+      "mean": 1.3958223138342858,
+      "stddev": 0.1388794129988413,
+      "median": 1.37259846812,
+      "user": 4.14392926,
+      "system": 0.06695480285714285,
+      "min": 1.2720575451200002,
+      "max": 1.65416312012,
+      "times": [
+        1.2720575451200002,
+        1.65416312012,
+        1.5006194911200001,
+        1.38810170312,
+        1.37259846812,
+        1.3051094361200002,
+        1.27810643312
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

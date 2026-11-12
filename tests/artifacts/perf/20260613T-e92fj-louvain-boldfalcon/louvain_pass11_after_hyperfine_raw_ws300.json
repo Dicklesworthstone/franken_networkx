@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260613T-e92fj-louvain-boldfalcon/louvain_pass1_harness.py bench --variant raw --case ws_300 --seed 7 --loops 20",
+      "mean": 0.26270542360000004,
+      "stddev": 0.015759573858934606,
+      "median": 0.25953659679999996,
+      "user": 4.614729539999999,
+      "system": 0.05929078,
+      "min": 0.2464122283,
+      "max": 0.2868700073,
+      "times": [
+        0.2594260073,
+        0.2868700073,
+        0.2596471863,
+        0.24839517630000002,
+        0.2795632383,
+        0.2489090903,
+        0.2464122283,
+        0.28495506730000003,
+        0.24892606030000003,
+        0.2639501743
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

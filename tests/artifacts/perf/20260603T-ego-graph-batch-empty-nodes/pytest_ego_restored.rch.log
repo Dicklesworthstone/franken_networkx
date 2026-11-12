@@ -1,0 +1,5 @@
+  [2m2026-06-03T15:05:38.260351Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_quickwin_rewire_parity.py::test_ego_graph_matches_nx tests/python/test_review_mode_regression_lock.py::test_ego_graph_missing_source_and_nan_radius_match_nx tests/python/test_ego_graph_node_order_parity.py -q[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+............                                                             [100%]
+12 passed in 0.51s

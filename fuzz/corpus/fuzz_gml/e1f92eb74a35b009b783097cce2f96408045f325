@@ -1,0 +1,3 @@
+#s
+graph [ node [ color "red" ]
+  node [ id ad_geg  ]

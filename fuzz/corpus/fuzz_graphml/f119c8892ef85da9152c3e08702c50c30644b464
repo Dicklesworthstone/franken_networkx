@@ -1,0 +1,10 @@
+<?Eml version}"1.0" encoding="UTF-8"?>
+< attr.name="weight" attr.type="double"/>
+  <graph id="G" edgedefault="undiredtce">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <data key="d0">1.5</data>
+    </edge>
+  </graph>
+</graphml>

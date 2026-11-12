@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import franken_networkx as nx; [nx.caveman_graph(50, 50) for _ in range(50)]\"",
+      "mean": 1.11729818868,
+      "stddev": 0.08546950895086738,
+      "median": 1.07930372108,
+      "user": 4.2204738399999995,
+      "system": 0.26964884,
+      "min": 1.05260581008,
+      "max": 1.26422604208,
+      "times": [
+        1.11781655608,
+        1.07930372108,
+        1.0725388140799998,
+        1.05260581008,
+        1.26422604208
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import networkx as nx; [nx.caveman_graph(50, 50) for _ in range(50)]\"",
+      "mean": 2.26758244208,
+      "stddev": 0.10138800180251442,
+      "median": 2.24072840108,
+      "user": 1.9691416399999997,
+      "system": 0.29513463999999995,
+      "min": 2.18354634008,
+      "max": 2.43862998808,
+      "times": [
+        2.20382747208,
+        2.24072840108,
+        2.27118000908,
+        2.43862998808,
+        2.18354634008
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "ftui-e2e-journey-report-v1",
+  "run_id": "ftui-e2e-journey-pack-v1",
+  "generated_at_utc": "2026-02-15T22:20:00+00:00",
+  "non_interactive": true,
+  "status": "pass",
+  "events_path": "artifacts/ftui/latest/ftui_e2e_journey_events_v1.jsonl",
+  "journey_results": [
+    {
+      "journey_id": "FTUI-JOURNEY-GOLDEN-001",
+      "path_kind": "golden",
+      "event_count": 5,
+      "diagnosis_budget_ms": 120000,
+      "time_to_diagnosis_ms": 42000,
+      "within_budget": true,
+      "reason_codes": [
+        "none"
+      ],
+      "correctness_checks": {
+        "terminal_state_matches_expectation": true,
+        "event_order_matches_contract": true,
+        "artifact_refs_exist": true
+      },
+      "minimal_reproducer": {
+        "command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id FTUI-JOURNEY-GOLDEN-001 --non-interactive",
+        "non_interactive": true
+      }
+    },
+    {
+      "journey_id": "FTUI-JOURNEY-FAIL-001",
+      "path_kind": "failure",
+      "event_count": 4,
+      "diagnosis_budget_ms": 90000,
+      "time_to_diagnosis_ms": 61000,
+      "within_budget": true,
+      "reason_codes": [
+        "integrity_precheck_failed"
+      ],
+      "correctness_checks": {
+        "terminal_state_matches_expectation": true,
+        "event_order_matches_contract": true,
+        "artifact_refs_exist": true
+      },
+      "minimal_reproducer": {
+        "command": "./scripts/run_ftui_e2e_journey_pack.sh --journey-id FTUI-JOURNEY-FAIL-001 --non-interactive",
+        "non_interactive": true
+      }
+    }
+  ],
+  "diagnosis_budget_summary": {
+    "max_budget_ms": 120000,
+    "max_observed_time_to_diagnosis_ms": 61000
+  }
+}

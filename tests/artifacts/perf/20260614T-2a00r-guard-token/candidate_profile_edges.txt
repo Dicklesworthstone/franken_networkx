@@ -1,0 +1,53 @@
+         2081299 function calls (2081294 primitive calls) in 0.968 seconds
+
+   Ordered by: cumulative time
+   List reduced from 104 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.968    0.968 edge_guard_token_harness.py:141(bench_once)
+       41    0.122    0.003    0.661    0.016 edge_guard_token_harness.py:129(drain)
+        1    0.026    0.026    0.307    0.307 edge_guard_token_harness.py:22(make_pair)
+       41    0.000    0.000    0.277    0.007 __init__.py:1688(__iter__)
+       41    0.060    0.001    0.276    0.007 __init__.py:1682(_materialize)
+  1640041    0.260    0.000    0.260    0.000 __init__.py:450(_gen)
+       41    0.216    0.005    0.216    0.005 {method '_native_edges_no_data' of 'franken_networkx.DiGraph' objects}
+    40000    0.018    0.000    0.162    0.000 __init__.py:2565(add_edge)
+    40000    0.139    0.000    0.139    0.000 {function DiGraph.add_edge at 0x7226e499e7a0}
+    40000    0.046    0.000    0.068    0.000 digraph.py:677(add_edge)
+        1    0.005    0.005    0.040    0.040 __init__.py:2663(add_nodes_from)
+    16000    0.007    0.000    0.033    0.000 __init__.py:2629(add_node)
+    16000    0.025    0.000    0.025    0.000 {function DiGraph.add_node at 0x7226e499eac0}
+        1    0.010    0.010    0.012    0.012 digraph.py:500(add_nodes_from)
+    56003    0.010    0.000    0.010    0.000 {method 'update' of 'dict' objects}
+    40001    0.006    0.000    0.009    0.000 misc.py:645(_clear_cache)
+   112000    0.007    0.000    0.007    0.000 {built-in method builtins.hash}
+    40045    0.004    0.000    0.004    0.000 {method 'get' of 'dict' objects}
+    40005    0.003    0.000    0.003    0.000 {built-in method builtins.getattr}
+       41    0.000    0.000    0.001    0.000 __init__.py:37000(edges)
+       41    0.000    0.000    0.001    0.000 weakref.py:164(__setitem__)
+       41    0.000    0.000    0.001    0.000 __init__.py:414(_FailFastEdgeIterator)
+        1    0.000    0.000    0.000    0.000 decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 decorators.py:869(compile)
+       41    0.000    0.000    0.000    0.000 __init__.py:1698(__len__)
+      124    0.000    0.000    0.000    0.000 __init__.py:36402(_has_networkx_private_storage)
+        1    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+       42    0.000    0.000    0.000    0.000 __init__.py:37214(number_of_edges)
+       41    0.000    0.000    0.000    0.000 weakref.py:352(__init__)
+       41    0.000    0.000    0.000    0.000 weakref.py:347(__new__)
+      165    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      2/1    0.000    0.000    0.000    0.000 inspect.py:3373(signature)
+      2/1    0.000    0.000    0.000    0.000 inspect.py:3094(from_callable)
+      2/1    0.000    0.000    0.000    0.000 inspect.py:2487(_signature_from_callable)
+        1    0.000    0.000    0.000    0.000 backends.py:503(__signature__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+       42    0.000    0.000    0.000    0.000 __init__.py:315(number_of_edges)
+       43    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+        1    0.000    0.000    0.000    0.000 inspect.py:2383(_signature_from_function)
+        1    0.000    0.000    0.000    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+       43    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+       42    0.000    0.000    0.000    0.000 {function DiGraph.number_of_edges at 0x7226e4a03a60}
+        1    0.000    0.000    0.000    0.000 backends.py:554(_call_if_any_backends_installed)
+
+

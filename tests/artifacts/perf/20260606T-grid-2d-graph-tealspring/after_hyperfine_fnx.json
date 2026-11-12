@@ -1,0 +1,38 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/franken_networkx/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260606T-grid-2d-graph-tealspring/grid_2d_perf.py bench --impl fnx --m 60 --n 60 --loops 20",
+      "mean": 0.51360291958,
+      "stddev": 0.05698053543778809,
+      "median": 0.53110819798,
+      "user": 3.51540768,
+      "system": 0.06984022,
+      "min": 0.43521753298000004,
+      "max": 0.57832093698,
+      "times": [
+        0.52563579598,
+        0.56727735398,
+        0.53658059998,
+        0.57832093698,
+        0.57123880998,
+        0.55327849398,
+        0.44009162698000004,
+        0.47291749398000005,
+        0.43521753298000004,
+        0.45547055098000006
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

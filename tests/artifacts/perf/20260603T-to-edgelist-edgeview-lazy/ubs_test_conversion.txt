@@ -1,0 +1,1809 @@
+ℹ Preparing shadow workspace for 1 specified file(s)
+ℹ Scanning shadow workspace at /data/tmp/tmp.ZOch1XhMeG/files_scan
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗              ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝              ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗                ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝                ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗              ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝              ║
+║                                                                              ║
+║  ██████╗ ██╗   ██╗ ██████╗         __       __                               ║
+║  ██╔══██╗██║   ██║██╔════╝         \ `-'"-'` /                               ║
+║  ██████╔╝██║   ██║██║  ███╗        / \_   _/ \                               ║
+║  ██╔══██╗██║   ██║██║   ██║        |  d\_/b  |                               ║
+║  ██████╔╝╚██████╔╝╚██████╔╝       .'\   V   /'.                              ║
+║  ╚═════╝  ╚═════╝  ╚═════╝        /   '-...-'   \                            ║
+║                                  | /         \ |                             ║
+║                                  \/\         /\/                             ║
+║                                  ==(||)---(||)==                             ║
+║                                                                              ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗              ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗             ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝             ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗             ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║             ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝                  ║
+║                                                                              ║
+║   JS / TS • PYTHON • C / C++ • RUST • GO • JAVA • RUBY                       ║
+║   SWIFT • C# • ELIXIR                                                        ║
+║                    UBS: ULTIMATE BUG SCANNER • SARIF FUSION ☄️               ║
+║                                                                              ║
+║                                                                              ║
+║                     Night Owl QA                                             ║
+║                     “We see bugs before you do.”                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+UBS Meta-Runner v5.3.2  2026-06-03 05:21:37
+Project: /data/projects/franken_networkx
+Format:  text
+Detected: python
+Scanning python...
+Finished python (7s)
+
+──────── python ────────
+
+╔═══════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗██╗  ████████╗██╗███╗   ███╗ █████╗ ████████╗███████╗   ║
+║  ██║   ██║██║  ╚══██╔══╝██║████╗ ████║██╔══██╗╚══██╔══╝██╔════╝   ║
+║  ██║   ██║██║     ██║   ██║██╔████╔██║███████║   ██║   █████╗     ║
+║  ██║   ██║██║     ██║   ██║██║╚██╔╝██║██╔══██║   ██║   ██╔══╝     ║
+║  ╚██████╔╝███████╗██║   ██║██║ ╚═╝ ██║██║  ██║   ██║   ███████╗   ║
+║   ╚═════╝ ╚══════╝╚═╝   ╚═╝╚═╝     ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝   ║
+║                                                                   ║
+║  ██████╗ ██╗   ██╗ ██████╗                /^\/^\                  ║
+║  ██╔══██╗██║   ██║██╔════╝              _|__|  O|                 ║
+║  ██████╔╝██║   ██║██║  ███╗            /~     \_/ \               ║
+║  ██╔══██╗██║   ██║██║   ██║           |__________/ \              ║
+║  ██████╔╝╚██████╔╝╚██████╔╝            \_______    \              ║
+║  ╚═════╝  ╚═════╝  ╚═════╝                     `\   \             ║
+║                                                  |   |            ║
+║                                                 /   /             ║
+║                                                /   /              ║
+║                                                                   ║
+║  ███████╗  ██████╗   █████╗ ███╗   ██╗███╗   ██╗███████╗██████╗   ║
+║  ██╔════╝  ██╔═══╝  ██╔══██╗████╗  ██║████╗  ██║██╔════╝██╔══██╗  ║
+║  ███████╗  ██║      ███████║██╔██╗ ██║██╔██╗ ██║█████╗  ██████╔╝  ║
+║  ╚════██║  ██║      ██╔══██║██║╚██╗██║██║╚██╗██║██╔══╝  ██╔══██╗  ║
+║  ███████║  ██████╗  ██║  ██║██║ ╚████║██║ ╚████║███████╗██║  ██║  ║
+║  ╚══════╝  ╚═════╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝       ║
+║                                                                   ║
+║  Python module • async/await, serialization, venv heuristics      ║
+║  UBS module: python • catches None bugs & async blocking          ║
+║  ASCII homage: classic snake (ASCII Art Archive)                  ║
+║  Run standalone: modules/ubs-python.sh --help                     ║
+║                                                                   ║
+║  Night Owl QA                                                     ║
+║  “We see bugs before you do.”                                     ║
+╚═══════════════════════════════════════════════════════════════════╝
+
+Project:  /data/projects/franken_networkx
+Started:  2026-06-03 05:21:38
+Files:    1 source files (py,pyi,pyx,pxd,pxi,ipynb)
+
+✓ ast-grep available (ast-grep) - full AST analysis enabled
+✓ uv detected - uvx ephemeral analyzers enabled
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. NONE / DEFENSIVE PROGRAMMING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: None equality, truthy confusions, deep attribute chains
+Pythonic checks use 'is (not) None' and safe attribute access patterns.
+
+• == None or != None (should use 'is' / 'is not')
+  ✓ OK No None equality comparisons
+
+• Attribute chains depth (fragile without guards)
+
+• dict.get(key) without default used immediately
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. NUMERIC / ARITHMETIC PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Division by variable, float equality, modulo hazards
+Silent numeric bugs propagate incorrect results or ZeroDivisionError.
+
+• Division by variable (possible ÷0)
+
+• Floating-point equality (==)
+  ⚠ Warning (5 found)
+    Float equality comparison
+    Use tolerance: abs(a-b) < eps
+      /data/projects/franken_networkx/tests/python/test_conversion.py:150 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L150)
+              assert edge_data.get("weight") == 1.0
+      /data/projects/franken_networkx/tests/python/test_conversion.py:675 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L675)
+              assert A[0, 1] == 2.0
+      /data/projects/franken_networkx/tests/python/test_conversion.py:676 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L676)
+              assert A[1, 0] == 2.0  # undirected symmetry
+
+• Modulo by variable (verify non-zero)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. COLLECTION SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Index risks, mutation during iteration, len checks
+Collection misuse leads to IndexError or logical errors.
+
+• Index arithmetic like arr[i±1]
+
+• Mutation during iteration
+
+• len(x) comparisons
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. COMPARISON & TYPE CHECKING TRAPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: 'is' with literals, type() equality, truthiness with bools
+Prefer idiomatic Python comparisons and isinstance.
+
+• 'is' with literals
+  ✓ OK No 'is' literal comparisons
+
+• type(x) == T instead of isinstance
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. ASYNC/AWAIT PITFALLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: blocking calls in async, await in loops, floating tasks
+Async bugs cause unpredictable latency and deadlocks.
+  ℹ Info (0 found)
+    Async functions found
+
+• await inside loops (performance)
+
+• Blocking calls in async def
+
+• Async error path coverage
+  ✓ OK All async operations appear protected
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. ERROR HANDLING ANTI-PATTERNS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: bare except, swallowed errors, poor re-raise
+Proper exception handling simplifies debugging and recovery.
+
+• Bare except
+  ✓ OK No bare except blocks
+
+• except ...: pass
+
+• raise e (loses traceback)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. SECURITY VULNERABILITIES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: code injection, unsafe deserialization, weak crypto, TLS/CSRF/autoescape off
+Security bugs expose users to attacks and data breaches.
+
+• eval/exec usage
+  ✓ OK No eval/exec detected
+
+• pickle.load/loads
+  🔥 CRITICAL (2 found)
+    Insecure pickle usage
+    Avoid unpickling untrusted data
+      /data/projects/franken_networkx/tests/python/test_conversion.py:484 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L484)
+              restored = pickle.loads(pickle.dumps(out))
+      /data/projects/franken_networkx/tests/python/test_conversion.py:489 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L489)
+              restored_view = pickle.loads(pickle.dumps(view))
+
+• yaml.load without Loader
+
+• Unsafe deserialization loaders
+  ✓ OK No unsafe Python deserialization loaders detected
+
+• subprocess shell=True / os.system
+  ✓ OK No shell=True / os.system detected
+
+• Command injection dataflow
+  ✓ OK No command injection dataflow detected
+
+• Subprocess calls without timeouts
+  ✓ OK No subprocess calls missing explicit timeouts detected
+
+• Interpolated SQL execution
+  ✓ OK No interpolated SQL execution detected
+
+• NoSQL query injection
+  ✓ OK No request-controlled NoSQL filters detected
+
+• Request-controlled regex patterns
+  ✓ OK No request-controlled regex patterns detected
+
+• Server-side template injection
+  ✓ OK No request-controlled template sources detected
+
+• HTTP response header injection
+  ✓ OK No request-controlled response headers detected
+
+• Email header injection
+  ✓ OK No request-controlled email headers detected
+
+• LDAP filter/DN injection
+  ✓ OK No request-controlled LDAP filters or DNs detected
+
+• requests verify=False (TLS disabled)
+
+• Weak hash algorithms (md5/sha1)
+
+• Password hashing misconfiguration
+  ✓ OK No weak password hashing configurations detected
+
+• Weak or static cryptography configuration
+  ✓ OK No weak crypto modes or static IV/nonces detected
+
+• Timing-safe comparison for secrets
+  🔥 CRITICAL (3 found)
+    Secret, signature, or token compared with ==/!=
+    Use hmac.compare_digest() or secrets.compare_digest() for HMACs, API keys, CSRF tokens, reset tokens, and other secret material
+      tests/python/test_conversion.py:179 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L179)
+      assert _graph_signature(result) == expected_signature
+      tests/python/test_conversion.py:233 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L233)
+      assert _graph_signature(graph) == expected_signature
+      tests/python/test_conversion.py:336 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L336)
+      assert _graph_signature(result) == expected_signature
+
+• Security-sensitive assert statements
+  🔥 CRITICAL (4 found)
+    Security-sensitive assert stripped by -O
+    Use explicit if/raise checks for authorization, ownership, CSRF, token, and permission validation
+      tests/python/test_conversion.py:179 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L179)
+      assert _graph_signature(result) == expected_signature
+      tests/python/test_conversion.py:233 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L233)
+      assert _graph_signature(graph) == expected_signature
+      tests/python/test_conversion.py:336 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L336)
+      assert _graph_signature(result) == expected_signature
+
+• Unsafe filesystem permission modes
+  ✓ OK No world-writable file modes or permissive umasks detected
+
+• Hardcoded secrets
+
+• tempfile.mktemp (insecure)
+
+• Archive extraction path traversal
+  ✓ OK No unvalidated archive extract()/extractall() calls detected
+
+• Open redirect sinks
+  ✓ OK No request-derived open redirect sinks detected
+
+• Host header trusted for absolute URLs
+  ✓ OK No Host-header-derived absolute URLs detected
+
+• SSRF-prone outbound HTTP targets
+  ✓ OK No request-derived outbound HTTP targets detected
+
+• Outbound HTTP calls without timeouts
+  ✓ OK No outbound HTTP calls missing explicit timeouts detected
+
+• Request-derived filesystem paths
+  ✓ OK No request-derived filesystem paths detected
+
+• JWT verification bypass
+  ✓ OK No JWT verification bypass patterns detected
+
+• Credentialed wildcard CORS
+  ✓ OK No wildcard credentialed CORS configurations detected
+
+• Cookie/session security flags
+  ✓ OK No insecure cookie/session flags detected
+
+• CSRF protection disabled
+  ✓ OK No explicit CSRF disable patterns detected
+
+• Template autoescape disabled
+  ✓ OK No explicit template autoescape disables detected
+
+• Request-controlled values marked safe HTML
+  ✓ OK No request-controlled values marked safe HTML detected
+
+• Request-derived mass assignment
+  ✓ OK No request-derived mass assignment patterns detected
+
+• Debug mode and host allow-list
+  ✓ OK No production debug or wildcard host settings detected
+
+• Unsafe XML parser exposure
+  ✓ OK No unsafe XML parser exposure detected
+
+• Security-sensitive random module usage
+  ✓ OK No security-sensitive random module usage detected
+
+• Disabled TLS certificate verification
+  ✓ OK No disabled TLS verification patterns detected
+
+• Lightweight taint analysis
+  ✓ OK No tainted sources reach dangerous sinks
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. FUNCTION & SCOPE ISSUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: mutable defaults, many params, nested defs, returns
+Function-level bugs cause subtle state leaks and readability problems.
+
+• Mutable default arguments
+  ✓ OK No mutable default arguments
+
+• Functions with high parameter count (>6)
+
+• Nested function declarations
+
+• Missing returns heuristic
+  ℹ Info (64 found)
+    Some functions may lack return statements
+    Void intended?
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. PARSING & TYPE CONVERSION BUGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: json.loads without try, str+num concat, int() edge cases
+Parsing bugs cause runtime exceptions and data corruption.
+
+• json.loads without try/catch
+
+• String concatenation with + adjacent to digits (possible type mix)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. CONTROL FLOW GOTCHAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: return/break in finally, nested ternary, unreachable code
+Flow pitfalls cause surprising behavior and lost exceptions.
+
+• return/break/continue inside finally
+
+• Nested conditional expressions
+
+• Unreachable code after return
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. DEBUGGING & PRODUCTION CODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: print, breakpoint/pdb, sensitive logs
+Debug artifacts degrade performance and leak information.
+
+• print statements
+  ✓ OK Minimal print usage
+
+• breakpoint() / pdb.set_trace()
+  ✓ OK No debugger calls
+
+• Logging sensitive data
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. PERFORMANCE & MEMORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: string concat in loops, regex compile in loops, I/O in loops
+Performance anti-patterns reduce throughput and increase latency.
+
+• String concatenation in loops
+
+• re.compile inside loops
+
+• I/O heavy ops in loops
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. VARIABLE & SCOPE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: global/nonlocal usage, wildcard imports
+Scope issues cause hard-to-debug conflicts and side effects.
+
+• global/nonlocal statements
+
+• Wildcard imports
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+14. CODE QUALITY MARKERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: TODO, FIXME, HACK, XXX, NOTE
+Technical debt markers indicate incomplete or problematic code.
+  ✓ OK No technical debt markers
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+15. REGEX & STRING SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: ReDoS, dynamic regex with input, escaping issues
+Regex bugs cause performance issues and security vulnerabilities.
+
+• Nested quantifiers (ReDoS risk)
+
+• Dynamic re.compile from variables
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+16. I/O & RESOURCE SAFETY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: open without with, missing encoding, rmtree(ignore_errors)
+I/O bugs leak resources and produce nondeterministic behavior.
+
+• open(...) without context manager
+  ✓ OK File usage appears context-managed
+
+• open() without explicit encoding
+
+• shutil.rmtree(ignore_errors=True)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+17. TYPING STRICTNESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: Any usage, type: ignore density
+Type hygiene reduces runtime errors.
+
+• 'Any' usage
+
+• type: ignore comments
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+18. PYTHON I/O & MODULE USAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: os.system, wildcard imports, dynamic import
+Prefer safer subprocess APIs and explicit imports.
+
+• os.system invocations
+
+• Dynamic imports
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+19. RESOURCE LIFECYCLE CORRELATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: File handles, subprocesses, and async tasks missing cleanup
+Unreleased resources leak descriptors, zombie processes, and pending tasks
+
+• Resource lifecycle correlation
+  ✓ OK All tracked resource acquisitions have matching cleanups
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AST-GREP RULE PACK FINDINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• ast-grep rule-pack summary
+  🔥 CRITICAL (2 found)
+    py.pickle-load: Unpickling untrusted data is insecure; prefer safer formats
+      /data/projects/franken_networkx/tests/python/test_conversion.py:484 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L484)
+      restored = pickle.loads(pickle.dumps(out))
+      /data/projects/franken_networkx/tests/python/test_conversion.py:489 (https://github.com/Dicklesworthstone/franken_networkx/blob/7ce083b78da4cb3091ef146feac408889708ec45/tests/python/test_conversion.py#L489)
+      restored_view = pickle.loads(pickle.dumps(view))
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+20. UV-POWERED EXTRA ANALYZERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Ruff linting, Bandit security, Pip-audit, Mypy, Safety, Detect-secrets
+Uses uvx when available; falls back to system tools if installed.
+
+• ruff (lint)
+  ✓ OK Ruff clean
+
+• bandit (security)
+Run started:2026-06-03 09:21:44.012654+00:00
+
+Test results:
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:113:8
+112	        H = fnx.relabel_nodes(triangle, mapping)
+113	        assert H.number_of_nodes() == 3
+114	        assert H.has_edge(0, 1)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:114:8
+113	        assert H.number_of_nodes() == 3
+114	        assert H.has_edge(0, 1)
+115	        assert H.has_edge(1, 2)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:115:8
+114	        assert H.has_edge(0, 1)
+115	        assert H.has_edge(1, 2)
+116	        assert H.has_edge(0, 2)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:116:8
+115	        assert H.has_edge(1, 2)
+116	        assert H.has_edge(0, 2)
+117	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:120:8
+119	        H = fnx.relabel_nodes(triangle, str.upper)
+120	        assert H.has_node("A")
+121	        assert H.has_node("B")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:121:8
+120	        assert H.has_node("A")
+121	        assert H.has_node("B")
+122	        assert H.has_node("C")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:122:8
+121	        assert H.has_node("B")
+122	        assert H.has_node("C")
+123	        assert H.has_edge("A", "B")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:123:8
+122	        assert H.has_node("C")
+123	        assert H.has_edge("A", "B")
+124	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:127:8
+126	        H = fnx.relabel_nodes(triangle, {"a": "x"}, copy=True)
+127	        assert H.has_node("x")
+128	        assert triangle.has_node("a")  # original unchanged
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:128:8
+127	        assert H.has_node("x")
+128	        assert triangle.has_node("a")  # original unchanged
+129	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:134:8
+133	        fnx.relabel_nodes(G, {0: 10, 1: 11}, copy=False)
+134	        assert G.has_node(10)
+135	        assert G.has_node(11)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:135:8
+134	        assert G.has_node(10)
+135	        assert G.has_node(11)
+136	        assert not G.has_node(0)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:136:8
+135	        assert G.has_node(11)
+136	        assert not G.has_node(0)
+137	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:143:8
+142	        H = fnx.relabel_nodes(G, {0: 10})
+143	        assert H.has_node(10)
+144	        assert H.has_node(1)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:144:8
+143	        assert H.has_node(10)
+144	        assert H.has_node(1)
+145	        assert H.has_node(2)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:145:8
+144	        assert H.has_node(1)
+145	        assert H.has_node(2)
+146	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:150:8
+149	        edge_data = H.edges[0, 1]
+150	        assert edge_data.get("weight") == 1.0
+151	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:177:8
+176	
+177	        assert result.is_directed() == expected_result.is_directed()
+178	        assert result.is_multigraph() == expected_result.is_multigraph()
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:178:8
+177	        assert result.is_directed() == expected_result.is_directed()
+178	        assert result.is_multigraph() == expected_result.is_multigraph()
+179	        assert _graph_signature(result) == expected_signature
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:179:8
+178	        assert result.is_multigraph() == expected_result.is_multigraph()
+179	        assert _graph_signature(result) == expected_signature
+180	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:211:8
+210	
+211	        assert result.number_of_edges(1, 2) == expected_result.number_of_edges(1, 2)
+212	        assert result_edges == expected_edges
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:212:8
+211	        assert result.number_of_edges(1, 2) == expected_result.number_of_edges(1, 2)
+212	        assert result_edges == expected_edges
+213	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:232:8
+231	
+232	        assert result is graph
+233	        assert _graph_signature(graph) == expected_signature
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:233:8
+232	        assert result is graph
+233	        assert _graph_signature(graph) == expected_signature
+234	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:264:8
+263	
+264	        assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+265	        assert str(fnx_exc.value) == str(nx_exc.value)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:265:8
+264	        assert type(fnx_exc.value).__name__ == type(nx_exc.value).__name__
+265	        assert str(fnx_exc.value) == str(nx_exc.value)
+266	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:276:8
+275	        H = fnx.convert_node_labels_to_integers(triangle)
+276	        assert H.number_of_nodes() == 3
+277	        assert all(isinstance(n, int) for n in H.nodes())
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:277:8
+276	        assert H.number_of_nodes() == 3
+277	        assert all(isinstance(n, int) for n in H.nodes())
+278	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:282:8
+281	        nodes = list(H.nodes())
+282	        assert min(nodes) >= 10
+283	        assert max(nodes) <= 12
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:283:8
+282	        assert min(nodes) >= 10
+283	        assert max(nodes) <= 12
+284	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:290:12
+289	        for n in H.nodes():
+290	            assert "old_label" in H.nodes[n]
+291	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:294:8
+293	        H = fnx.convert_node_labels_to_integers(triangle)
+294	        assert H.number_of_edges() == 3
+295	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:334:8
+333	
+334	        assert result.is_directed() == expected_result.is_directed()
+335	        assert result.is_multigraph() == expected_result.is_multigraph()
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:335:8
+334	        assert result.is_directed() == expected_result.is_directed()
+335	        assert result.is_multigraph() == expected_result.is_multigraph()
+336	        assert _graph_signature(result) == expected_signature
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:336:8
+335	        assert result.is_multigraph() == expected_result.is_multigraph()
+336	        assert _graph_signature(result) == expected_signature
+337	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:351:8
+350	        H = fnx.from_dict_of_dicts(d)
+351	        assert H.number_of_nodes() == 3
+352	        assert H.number_of_edges() == 2
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:352:8
+351	        assert H.number_of_nodes() == 3
+352	        assert H.number_of_edges() == 2
+353	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:359:8
+358	        d = fnx.to_dict_of_dicts(G, nodelist=[0, 1])
+359	        assert 2 not in d
+360	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:365:8
+364	        d = fnx.to_dict_of_dicts(G, edge_data=1)
+365	        assert d[0][1] == 1
+366	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:379:8
+378	
+379	        assert list(result) == list(expected_result)
+380	        assert list(result["a"]) == list(expected_result["a"])
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:380:8
+379	        assert list(result) == list(expected_result)
+380	        assert list(result["a"]) == list(expected_result["a"])
+381	        assert result == expected_result
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:381:8
+380	        assert list(result["a"]) == list(expected_result["a"])
+381	        assert result == expected_result
+382	        assert result["a"]["b"] is graph["a"]["b"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:382:8
+381	        assert result == expected_result
+382	        assert result["a"]["b"] is graph["a"]["b"]
+383	        assert result["b"]["a"] is graph["b"]["a"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:383:8
+382	        assert result["a"]["b"] is graph["a"]["b"]
+383	        assert result["b"]["a"] is graph["b"]["a"]
+384	        assert "a" not in result["c"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:384:8
+383	        assert result["b"]["a"] is graph["b"]["a"]
+384	        assert "a" not in result["c"]
+385	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:399:8
+398	
+399	        assert result == expected_result
+400	        assert isinstance(result["a"]["b"], dict)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:400:8
+399	        assert result == expected_result
+400	        assert isinstance(result["a"]["b"], dict)
+401	        assert result["a"]["b"].copy() == expected_result["a"]["b"]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:401:8
+400	        assert isinstance(result["a"]["b"], dict)
+401	        assert result["a"]["b"].copy() == expected_result["a"]["b"]
+402	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:441:8
+440	
+441	        assert _normalize_mapping(result) == _normalize_mapping(expected_result)
+442	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:445:8
+444	        G = fnx.from_dict_of_dicts({})
+445	        assert G.number_of_nodes() == 0
+446	
+
+--------------------------------------------------
+>> Issue: [B403:blacklist] Consider possible security implications associated with pickle module.
+   Severity: Low   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:481:8
+480	        live graph reference can't survive pickling anyway)."""
+481	        import pickle
+482	        M = fnx.MultiGraph([(0, 1, {"w": 1}), (0, 1, {"w": 2})])
+
+--------------------------------------------------
+>> Issue: [B301:blacklist] Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue.
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:484:19
+483	        out = fnx.to_dict_of_dicts(M, nodelist=[0, 1])
+484	        restored = pickle.loads(pickle.dumps(out))
+485	        assert restored[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:485:8
+484	        restored = pickle.loads(pickle.dumps(out))
+485	        assert restored[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+486	        assert isinstance(restored[0][1], dict)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:486:8
+485	        assert restored[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+486	        assert isinstance(restored[0][1], dict)
+487	        # Standalone view also round-trips.
+
+--------------------------------------------------
+>> Issue: [B301:blacklist] Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue.
+   Severity: Medium   Confidence: High
+   CWE: CWE-502 (https://cwe.mitre.org/data/definitions/502.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:489:24
+488	        view = out[0][1]
+489	        restored_view = pickle.loads(pickle.dumps(view))
+490	        assert restored_view == {0: {"w": 1}, 1: {"w": 2}}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:490:8
+489	        restored_view = pickle.loads(pickle.dumps(view))
+490	        assert restored_view == {0: {"w": 1}, 1: {"w": 2}}
+491	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:500:8
+499	        deepc = copy.deepcopy(out)
+500	        assert deepc[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+501	        assert isinstance(deepc[0][1], dict)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:501:8
+500	        assert deepc[0][1] == {0: {"w": 1}, 1: {"w": 2}}
+501	        assert isinstance(deepc[0][1], dict)
+502	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:507:8
+506	        G = fnx.from_dict_of_dicts(d)
+507	        assert G.number_of_nodes() == 3
+508	        assert G.has_node(5)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:508:8
+507	        assert G.number_of_nodes() == 3
+508	        assert G.has_node(5)
+509	        assert G.number_of_edges() == 1
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:509:8
+508	        assert G.has_node(5)
+509	        assert G.number_of_edges() == 1
+510	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:523:8
+522	        d = fnx.to_dict_of_lists(G)
+523	        assert 1 in d[0]
+524	        H = fnx.from_dict_of_lists(d)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:525:8
+524	        H = fnx.from_dict_of_lists(d)
+525	        assert H.number_of_edges() == 2
+526	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:532:8
+531	        d = fnx.to_dict_of_lists(G, nodelist=[0, 1])
+532	        assert 2 not in d
+533	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:568:8
+567	
+568	        assert fnx.to_dict_of_lists(graph) == expected_all
+569	        assert fnx.to_dict_of_lists(graph, nodelist=["a", "b"]) == expected_filtered
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:569:8
+568	        assert fnx.to_dict_of_lists(graph) == expected_all
+569	        assert fnx.to_dict_of_lists(graph, nodelist=["a", "b"]) == expected_filtered
+570	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:573:8
+572	        G = fnx.from_dict_of_lists({})
+573	        assert G.number_of_nodes() == 0
+574	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:577:8
+576	        G = fnx.from_dict_of_lists({0: [1], 1: [0]}, create_using=fnx.DiGraph)
+577	        assert isinstance(G, fnx.DiGraph)
+578	        assert G.has_edge(0, 1)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:578:8
+577	        assert isinstance(G, fnx.DiGraph)
+578	        assert G.has_edge(0, 1)
+579	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:584:8
+583	        H = fnx.from_dict_of_lists({0: [1], 1: [0]}, create_using=G)
+584	        assert H is G
+585	        assert not H.has_node("stale")
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:585:8
+584	        assert H is G
+585	        assert not H.has_node("stale")
+586	        assert H.number_of_edges() == 1
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:586:8
+585	        assert not H.has_node("stale")
+586	        assert H.number_of_edges() == 1
+587	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:594:8
+593	
+594	        assert actual.number_of_edges() == expected.number_of_edges() == 5
+595	        assert sorted(actual.edges(keys=True)) == sorted(expected.edges(keys=True))
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:595:8
+594	        assert actual.number_of_edges() == expected.number_of_edges() == 5
+595	        assert sorted(actual.edges(keys=True)) == sorted(expected.edges(keys=True))
+596	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:612:8
+611	        el = list(fnx.to_edgelist(G))
+612	        assert len(el) == 2
+613	        assert len(el[0]) == 3
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:613:8
+612	        assert len(el) == 2
+613	        assert len(el[0]) == 3
+614	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:616:8
+615	        H = fnx.from_edgelist([(u, v) for u, v, _ in el])
+616	        assert H.number_of_edges() == 2
+617	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:627:8
+626	        el = list(fnx.to_edgelist(G, nodelist=[0, 1]))
+627	        assert len(el) == 2
+628	        edge_set = {(u, v) for u, v, _ in el}
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:629:8
+628	        edge_set = {(u, v) for u, v, _ in el}
+629	        assert (0, 1) in edge_set
+630	        assert (1, 2) in edge_set
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:630:8
+629	        assert (0, 1) in edge_set
+630	        assert (1, 2) in edge_set
+631	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:650:8
+649	        G = fnx.from_edgelist(edges)
+650	        assert G.number_of_edges() == 2
+651	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:654:8
+653	        G = fnx.from_edgelist([(0, 1)], create_using=fnx.DiGraph)
+654	        assert isinstance(G, fnx.DiGraph)
+655	        assert G.has_edge(0, 1)
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:655:8
+654	        assert isinstance(G, fnx.DiGraph)
+655	        assert G.has_edge(0, 1)
+656	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:674:8
+673	        A = fnx.to_numpy_array(G)
+674	        assert A.shape == (3, 3)
+675	        assert A[0, 1] == 2.0
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:675:8
+674	        assert A.shape == (3, 3)
+675	        assert A[0, 1] == 2.0
+676	        assert A[1, 0] == 2.0  # undirected symmetry
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:676:8
+675	        assert A[0, 1] == 2.0
+676	        assert A[1, 0] == 2.0  # undirected symmetry
+677	        assert A[0, 2] == 0.0  # no edge
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:677:8
+676	        assert A[1, 0] == 2.0  # undirected symmetry
+677	        assert A[0, 2] == 0.0  # no edge
+678	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:680:8
+679	        H = fnx.from_numpy_array(A)
+680	        assert H.number_of_nodes() == 3
+681	        assert H.number_of_edges() == 2
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:681:8
+680	        assert H.number_of_nodes() == 3
+681	        assert H.number_of_edges() == 2
+682	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:689:8
+688	        A = fnx.to_numpy_array(G, nonedge=-1.0)
+689	        assert A[0, 1] == -1.0
+690	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:695:8
+694	        A = fnx.to_numpy_array(G, weight=None)
+695	        assert A[0, 1] == 1.0
+696	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:713:8
+712	        S = fnx.to_scipy_sparse_array(G)
+713	        assert S.shape == (3, 3)
+714	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:716:8
+715	        H = fnx.from_scipy_sparse_array(S)
+716	        assert H.number_of_nodes() == 3
+717	        assert H.number_of_edges() == 2
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:717:8
+716	        assert H.number_of_nodes() == 3
+717	        assert H.number_of_edges() == 2
+718	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:724:12
+723	            S = fnx.to_scipy_sparse_array(G, format=fmt)
+724	            assert S.format == fmt
+725	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:744:8
+743	        df = fnx.to_pandas_edgelist(G)
+744	        assert isinstance(df, pd.DataFrame)
+745	        assert len(df) == 2
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:745:8
+744	        assert isinstance(df, pd.DataFrame)
+745	        assert len(df) == 2
+746	        assert "source" in df.columns
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:746:8
+745	        assert len(df) == 2
+746	        assert "source" in df.columns
+747	        assert "target" in df.columns
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:747:8
+746	        assert "source" in df.columns
+747	        assert "target" in df.columns
+748	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:750:8
+749	        H = fnx.from_pandas_edgelist(df, edge_attr=True)
+750	        assert H.number_of_edges() == 2
+751	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:757:8
+756	        df = fnx.to_pandas_edgelist(G, source="src", target="dst")
+757	        assert "src" in df.columns
+758	        assert "dst" in df.columns
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:758:8
+757	        assert "src" in df.columns
+758	        assert "dst" in df.columns
+759	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:761:8
+760	        H = fnx.from_pandas_edgelist(df, source="src", target="dst")
+761	        assert H.has_edge(0, 1)
+762	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:764:8
+763	    def test_from_pandas_edgelist_signature_matches_networkx_backend_surface(self):
+764	        assert str(inspect.signature(fnx.from_pandas_edgelist)) == str(
+765	            inspect.signature(nx.from_pandas_edgelist)
+766	        )
+767	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:774:8
+773	        G = fnx.from_pandas_edgelist(df, backend=backend)
+774	        assert sorted(G.edges()) == [("a", "b")]
+775	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:785:8
+784	            nx.from_pandas_edgelist(df, backend="missing")
+785	        assert str(actual_backend.value) == str(expected_backend.value)
+786	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:791:8
+790	            nx.from_pandas_edgelist(df, backend_kwargs={"x": 1})
+791	        assert str(actual_literal.value) == str(expected_literal.value)
+792	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:797:8
+796	            nx.from_pandas_edgelist(df, bogus=1)
+797	        assert str(actual_unknown.value) == str(expected_unknown.value)
+798	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:810:8
+809	        G = fnx.Graph(MG)
+810	        assert sorted(G.edges()) == [(0, 1), (1, 2)]
+811	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:817:8
+816	        G = fnx.Graph(MG)
+817	        assert dict(G.edges[0, 1]) == {"w": 2.0}
+818	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:823:8
+822	        D = fnx.DiGraph(MD)
+823	        assert sorted(D.edges()) == [(0, 1), (1, 2)]
+824	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:836:8
+835	        }
+836	        assert actual == {
+837	            (frozenset((0, 1)), "a", (("w", 1.0),)),
+838	            (frozenset((0, 1)), "b", (("w", 2.0),)),
+839	        }
+840	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:845:8
+844	        dst = fnx.MultiGraph(src)
+845	        assert dst.number_of_edges() == 2
+846	        assert list(dst.edges(keys=True)) == [(0, 1, 0), (1, 2, 0)]
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:846:8
+845	        assert dst.number_of_edges() == 2
+846	        assert list(dst.edges(keys=True)) == [(0, 1, 0), (1, 2, 0)]
+847	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:852:8
+851	        G = fnx.Graph(MG)
+852	        assert sorted(G.edges()) == [(0, 1), (1, 2)]
+853	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:858:8
+857	        dst = fnx.Graph(src)
+858	        assert list(dst.edges()) == [(0, 1), (1, 2)]
+859	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:870:8
+869	        r = fnx.Graph(nx.path_graph(3))
+870	        assert sorted(r.edges()) == [(0, 1), (1, 2)]
+871	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:875:8
+874	        r = fnx.DiGraph(nx.DiGraph([(0, 1), (1, 2)]))
+875	        assert sorted(r.edges()) == [(0, 1), (1, 2)]
+876	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:880:8
+879	        r = fnx.MultiGraph(nx.MultiGraph([(0, 1), (0, 1), (1, 2)]))
+880	        assert r.number_of_edges() == 3
+881	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:885:8
+884	        r = fnx.Graph(nx.MultiGraph([(0, 1), (0, 1), (1, 2)]))
+885	        assert sorted(r.edges()) == [(0, 1), (1, 2)]
+886	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:890:8
+889	        r = fnx.MultiGraph(nx.path_graph(3))
+890	        assert r.number_of_edges() == 2
+891	
+
+--------------------------------------------------
+>> Issue: [B101:assert_used] Use of assert detected. The enclosed code will be removed when compiling to optimised byte code.
+   Severity: Low   Confidence: High
+   CWE: CWE-703 (https://cwe.mitre.org/data/definitions/703.html)
+   More Info: https://bandit.readthedocs.io/en/1.9.4/plugins/b101_assert_used.html
+   Location: /data/projects/franken_networkx/tests/python/test_conversion.py:895:8
+894	        import networkx as nx
+895	        assert nx.to_dict_of_dicts(fnx.path_graph(3)) == {
+896	            0: {1: {}}, 1: {0: {}, 2: {}}, 2: {1: {}},
+897	        }
+
+--------------------------------------------------
+
+Code scanned:
+	Total lines of code: 702
+	Total lines skipped (#nosec): 0
+	Total potential issues skipped due to specifically being disabled (e.g., #nosec BXXX): 0
+
+Run metrics:
+	Total issues (by severity):
+		Undefined: 0
+		Low: 120
+		Medium: 2
+		High: 0
+	Total issues (by confidence):
+		Undefined: 0
+		Low: 0
+		Medium: 0
+		High: 122
+Files skipped (0):
+  ℹ Info (0 found)
+    Bandit scan completed
+    See output above
+
+• pip-audit (dependencies)
+  ℹ Info (0 found)
+    pip-audit run (if available)
+    Review advisories above
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+21. DEPRECATIONS & PY3.13 MIGRATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: deprecated modules/APIs likely to break on newer Python
+Proactive remediation avoids upgrade surprises.
+
+• Deprecated modules/APIs
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+22. PACKAGING & CONFIG HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: unpinned requirements, editable installs, local paths
+Supply-chain & reproducibility safeguards.
+
+• Requirements without pins
+
+• Editable installs / local paths
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+23. NOTEBOOK HYGIENE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+▓▓▓ Detects: large cell outputs, execution counts, trusted state
+Keeps VCS diffs clean and reproducible.
+
+• Large embedded outputs
+
+═══════════════════════════════════════════════════════════════════════════
+                    🎯 SCAN COMPLETE 🎯                                  
+═══════════════════════════════════════════════════════════════════════════
+
+Summary Statistics:
+  Files scanned:    1
+  Critical issues:  11
+  Warning issues:   5
+  Info items:       64
+
+Priority Actions:
+  🔥 FIX CRITICAL ISSUES IMMEDIATELY
+  These cause crashes, security vulnerabilities, or data corruption
+  ⚠ Review and fix WARNING items
+  These cause bugs, performance issues, or maintenance problems
+  ℹ Consider INFO suggestions
+  Code quality improvements and best practices
+
+Scan completed at: 2026-06-03 05:21:44
+
+Tip: Run with -v/--verbose for more code samples per finding.
+Add to pre-commit: ./ubs --ci --fail-on-warning --summary-json=.ubs-summary.json . > py-bug-scan-report.txt
+
+
+──────── Combined Summary ────────
+Files: 1
+Critical: 11
+Warning: 5
+Info: 64

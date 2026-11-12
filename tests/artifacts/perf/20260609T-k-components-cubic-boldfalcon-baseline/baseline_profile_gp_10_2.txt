@@ -1,0 +1,28 @@
+         1327299 function calls (1323683 primitive calls) in 0.448 seconds
+
+   Ordered by: cumulative time
+   List reduced from 411 to 20 due to restriction <20>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.448    0.448 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48027(wrapper)
+        1    0.000    0.000    0.448    0.448 /data/projects/franken_networkx/python/franken_networkx/__init__.py:42739(k_components)
+        1    0.000    0.000    0.448    0.448 /data/projects/franken_networkx/python/franken_networkx/__init__.py:6877(_call_networkx_for_parity)
+     25/2    0.000    0.000    0.446    0.223 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+   1636/2    0.010    0.000    0.446    0.223 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.446    0.446 <class 'networkx.utils.decorators.argmap'> compilation 9:1(argmap_k_components_5)
+   1636/2    0.001    0.000    0.446    0.223 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.446    0.446 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcomponents.py:20(k_components)
+       21    0.030    0.001    0.431    0.021 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/connectivity/kcutsets.py:25(all_node_cuts)
+       19    0.000    0.000    0.281    0.015 <class 'networkx.utils.decorators.argmap'> compilation 64:1(argmap_transitive_closure_61)
+       19    0.001    0.000    0.280    0.015 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:717(transitive_closure)
+     1103    0.032    0.000    0.276    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/digraph.py:748(add_edges_from)
+    19153    0.022    0.000    0.230    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:804(<genexpr>)
+    41389    0.051    0.000    0.166    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:20(edge_bfs)
+    20238    0.013    0.000    0.073    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/traversal/edgebfs.py:127(edges_from)
+    11175    0.017    0.000    0.059    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/dag.py:939(antichains)
+    20299    0.011    0.000    0.042    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:1102(__call__)
+    68052    0.015    0.000    0.041    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+    20278    0.014    0.000    0.031    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:771(__init__)
+    74704    0.023    0.000    0.029    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+
+

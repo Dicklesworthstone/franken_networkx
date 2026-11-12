@@ -1,0 +1,106 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo raw --n 1500 --p 0.01 --stretch 3 --seed 42",
+      "mean": 0.5324779504000001,
+      "stddev": 0.025154944055376154,
+      "median": 0.5295710600000001,
+      "user": 4.13944386,
+      "system": 0.07828102,
+      "min": 0.49675893250000003,
+      "max": 0.5722657175000001,
+      "times": [
+        0.49675893250000003,
+        0.5557639265000001,
+        0.5201394955,
+        0.5476863145,
+        0.5722657175000001,
+        0.5283547475000001,
+        0.5307873725000001,
+        0.5577191185000001,
+        0.5108629125,
+        0.5044409665
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo nx --n 1500 --p 0.01 --stretch 3 --seed 42",
+      "mean": 0.4594061044,
+      "stddev": 0.01682764173881417,
+      "median": 0.45722116700000004,
+      "user": 4.01004776,
+      "system": 0.06482052000000002,
+      "min": 0.4258546505,
+      "max": 0.49087428250000004,
+      "times": [
+        0.46818189250000003,
+        0.4588493645,
+        0.4258546505,
+        0.4714350405,
+        0.49087428250000004,
+        0.4499275735,
+        0.4555929695,
+        0.4656781225,
+        0.4522952665,
+        0.4553718815
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python /data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260611T-vtmci-spanner-native-boldfalcon/harness_spanner_native.py --mode single --algo public --n 1500 --p 0.01 --stretch 3 --seed 42",
+      "mean": 0.45203041530000004,
+      "stddev": 0.01928775707293228,
+      "median": 0.4497024885,
+      "user": 4.17007746,
+      "system": 0.06505522,
+      "min": 0.4231338395,
+      "max": 0.4953136165,
+      "times": [
+        0.4630009845,
+        0.4437314445,
+        0.4644769985,
+        0.4486342465,
+        0.4507707305,
+        0.4399538425,
+        0.4231338395,
+        0.4953136165,
+        0.4508899655,
+        0.4403984845
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

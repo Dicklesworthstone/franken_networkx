@@ -1,0 +1,67 @@
+case=grid counterexample=False sha256=003cc7efd008f28e3445319bfe2dd971559df667ed9db28aa5355d5ceece3451
+         122745 function calls (122727 primitive calls) in 0.050 seconds
+
+   Ordered by: cumulative time
+   List reduced from 274 to 60 due to restriction <60>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.050    0.050 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/tests/artifacts/perf/20260613T-2mfuj-check-planarity-boldfalcon/planarity_harness.py:97(run_operation)
+        1    0.000    0.000    0.050    0.050 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:24764(check_planarity)
+        1    0.000    0.000    0.050    0.050 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:24752(_check_planarity_certificate)
+      2/1    0.000    0.000    0.041    0.041 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+      5/2    0.000    0.000    0.040    0.020 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+        1    0.000    0.000    0.040    0.040 <class 'networkx.utils.decorators.argmap'> compilation 32:1(argmap_check_planarity_29)
+      5/2    0.000    0.000    0.040    0.020 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+        1    0.000    0.000    0.040    0.040 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:42(check_planarity)
+        1    0.002    0.002    0.036    0.036 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:323(lr_planarity)
+        1    0.000    0.000    0.010    0.010 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:24737(_planarity_graph_for_certificate)
+        1    0.005    0.005    0.009    0.009 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:449(dfs_orientation)
+        1    0.003    0.003    0.009    0.009 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:535(dfs_testing)
+        1    0.002    0.002    0.009    0.009 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:606(_fnx_to_nx)
+     2300    0.003    0.000    0.007    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:1009(add_half_edge)
+     3450    0.004    0.000    0.006    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/digraph.py:677(add_edge)
+        1    0.001    0.001    0.005    0.005 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:694(dfs_embedding)
+        1    0.000    0.000    0.004    0.004 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:283(__init__)
+      550    0.002    0.000    0.004    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:611(add_constraints)
+     1150    0.002    0.000    0.003    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:741(sign)
+        2    0.001    0.001    0.002    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:584(add_nodes_from)
+      599    0.000    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:1303(add_half_edge_first)
+        1    0.001    0.001    0.002    0.002 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+     1150    0.001    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:917(add_edge)
+     1200    0.001    0.000    0.002    0.000 {built-in method builtins.sorted}
+     9912    0.002    0.000    0.002    0.000 {method 'update' of 'dict' objects}
+      599    0.001    0.000    0.002    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:655(remove_back_edges)
+        1    0.001    0.001    0.001    0.001 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:776(_align_rows)
+     4605    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/misc.py:645(_clear_cache)
+     1800    0.000    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:509(__getitem__)
+     9276    0.001    0.000    0.001    0.000 {method 'get' of 'dict' objects}
+        2    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/digraph.py:500(add_nodes_from)
+     8768    0.001    0.000    0.001    0.000 {method 'append' of 'list' objects}
+     8742    0.001    0.000    0.001    0.000 {method 'pop' of 'list' objects}
+     2630    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:216(conflicting)
+     1800    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:81(__getitem__)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1349(_find_and_load)
+      602    0.000    0.000    0.001    0.000 {built-in method builtins.any}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+     4600    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:1081(__contains__)
+      601    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:635(<genexpr>)
+        1    0.001    0.001    0.001    0.001 {built-in method franken_networkx._fnx.fnx_to_nx_adjacency}
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap>:911(_load_unlocked)
+        1    0.000    0.000    0.001    0.001 <frozen importlib._bootstrap_external>:1020(exec_module)
+     6619    0.001    0.000    0.001    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:208(empty)
+     1800    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:50(__iter__)
+     4653    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        2    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        2    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+     1800    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/coreviews.py:47(__len__)
+      600    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:241(lowest)
+     1054    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:212(copy)
+      600    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/__init__.py:5105(__getitem__)
+     4771    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:1918(size)
+     5163    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/algorithms/planarity.py:252(top_of_stack)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.sum}
+     1151    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/reportviews.py:1274(__iter__)
+        1    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+      601    0.000    0.000    0.000    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/networkx/classes/graph.py:1954(<genexpr>)
+     2900    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T111801Z/python/franken_networkx/backend.py:785(<genexpr>)

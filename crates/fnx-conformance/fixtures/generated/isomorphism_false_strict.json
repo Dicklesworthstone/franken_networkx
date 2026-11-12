@@ -1,0 +1,39 @@
+{
+  "suite": "isomorphism_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "a", "right": "b"},
+    {"op": "add_edge", "left": "b", "right": "c"},
+    {"op": "add_edge", "left": "c", "right": "a"},
+    {"op": "add_edge", "left": "a", "right": "d"},
+    {
+      "op": "is_isomorphic_query",
+      "nodes2": ["p", "q", "r", "s"],
+      "edges2": [["p", "q"], ["q", "r"], ["r", "s"]]
+    },
+    {
+      "op": "could_be_isomorphic_query",
+      "nodes2": ["p", "q", "r", "s"],
+      "edges2": [["p", "q"], ["q", "r"], ["r", "s"]]
+    },
+    {
+      "op": "faster_could_be_isomorphic_query",
+      "nodes2": ["p", "q", "r", "s"],
+      "edges2": [["p", "q"], ["q", "r"], ["r", "s"]]
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["a", "b", "c", "d"],
+      "edges": [
+        {"left": "a", "right": "b", "attrs": {}},
+        {"left": "a", "right": "c", "attrs": {}},
+        {"left": "a", "right": "d", "attrs": {}},
+        {"left": "b", "right": "c", "attrs": {}}
+      ]
+    },
+    "is_isomorphic": false,
+    "could_be_isomorphic": false,
+    "faster_could_be_isomorphic": false
+  }
+}

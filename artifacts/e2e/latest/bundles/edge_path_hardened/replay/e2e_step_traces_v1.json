@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "edge_path_hardened",
+  "packet_id": "FNX-P2C-005",
+  "pass_label": "replay",
+  "mode": "hardened",
+  "fixture_id": "generated/centrality_closeness_strict.json",
+  "bundle_id": "e2e-bundle-5f65c26eec1a6596",
+  "stable_fingerprint": "ac0f2907b50ec556",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+  "env_fingerprint": "6ccf70bbc209b497",
+  "generated_at_utc": "2026-02-18T22:05:24.301727+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::edge_path_hardened",
+      "step_id": "edge_path_hardened::cycle-01",
+      "step_label": "execute:edge_path",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771452306885,
+      "end_unix_ms": 1771452324271,
+      "duration_ms": 17386,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+      "input_ref": "generated/centrality_closeness_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/edge_path_hardened/replay/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/centrality_closeness_strict.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-005::generated::centrality_closeness_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/edge_path_hardened/replay/command.log",
+        "artifacts/e2e/latest/bundles/edge_path_hardened/replay/selected_structured_log.json"
+      ],
+      "hash_id": "a0412b0947b34b2b",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

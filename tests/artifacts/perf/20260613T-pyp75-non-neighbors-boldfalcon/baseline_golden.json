@@ -1,0 +1,130 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "digraph_int",
+      "fnx": {
+        "ok": true,
+        "value": [
+          "int:1",
+          "int:10",
+          "int:11",
+          "int:3",
+          "int:4",
+          "int:5",
+          "int:6",
+          "int:8",
+          "int:9"
+        ]
+      },
+      "match": true,
+      "node": "int:0",
+      "nx": {
+        "ok": true,
+        "value": [
+          "int:1",
+          "int:10",
+          "int:11",
+          "int:3",
+          "int:4",
+          "int:5",
+          "int:6",
+          "int:8",
+          "int:9"
+        ]
+      }
+    },
+    {
+      "case": "multidigraph_int",
+      "fnx": {
+        "ok": true,
+        "value": [
+          "int:1",
+          "int:10",
+          "int:11",
+          "int:3",
+          "int:4",
+          "int:5",
+          "int:6",
+          "int:8",
+          "int:9"
+        ]
+      },
+      "match": true,
+      "node": "int:0",
+      "nx": {
+        "ok": true,
+        "value": [
+          "int:1",
+          "int:10",
+          "int:11",
+          "int:3",
+          "int:4",
+          "int:5",
+          "int:6",
+          "int:8",
+          "int:9"
+        ]
+      }
+    },
+    {
+      "case": "digraph_str",
+      "fnx": {
+        "ok": true,
+        "value": [
+          "str:'d'"
+        ]
+      },
+      "match": true,
+      "node": "str:'a'",
+      "nx": {
+        "ok": true,
+        "value": [
+          "str:'d'"
+        ]
+      }
+    },
+    {
+      "case": "multidigraph_parallel",
+      "fnx": {
+        "ok": true,
+        "value": [
+          "int:2",
+          "int:3"
+        ]
+      },
+      "match": true,
+      "node": "int:0",
+      "nx": {
+        "ok": true,
+        "value": [
+          "int:2",
+          "int:3"
+        ]
+      }
+    },
+    {
+      "case": "missing_node",
+      "fnx": {
+        "exception": "builtins.KeyError",
+        "message": "99",
+        "ok": false
+      },
+      "match": true,
+      "node": "int:99",
+      "nx": {
+        "exception": "builtins.KeyError",
+        "message": "99",
+        "ok": false
+      }
+    }
+  ],
+  "isomorphism": {
+    "floating_point": "N/A",
+    "ordering": "N/A: public output is a set; payload sorts only for hashing",
+    "rng": "N/A",
+    "successor_semantics": "directed non_neighbors subtracts successors only, matching NetworkX",
+    "tie_breaking": "N/A"
+  },
+  "sha256": "41779f04b5b574369e60d6a56b2258e53868bb2051aca1816a05aed5101a7315"
+}

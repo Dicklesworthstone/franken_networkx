@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import franken_networkx as nx; [nx.full_rary_tree(2, 8191) for _ in range(100)]\"",
+      "mean": 1.7420804782600001,
+      "stddev": 0.09677605437686647,
+      "median": 1.68482294706,
+      "user": 5.79167214,
+      "system": 0.20066058,
+      "min": 1.65928777206,
+      "max": 1.86892164306,
+      "times": [
+        1.68482294706,
+        1.67400757206,
+        1.86892164306,
+        1.82336245706,
+        1.65928777206
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import networkx as nx; [nx.full_rary_tree(2, 8191) for _ in range(100)]\"",
+      "mean": 1.60692554646,
+      "stddev": 0.029155234978769793,
+      "median": 1.58968227906,
+      "user": 1.3562031399999999,
+      "system": 0.24768157999999998,
+      "min": 1.58038782506,
+      "max": 1.64736979206,
+      "times": [
+        1.58968227906,
+        1.58038782506,
+        1.6280518990600001,
+        1.58913593706,
+        1.64736979206
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import franken_networkx as nx; [nx.balanced_tree(2, 12) for _ in range(100)]\"",
+      "mean": 1.77941893466,
+      "stddev": 0.028323010588002295,
+      "median": 1.77473367306,
+      "user": 5.71638954,
+      "system": 0.21151077999999995,
+      "min": 1.7550125170600002,
+      "max": 1.8265049080600002,
+      "times": [
+        1.7550125170600002,
+        1.77473367306,
+        1.8265049080600002,
+        1.76012225806,
+        1.78072131706
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python3 -c \"import networkx as nx; [nx.balanced_tree(2, 12) for _ in range(100)]\"",
+      "mean": 1.60407372666,
+      "stddev": 0.07263105631311786,
+      "median": 1.58042864006,
+      "user": 1.3769053399999998,
+      "system": 0.22508198,
+      "min": 1.5571741640599999,
+      "max": 1.73265809006,
+      "times": [
+        1.56717416306,
+        1.58042864006,
+        1.73265809006,
+        1.58293357606,
+        1.5571741640599999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

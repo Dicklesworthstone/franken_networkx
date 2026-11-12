@@ -1,0 +1,68 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=python python3 tests/artifacts/perf/20260616T-graph-neighbor-rowcache-coppercliff/graph_neighbor_rowcache_harness.py bench-fnx --loops 300",
+      "mean": 0.9912808127288888,
+      "stddev": 0.03775990339315367,
+      "median": 0.97648357284,
+      "user": 4.83499644888889,
+      "system": 0.06718492888888888,
+      "min": 0.9446035768400001,
+      "max": 1.05164252084,
+      "times": [
+        1.04970744584,
+        1.05164252084,
+        0.95991116184,
+        0.9751505768400001,
+        0.98672816584,
+        0.97030967784,
+        0.97648357284,
+        0.9446035768400001,
+        1.0069906158400002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=python python3 tests/artifacts/perf/20260616T-graph-neighbor-rowcache-coppercliff/graph_neighbor_rowcache_harness.py bench-nx --loops 300",
+      "mean": 0.7341347162844445,
+      "stddev": 0.01660018286512845,
+      "median": 0.73320798084,
+      "user": 4.830467782222223,
+      "system": 0.06766870666666666,
+      "min": 0.71024048684,
+      "max": 0.76063081284,
+      "times": [
+        0.76063081284,
+        0.74075082784,
+        0.71024048684,
+        0.75547135984,
+        0.72218841884,
+        0.72265682684,
+        0.7393385328400001,
+        0.73320798084,
+        0.72272719984
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

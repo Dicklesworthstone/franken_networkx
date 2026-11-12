@@ -1,0 +1,88 @@
+         413032 function calls (402615 primitive calls) in 0.590 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1449 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       36    0.001    0.000    1.111    0.031 __init__.py:1(<module>)
+        3    0.000    0.000    0.590    0.197 bench_resistance_distance.py:101(_run_one)
+      6/3    0.000    0.000    0.543    0.181 __init__.py:43839(wrapper)
+        3    0.000    0.000    0.543    0.181 __init__.py:25442(resistance_distance)
+        3    0.000    0.000    0.542    0.181 __init__.py:25408(_resistance_single_pair_sparse)
+    257/2    0.001    0.000    0.518    0.259 <frozen importlib._bootstrap>:1349(_find_and_load)
+    253/2    0.003    0.000    0.518    0.259 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    609/5    0.009    0.000    0.517    0.103 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    245/3    0.001    0.000    0.517    0.172 <frozen importlib._bootstrap>:911(_load_unlocked)
+    212/3    0.000    0.000    0.517    0.172 <frozen importlib._bootstrap_external>:1020(exec_module)
+   223/10    0.001    0.000    0.517    0.052 {built-in method builtins.exec}
+        2    0.000    0.000    0.253    0.126 _base.py:1(<module>)
+        1    0.000    0.000    0.250    0.250 _sputils.py:1(<module>)
+        1    0.000    0.000    0.247    0.247 _util.py:1(<module>)
+        1    0.000    0.000    0.243    0.243 _array_api.py:1(<module>)
+    94/46    0.000    0.000    0.205    0.004 {built-in method builtins.__import__}
+   170/88    0.001    0.000    0.195    0.002 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+        1    0.000    0.000    0.165    0.165 iterative.py:1(<module>)
+        3    0.000    0.000    0.103    0.034 _internal.py:56(clone_module)
+2686/2134    0.001    0.000    0.102    0.000 {built-in method builtins.hasattr}
+      212    0.001    0.000    0.102    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+       11    0.000    0.000    0.101    0.009 __init__.py:704(__getattr__)
+      252    0.001    0.000    0.100    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+      248    0.000    0.000    0.097    0.000 <frozen importlib._bootstrap_external>:1551(find_spec)
+      248    0.001    0.000    0.097    0.000 <frozen importlib._bootstrap_external>:1522(_get_spec)
+      321    0.003    0.000    0.095    0.000 <frozen importlib._bootstrap_external>:1624(find_spec)
+        1    0.002    0.002    0.092    0.092 _docscrape.py:1(<module>)
+      978    0.000    0.000    0.089    0.000 <frozen importlib._bootstrap_external>:145(_path_stat)
+      987    0.088    0.000    0.088    0.000 {built-in method posix.stat}
+        1    0.000    0.000    0.084    0.084 pydoc.py:1(<module>)
+      385    0.000    0.000    0.083    0.000 <frozen importlib._bootstrap_external>:164(_path_isfile)
+      415    0.000    0.000    0.083    0.000 <frozen importlib._bootstrap_external>:155(_path_is_mode_type)
+        1    0.000    0.000    0.082    0.082 parse.py:1(<module>)
+       78    0.000    0.000    0.076    0.001 _docscrape.py:579(__init__)
+       70    0.000    0.000    0.071    0.001 _util.py:1148(decorator)
+       78    0.000    0.000    0.068    0.001 _docscrape.py:140(__init__)
+        1    0.000    0.000    0.063    0.063 f2py2e.py:1(<module>)
+       78    0.001    0.000    0.053    0.001 _docscrape.py:388(_parse)
+      751    0.001    0.000    0.051    0.000 __init__.py:330(_compile)
+      158    0.000    0.000    0.050    0.000 __init__.py:287(compile)
+       82    0.000    0.000    0.049    0.001 _compiler.py:743(compile)
+      424    0.001    0.000    0.047    0.000 <frozen importlib._bootstrap_external>:513(cache_from_source)
+     2029    0.046    0.000    0.047    0.000 <frozen importlib._bootstrap_external>:131(_path_join)
+        3    0.000    0.000    0.047    0.016 bench_resistance_distance.py:52(_case)
+        3    0.000    0.000    0.047    0.016 bench_resistance_distance.py:33(_sparse_graph)
+        1    0.000    0.000    0.047    0.047 capi_maps.py:1(<module>)
+    29/23    0.000    0.000    0.045    0.002 <frozen importlib._bootstrap_external>:1326(exec_module)
+    29/23    0.021    0.001    0.045    0.002 {built-in method _imp.exec_dynamic}
+        1    0.000    0.000    0.041    0.041 _basic.py:1(<module>)
+        1    0.000    0.000    0.041    0.041 crackfortran.py:1(<module>)
+      245    0.000    0.000    0.038    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+        1    0.000    0.000    0.037    0.037 _misc.py:1(<module>)
+       29    0.000    0.000    0.034    0.001 <frozen importlib._bootstrap_external>:1318(create_module)
+       29    0.034    0.001    0.034    0.001 {built-in method _imp.create_dynamic}
+       61    0.000    0.000    0.032    0.001 _internal.py:32(inner)
+      240    0.004    0.000    0.030    0.000 functools.py:36(update_wrapper)
+       82    0.000    0.000    0.028    0.000 _parser.py:970(parse)
+   468/82    0.003    0.000    0.028    0.000 _parser.py:451(_parse_sub)
+   618/82    0.012    0.000    0.027    0.000 _parser.py:511(_parse)
+      212    0.001    0.000    0.027    0.000 <frozen importlib._bootstrap_external>:1214(get_data)
+        1    0.000    0.000    0.026    0.026 fft.py:1(<module>)
+     7099    0.026    0.000    0.026    0.000 {built-in method builtins.getattr}
+      403    0.001    0.000    0.026    0.000 _docscrape.py:212(_read_sections)
+        3    0.000    0.000    0.025    0.008 bench_resistance_distance.py:23(_copy_to_fnx)
+        1    0.000    0.000    0.025    0.025 _decomp.py:1(<module>)
+        1    0.000    0.000    0.024    0.024 blas.py:1(<module>)
+      389    0.001    0.000    0.024    0.000 _docscrape.py:201(_read_to_next_section)
+      212    0.002    0.000    0.023    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+      212    0.021    0.000    0.021    0.000 {built-in method marshal.loads}
+        3    0.000    0.000    0.021    0.007 <class 'networkx.utils.decorators.argmap'> compilation 5:1(argmap_connected_watts_strogatz_graph_1)
+     18/3    0.000    0.000    0.021    0.007 backends.py:554(_call_if_any_backends_installed)
+     18/3    0.000    0.000    0.021    0.007 backends.py:1484(_call_with_backend)
+        3    0.000    0.000    0.021    0.007 random_graphs.py:468(connected_watts_strogatz_graph)
+      270    0.005    0.000    0.021    0.000 {built-in method builtins.__build_class__}
+        3    0.004    0.001    0.020    0.007 __init__.py:2522(add_edges_from)
+       82    0.000    0.000    0.020    0.000 _compiler.py:576(_code)
+  1134/82    0.011    0.000    0.019    0.000 _compiler.py:37(_compile)
+        3    0.000    0.000    0.019    0.006 <class 'networkx.utils.decorators.argmap'> compilation 10:1(argmap_watts_strogatz_graph_6)
+        3    0.002    0.001    0.019    0.006 random_graphs.py:388(watts_strogatz_graph)
+      212    0.019    0.000    0.019    0.000 {method 'read' of '_io.BufferedReader' objects}
+
+

@@ -1,0 +1,16 @@
+Benchmark 1: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-attrstate-fk6hk/bench_attrstate.py --module fnx-old 2000 50 8000 20
+  Time (mean ± σ):     381.0 ms ±  29.6 ms    [User: 4010.6 ms, System: 66.5 ms]
+  Range (min … max):   320.0 ms … 449.6 ms    20 runs
+
+Benchmark 2: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-attrstate-fk6hk/bench_attrstate.py --module fnx 2000 50 8000 20
+  Time (mean ± σ):     356.5 ms ±  17.3 ms    [User: 4270.1 ms, System: 65.9 ms]
+  Range (min … max):   332.2 ms … 389.7 ms    20 runs
+
+Benchmark 3: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-attrstate-fk6hk/bench_attrstate.py --module nx 2000 50 8000 20
+  Time (mean ± σ):     356.8 ms ±  41.6 ms    [User: 3940.7 ms, System: 80.2 ms]
+  Range (min … max):   308.0 ms … 490.2 ms    20 runs
+
+Summary
+  env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-attrstate-fk6hk/bench_attrstate.py --module fnx 2000 50 8000 20 ran
+    1.00 ± 0.13 times faster than env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-attrstate-fk6hk/bench_attrstate.py --module nx 2000 50 8000 20
+    1.07 ± 0.10 times faster than env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-attrstate-fk6hk/bench_attrstate.py --module fnx-old 2000 50 8000 20

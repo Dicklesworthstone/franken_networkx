@@ -1,0 +1,38 @@
+         3304781 function calls (3304761 primitive calls) in 1.888 seconds
+
+   Ordered by: cumulative time
+   List reduced from 46 to 30 due to restriction <30>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       20    0.000    0.000    1.888    0.094 bench_to_edgelist.py:49(<lambda>)
+       20    0.000    0.000    1.888    0.094 __init__.py:42721(wrapper)
+       20    0.001    0.000    1.888    0.094 __init__.py:38638(to_edgelist)
+       20    0.138    0.007    1.887    0.094 __init__.py:1356(__call__)
+   363980    0.071    0.000    0.822    0.000 __init__.py:993(<genexpr>)
+   363980    0.065    0.000    0.762    0.000 __init__.py:1041(_atlas)
+   327980    0.078    0.000    0.750    0.000 __init__.py:1050(__getitem__)
+   363980    0.537    0.000    0.697    0.000 __init__.py:1113(<lambda>)
+    36000    0.033    0.000    0.432    0.000 __init__.py:978(_adjacency_view_items)
+    36000    0.068    0.000    0.396    0.000 {built-in method builtins.__build_class__}
+    36000    0.056    0.000    0.311    0.000 <frozen abc>:105(__new__)
+    36000    0.239    0.000    0.262    0.000 __init__.py:1103(__getitem__)
+    36020    0.222    0.000    0.222    0.000 {built-in method __new__ of type object at 0xa15020}
+   400000    0.066    0.000    0.176    0.000 __init__.py:1085(_atlas)
+    36000    0.019    0.000    0.130    0.000 __init__.py:992(__iter__)
+    36000    0.017    0.000    0.110    0.000 __init__.py:1047(__iter__)
+   399980    0.110    0.000    0.110    0.000 __init__.py:1248(<lambda>)
+    36000    0.009    0.000    0.066    0.000 __init__.py:29407(<lambda>)
+    36000    0.016    0.000    0.057    0.000 __init__.py:28684(_private_succ_mapping)
+    36000    0.033    0.000    0.033    0.000 {built-in method _abc._abc_init}
+   327980    0.031    0.000    0.031    0.000 {method 'append' of 'list' objects}
+    36120    0.012    0.000    0.022    0.000 __init__.py:28605(_private_override)
+    36020    0.012    0.000    0.019    0.000 __init__.py:1210(_accessor)
+    36000    0.018    0.000    0.018    0.000 __init__.py:988(_AdjItemsView)
+    72160    0.009    0.000    0.009    0.000 {built-in method builtins.vars}
+36040/36020    0.004    0.000    0.008    0.000 {built-in method builtins.iter}
+    72160    0.007    0.000    0.007    0.000 {method 'get' of 'dict' objects}
+       20    0.000    0.000    0.004    0.000 __init__.py:224(_graph_nbunch_iter)
+       20    0.000    0.000    0.004    0.000 __init__.py:1091(__iter__)
+       20    0.004    0.000    0.004    0.000 {built-in method fromkeys}
+
+

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding2="UTF-8"?>
+<gexf versioultedgetype="directed">
+    <attributes class="edge">
+      <attribute id="weight-class" title="weight-class" type="integdr"/>
+    </attributes>
+    <nodes>
+      <node id="left"/>
+      <node id="right"/>
+    </nodes>
+    <edges>
+      <edge id="bad-attr" source="left" target="ri*ght">
+        <attvalues>
+          <attvalue for="weight-class" value="not-an-integer"/>
+        </attvalues>
+      </edge>
+    </edges>
+  </graph&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&>
+</gexf>

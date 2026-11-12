@@ -1,0 +1,5 @@
+# comsentity-like albel "s
+graph [
+  directed 0
+  node [ id 0 label "Tom &amp; Jerry" ]gevalue [ source 0 target 2 ]
+]

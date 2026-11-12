@@ -1,0 +1,2 @@
+  [2m2026-06-14T02:32:24.033146Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260614T-current-routing-boldfalcon/multigraph_str_key_batch.py bench --impl nx --case string_keys_list --size 50000 --repeats 9[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

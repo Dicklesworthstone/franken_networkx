@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python3 tests/artifacts/perf/20260616T-graph-neighbor-rowcache-coppercliff/graph_neighbor_rowcache_harness.py bench-fnx --loops 300",
+      "mean": 0.9526121311200001,
+      "stddev": 0.020772768082256563,
+      "median": 0.95047962922,
+      "user": 5.03659792,
+      "system": 0.0689379,
+      "min": 0.9238784332200001,
+      "max": 0.98217252822,
+      "times": [
+        0.93592028522,
+        0.9336924642200001,
+        0.95762932822,
+        0.94332993022,
+        0.9238784332200001,
+        0.97609210022,
+        0.93497332022,
+        0.98217252822,
+        0.96587120922,
+        0.9725617122200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "VIRTUAL_ENV=/data/projects/franken_networkx/.venv PATH=/data/projects/franken_networkx/.venv/bin:$PATH PYTHONPATH=python python3 tests/artifacts/perf/20260616T-graph-neighbor-rowcache-coppercliff/graph_neighbor_rowcache_harness.py bench-nx --loops 300",
+      "mean": 0.7379475506200001,
+      "stddev": 0.015849134456884285,
+      "median": 0.73432737922,
+      "user": 4.8363640199999995,
+      "system": 0.0631046,
+      "min": 0.71375430322,
+      "max": 0.76293598622,
+      "times": [
+        0.7491225502200001,
+        0.76293598622,
+        0.73502791122,
+        0.73362684722,
+        0.71375430322,
+        0.7552500872200001,
+        0.73022089522,
+        0.72615325022,
+        0.7225920342200001,
+        0.7507916412200001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

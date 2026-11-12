@@ -1,0 +1,1 @@
+{"bytes": 520551, "digest": "1543f2fbdf6d49f78d3c3452881ce67355b5172cfd2a5a941dcac9b82a31038e", "edges": 8989, "impl": "fnx", "max_seconds": 0.5715599280083552, "mean_seconds": 0.23621351220062933, "median_seconds": 0.26959166799497325, "min_seconds": 0.004652841002098285, "mode": "time", "nodes": 3000, "repeats": 5, "seed": 1}

@@ -1,0 +1,153 @@
+{
+  "suite": "node_connectivity_v1",
+  "mode": "strict",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a"
+    },
+    {
+      "op": "add_node",
+      "node": "b"
+    },
+    {
+      "op": "add_node",
+      "node": "c"
+    },
+    {
+      "op": "add_node",
+      "node": "d"
+    },
+    {
+      "op": "add_node",
+      "node": "e"
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "weight": "5"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {
+        "weight": "1"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {
+        "weight": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "d",
+      "attrs": {
+        "weight": "2"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "c",
+      "right": "d",
+      "attrs": {
+        "weight": "4"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "d",
+      "right": "e",
+      "attrs": {
+        "weight": "6"
+      }
+    },
+    {
+      "op": "node_connectivity_query",
+      "source": "a",
+      "target": "e"
+    },
+    {
+      "op": "minimum_node_cut_query",
+      "source": "a",
+      "target": "e"
+    },
+    {
+      "op": "global_node_connectivity_query"
+    },
+    {
+      "op": "global_minimum_node_cut_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "weight": "5"
+          }
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {
+            "weight": "1"
+          }
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {
+            "weight": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "d",
+          "attrs": {
+            "weight": "2"
+          }
+        },
+        {
+          "left": "c",
+          "right": "d",
+          "attrs": {
+            "weight": "4"
+          }
+        },
+        {
+          "left": "d",
+          "right": "e",
+          "attrs": {
+            "weight": "6"
+          }
+        }
+      ]
+    },
+    "node_connectivity": 1,
+    "minimum_node_cut": [
+      "d"
+    ],
+    "global_node_connectivity": 1,
+    "global_minimum_node_cut": [
+      "d"
+    ]
+  }
+}

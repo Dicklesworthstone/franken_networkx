@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_utc": "2026-04-13T23:29:50.177720+00:00",
+  "source": "demo",
+  "spectrum_k": 15,
+  "fixture_count": 20,
+  "diversity_stats": {
+    "mean_distance": 0.405319,
+    "min_distance": 0.0,
+    "max_distance": 0.990176,
+    "std_distance": 0.227133
+  },
+  "selected_count": 10,
+  "selected_diversity_stats": {
+    "mean_distance": 0.523238,
+    "min_distance": 0.132127,
+    "max_distance": 0.990176,
+    "std_distance": 0.207307
+  },
+  "selected_fixtures": [
+    "path_20",
+    "complete_8",
+    "petersen",
+    "path_50",
+    "star_15",
+    "barabasi_albert_40_3",
+    "complete_12",
+    "grid_7x7",
+    "ladder_10",
+    "erdos_renyi_40_03"
+  ],
+  "distance_matrix_sample": {
+    "path_20": {
+      "path_20": 0.0,
+      "path_50": 0.560076,
+      "cycle_20": 0.057942,
+      "cycle_50": 0.552239,
+      "complete_8": 0.990176
+    },
+    "path_50": {
+      "path_20": 0.560076,
+      "path_50": 0.0,
+      "cycle_20": 0.565453,
+      "cycle_50": 0.013386,
+      "complete_8": 0.628608
+    },
+    "cycle_20": {
+      "path_20": 0.057942,
+      "path_50": 0.565453,
+      "cycle_20": 0.0,
+      "cycle_50": 0.557616,
+      "complete_8": 0.965955
+    },
+    "cycle_50": {
+      "path_20": 0.552239,
+      "path_50": 0.013386,
+      "cycle_20": 0.557616,
+      "cycle_50": 0.0,
+      "complete_8": 0.628675
+    },
+    "complete_8": {
+      "path_20": 0.990176,
+      "path_50": 0.628608,
+      "cycle_20": 0.965955,
+      "cycle_50": 0.628675,
+      "complete_8": 0.0
+    }
+  }
+}

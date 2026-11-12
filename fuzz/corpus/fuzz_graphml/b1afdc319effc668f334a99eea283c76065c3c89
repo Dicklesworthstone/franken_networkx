@@ -1,0 +1,7 @@
+<&xml`Versioooding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org"m/nsl>x
+  "0.0" eattr.name="weight" attr.type="double"/>
+  <graph id="O" edgedefault="undirected">
+    <node id="aG"/>
+    <node id="b"/>
+  <key 

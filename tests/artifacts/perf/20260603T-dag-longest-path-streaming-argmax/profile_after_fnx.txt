@@ -1,0 +1,47 @@
+{"elapsed_s": 0.20199158298783004, "payload": {"path": [5, 25, 42, 79, 83, 116, 125, 149, 151, 192, 266, 289, 299, 333, 383, 393, 394], "path_types": ["int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int", "int"]}, "repeat": 120, "sha256": "76214d0b33d25b721eb1437d081b03fcf320e749ed72ceb521a87215d5ebbb7f"}
+         481086 function calls (480966 primitive calls) in 0.202 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.202    0.202 bench_dag_longest_path.py:37(_time_module)
+      120    0.000    0.000    0.202    0.002 bench_dag_longest_path.py:24(_result_payload)
+  240/120    0.000    0.000    0.202    0.002 __init__.py:43205(wrapper)
+      120    0.003    0.000    0.201    0.002 __init__.py:12580(dag_longest_path)
+      120    0.055    0.000    0.198    0.002 __init__.py:12546(_dag_longest_path_digraph_native)
+    48120    0.048    0.000    0.081    0.000 __init__.py:12434(topological_sort)
+      120    0.035    0.000    0.035    0.000 {method '_native_in_edges_data_key' of 'franken_networkx.DiGraph' objects}
+   199560    0.015    0.000    0.015    0.000 {method 'append' of 'list' objects}
+      120    0.014    0.000    0.014    0.000 {method '_native_adjacency_keys' of 'franken_networkx.DiGraph' objects}
+      360    0.008    0.000    0.008    0.000 __init__.py:29433(__iter__)
+      120    0.004    0.000    0.007    0.000 {built-in method builtins.max}
+    48000    0.004    0.000    0.004    0.000 {method 'popleft' of 'collections.deque' objects}
+    41280    0.003    0.000    0.003    0.000 {method 'append' of 'collections.deque' objects}
+    48000    0.003    0.000    0.003    0.000 __init__.py:12570(<lambda>)
+     6840    0.003    0.000    0.003    0.000 __init__.py:12488(<genexpr>)
+    41280    0.003    0.000    0.003    0.000 {built-in method builtins.iter}
+    41280    0.003    0.000    0.003    0.000 {built-in method builtins.next}
+      720    0.000    0.000    0.001    0.000 __init__.py:29033(_private_override)
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+      360    0.000    0.000    0.000    0.000 __init__.py:5251(predicate)
+      240    0.000    0.000    0.000    0.000 __init__.py:29443(__len__)
+      120    0.000    0.000    0.000    0.000 __init__.py:29835(<lambda>)
+      120    0.000    0.000    0.000    0.000 __init__.py:29112(_private_succ_mapping)
+      840    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      120    0.000    0.000    0.000    0.000 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      840    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 __init__.py:1267(_accessor)
+      480    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      240    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7e378764eb60}
+      240    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      240    0.000    0.000    0.000    0.000 __init__.py:19100(_validate_backend_dispatch_keywords)
+      120    0.000    0.000    0.000    0.000 {method 'reverse' of 'list' objects}
+      120    0.000    0.000    0.000    0.000 {method 'values' of 'dict' objects}
+      120    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x7e378764ec00}
+      120    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        1    0.000    0.000    0.000    0.000 __init__.py:1305(<lambda>)
+        1    0.000    0.000    0.000    0.000 __init__.py:1139(__init__)
+        2    0.000    0.000    0.000    0.000 {built-in method time.perf_counter}
+
+

@@ -1,0 +1,4 @@
+Benchmark 1: python3 tests/artifacts/perf/20260603T-next-residual-sweep/bench_sparse_dtype_none.py sample --case adjacency_weighted --impl fnx --repeats 5 --n 8000 --m 4
+  Time (mean ± σ):     959.7 ms ±  34.4 ms    [User: 4596.9 ms, System: 142.0 ms]
+  Range (min … max):   902.6 ms … 1026.9 ms    15 runs
+ 

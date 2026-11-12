@@ -1,0 +1,5 @@
+MDG_BFS_AB n=400 all_pairs rounds=61 (>1 = CSR faster)
+MDG_BFS_AB CSR_vs_string: median=7.8407x win_rate=61/61 p5_p95=[6.8028,8.7176]
+MDG_BFS_AB NULL_csr_vs_csr: median=1.0078x win_rate=35/61 p5_p95=[0.8457,1.1099]
+parity assert (CSR-BFS == String-BFS) PASSED for every source
+clippy --release -p fnx-python --lib --tests -- -D warnings: CLEAN

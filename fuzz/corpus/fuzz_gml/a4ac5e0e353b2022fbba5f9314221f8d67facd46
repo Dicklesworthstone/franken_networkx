@@ -1,0 +1,5 @@
+graph [
+  directed 1
+  node [ id 0 label "root" ]
+  pode [ id 1 l.5 ]
+]

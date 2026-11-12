@@ -1,0 +1,14 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib relabel_nodes_batch_ab -- --ignored --nocapture
+
+RELABEL_BATCH_AB K60_bijection rounds=61 (>1 = batch faster)
+RELABEL_BATCH_AB BATCH_vs_string: median=2.1256x win_rate=61/61 p5_p95=[1.6582,2.8498]
+RELABEL_BATCH_AB NULL_batch_vs_batch: median=0.9976x win_rate=29/61 p5_p95=[0.8605,1.2106]
+test tests::relabel_nodes_batch_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 976 filtered out; finished in 0.64s
+
+Gate: candidate p5 (1.6582) > NULL p95 (1.2106); 61/61 rounds. Byte-identity parity asserts passed for
+BOTH a bijection mapping AND a node-merging mapping (i -> "m{i/2}", which collapses edges to duplicates +
+self-loops, exercising the inserter's dedup + attr-merge). NOTE: the first A/B run hit a STALE rch test
+binary (0 tests matched); this re-run shows the RELABEL_BATCH_AB marker + test name, confirming a fresh
+binary (per the ab_test_name_must_appear_in_output discipline). Smaller win (2.13x) because relabel is
+|E|-bounded — the win is the per-edge policy record folded to one bulk extend_edges_with_attrs_unrecorded.

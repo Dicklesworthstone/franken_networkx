@@ -1,0 +1,16 @@
+<?xm8"?>
+<gexf version=">."21
+  <graph mode="static" defaultedgeuype="directed">
+    <attributes class="node">
+      <at10"tr"=. encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="a" l.bel="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" target=ibuTe id="0" title="color" type="string"/>
+  >
+  </graph>
+</gexf>

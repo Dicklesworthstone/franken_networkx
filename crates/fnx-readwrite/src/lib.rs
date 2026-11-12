@@ -1,0 +1,10426 @@
+#![forbid(unsafe_code)]
+
+// Risk probability calibration for dispatch requests:
+//
+// 0.03 — Well-tested text formats (edgelist, adjacency list).
+//         Low incompatibility risk because the format is simple and
+//         round-trip tested in conformance fixtures.
+//
+// 0.08 — Structured formats (JSON graph, GML, GraphML).
+//         Moderate risk due to attribute type coercion, XML namespace
+//         handling, and directed/undirected auto-detection heuristics.
+//
+// 0.09 — Complex parse paths (GraphML with attribute keys).
+//         Slightly higher than JSON due to XML parser edge cases.
+//
+// These values feed into decision_theoretic_action() in fnx-dispatch.
+// In strict mode, risk_probability < 0.5 results in Allow.
+// In hardened mode, the threshold is more conservative.
+
+use fnx_classes::digraph::{DiGraph, DiGraphSnapshot};
+use fnx_classes::{AttrMap, Graph, GraphError, GraphSnapshot};
+use fnx_dispatch::{BackendRegistry, BackendSpec, DispatchError, DispatchRequest};
+use fnx_runtime::{
+    CgseValue, CompatibilityMode, DecisionAction, EvidenceLedger, EvidenceTerm, RuntimePolicy,
+};
+use quick_xml::encoding::Decoder;
+use quick_xml::events::attributes::Attribute;
+use quick_xml::events::{BytesDecl, BytesEnd, BytesRef, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer, XmlVersion};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fmt;
+use std::io::Cursor;
+
+#[derive(Debug, Clone)]
+pub struct ReadWriteReport {
+    pub graph: Graph,
+    pub graph_attrs: AttrMap,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DiReadWriteReport {
+    pub graph: DiGraph,
+    pub graph_attrs: AttrMap,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct JsonGraphPayload {
+    pub mode: CompatibilityMode,
+    #[serde(default)]
+    pub directed: Option<bool>,
+    #[serde(default)]
+    pub graph_attrs: AttrMap,
+    pub nodes: Vec<String>,
+    pub edges: Vec<fnx_classes::EdgeSnapshot>,
+}
+
+#[derive(Debug, Serialize)]
+struct BorrowedJsonEdge<'a> {
+    left: &'a str,
+    right: &'a str,
+    attrs: &'a AttrMap,
+}
+
+#[derive(Debug, Serialize)]
+struct BorrowedJsonGraphPayload<'a> {
+    mode: CompatibilityMode,
+    directed: Option<bool>,
+    graph_attrs: &'a AttrMap,
+    nodes: Vec<&'a str>,
+    edges: Vec<BorrowedJsonEdge<'a>>,
+}
+
+fn serialize_digraph_json_graph(
+    graph: &DiGraph,
+    graph_attrs: &AttrMap,
+) -> Result<String, serde_json::Error> {
+    let edges = graph
+        .edges_ordered_borrowed()
+        .into_iter()
+        .map(|(left, right, attrs)| BorrowedJsonEdge { left, right, attrs })
+        .collect();
+    let payload = BorrowedJsonGraphPayload {
+        mode: graph.mode(),
+        directed: Some(true),
+        graph_attrs,
+        nodes: graph.nodes_ordered(),
+        edges,
+    };
+    serde_json::to_string_pretty(&payload)
+}
+
+#[derive(Debug, Clone)]
+struct GraphmlKeyDef {
+    scope: String,
+    name: String,
+    attr_type: String,
+    default: Option<CgseValue>,
+}
+
+#[derive(Debug, Clone)]
+struct GexfAttrDef {
+    class: String,
+    title: String,
+    attr_type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadWriteError {
+    Dispatch(DispatchError),
+    Graph(GraphError),
+    FailClosed {
+        operation: &'static str,
+        reason: String,
+    },
+}
+
+impl fmt::Display for ReadWriteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Dispatch(err) => write!(f, "{err}"),
+            Self::Graph(err) => write!(f, "{err}"),
+            Self::FailClosed { operation, reason } => {
+                write!(f, "readwrite `{operation}` failed closed: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ReadWriteError {}
+
+impl From<DispatchError> for ReadWriteError {
+    fn from(value: DispatchError) -> Self {
+        Self::Dispatch(value)
+    }
+}
+
+impl From<GraphError> for ReadWriteError {
+    fn from(value: GraphError) -> Self {
+        Self::Graph(value)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct EdgeListEngine {
+    mode: CompatibilityMode,
+    dispatch: BackendRegistry,
+    runtime_policy: RuntimePolicy,
+}
+
+impl EdgeListEngine {
+    #[must_use]
+    pub fn new(mode: CompatibilityMode) -> Self {
+        let mut dispatch = BackendRegistry::new(mode);
+        dispatch.register_backend(BackendSpec {
+            name: "native_edgelist".to_owned(),
+            priority: 100,
+            supported_features: [
+                "read_edgelist",
+                "write_edgelist",
+                "read_adjlist",
+                "write_adjlist",
+                "read_json_graph",
+                "write_json_graph",
+                "read_graphml",
+                "write_graphml",
+                "read_gexf",
+                "write_gexf",
+                "read_pajek",
+                "write_pajek",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+            allow_in_strict: true,
+            allow_in_hardened: true,
+        });
+
+        Self {
+            mode,
+            dispatch,
+            runtime_policy: RuntimePolicy::new(mode),
+        }
+    }
+
+    #[must_use]
+    pub fn strict() -> Self {
+        Self::new(CompatibilityMode::Strict)
+    }
+
+    #[must_use]
+    pub fn hardened() -> Self {
+        Self::new(CompatibilityMode::Hardened)
+    }
+
+    #[must_use]
+    pub fn evidence_ledger(&self) -> &EvidenceLedger {
+        self.runtime_policy.decision_log()
+    }
+
+    #[must_use]
+    pub fn runtime_policy(&self) -> &RuntimePolicy {
+        &self.runtime_policy
+    }
+
+    fn finish_graph_report(
+        &self,
+        mut graph: Graph,
+        graph_attrs: AttrMap,
+        warnings: Vec<String>,
+    ) -> ReadWriteReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        ReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        }
+    }
+
+    fn finish_digraph_report(
+        &self,
+        mut graph: DiGraph,
+        graph_attrs: AttrMap,
+        warnings: Vec<String>,
+    ) -> DiReadWriteReport {
+        graph.set_runtime_policy(self.runtime_policy.clone());
+        DiReadWriteReport {
+            graph,
+            graph_attrs,
+            warnings,
+        }
+    }
+
+    pub fn write_edgelist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_edgelist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_edgelist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let edges = graph.edges_ordered_borrowed();
+        let text = encode_edgelist_edges(&edges);
+
+        self.record(
+            "write_edgelist",
+            DecisionAction::Allow,
+            "edgelist serialization completed",
+            0.02,
+        );
+
+        Ok(text)
+    }
+
+    pub fn write_digraph_edgelist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_edgelist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_edgelist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let edges = graph.edges_ordered_borrowed();
+        let text = encode_edgelist_edges(&edges);
+
+        self.record(
+            "write_edgelist",
+            DecisionAction::Allow,
+            "digraph edgelist serialization completed",
+            0.02,
+        );
+
+        Ok(text)
+    }
+
+    pub fn write_adjlist(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_adjlist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let text = encode_adjlist_graph(graph);
+
+        self.record(
+            "write_adjlist",
+            DecisionAction::Allow,
+            "adjlist serialization completed",
+            0.02,
+        );
+
+        Ok(text)
+    }
+
+    pub fn write_digraph_adjlist(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_adjlist"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let text = encode_adjlist_digraph(graph);
+
+        self.record(
+            "write_adjlist",
+            DecisionAction::Allow,
+            "digraph adjlist serialization completed",
+            0.02,
+        );
+
+        Ok(text)
+    }
+
+    pub fn read_edgelist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_edgelist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_edgelist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let left = parts.next();
+            let right = parts.next();
+            let attrs = parts.next();
+            let extra = parts.next();
+            let (left, right) = match (left, right) {
+                (Some(l), Some(r)) if extra.is_none() => (l, r),
+                _ => {
+                    let warning = format!(
+                        "line {} malformed: expected `left right [attrs]`",
+                        line_no + 1
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_edgelist",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                    continue;
+                }
+            };
+
+            if left.is_empty() || right.is_empty() {
+                let warning = format!("line {} malformed endpoints", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_edgelist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let attrs_encoded = attrs.unwrap_or("-");
+            let attrs = decode_attrs(attrs_encoded, self.mode, &mut warnings, line_no + 1)?;
+            graph.add_edge_with_attrs(left, right, attrs)?;
+        }
+
+        self.record(
+            "read_edgelist",
+            DecisionAction::Allow,
+            "edgelist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+    }
+
+    pub fn read_digraph_edgelist(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_edgelist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_edgelist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let left = parts.next();
+            let right = parts.next();
+            let attrs = parts.next();
+            let extra = parts.next();
+            let (left, right) = match (left, right) {
+                (Some(l), Some(r)) if extra.is_none() => (l, r),
+                _ => {
+                    let warning = format!(
+                        "line {} malformed: expected `source target [attrs]`",
+                        line_no + 1
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_edgelist",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                    continue;
+                }
+            };
+
+            if left.is_empty() || right.is_empty() {
+                let warning = format!("line {} malformed endpoints", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_edgelist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_edgelist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_edgelist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let attrs_encoded = attrs.unwrap_or("-");
+            let attrs = decode_attrs(attrs_encoded, self.mode, &mut warnings, line_no + 1)?;
+            graph.add_edge_with_attrs(left, right, attrs)?;
+        }
+
+        self.record(
+            "read_edgelist",
+            DecisionAction::Allow,
+            "digraph edgelist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
+    }
+
+    pub fn read_adjlist(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_adjlist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.populate_adjlist_indexed(&mut graph, &mut warnings, input)?;
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "adjlist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+    }
+
+    /// Parse an undirected adjacency list into first-touch node indices before
+    /// mutating the graph. This preserves the former node/neighbor encounter
+    /// order while replacing per-neighbor owned endpoint clones, graph-map
+    /// lookups, and transient policy records with two ordered batch inserts.
+    fn populate_adjlist_indexed(
+        &mut self,
+        graph: &mut Graph,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError> {
+        let mut node_indices: HashMap<&str, usize> = HashMap::new();
+        let mut ordered_nodes: Vec<&str> = Vec::new();
+        let mut indexed_edges = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+
+            if node.is_empty() {
+                let warning = format!("line {} malformed: missing node id", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_adjlist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_adjlist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_adjlist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let node_index = if let Some(&index) = node_indices.get(node) {
+                index
+            } else {
+                let index = ordered_nodes.len();
+                node_indices.insert(node, index);
+                ordered_nodes.push(node);
+                index
+            };
+            for neighbor in parts {
+                let neighbor_index = if let Some(&index) = node_indices.get(neighbor) {
+                    index
+                } else {
+                    let index = ordered_nodes.len();
+                    node_indices.insert(neighbor, index);
+                    ordered_nodes.push(neighbor);
+                    index
+                };
+                indexed_edges.push((node_index, neighbor_index));
+            }
+        }
+
+        let _ = graph.extend_nodes_unrecorded(ordered_nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        Ok(())
+    }
+
+    pub fn read_digraph_adjlist(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_adjlist".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_adjlist"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+
+        self.populate_digraph_adjlist_indexed(&mut graph, &mut warnings, input)?;
+
+        self.record(
+            "read_adjlist",
+            DecisionAction::Allow,
+            "digraph adjlist parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
+    }
+
+    /// Parse a directed adjacency list into first-touch node indices before
+    /// mutating the graph. Directed pairs retain token order while avoiding
+    /// per-neighbor owned endpoint clones, graph-map lookups, and transient
+    /// policy records.
+    fn populate_digraph_adjlist_indexed(
+        &mut self,
+        graph: &mut DiGraph,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError> {
+        let mut node_indices: HashMap<&str, usize> = HashMap::new();
+        let mut ordered_nodes: Vec<&str> = Vec::new();
+        let mut indexed_edges = Vec::new();
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+
+            if node.is_empty() {
+                let warning = format!("line {} malformed: missing node id", line_no + 1);
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_adjlist", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_adjlist",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_adjlist", DecisionAction::FullValidate, &warning, 0.7);
+                continue;
+            }
+
+            let node_index = if let Some(&index) = node_indices.get(node) {
+                index
+            } else {
+                let index = ordered_nodes.len();
+                node_indices.insert(node, index);
+                ordered_nodes.push(node);
+                index
+            };
+            for neighbor in parts {
+                let neighbor_index = if let Some(&index) = node_indices.get(neighbor) {
+                    index
+                } else {
+                    let index = ordered_nodes.len();
+                    node_indices.insert(neighbor, index);
+                    ordered_nodes.push(neighbor);
+                    index
+                };
+                indexed_edges.push((node_index, neighbor_index));
+            }
+        }
+
+        let _ = graph.extend_nodes_unrecorded(ordered_nodes);
+        let _ = graph.extend_existing_index_edges_unrecorded(indexed_edges);
+        Ok(())
+    }
+
+    pub fn write_json_graph(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_json_graph_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_json_graph_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_json_graph"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let snapshot = graph.snapshot();
+        let payload = JsonGraphPayload {
+            mode: snapshot.mode,
+            directed: Some(false),
+            graph_attrs: graph_attrs.clone(),
+            nodes: snapshot.nodes,
+            edges: snapshot.edges,
+        };
+        let serialized =
+            serde_json::to_string_pretty(&payload).map_err(|err| ReadWriteError::FailClosed {
+                operation: "write_json_graph",
+                reason: format!("json serialization failed: {err}"),
+            })?;
+
+        self.record(
+            "write_json_graph",
+            DecisionAction::Allow,
+            "json graph serialization completed",
+            0.02,
+        );
+        Ok(serialized)
+    }
+
+    pub fn write_digraph_json_graph(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_json_graph_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_json_graph_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_json_graph"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let serialized = serialize_digraph_json_graph(graph, graph_attrs).map_err(|err| {
+            ReadWriteError::FailClosed {
+                operation: "write_json_graph",
+                reason: format!("json serialization failed: {err}"),
+            }
+        })?;
+
+        self.record(
+            "write_json_graph",
+            DecisionAction::Allow,
+            "digraph json graph serialization completed",
+            0.02,
+        );
+        Ok(serialized)
+    }
+
+    pub fn read_json_graph(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_json_graph"]),
+            risk_probability: 0.09,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let parsed: JsonGraphPayload = match serde_json::from_str(input) {
+            Ok(value) => value,
+            Err(err) => match serde_json::from_str::<GraphSnapshot>(input) {
+                Ok(legacy) => JsonGraphPayload {
+                    mode: legacy.mode,
+                    directed: Some(false),
+                    graph_attrs: AttrMap::new(),
+                    nodes: legacy.nodes,
+                    edges: legacy.edges,
+                },
+                Err(_) => {
+                    let warning = format!("json parse error: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_json_graph",
+                            reason: warning,
+                        });
+                    }
+                    self.record(
+                        "read_json_graph",
+                        DecisionAction::FullValidate,
+                        &warning,
+                        0.8,
+                    );
+                    return Ok(self.finish_graph_report(
+                        Graph::new(self.mode),
+                        AttrMap::new(),
+                        vec![warning],
+                    ));
+                }
+            },
+        };
+
+        let mut warnings = Vec::new();
+        if parsed.directed == Some(true) {
+            let warning = "json graph directed=true but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_json_graph",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record(
+                "read_json_graph",
+                DecisionAction::FullValidate,
+                &warning,
+                0.7,
+            );
+        }
+        let mut graph = Graph::new(self.mode);
+        for node in parsed.nodes {
+            if node.is_empty() {
+                let warning = "empty node id in json graph".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.7,
+                );
+                continue;
+            }
+            let _ = graph.add_node(node);
+        }
+        for edge in parsed.edges {
+            if edge.left.is_empty() || edge.right.is_empty() {
+                let warning = "empty edge endpoint in json graph".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.7,
+                );
+                continue;
+            }
+            graph.add_edge_with_attrs(edge.left, edge.right, edge.attrs)?;
+        }
+
+        self.record(
+            "read_json_graph",
+            DecisionAction::Allow,
+            "json graph parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, parsed.graph_attrs, warnings))
+    }
+
+    pub fn read_digraph_json_graph(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_json_graph"]),
+            risk_probability: 0.09,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let parsed: JsonGraphPayload = match serde_json::from_str(input) {
+            Ok(value) => value,
+            Err(err) => match serde_json::from_str::<DiGraphSnapshot>(input) {
+                Ok(legacy) => JsonGraphPayload {
+                    mode: legacy.mode,
+                    directed: Some(true),
+                    graph_attrs: AttrMap::new(),
+                    nodes: legacy.nodes,
+                    edges: legacy.edges,
+                },
+                Err(_) => {
+                    let warning = format!("json parse error: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_json_graph",
+                            reason: warning,
+                        });
+                    }
+                    self.record(
+                        "read_json_graph",
+                        DecisionAction::FullValidate,
+                        &warning,
+                        0.8,
+                    );
+                    return Ok(self.finish_digraph_report(
+                        DiGraph::new(self.mode),
+                        AttrMap::new(),
+                        vec![warning],
+                    ));
+                }
+            },
+        };
+
+        let mut warnings = Vec::new();
+        if parsed.directed == Some(false) {
+            let warning = "json graph directed=false but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_json_graph",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record(
+                "read_json_graph",
+                DecisionAction::FullValidate,
+                &warning,
+                0.7,
+            );
+        }
+        let mut graph = DiGraph::new(self.mode);
+        for node in parsed.nodes {
+            if node.is_empty() {
+                let warning = "empty node id in json graph".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.7,
+                );
+                continue;
+            }
+            let _ = graph.add_node(node);
+        }
+        for edge in parsed.edges {
+            if edge.left.is_empty() || edge.right.is_empty() {
+                let warning = "empty edge endpoint in json graph".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_json_graph", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record(
+                    "read_json_graph",
+                    DecisionAction::FullValidate,
+                    &warning,
+                    0.7,
+                );
+                continue;
+            }
+            graph.add_edge_with_attrs(edge.left, edge.right, edge.attrs)?;
+        }
+
+        self.record(
+            "read_json_graph",
+            DecisionAction::Allow,
+            "digraph json graph parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_digraph_report(graph, parsed.graph_attrs, warnings))
+    }
+
+    pub fn write_graphml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_graphml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_graphml_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_graphml"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_graphml_impl(graph, graph_attrs, false)
+    }
+
+    pub fn write_digraph_graphml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_graphml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_graphml_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_graphml"]),
+            risk_probability: 0.03,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_graphml_impl(graph, graph_attrs, true)
+    }
+
+    fn write_graphml_impl<G>(
+        &mut self,
+        graph: &G,
+        graph_attrs: &AttrMap,
+        directed: bool,
+    ) -> Result<String, ReadWriteError>
+    where
+        G: GraphLikeRead,
+    {
+        let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
+            .map_err(|e| xml_write_err("xml_decl", e))?;
+
+        let mut graphml_start = BytesStart::new("graphml");
+        graphml_start.push_attribute(("xmlns", "http://graphml.graphdrawing.org/xmlns"));
+        graphml_start.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+        graphml_start.push_attribute((
+            "xsi:schemaLocation",
+            "http://graphml.graphdrawing.org/xmlns http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd",
+        ));
+        writer
+            .write_event(Event::Start(graphml_start))
+            .map_err(|e| xml_write_err("graphml_start", e))?;
+
+        let mut node_defaults = AttrMap::new();
+        let mut edge_defaults = AttrMap::new();
+        if let Some(value) = graph_attrs.get("node_default") {
+            match value {
+                CgseValue::Map(map) => {
+                    node_defaults = map.clone();
+                }
+                _ => {
+                    let warning = format!(
+                        "graphml node_default must be a map: value={}",
+                        value.as_str()
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "write_graphml",
+                            reason: warning,
+                        });
+                    }
+                    self.record("write_graphml", DecisionAction::FullValidate, &warning, 0.6);
+                }
+            }
+        }
+        if let Some(value) = graph_attrs.get("edge_default") {
+            match value {
+                CgseValue::Map(map) => {
+                    edge_defaults = map.clone();
+                }
+                _ => {
+                    let warning = format!(
+                        "graphml edge_default must be a map: value={}",
+                        value.as_str()
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "write_graphml",
+                            reason: warning,
+                        });
+                    }
+                    self.record("write_graphml", DecisionAction::FullValidate, &warning, 0.6);
+                }
+            }
+        }
+
+        // Collect all distinct attribute keys from graph, nodes, and edges.
+        let mut graph_attr_keys = BTreeSet::new();
+        let mut node_attr_keys: BTreeSet<(String, GraphmlValueType)> = BTreeSet::new();
+        let mut edge_attr_keys: BTreeSet<(String, GraphmlValueType)> = BTreeSet::new();
+
+        for key in graph_attrs.keys() {
+            if key == "node_default" || key == "edge_default" {
+                continue;
+            }
+            graph_attr_keys.insert(key.clone());
+        }
+
+        let nodes = graph.nodes_ordered();
+        for node_id in &nodes {
+            if let Some(attrs) = graph.node_attrs(node_id) {
+                for (key, value) in attrs {
+                    node_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
+                }
+            }
+        }
+
+        for (key, value) in &node_defaults {
+            node_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
+        }
+
+        let edges = graph.edges_ordered_borrowed();
+        for &(_left, _right, attrs) in &edges {
+            for (key, value) in attrs {
+                edge_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
+            }
+        }
+
+        for (key, value) in &edge_defaults {
+            edge_attr_keys.insert((key.clone(), GraphmlValueType::from_value(value)));
+        }
+
+        // Emit <key> declarations for graph attributes.
+        let mut key_counter = 0_usize;
+        let mut graph_key_ids: BTreeMap<String, String> = BTreeMap::new();
+        for attr_name in &graph_attr_keys {
+            let key_id = format!("g{key_counter}");
+            key_counter += 1;
+            let mut key_elem = BytesStart::new("key");
+            key_elem.push_attribute(("id", key_id.as_str()));
+            key_elem.push_attribute(("for", "graph"));
+            key_elem.push_attribute(("attr.name", attr_name.as_str()));
+            key_elem.push_attribute(("attr.type", graphml_attr_type(&graph_attrs[attr_name])));
+            writer
+                .write_event(Event::Empty(key_elem))
+                .map_err(|e| xml_write_err("key_graph", e))?;
+            graph_key_ids.insert(attr_name.clone(), key_id);
+        }
+
+        // Emit <key> declarations for node attributes.
+        let mut node_key_ids: BTreeMap<(String, GraphmlValueType), String> = BTreeMap::new();
+        for (attr_name, attr_type) in &node_attr_keys {
+            let key_id = format!("n{key_counter}");
+            key_counter += 1;
+            let mut key_elem = BytesStart::new("key");
+            key_elem.push_attribute(("id", key_id.as_str()));
+            key_elem.push_attribute(("for", "node"));
+            key_elem.push_attribute(("attr.name", attr_name.as_str()));
+            key_elem.push_attribute(("attr.type", attr_type.as_str()));
+            let default_value = node_defaults
+                .get(attr_name)
+                .filter(|&value| GraphmlValueType::from_value(value) == *attr_type);
+            if let Some(default_value) = default_value {
+                writer
+                    .write_event(Event::Start(key_elem))
+                    .map_err(|e| xml_write_err("key_node_start", e))?;
+                let default_elem = BytesStart::new("default");
+                writer
+                    .write_event(Event::Start(default_elem))
+                    .map_err(|e| xml_write_err("key_node_default_start", e))?;
+                let default_text = default_value.as_str();
+                writer
+                    .write_event(Event::Text(BytesText::new(&default_text)))
+                    .map_err(|e| xml_write_err("key_node_default_text", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("default")))
+                    .map_err(|e| xml_write_err("key_node_default_end", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("key")))
+                    .map_err(|e| xml_write_err("key_node_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(key_elem))
+                    .map_err(|e| xml_write_err("key_node", e))?;
+            }
+            node_key_ids.insert((attr_name.clone(), *attr_type), key_id);
+        }
+
+        // Emit <key> declarations for edge attributes.
+        let mut edge_key_ids: BTreeMap<(String, GraphmlValueType), String> = BTreeMap::new();
+        for (attr_name, attr_type) in &edge_attr_keys {
+            let key_id = format!("e{key_counter}");
+            key_counter += 1;
+            let mut key_elem = BytesStart::new("key");
+            key_elem.push_attribute(("id", key_id.as_str()));
+            key_elem.push_attribute(("for", "edge"));
+            key_elem.push_attribute(("attr.name", attr_name.as_str()));
+            key_elem.push_attribute(("attr.type", attr_type.as_str()));
+            let default_value = edge_defaults
+                .get(attr_name)
+                .filter(|&value| GraphmlValueType::from_value(value) == *attr_type);
+            if let Some(default_value) = default_value {
+                writer
+                    .write_event(Event::Start(key_elem))
+                    .map_err(|e| xml_write_err("key_edge_start", e))?;
+                let default_elem = BytesStart::new("default");
+                writer
+                    .write_event(Event::Start(default_elem))
+                    .map_err(|e| xml_write_err("key_edge_default_start", e))?;
+                let default_text = default_value.as_str();
+                writer
+                    .write_event(Event::Text(BytesText::new(&default_text)))
+                    .map_err(|e| xml_write_err("key_edge_default_text", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("default")))
+                    .map_err(|e| xml_write_err("key_edge_default_end", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("key")))
+                    .map_err(|e| xml_write_err("key_edge_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(key_elem))
+                    .map_err(|e| xml_write_err("key_edge", e))?;
+            }
+            edge_key_ids.insert((attr_name.clone(), *attr_type), key_id);
+        }
+
+        // Emit <graph> element.
+        let mut graph_elem = BytesStart::new("graph");
+        graph_elem.push_attribute(("id", "G"));
+        graph_elem.push_attribute((
+            "edgedefault",
+            if directed { "directed" } else { "undirected" },
+        ));
+        writer
+            .write_event(Event::Start(graph_elem))
+            .map_err(|e| xml_write_err("graph_start", e))?;
+
+        for (attr_name, attr_value) in graph_attrs {
+            if attr_name == "node_default" || attr_name == "edge_default" {
+                continue;
+            }
+            if let Some(key_id) = graph_key_ids.get(attr_name) {
+                let mut data_elem = BytesStart::new("data");
+                data_elem.push_attribute(("key", key_id.as_str()));
+                writer
+                    .write_event(Event::Start(data_elem))
+                    .map_err(|e| xml_write_err("graph_data_start", e))?;
+                let attr_text = attr_value.as_str();
+                writer
+                    .write_event(Event::Text(BytesText::new(&attr_text)))
+                    .map_err(|e| xml_write_err("graph_data_text", e))?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("data")))
+                    .map_err(|e| xml_write_err("graph_data_end", e))?;
+            }
+        }
+
+        // Emit <node> elements.
+        for node_id in &nodes {
+            let node_attrs = graph.node_attrs(node_id);
+            let has_data = node_attrs.is_some_and(|a| !a.is_empty());
+            let mut node_elem = BytesStart::new("node");
+            node_elem.push_attribute(("id", *node_id));
+
+            if has_data {
+                writer
+                    .write_event(Event::Start(node_elem))
+                    .map_err(|e| xml_write_err("node_start", e))?;
+                if let Some(attrs) = node_attrs {
+                    for (attr_name, attr_value) in attrs {
+                        let attr_type = GraphmlValueType::from_value(attr_value);
+                        let key = (attr_name.clone(), attr_type);
+                        let key_id =
+                            node_key_ids
+                                .get(&key)
+                                .ok_or_else(|| ReadWriteError::FailClosed {
+                                    operation: "write_graphml",
+                                    reason: format!(
+                                        "graphml node key not declared: name={attr_name} type={:?}",
+                                        attr_type
+                                    ),
+                                })?;
+                        let mut data_elem = BytesStart::new("data");
+                        data_elem.push_attribute(("key", key_id.as_str()));
+                        writer
+                            .write_event(Event::Start(data_elem))
+                            .map_err(|e| xml_write_err("data_start", e))?;
+                        let attr_text = attr_value.as_str();
+                        writer
+                            .write_event(Event::Text(BytesText::new(&attr_text)))
+                            .map_err(|e| xml_write_err("data_text", e))?;
+                        writer
+                            .write_event(Event::End(BytesEnd::new("data")))
+                            .map_err(|e| xml_write_err("data_end", e))?;
+                    }
+                }
+                writer
+                    .write_event(Event::End(BytesEnd::new("node")))
+                    .map_err(|e| xml_write_err("node_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(node_elem))
+                    .map_err(|e| xml_write_err("node_empty", e))?;
+            }
+        }
+
+        // Emit <edge> elements.
+        for &(left, right, attrs) in &edges {
+            let has_data = !attrs.is_empty();
+            let mut edge_elem = BytesStart::new("edge");
+            edge_elem.push_attribute(("source", left));
+            edge_elem.push_attribute(("target", right));
+
+            if has_data {
+                writer
+                    .write_event(Event::Start(edge_elem))
+                    .map_err(|e| xml_write_err("edge_start", e))?;
+                for (attr_name, attr_value) in attrs {
+                    let attr_type = GraphmlValueType::from_value(attr_value);
+                    let key = (attr_name.clone(), attr_type);
+                    let key_id =
+                        edge_key_ids
+                            .get(&key)
+                            .ok_or_else(|| ReadWriteError::FailClosed {
+                                operation: "write_graphml",
+                                reason: format!(
+                                    "graphml edge key not declared: name={attr_name} type={:?}",
+                                    attr_type
+                                ),
+                            })?;
+                    let mut data_elem = BytesStart::new("data");
+                    data_elem.push_attribute(("key", key_id.as_str()));
+                    writer
+                        .write_event(Event::Start(data_elem))
+                        .map_err(|e| xml_write_err("data_start", e))?;
+                    let attr_text = attr_value.as_str();
+                    writer
+                        .write_event(Event::Text(BytesText::new(&attr_text)))
+                        .map_err(|e| xml_write_err("data_text", e))?;
+                    writer
+                        .write_event(Event::End(BytesEnd::new("data")))
+                        .map_err(|e| xml_write_err("data_end", e))?;
+                }
+                writer
+                    .write_event(Event::End(BytesEnd::new("edge")))
+                    .map_err(|e| xml_write_err("edge_end", e))?;
+            } else {
+                writer
+                    .write_event(Event::Empty(edge_elem))
+                    .map_err(|e| xml_write_err("edge_empty", e))?;
+            }
+        }
+
+        writer
+            .write_event(Event::End(BytesEnd::new("graph")))
+            .map_err(|e| xml_write_err("graph_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("graphml")))
+            .map_err(|e| xml_write_err("graphml_end", e))?;
+
+        let result = writer.into_inner().into_inner();
+        let output = String::from_utf8(result).map_err(|e| ReadWriteError::FailClosed {
+            operation: "write_graphml",
+            reason: format!("UTF-8 encoding error: {e}"),
+        })?;
+
+        self.record(
+            "write_graphml",
+            DecisionAction::Allow,
+            "graphml serialization completed",
+            0.02,
+        );
+
+        Ok(output)
+    }
+
+    pub fn read_graphml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.read_graphml_report(input, false)
+    }
+
+    /// Apply native GraphML validation for a richer downstream decoder.
+    /// The returned simple graph is only a policy carrier/projection, NOT a
+    /// decoded multigraph. Parallel-edge attributes are all validated, and the
+    /// ledger marks when reconstructing the original multigraph is required.
+    pub fn validate_graphml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.read_graphml_report(input, true)
+    }
+
+    fn read_graphml_report(
+        &mut self,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_graphml"]),
+            risk_probability: 0.10,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.graphml_directed_flag(input)?;
+        if let Some(warning) = directed.warning.as_ref() {
+            warnings.push(warning.clone());
+        }
+
+        if directed.declared && directed.value {
+            let warning = "graphml declares directed but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_graphml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+        }
+
+        self.read_graphml_into(
+            &mut graph,
+            &mut graph_attrs,
+            &mut warnings,
+            input,
+            validation_only,
+        )?;
+
+        self.record(
+            "read_graphml",
+            DecisionAction::Allow,
+            "graphml parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, graph_attrs, warnings))
+    }
+
+    pub fn graphml_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
+        self.graphml_directed_flag(input).map(|flag| flag.value)
+    }
+
+    fn graphml_directed_flag(
+        &mut self,
+        input: &str,
+    ) -> Result<GraphmlDirectedFlag, ReadWriteError> {
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+        let mut buffer = Vec::new();
+
+        loop {
+            match reader.read_event_into(&mut buffer) {
+                Ok(Event::Start(element)) | Ok(Event::Empty(element))
+                    if xml_local_name(element.name().as_ref()) == b"graph" =>
+                {
+                    let mut declared = false;
+                    let mut value = false;
+                    for attr in element.attributes() {
+                        let attr = match attr {
+                            Ok(attr) => attr,
+                            Err(err) => {
+                                let warning = format!("graphml attribute parse error: {err}");
+                                if self.mode == CompatibilityMode::Strict {
+                                    self.record(
+                                        "read_graphml",
+                                        DecisionAction::FailClosed,
+                                        &warning,
+                                        1.0,
+                                    );
+                                    return Err(ReadWriteError::FailClosed {
+                                        operation: "read_graphml",
+                                        reason: warning,
+                                    });
+                                }
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.7,
+                                );
+                                return Ok(GraphmlDirectedFlag {
+                                    declared: false,
+                                    value: false,
+                                    warning: Some(warning),
+                                });
+                            }
+                        };
+                        if xml_local_name(attr.key.as_ref()) == b"edgedefault" {
+                            declared = true;
+                            match parse_graphml_edgedefault_value(attr.value.as_ref()) {
+                                Some(flag) => {
+                                    value = flag;
+                                    break;
+                                }
+                                None => {
+                                    let warning = format!(
+                                        "graphml edgedefault invalid: value={:?}",
+                                        String::from_utf8_lossy(attr.value.as_ref())
+                                    );
+                                    if self.mode == CompatibilityMode::Strict {
+                                        self.record(
+                                            "read_graphml",
+                                            DecisionAction::FailClosed,
+                                            &warning,
+                                            1.0,
+                                        );
+                                        return Err(ReadWriteError::FailClosed {
+                                            operation: "read_graphml",
+                                            reason: warning,
+                                        });
+                                    }
+                                    self.record(
+                                        "read_graphml",
+                                        DecisionAction::FullValidate,
+                                        &warning,
+                                        0.7,
+                                    );
+                                    return Ok(GraphmlDirectedFlag {
+                                        declared: false,
+                                        value: false,
+                                        warning: Some(warning),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    if !declared {
+                        let warning = "graphml missing edgedefault attribute".to_owned();
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok(GraphmlDirectedFlag {
+                            declared: false,
+                            value: false,
+                            warning: Some(warning),
+                        });
+                    }
+                    return Ok(GraphmlDirectedFlag {
+                        declared,
+                        value,
+                        warning: None,
+                    });
+                }
+                Ok(Event::Eof) => {
+                    return Ok(GraphmlDirectedFlag {
+                        declared: false,
+                        value: false,
+                        warning: None,
+                    });
+                }
+                Err(err) => {
+                    let warning = format!("graphml directed detection failed: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(GraphmlDirectedFlag {
+                        declared: false,
+                        value: false,
+                        warning: Some(warning),
+                    });
+                }
+                _ => {}
+            }
+            buffer.clear();
+        }
+    }
+
+    pub fn read_digraph_graphml(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.read_digraph_graphml_report(input, false)
+    }
+
+    /// Directed twin of `validate_graphml`; this is not a decoded multigraph.
+    pub fn validate_digraph_graphml(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.read_digraph_graphml_report(input, true)
+    }
+
+    fn read_digraph_graphml_report(
+        &mut self,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_graphml".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_graphml"]),
+            risk_probability: 0.10,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.graphml_directed_flag(input)?;
+        if let Some(warning) = directed.warning.as_ref() {
+            warnings.push(warning.clone());
+        }
+
+        if directed.declared && !directed.value {
+            let warning = "graphml declares undirected but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_graphml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+        }
+
+        self.read_graphml_into(
+            &mut graph,
+            &mut graph_attrs,
+            &mut warnings,
+            input,
+            validation_only,
+        )?;
+
+        self.record(
+            "read_graphml",
+            DecisionAction::Allow,
+            "digraph graphml parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_digraph_report(graph, graph_attrs, warnings))
+    }
+
+    fn read_graphml_into<G>(
+        &mut self,
+        graph: &mut G,
+        graph_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        let mut key_registry: BTreeMap<String, GraphmlKeyDef> = BTreeMap::new();
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+
+        let mut in_graph = false;
+        let mut current_key_id: Option<String> = None;
+        let mut current_key_default_key: Option<String> = None;
+        let mut current_key_default_text = String::new();
+        let mut current_node: Option<String> = None;
+        let mut current_edge: Option<(String, String)> = None;
+        let mut current_data_key: Option<String> = None;
+        let mut current_data_text = String::new();
+        let mut current_data_has_children = false;
+        let mut current_edge_directed: Option<bool> = None;
+        let mut current_edge_skip = false;
+
+        let mut graphml_node_defaults: AttrMap = AttrMap::new();
+        let mut graphml_edge_defaults: AttrMap = AttrMap::new();
+        let mut graphml_graph_defaults: AttrMap = AttrMap::new();
+
+        let mut pending_graph_attrs: AttrMap = AttrMap::new();
+        let mut pending_node_attrs: AttrMap = AttrMap::new();
+        let mut pending_edge_attrs: AttrMap = AttrMap::new();
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(ref e)) => {
+                    let name = e.name();
+                    let local = xml_local_name(name.as_ref());
+                    if local == b"data" {
+                        current_data_has_children = false;
+                    } else if current_data_key.is_some() {
+                        current_data_has_children = true;
+                        current_data_text.clear();
+                    }
+                    self.handle_graphml_start_element(
+                        e,
+                        graph,
+                        warnings,
+                        &mut key_registry,
+                        &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
+                        &graphml_node_defaults,
+                        &graphml_edge_defaults,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut pending_graph_attrs,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        validation_only,
+                    )?;
+                }
+                Ok(Event::Empty(ref e)) => {
+                    let name = e.name();
+                    let local = xml_local_name(name.as_ref());
+                    if local == b"data" {
+                        current_data_has_children = false;
+                    } else if current_data_key.is_some() {
+                        current_data_has_children = true;
+                        current_data_text.clear();
+                    }
+                    self.handle_graphml_start_element(
+                        e,
+                        graph,
+                        warnings,
+                        &mut key_registry,
+                        &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
+                        &graphml_node_defaults,
+                        &graphml_edge_defaults,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut pending_graph_attrs,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        validation_only,
+                    )?;
+                    self.handle_graphml_end_element(
+                        xml_local_name(e.name().as_ref()),
+                        graph,
+                        warnings,
+                        &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut current_data_has_children,
+                        &mut graphml_node_defaults,
+                        &mut graphml_edge_defaults,
+                        &mut graphml_graph_defaults,
+                        &mut pending_graph_attrs,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        graph_attrs,
+                        &mut key_registry,
+                    )?;
+                }
+                Ok(Event::Text(ref e))
+                    if current_data_key.is_some() && !current_data_has_children =>
+                {
+                    match decode_graphml_text_content(e) {
+                        Ok(text) => current_data_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml data text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_data_text.clear();
+                            current_data_key = None;
+                        }
+                    }
+                }
+                Ok(Event::GeneralRef(ref e))
+                    if current_data_key.is_some() && !current_data_has_children =>
+                {
+                    match decode_graphml_entity_ref(e) {
+                        Ok(text) => current_data_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml data text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_data_text.clear();
+                            current_data_key = None;
+                        }
+                    }
+                }
+                Ok(Event::Text(ref e)) if current_key_default_key.is_some() => {
+                    match decode_graphml_text_content(e) {
+                        Ok(text) => current_key_default_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml default text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_key_default_text.clear();
+                            current_key_default_key = None;
+                        }
+                    }
+                }
+                Ok(Event::GeneralRef(ref e)) if current_key_default_key.is_some() => {
+                    match decode_graphml_entity_ref(e) {
+                        Ok(text) => current_key_default_text.push_str(&text),
+                        Err(err) => {
+                            let warning = format!("graphml default text unescape error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.8,
+                            );
+                            current_key_default_text.clear();
+                            current_key_default_key = None;
+                        }
+                    }
+                }
+                Ok(Event::End(ref e)) => {
+                    self.handle_graphml_end_element(
+                        xml_local_name(e.name().as_ref()),
+                        graph,
+                        warnings,
+                        &mut in_graph,
+                        &mut current_key_id,
+                        &mut current_key_default_key,
+                        &mut current_key_default_text,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_directed,
+                        &mut current_edge_skip,
+                        &mut current_data_key,
+                        &mut current_data_text,
+                        &mut current_data_has_children,
+                        &mut graphml_node_defaults,
+                        &mut graphml_edge_defaults,
+                        &mut graphml_graph_defaults,
+                        &mut pending_graph_attrs,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        graph_attrs,
+                        &mut key_registry,
+                    )?;
+                }
+                Ok(Event::Eof) => break,
+                Err(e) => {
+                    let warning = format!("graphml xml parse error: {e}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        graph.apply_node_defaults(&graphml_node_defaults);
+        graph.apply_edge_defaults(&graphml_edge_defaults);
+        for (key, value) in &graphml_graph_defaults {
+            if !graph_attrs.contains_key(key) {
+                graph_attrs.insert(key.clone(), value.clone());
+            }
+        }
+
+        let mut combined_graph_attrs = AttrMap::new();
+        combined_graph_attrs.insert(
+            "node_default".to_owned(),
+            CgseValue::Map(std::mem::take(&mut graphml_node_defaults)),
+        );
+        combined_graph_attrs.insert(
+            "edge_default".to_owned(),
+            CgseValue::Map(std::mem::take(&mut graphml_edge_defaults)),
+        );
+        combined_graph_attrs.extend(std::mem::take(graph_attrs));
+        *graph_attrs = combined_graph_attrs;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_graphml_start_element<G>(
+        &mut self,
+        e: &BytesStart<'_>,
+        graph: &mut G,
+        warnings: &mut Vec<String>,
+        key_registry: &mut BTreeMap<String, GraphmlKeyDef>,
+        in_graph: &mut bool,
+        current_key_id: &mut Option<String>,
+        current_key_default_key: &mut Option<String>,
+        current_key_default_text: &mut String,
+        graphml_node_defaults: &AttrMap,
+        graphml_edge_defaults: &AttrMap,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_edge_directed: &mut Option<bool>,
+        current_edge_skip: &mut bool,
+        current_data_key: &mut Option<String>,
+        current_data_text: &mut String,
+        pending_graph_attrs: &mut AttrMap,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+        validation_only: bool,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        let tag_name = e.name();
+        let local = xml_local_name(tag_name.as_ref());
+        match local {
+            b"key" => {
+                let mut key_id = String::new();
+                let mut for_scope = String::new();
+                let mut attr_name = String::new();
+                let mut attr_type = String::new();
+                let mut yfiles_type = String::new();
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml key attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"id" => {
+                            key_id = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"for" => {
+                            for_scope = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"attr.name" => {
+                            attr_name = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"attr.type" => {
+                            attr_type = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"yfiles.type" => {
+                            yfiles_type = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        _ => {}
+                    }
+                }
+                if attr_name.is_empty() && !yfiles_type.is_empty() {
+                    attr_name = yfiles_type;
+                    if attr_type.is_empty() {
+                        attr_type = "string".to_owned();
+                    }
+                }
+                if key_id.is_empty() {
+                    let warning = "graphml key missing id attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                if attr_name.is_empty() {
+                    let warning = format!("graphml key missing attr.name: id={key_id}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                if attr_type.trim().is_empty() {
+                    let warning =
+                        format!("graphml key missing attr.type: id={key_id} name={attr_name}");
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.6);
+                    attr_type = "string".to_owned();
+                }
+                // br-r37-c1-rc0923-epic-silent-wrong-answers-nro4w.3: networkx's
+                // GraphMLReader only knows these type names (case-sensitive
+                // ``self.python_type[attr_type]``) and raises KeyError on any
+                // other, e.g. ``attr.type="complex"``. Strict fails closed like
+                // it; hardened reads the value as a string and records why —
+                // instead of both modes silently accepting it.
+                const NX_GRAPHML_TYPES: [&str; 8] = [
+                    "integer", "yfiles", "string", "int", "long", "float", "double", "boolean",
+                ];
+                if !NX_GRAPHML_TYPES.contains(&attr_type.as_str()) {
+                    let warning = format!(
+                        "graphml key has unsupported attr.type `{attr_type}`: id={key_id} name={attr_name}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    attr_type = "string".to_owned();
+                }
+                key_registry.insert(
+                    key_id.clone(),
+                    GraphmlKeyDef {
+                        scope: for_scope,
+                        name: attr_name,
+                        attr_type,
+                        default: None,
+                    },
+                );
+                *current_key_id = Some(key_id);
+                *current_key_default_key = None;
+                current_key_default_text.clear();
+            }
+            b"default" => {
+                if let Some(key_id) = current_key_id.clone() {
+                    *current_key_default_key = Some(key_id);
+                    current_key_default_text.clear();
+                }
+            }
+            b"hyperedge" => {
+                let warning = "graphml reader does not support hyperedges".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_graphml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+            }
+            b"graph" => {
+                *in_graph = true;
+                pending_graph_attrs.clear();
+            }
+            b"node" if *in_graph => {
+                let mut node_id = String::new();
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml node attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    if xml_local_name(attr.key.as_ref()) == b"id" {
+                        node_id = String::from_utf8_lossy(&attr.value).into_owned();
+                    }
+                }
+                if node_id.is_empty() {
+                    let warning = "graphml node missing id attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                let _ = graph.add_node(node_id.clone());
+                *current_node = Some(node_id);
+                *pending_node_attrs = graphml_node_defaults.clone();
+            }
+            b"edge" if *in_graph => {
+                let mut source = String::new();
+                let mut target = String::new();
+                let mut edge_id_attr: Option<String> = None;
+                *current_edge_directed = None;
+                *current_edge_skip = false;
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml edge attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"source" => {
+                            source = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"target" => {
+                            target = String::from_utf8_lossy(&attr.value).into_owned();
+                        }
+                        b"directed" => {
+                            let directed_value = parse_graphml_directed_value(attr.value.as_ref());
+                            match directed_value {
+                                Some(parsed) => {
+                                    *current_edge_directed = Some(parsed);
+                                }
+                                None => {
+                                    let warning = format!(
+                                        "graphml edge directed attribute invalid: value={:?}",
+                                        String::from_utf8_lossy(&attr.value)
+                                    );
+                                    if self.mode == CompatibilityMode::Strict {
+                                        self.record(
+                                            "read_graphml",
+                                            DecisionAction::FailClosed,
+                                            &warning,
+                                            1.0,
+                                        );
+                                        return Err(ReadWriteError::FailClosed {
+                                            operation: "read_graphml",
+                                            reason: warning,
+                                        });
+                                    }
+                                    warnings.push(warning.clone());
+                                    self.record(
+                                        "read_graphml",
+                                        DecisionAction::FullValidate,
+                                        &warning,
+                                        0.7,
+                                    );
+                                }
+                            }
+                        }
+                        b"id" => {
+                            edge_id_attr = Some(String::from_utf8_lossy(&attr.value).into_owned());
+                        }
+                        _ => {}
+                    }
+                }
+                if source.is_empty() || target.is_empty() {
+                    let warning = format!(
+                        "graphml edge missing source/target: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                if let Some(edge_directed) = *current_edge_directed
+                    && edge_directed != graph.is_directed()
+                {
+                    let warning = format!(
+                        "graphml edge directed mismatch: edge_directed={edge_directed} graph_directed={}",
+                        graph.is_directed()
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                }
+                if graph.has_edge(&source, &target) && validation_only {
+                    self.record(
+                        "read_graphml",
+                        DecisionAction::Allow,
+                        "graphml parallel edges require multigraph reconstruction",
+                        0.10,
+                    );
+                } else if graph.has_edge(&source, &target) {
+                    let warning = format!(
+                        "graphml multiedge not supported: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                }
+                *current_edge = Some((source, target));
+                *pending_edge_attrs = graphml_edge_defaults.clone();
+                if let Some(edge_id) = edge_id_attr {
+                    pending_edge_attrs.insert("id".to_owned(), CgseValue::parse_relaxed(&edge_id));
+                }
+            }
+            b"data" => {
+                current_data_text.clear();
+                *current_data_key = None;
+                for attr in e.attributes() {
+                    let attr = match attr {
+                        Ok(attr) => attr,
+                        Err(err) => {
+                            let warning = format!("graphml data attribute parse error: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            return Ok(());
+                        }
+                    };
+                    if xml_local_name(attr.key.as_ref()) == b"key" {
+                        *current_data_key = Some(String::from_utf8_lossy(&attr.value).into_owned());
+                    }
+                }
+                if current_data_key.is_none() {
+                    let warning = "graphml data missing key attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_graphml_end_element<G>(
+        &mut self,
+        local: &[u8],
+        graph: &mut G,
+        warnings: &mut Vec<String>,
+        in_graph: &mut bool,
+        current_key_id: &mut Option<String>,
+        current_key_default_key: &mut Option<String>,
+        current_key_default_text: &mut String,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_edge_directed: &mut Option<bool>,
+        current_edge_skip: &mut bool,
+        current_data_key: &mut Option<String>,
+        current_data_text: &mut String,
+        current_data_has_children: &mut bool,
+        graphml_node_defaults: &mut AttrMap,
+        graphml_edge_defaults: &mut AttrMap,
+        graphml_graph_defaults: &mut AttrMap,
+        pending_graph_attrs: &mut AttrMap,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+        graph_attrs: &mut AttrMap,
+        key_registry: &mut BTreeMap<String, GraphmlKeyDef>,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        match local {
+            b"data" => {
+                if *current_data_has_children {
+                    let warning =
+                        "graphml data contains nested elements (yfiles extensions not supported)"
+                            .to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_graphml",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                    current_data_text.clear();
+                    current_data_key.take();
+                    *current_data_has_children = false;
+                    return Ok(());
+                }
+                if let Some(key_id) = current_data_key.take() {
+                    let (scope, attr_name, attr_type) = match key_registry.get(&key_id) {
+                        Some(entry) => (
+                            entry.scope.clone(),
+                            entry.name.clone(),
+                            entry.attr_type.clone(),
+                        ),
+                        None => {
+                            let warning = format!("graphml data key not declared: key={key_id}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                            current_data_text.clear();
+                            return Ok(());
+                        }
+                    };
+                    let target_scope = if current_edge.is_some() {
+                        "edge"
+                    } else if current_node.is_some() {
+                        "node"
+                    } else {
+                        "graph"
+                    };
+                    if !graphml_scope_matches(&scope, target_scope) {
+                        let warning = format!(
+                            "graphml data key scope mismatch: key={key_id} declared_for={scope:?} target={target_scope}"
+                        );
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_graphml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.7);
+                        current_data_text.clear();
+                        return Ok(());
+                    }
+                    let raw_value = std::mem::take(current_data_text);
+                    let value =
+                        self.parse_graphml_typed_value(&key_id, &attr_type, raw_value, warnings)?;
+                    if current_node.is_some() && current_edge.is_none() {
+                        pending_node_attrs.insert(attr_name, value);
+                    } else if current_edge.is_some() {
+                        pending_edge_attrs.insert(attr_name, value);
+                    } else {
+                        pending_graph_attrs.insert(attr_name, value);
+                    }
+                }
+                current_data_text.clear();
+                *current_data_has_children = false;
+            }
+            b"default" => {
+                if let Some(key_id) = current_key_default_key.take() {
+                    let raw_value = std::mem::take(current_key_default_text);
+                    if let Some(key_def) = key_registry.get_mut(&key_id) {
+                        let value = self.parse_graphml_typed_value(
+                            &key_id,
+                            &key_def.attr_type,
+                            raw_value,
+                            warnings,
+                        )?;
+                        key_def.default = Some(value.clone());
+                        let scope = key_def.scope.trim().to_ascii_lowercase();
+                        match scope.as_str() {
+                            "node" => {
+                                graphml_node_defaults.insert(key_def.name.clone(), value);
+                            }
+                            "edge" => {
+                                graphml_edge_defaults.insert(key_def.name.clone(), value);
+                            }
+                            "graph" => {
+                                graphml_graph_defaults.insert(key_def.name.clone(), value);
+                            }
+                            "all" | "" => {
+                                graphml_node_defaults.insert(key_def.name.clone(), value.clone());
+                                graphml_edge_defaults.insert(key_def.name.clone(), value.clone());
+                                graphml_graph_defaults.insert(key_def.name.clone(), value);
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            b"node" => {
+                if let Some(node_id) = current_node.as_ref()
+                    && !pending_node_attrs.is_empty()
+                {
+                    graph.add_node_with_attrs(node_id.clone(), std::mem::take(pending_node_attrs));
+                }
+                *current_node = None;
+                pending_node_attrs.clear();
+            }
+            b"edge" => {
+                if let Some((source, target)) = current_edge.take() {
+                    if *current_edge_skip {
+                        *current_edge_skip = false;
+                        pending_edge_attrs.clear();
+                    } else {
+                        let result = graph.add_edge_with_attrs(
+                            source,
+                            target,
+                            std::mem::take(pending_edge_attrs),
+                        );
+                        if let Err(err) = result {
+                            let warning = format!("graphml edge add failed: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_graphml",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_graphml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record(
+                                "read_graphml",
+                                DecisionAction::FullValidate,
+                                &warning,
+                                0.7,
+                            );
+                        }
+                    }
+                }
+                *current_edge_directed = None;
+                pending_edge_attrs.clear();
+            }
+            b"key" => {
+                *current_key_id = None;
+                *current_key_default_key = None;
+                current_key_default_text.clear();
+            }
+            b"graph" => {
+                *graph_attrs = std::mem::take(pending_graph_attrs);
+                *in_graph = false;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn parse_graphml_typed_value(
+        &mut self,
+        key_id: &str,
+        attr_type: &str,
+        raw_value: String,
+        warnings: &mut Vec<String>,
+    ) -> Result<CgseValue, ReadWriteError> {
+        let raw_value_for_error = raw_value.clone();
+        let attr_type = attr_type.trim().to_ascii_lowercase();
+        let trimmed = raw_value.trim();
+
+        if raw_value.is_empty() {
+            return Ok(CgseValue::String(raw_value));
+        }
+
+        let parsed = match attr_type.as_str() {
+            "" | "string" => Ok(CgseValue::String(raw_value)),
+            "boolean" => match trimmed.to_ascii_lowercase().as_str() {
+                "true" | "1" => Ok(CgseValue::Bool(true)),
+                "false" | "0" => Ok(CgseValue::Bool(false)),
+                _ => Err("boolean"),
+            },
+            "int" | "long" => trimmed
+                .parse::<i64>()
+                .map(CgseValue::Int)
+                .map_err(|_| "int"),
+            "float" | "double" => trimmed
+                .parse::<f64>()
+                .map(CgseValue::Float)
+                .map_err(|_| "float"),
+            _ => Ok(CgseValue::parse_relaxed(trimmed)),
+        };
+
+        match parsed {
+            Ok(value) => Ok(value),
+            Err(expected) => {
+                let warning = format!(
+                    "graphml attr parse failed: key={key_id} type={attr_type} expected={expected} value={raw_value_for_error:?}"
+                );
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_graphml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_graphml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_graphml", DecisionAction::FullValidate, &warning, 0.8);
+                Ok(CgseValue::String(raw_value_for_error))
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // GEXF
+    // -----------------------------------------------------------------------
+
+    pub fn write_gexf(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_gexf_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_gexf_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_gexf"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_gexf_impl(graph, graph_attrs, false)
+    }
+
+    pub fn write_digraph_gexf(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_gexf_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_gexf_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "write_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["write_gexf"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        self.write_gexf_impl(graph, graph_attrs, true)
+    }
+
+    fn write_gexf_impl<G>(
+        &mut self,
+        graph: &G,
+        graph_attrs: &AttrMap,
+        directed: bool,
+    ) -> Result<String, ReadWriteError>
+    where
+        G: GraphLikeRead,
+    {
+        let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
+        writer
+            .write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
+            .map_err(|e| xml_write_err_for("write_gexf", "xml_decl", e))?;
+
+        let mut gexf_start = BytesStart::new("gexf");
+        gexf_start.push_attribute(("xmlns", "http://www.gexf.net/1.2draft"));
+        gexf_start.push_attribute(("xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance"));
+        gexf_start.push_attribute((
+            "xsi:schemaLocation",
+            "http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd",
+        ));
+        gexf_start.push_attribute(("version", "1.2"));
+        writer
+            .write_event(Event::Start(gexf_start))
+            .map_err(|e| xml_write_err_for("write_gexf", "gexf_start", e))?;
+
+        let meta_start = BytesStart::new("meta");
+        writer
+            .write_event(Event::Start(meta_start))
+            .map_err(|e| xml_write_err_for("write_gexf", "meta_start", e))?;
+        writer
+            .write_event(Event::Start(BytesStart::new("creator")))
+            .map_err(|e| xml_write_err_for("write_gexf", "creator_start", e))?;
+        writer
+            .write_event(Event::Text(BytesText::new("FrankenNetworkX")))
+            .map_err(|e| xml_write_err_for("write_gexf", "creator_text", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("creator")))
+            .map_err(|e| xml_write_err_for("write_gexf", "creator_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("meta")))
+            .map_err(|e| xml_write_err_for("write_gexf", "meta_end", e))?;
+
+        let mut node_attr_types: BTreeMap<String, GexfValueType> = BTreeMap::new();
+        let mut edge_attr_types: BTreeMap<String, GexfValueType> = BTreeMap::new();
+        let nodes = graph.nodes_ordered();
+        for node_id in &nodes {
+            if let Some(attrs) = graph.node_attrs(node_id) {
+                for (key, value) in attrs {
+                    if key == "label" {
+                        continue;
+                    }
+                    insert_gexf_attr_type(&mut node_attr_types, key.clone(), value);
+                }
+            }
+        }
+        let edges = graph.edges_ordered_borrowed();
+        for &(_left, _right, attrs) in &edges {
+            for (key, value) in attrs {
+                if key == "id" || key == "weight" {
+                    continue;
+                }
+                insert_gexf_attr_type(&mut edge_attr_types, key.clone(), value);
+            }
+        }
+
+        let graph_name = graph_attrs
+            .get("name")
+            .map(CgseValue::as_str)
+            .unwrap_or_default();
+        let mut graph_elem = BytesStart::new("graph");
+        graph_elem.push_attribute((
+            "defaultedgetype",
+            if directed { "directed" } else { "undirected" },
+        ));
+        graph_elem.push_attribute(("mode", "static"));
+        graph_elem.push_attribute(("name", graph_name.as_str()));
+        writer
+            .write_event(Event::Start(graph_elem))
+            .map_err(|e| xml_write_err_for("write_gexf", "graph_start", e))?;
+
+        let mut next_attr_id = 0_usize;
+        let mut node_attr_ids = BTreeMap::new();
+        if !node_attr_types.is_empty() {
+            write_gexf_attr_decls(
+                &mut writer,
+                "node",
+                &node_attr_types,
+                &mut node_attr_ids,
+                &mut next_attr_id,
+            )?;
+        }
+        let mut edge_attr_ids = BTreeMap::new();
+        if !edge_attr_types.is_empty() {
+            write_gexf_attr_decls(
+                &mut writer,
+                "edge",
+                &edge_attr_types,
+                &mut edge_attr_ids,
+                &mut next_attr_id,
+            )?;
+        }
+
+        writer
+            .write_event(Event::Start(BytesStart::new("nodes")))
+            .map_err(|e| xml_write_err_for("write_gexf", "nodes_start", e))?;
+        for node_id in &nodes {
+            let node_attrs = graph.node_attrs(node_id);
+            let mut node_elem = BytesStart::new("node");
+            node_elem.push_attribute(("id", *node_id));
+            let label = node_attrs
+                .and_then(|attrs| attrs.get("label"))
+                .map(CgseValue::as_str)
+                .unwrap_or_else(|| (*node_id).to_owned());
+            node_elem.push_attribute(("label", label.as_str()));
+            let gexf_attrs = node_attrs
+                .map(|attrs| {
+                    attrs
+                        .iter()
+                        .filter(|(key, _)| key.as_str() != "label")
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if gexf_attrs.is_empty() {
+                writer
+                    .write_event(Event::Empty(node_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "node_empty", e))?;
+            } else {
+                writer
+                    .write_event(Event::Start(node_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "node_start", e))?;
+                write_gexf_attvalues(&mut writer, &gexf_attrs, &node_attr_ids)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("node")))
+                    .map_err(|e| xml_write_err_for("write_gexf", "node_end", e))?;
+            }
+        }
+        writer
+            .write_event(Event::End(BytesEnd::new("nodes")))
+            .map_err(|e| xml_write_err_for("write_gexf", "nodes_end", e))?;
+
+        writer
+            .write_event(Event::Start(BytesStart::new("edges")))
+            .map_err(|e| xml_write_err_for("write_gexf", "edges_start", e))?;
+        for (idx, &(left, right, attrs)) in edges.iter().enumerate() {
+            let mut edge_elem = BytesStart::new("edge");
+            edge_elem.push_attribute(("source", left));
+            edge_elem.push_attribute(("target", right));
+            let edge_id = attrs
+                .get("id")
+                .map(gexf_value_str)
+                .unwrap_or_else(|| idx.to_string());
+            edge_elem.push_attribute(("id", edge_id.as_str()));
+            let weight = attrs.get("weight").map(gexf_value_str);
+            if let Some(weight) = weight.as_ref() {
+                edge_elem.push_attribute(("weight", weight.as_str()));
+            }
+            let gexf_attrs = attrs
+                .iter()
+                .filter(|(key, _)| key.as_str() != "id" && key.as_str() != "weight")
+                .collect::<Vec<_>>();
+            if gexf_attrs.is_empty() {
+                writer
+                    .write_event(Event::Empty(edge_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "edge_empty", e))?;
+            } else {
+                writer
+                    .write_event(Event::Start(edge_elem))
+                    .map_err(|e| xml_write_err_for("write_gexf", "edge_start", e))?;
+                write_gexf_attvalues(&mut writer, &gexf_attrs, &edge_attr_ids)?;
+                writer
+                    .write_event(Event::End(BytesEnd::new("edge")))
+                    .map_err(|e| xml_write_err_for("write_gexf", "edge_end", e))?;
+            }
+        }
+        writer
+            .write_event(Event::End(BytesEnd::new("edges")))
+            .map_err(|e| xml_write_err_for("write_gexf", "edges_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("graph")))
+            .map_err(|e| xml_write_err_for("write_gexf", "graph_end", e))?;
+        writer
+            .write_event(Event::End(BytesEnd::new("gexf")))
+            .map_err(|e| xml_write_err_for("write_gexf", "gexf_end", e))?;
+
+        let result = writer.into_inner().into_inner();
+        let output = String::from_utf8(result).map_err(|e| ReadWriteError::FailClosed {
+            operation: "write_gexf",
+            reason: format!("UTF-8 encoding error: {e}"),
+        })?;
+        self.record(
+            "write_gexf",
+            DecisionAction::Allow,
+            "gexf serialization completed",
+            0.04,
+        );
+        Ok(output)
+    }
+
+    pub fn read_gexf(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_gexf"]),
+            risk_probability: 0.12,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.gexf_directed_flag(input)?;
+        if directed.declared && directed.value {
+            let warning = "GEXF declares directed but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gexf",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        self.read_gexf_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.record(
+            "read_gexf",
+            DecisionAction::Allow,
+            "gexf parse completed",
+            0.05,
+        );
+        Ok(self.finish_graph_report(graph, graph_attrs, warnings))
+    }
+
+    pub fn read_digraph_gexf(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_gexf".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_gexf"]),
+            risk_probability: 0.12,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.gexf_directed_flag(input)?;
+        if directed.declared && !directed.value {
+            let warning = "GEXF declares undirected but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gexf",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        self.read_gexf_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.record(
+            "read_gexf",
+            DecisionAction::Allow,
+            "digraph gexf parse completed",
+            0.05,
+        );
+        Ok(self.finish_digraph_report(graph, graph_attrs, warnings))
+    }
+
+    pub fn gexf_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
+        self.gexf_directed_flag(input).map(|flag| flag.value)
+    }
+
+    fn gexf_directed_flag(&mut self, input: &str) -> Result<GexfDirectedFlag, ReadWriteError> {
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(element)) | Ok(Event::Empty(element))
+                    if xml_local_name(element.name().as_ref()) == b"graph" =>
+                {
+                    for attr in element.attributes() {
+                        let attr = match attr {
+                            Ok(attr) => attr,
+                            Err(err) => {
+                                let warning = format!("gexf graph attribute parse error: {err}");
+                                if self.mode == CompatibilityMode::Strict {
+                                    self.record(
+                                        "read_gexf",
+                                        DecisionAction::FailClosed,
+                                        &warning,
+                                        1.0,
+                                    );
+                                    return Err(ReadWriteError::FailClosed {
+                                        operation: "read_gexf",
+                                        reason: warning,
+                                    });
+                                }
+                                self.record(
+                                    "read_gexf",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.7,
+                                );
+                                return Ok(GexfDirectedFlag {
+                                    declared: false,
+                                    value: false,
+                                });
+                            }
+                        };
+                        if xml_local_name(attr.key.as_ref()) == b"defaultedgetype" {
+                            let value = xml_attr_value(&attr, reader.decoder())?;
+                            return match value.trim().to_ascii_lowercase().as_str() {
+                                "directed" | "mutual" => Ok(GexfDirectedFlag {
+                                    declared: true,
+                                    value: true,
+                                }),
+                                "undirected" => Ok(GexfDirectedFlag {
+                                    declared: true,
+                                    value: false,
+                                }),
+                                _ => {
+                                    let warning =
+                                        format!("gexf defaultedgetype invalid: value={value:?}");
+                                    if self.mode == CompatibilityMode::Strict {
+                                        self.record(
+                                            "read_gexf",
+                                            DecisionAction::FailClosed,
+                                            &warning,
+                                            1.0,
+                                        );
+                                        Err(ReadWriteError::FailClosed {
+                                            operation: "read_gexf",
+                                            reason: warning,
+                                        })
+                                    } else {
+                                        self.record(
+                                            "read_gexf",
+                                            DecisionAction::FullValidate,
+                                            &warning,
+                                            0.7,
+                                        );
+                                        Ok(GexfDirectedFlag {
+                                            declared: false,
+                                            value: false,
+                                        })
+                                    }
+                                }
+                            };
+                        }
+                    }
+                    return Ok(GexfDirectedFlag {
+                        declared: false,
+                        value: false,
+                    });
+                }
+                Ok(Event::Eof) => {
+                    return Ok(GexfDirectedFlag {
+                        declared: false,
+                        value: false,
+                    });
+                }
+                Err(err) => {
+                    let warning = format!("gexf directed detection failed: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(GexfDirectedFlag {
+                        declared: false,
+                        value: false,
+                    });
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn read_gexf_into<G>(
+        &mut self,
+        graph: &mut G,
+        graph_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        let mut reader = Reader::from_str(input);
+        reader.config_mut().trim_text(true);
+
+        let mut attr_defs: BTreeMap<String, GexfAttrDef> = BTreeMap::new();
+        let mut current_attr_class: Option<String> = None;
+        let mut current_node: Option<String> = None;
+        let mut current_edge: Option<(String, String)> = None;
+        let mut current_edge_skip = false;
+        let mut pending_node_attrs = AttrMap::new();
+        let mut pending_edge_attrs = AttrMap::new();
+
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(ref element)) => {
+                    self.handle_gexf_start_element(
+                        element,
+                        reader.decoder(),
+                        graph,
+                        graph_attrs,
+                        warnings,
+                        &mut attr_defs,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                    )?;
+                }
+                Ok(Event::Empty(ref element)) => {
+                    self.handle_gexf_start_element(
+                        element,
+                        reader.decoder(),
+                        graph,
+                        graph_attrs,
+                        warnings,
+                        &mut attr_defs,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                    )?;
+                    self.handle_gexf_end_element(
+                        xml_local_name(element.name().as_ref()),
+                        graph,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        warnings,
+                    )?;
+                }
+                Ok(Event::End(ref element)) => {
+                    self.handle_gexf_end_element(
+                        xml_local_name(element.name().as_ref()),
+                        graph,
+                        &mut current_attr_class,
+                        &mut current_node,
+                        &mut current_edge,
+                        &mut current_edge_skip,
+                        &mut pending_node_attrs,
+                        &mut pending_edge_attrs,
+                        warnings,
+                    )?;
+                }
+                Ok(Event::Eof) => break,
+                Err(err) => {
+                    let warning = format!("gexf xml parse error: {err}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.8);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_gexf_start_element<G>(
+        &mut self,
+        element: &BytesStart<'_>,
+        decoder: Decoder,
+        graph: &mut G,
+        graph_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+        attr_defs: &mut BTreeMap<String, GexfAttrDef>,
+        current_attr_class: &mut Option<String>,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_edge_skip: &mut bool,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        match xml_local_name(element.name().as_ref()) {
+            b"graph" => {
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf graph attribute")?;
+                    if xml_local_name(attr.key.as_ref()) == b"name" {
+                        let value = xml_attr_value(&attr, decoder)?;
+                        if !value.is_empty() {
+                            graph_attrs.insert("name".to_owned(), CgseValue::String(value));
+                        }
+                    }
+                }
+            }
+            b"attributes" => {
+                let mut class = String::new();
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf attributes attribute")?;
+                    if xml_local_name(attr.key.as_ref()) == b"class" {
+                        class = xml_attr_value(&attr, decoder)?;
+                    }
+                }
+                *current_attr_class = Some(class);
+            }
+            b"attribute" => {
+                let mut id = String::new();
+                let mut title = String::new();
+                let mut attr_type = "string".to_owned();
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf attribute attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"id" => id = xml_attr_value(&attr, decoder)?,
+                        b"title" => title = xml_attr_value(&attr, decoder)?,
+                        b"type" => attr_type = xml_attr_value(&attr, decoder)?,
+                        _ => {}
+                    }
+                }
+                if id.is_empty() || title.is_empty() {
+                    let warning =
+                        format!("gexf attribute missing id/title: id={id:?} title={title:?}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                attr_defs.insert(
+                    id,
+                    GexfAttrDef {
+                        class: current_attr_class.clone().unwrap_or_default(),
+                        title,
+                        attr_type,
+                    },
+                );
+            }
+            b"node" => {
+                let mut id = String::new();
+                let mut label: Option<String> = None;
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf node attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"id" => id = xml_attr_value(&attr, decoder)?,
+                        b"label" => label = Some(xml_attr_value(&attr, decoder)?),
+                        _ => {}
+                    }
+                }
+                if id.is_empty() {
+                    let warning = "gexf node missing id attribute".to_owned();
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                let _ = graph.add_node(id.clone());
+                pending_node_attrs.clear();
+                if let Some(label) = label {
+                    pending_node_attrs.insert("label".to_owned(), CgseValue::String(label));
+                }
+                *current_node = Some(id);
+            }
+            b"edge" => {
+                let mut source = String::new();
+                let mut target = String::new();
+                pending_edge_attrs.clear();
+                *current_edge_skip = false;
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf edge attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"source" => source = xml_attr_value(&attr, decoder)?,
+                        b"target" => target = xml_attr_value(&attr, decoder)?,
+                        b"id" => {
+                            pending_edge_attrs.insert(
+                                "id".to_owned(),
+                                CgseValue::String(xml_attr_value(&attr, decoder)?),
+                            );
+                        }
+                        b"label" => {
+                            pending_edge_attrs.insert(
+                                "label".to_owned(),
+                                CgseValue::String(xml_attr_value(&attr, decoder)?),
+                            );
+                        }
+                        b"weight" => {
+                            let value = xml_attr_value(&attr, decoder)?;
+                            pending_edge_attrs.insert(
+                                "weight".to_owned(),
+                                value
+                                    .parse::<f64>()
+                                    .map(CgseValue::Float)
+                                    .unwrap_or_else(|_| CgseValue::String(value)),
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+                if source.is_empty() || target.is_empty() {
+                    let warning = format!(
+                        "gexf edge missing source/target: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                } else if graph.has_edge(&source, &target) {
+                    let warning = format!(
+                        "gexf multiedge not supported: source={source:?} target={target:?}"
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    *current_edge_skip = true;
+                }
+                *current_edge = Some((source, target));
+            }
+            b"attvalue" => {
+                let mut attr_id = String::new();
+                let mut raw_value = String::new();
+                for attr in element.attributes() {
+                    let attr = parse_xml_attr(attr, "read_gexf", "gexf attvalue attribute")?;
+                    match xml_local_name(attr.key.as_ref()) {
+                        b"for" => attr_id = xml_attr_value(&attr, decoder)?,
+                        b"value" => raw_value = xml_attr_value(&attr, decoder)?,
+                        _ => {}
+                    }
+                }
+                let Some(def) = attr_defs.get(&attr_id).cloned() else {
+                    let warning = format!("gexf attvalue key not declared: key={attr_id}");
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                };
+                let target_class = if current_edge.is_some() {
+                    "edge"
+                } else if current_node.is_some() {
+                    "node"
+                } else {
+                    "graph"
+                };
+                if !gexf_class_matches(&def.class, target_class) {
+                    let warning = format!(
+                        "gexf attvalue class mismatch: key={attr_id} declared_for={:?} target={target_class}",
+                        def.class
+                    );
+                    if self.mode == CompatibilityMode::Strict {
+                        self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                        return Err(ReadWriteError::FailClosed {
+                            operation: "read_gexf",
+                            reason: warning,
+                        });
+                    }
+                    warnings.push(warning.clone());
+                    self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                    return Ok(());
+                }
+                let value =
+                    self.parse_gexf_typed_value(&attr_id, &def.attr_type, raw_value, warnings)?;
+                if current_edge.is_some() {
+                    pending_edge_attrs.insert(def.title, value);
+                } else if current_node.is_some() {
+                    pending_node_attrs.insert(def.title, value);
+                } else {
+                    graph_attrs.insert(def.title, value);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn handle_gexf_end_element<G>(
+        &mut self,
+        local: &[u8],
+        graph: &mut G,
+        current_attr_class: &mut Option<String>,
+        current_node: &mut Option<String>,
+        current_edge: &mut Option<(String, String)>,
+        current_edge_skip: &mut bool,
+        pending_node_attrs: &mut AttrMap,
+        pending_edge_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+    ) -> Result<(), ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        match local {
+            b"attributes" => {
+                *current_attr_class = None;
+            }
+            b"node" => {
+                if let Some(node_id) = current_node.take()
+                    && !pending_node_attrs.is_empty()
+                {
+                    graph.add_node_with_attrs(node_id, std::mem::take(pending_node_attrs));
+                }
+                pending_node_attrs.clear();
+            }
+            b"edge" => {
+                if let Some((source, target)) = current_edge.take() {
+                    if *current_edge_skip {
+                        *current_edge_skip = false;
+                        pending_edge_attrs.clear();
+                    } else {
+                        let result = graph.add_edge_with_attrs(
+                            source,
+                            target,
+                            std::mem::take(pending_edge_attrs),
+                        );
+                        if let Err(err) = result {
+                            let warning = format!("gexf edge add failed: {err}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gexf",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
+                        }
+                    }
+                }
+                pending_edge_attrs.clear();
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn parse_gexf_typed_value(
+        &mut self,
+        attr_id: &str,
+        attr_type: &str,
+        raw_value: String,
+        warnings: &mut Vec<String>,
+    ) -> Result<CgseValue, ReadWriteError> {
+        if raw_value.is_empty() {
+            return Ok(CgseValue::String(raw_value));
+        }
+
+        let raw_for_error = raw_value.clone();
+        let trimmed = raw_value.trim();
+        let parsed = match attr_type.trim().to_ascii_lowercase().as_str() {
+            "boolean" => match trimmed.to_ascii_lowercase().as_str() {
+                "true" | "1" => Ok(CgseValue::Bool(true)),
+                "false" | "0" => Ok(CgseValue::Bool(false)),
+                _ => Err("boolean"),
+            },
+            "integer" | "int" | "long" => trimmed
+                .parse::<i64>()
+                .map(CgseValue::Int)
+                .map_err(|_| "integer"),
+            "float" | "double" => trimmed
+                .parse::<f64>()
+                .map(CgseValue::Float)
+                .map_err(|_| "float"),
+            "" | "string" | "liststring" | "anyuri" => Ok(CgseValue::String(raw_value)),
+            _ => Ok(CgseValue::parse_relaxed(trimmed)),
+        };
+
+        match parsed {
+            Ok(value) => Ok(value),
+            Err(expected) => {
+                let warning = format!(
+                    "gexf attr parse failed: key={attr_id} type={attr_type} expected={expected} value={raw_for_error:?}"
+                );
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_gexf",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.8);
+                Ok(CgseValue::String(raw_for_error))
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // GML (Graph Modelling Language)
+    // -----------------------------------------------------------------------
+
+    /// Write an undirected graph to GML format.
+    pub fn write_gml(&mut self, graph: &Graph) -> Result<String, ReadWriteError> {
+        self.write_gml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_gml_with_graph_attrs(
+        &mut self,
+        graph: &Graph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.write_gml_impl(graph, graph_attrs, false)
+    }
+
+    pub fn write_networkx_int_noattr_gml(
+        &mut self,
+        graph: &Graph,
+    ) -> Result<String, ReadWriteError> {
+        let nodes = graph.nodes_ordered();
+        let edges = graph.edges_ordered_borrowed();
+        let mut out = String::with_capacity(16 + nodes.len() * 48 + edges.len() * 48);
+        out.push_str("graph [\n");
+
+        let mut node_ids: HashMap<&str, usize> = HashMap::with_capacity(nodes.len());
+        for (node_id, &node_name) in nodes.iter().enumerate() {
+            if node_name.parse::<i64>().is_err() {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("node '{node_name}' is not an integer label"),
+                });
+            }
+            node_ids.insert(node_name, node_id);
+            out.push_str("  node [\n");
+            out.push_str("    id ");
+            out.push_str(&node_id.to_string());
+            out.push('\n');
+            out.push_str("    label \"");
+            out.push_str(&gml_escape(node_name));
+            out.push_str("\"\n");
+            out.push_str("  ]\n");
+        }
+
+        for (left, right, attrs) in edges {
+            if !attrs.is_empty() {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: "edge attributes are not supported by int/noattr fast path".to_owned(),
+                });
+            }
+            let source = node_ids
+                .get(left)
+                .copied()
+                .ok_or_else(|| ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("edge source node '{left}' missing from node mapping"),
+                })?;
+            let target =
+                node_ids
+                    .get(right)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge target node '{right}' missing from node mapping"),
+                    })?;
+            out.push_str("  edge [\n");
+            out.push_str("    source ");
+            out.push_str(&source.to_string());
+            out.push('\n');
+            out.push_str("    target ");
+            out.push_str(&target.to_string());
+            out.push('\n');
+            out.push_str("  ]\n");
+        }
+
+        out.push_str("]\n");
+
+        self.record(
+            "write_gml",
+            DecisionAction::Allow,
+            "networkx-compatible int/noattr gml write completed",
+            0.04,
+        );
+        Ok(out)
+    }
+
+    pub fn write_networkx_int_edge_attrs_gml(
+        &mut self,
+        graph: &Graph,
+    ) -> Result<String, ReadWriteError> {
+        let nodes = graph.nodes_ordered();
+        let edges = graph.edges_ordered_borrowed();
+        let mut out = String::with_capacity(16 + nodes.len() * 48 + edges.len() * 72);
+        out.push_str("graph [\n");
+
+        let mut node_ids: HashMap<&str, usize> = HashMap::with_capacity(nodes.len());
+        for (node_id, &node_name) in nodes.iter().enumerate() {
+            if node_name.parse::<i64>().is_err() {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("node '{node_name}' is not an integer label"),
+                });
+            }
+            if graph
+                .node_attrs(node_name)
+                .is_some_and(|attrs| !attrs.is_empty())
+            {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: "node attributes are not supported by int edge-attr fast path"
+                        .to_owned(),
+                });
+            }
+            node_ids.insert(node_name, node_id);
+            out.push_str("  node [\n");
+            out.push_str("    id ");
+            out.push_str(&node_id.to_string());
+            out.push('\n');
+            out.push_str("    label \"");
+            out.push_str(&gml_escape(node_name));
+            out.push_str("\"\n");
+            out.push_str("  ]\n");
+        }
+
+        for (left, right, attrs) in edges {
+            out.push_str("  edge [\n");
+            let source = node_ids
+                .get(left)
+                .copied()
+                .ok_or_else(|| ReadWriteError::FailClosed {
+                    operation: "write_gml",
+                    reason: format!("edge source node '{left}' missing from node mapping"),
+                })?;
+            let target =
+                node_ids
+                    .get(right)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge target node '{right}' missing from node mapping"),
+                    })?;
+            out.push_str("    source ");
+            out.push_str(&source.to_string());
+            out.push('\n');
+            out.push_str("    target ");
+            out.push_str(&target.to_string());
+            out.push('\n');
+            for (key, value) in attrs {
+                push_networkx_gml_edge_attr(&mut out, key, value)?;
+            }
+            out.push_str("  ]\n");
+        }
+
+        out.push_str("]\n");
+
+        self.record(
+            "write_gml",
+            DecisionAction::Allow,
+            "networkx-compatible int edge-attr gml write completed",
+            0.04,
+        );
+        Ok(out)
+    }
+
+    /// Write a directed graph to GML format.
+    pub fn write_digraph_gml(&mut self, graph: &DiGraph) -> Result<String, ReadWriteError> {
+        self.write_digraph_gml_with_graph_attrs(graph, &AttrMap::new())
+    }
+
+    pub fn write_digraph_gml_with_graph_attrs(
+        &mut self,
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, ReadWriteError> {
+        self.write_gml_impl(graph, graph_attrs, true)
+    }
+
+    fn write_gml_impl(
+        &mut self,
+        graph: &dyn GraphLikeRead,
+        graph_attrs: &AttrMap,
+        directed: bool,
+    ) -> Result<String, ReadWriteError> {
+        let nodes = graph.nodes_ordered();
+        let edges = graph.gml_edges_borrowed();
+        let mut out = String::with_capacity(16 + nodes.len() * 48 + edges.len() * 64);
+        out.push_str("graph [\n");
+        if directed {
+            out.push_str("  directed 1\n");
+        }
+        for (key, value) in graph_attrs {
+            push_gml_attr(&mut out, 2, key, value);
+        }
+
+        // Build node-name → id map (use integer label if parseable, otherwise assign sequentially)
+        let mut label_to_id: HashMap<&str, i64> = HashMap::with_capacity(nodes.len());
+        let mut used_ids = std::collections::HashSet::new();
+
+        // First pass: reserve parsed integer IDs
+        for &node_name in &nodes {
+            if let Ok(id) = node_name.parse::<i64>() {
+                label_to_id.insert(node_name, id);
+                used_ids.insert(id);
+            }
+        }
+
+        // Second pass: assign remaining nodes to unused sequential IDs
+        let mut next_id: i64 = 0;
+        for &node_name in &nodes {
+            if !label_to_id.contains_key(node_name) {
+                while used_ids.contains(&next_id) {
+                    next_id += 1;
+                }
+                label_to_id.insert(node_name, next_id);
+                used_ids.insert(next_id);
+                next_id += 1;
+            }
+        }
+
+        for &node_name in &nodes {
+            out.push_str("  node [\n");
+            let id =
+                label_to_id
+                    .get(node_name)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("node '{node_name}' missing from node mapping"),
+                    })?;
+            out.push_str("    id ");
+            out.push_str(&id.to_string());
+            out.push('\n');
+            out.push_str("    label \"");
+            out.push_str(&gml_escape(node_name));
+            out.push_str("\"\n");
+            if let Some(attrs) = graph.node_attrs(node_name) {
+                for (key, value) in attrs {
+                    push_gml_attr(&mut out, 4, key, value);
+                }
+            }
+            out.push_str("  ]\n");
+        }
+
+        for (left, right, attrs) in edges {
+            out.push_str("  edge [\n");
+            let src_id =
+                label_to_id
+                    .get(left)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge source node '{}' missing from node mapping", left),
+                    })?;
+            let tgt_id =
+                label_to_id
+                    .get(right)
+                    .copied()
+                    .ok_or_else(|| ReadWriteError::FailClosed {
+                        operation: "write_gml",
+                        reason: format!("edge target node '{}' missing from node mapping", right),
+                    })?;
+            out.push_str("    source ");
+            out.push_str(&src_id.to_string());
+            out.push('\n');
+            out.push_str("    target ");
+            out.push_str(&tgt_id.to_string());
+            out.push('\n');
+            for (key, value) in attrs {
+                push_gml_attr(&mut out, 4, key, value);
+            }
+            out.push_str("  ]\n");
+        }
+
+        out.push_str("]\n");
+
+        self.record(
+            "write_gml",
+            DecisionAction::Allow,
+            "gml write completed",
+            0.04,
+        );
+        Ok(out)
+    }
+
+    /// Read a GML string into an undirected graph.
+    pub fn read_gml(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        let mut graph = Graph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        if directed.declared && directed.value {
+            let warning = "GML declares directed=1 but read into undirected Graph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        self.record(
+            "read_gml",
+            DecisionAction::Allow,
+            "gml parse completed",
+            0.04,
+        );
+        Ok(self.finish_graph_report(graph, graph_attrs, warnings))
+    }
+
+    /// Read a GML string into a directed graph.
+    pub fn read_digraph_gml(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        let mut graph = DiGraph::new(self.mode);
+        let mut graph_attrs = AttrMap::new();
+        let mut warnings = Vec::new();
+        let directed = self.read_gml_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        if directed.declared && !directed.value {
+            let warning = "GML declares directed=0 but read into directed DiGraph".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        self.record(
+            "read_gml",
+            DecisionAction::Allow,
+            "digraph gml parse completed",
+            0.04,
+        );
+        Ok(self.finish_digraph_report(graph, graph_attrs, warnings))
+    }
+
+    pub fn gml_declares_directed(&mut self, input: &str) -> Result<bool, ReadWriteError> {
+        let tokens = gml_tokenize(input);
+        let mut pos = 0;
+
+        while pos < tokens.len() {
+            if tokens[pos] == "graph" && pos + 1 < tokens.len() && tokens[pos + 1] == "[" {
+                pos += 2;
+                break;
+            }
+            pos += 1;
+        }
+
+        let mut depth: usize = if pos > 0 { 1 } else { 0 };
+        while pos < tokens.len() && depth > 0 {
+            match tokens[pos].as_str() {
+                "[" => {
+                    depth += 1;
+                    pos += 1;
+                }
+                "]" => {
+                    depth = depth.saturating_sub(1);
+                    pos += 1;
+                }
+                "directed" if depth == 1 && pos + 1 < tokens.len() => {
+                    let value = &tokens[pos + 1];
+                    return match parse_gml_directed_value(value.as_str()) {
+                        Some(flag) => Ok(flag),
+                        None => {
+                            let warning = format!("gml directed value '{value}' must be 0 or 1");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                })
+                            } else {
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.7,
+                                );
+                                Ok(false)
+                            }
+                        }
+                    };
+                }
+                _ => pos += 1,
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Parse GML into a generic graph. Returns the directed flag plus whether it was declared.
+    fn read_gml_into<G>(
+        &mut self,
+        graph: &mut G,
+        graph_attrs: &mut AttrMap,
+        warnings: &mut Vec<String>,
+        input: &str,
+    ) -> Result<GmlDirectedFlag, ReadWriteError>
+    where
+        G: GraphLike,
+    {
+        let mut directed = false;
+        let mut directed_declared = false;
+        let mut id_to_label: BTreeMap<i64, String> = BTreeMap::new();
+        let mut label_set: BTreeSet<String> = BTreeSet::new();
+        let mut node_attrs_pending: BTreeMap<i64, AttrMap> = BTreeMap::new();
+
+        // Simple GML token parser
+        let tokens = gml_tokenize(input);
+        let mut pos = 0;
+
+        // br-gmlextra: any unmatched ']' before the "graph [" header is a
+        // syntax error — nx raises NetworkXError("expected EOF, found ']'").
+        // Strict mode rejects; hardened mode warns and continues for
+        // recovery on malformed inputs.
+        let mut prologue = 0usize;
+        while prologue < tokens.len() {
+            let t = tokens[prologue].as_str();
+            if t == "graph" && prologue + 1 < tokens.len() && tokens[prologue + 1] == "[" {
+                break;
+            }
+            if t == "]" {
+                let warning = "expected EOF, found ']' in GML prologue".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_gml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+            }
+            prologue += 1;
+        }
+
+        // Skip to "graph ["
+        while pos < tokens.len() {
+            if tokens[pos] == "graph" && pos + 1 < tokens.len() && tokens[pos + 1] == "[" {
+                pos += 2;
+                break;
+            }
+            pos += 1;
+        }
+        let mut graph_block_open = pos > 0;
+
+        while pos < tokens.len() {
+            let tok = &tokens[pos];
+            match tok.as_str() {
+                "directed" if pos + 1 < tokens.len() => {
+                    directed_declared = true;
+                    let value = &tokens[pos + 1];
+                    match parse_gml_directed_value(value.as_str()) {
+                        Some(flag) => {
+                            directed = flag;
+                        }
+                        None => {
+                            let warning = format!("gml directed value '{value}' must be 0 or 1");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            directed_declared = false;
+                            directed = false;
+                        }
+                    }
+                    pos += 2;
+                }
+                "node" if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    pos += 2;
+                    let (node, new_pos) = self.parse_gml_node(&tokens, pos, warnings)?;
+                    if let Some((id, label, attrs)) = node {
+                        if id_to_label.contains_key(&id) {
+                            let warning = format!("node id {id} is duplicated");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            pos = new_pos;
+                            continue;
+                        }
+
+                        let node_label = match label {
+                            Some(label) => label,
+                            None => {
+                                let warning = format!("gml node {id} missing label");
+                                if self.mode == CompatibilityMode::Strict {
+                                    self.record(
+                                        "read_gml",
+                                        DecisionAction::FailClosed,
+                                        &warning,
+                                        1.0,
+                                    );
+                                    return Err(ReadWriteError::FailClosed {
+                                        operation: "read_gml",
+                                        reason: warning,
+                                    });
+                                }
+                                warnings.push(warning.clone());
+                                self.record(
+                                    "read_gml",
+                                    DecisionAction::FullValidate,
+                                    &warning,
+                                    0.6,
+                                );
+                                id.to_string()
+                            }
+                        };
+
+                        if label_set.contains(&node_label) {
+                            let warning = format!("gml node duplicate label '{node_label}'");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            pos = new_pos;
+                            continue;
+                        }
+
+                        label_set.insert(node_label.clone());
+                        id_to_label.insert(id, node_label.clone());
+                        let _ = graph.add_node(node_label);
+                        if !attrs.is_empty() {
+                            node_attrs_pending.insert(id, attrs);
+                        }
+                    }
+                    pos = new_pos;
+                }
+                "edge" if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    pos += 2;
+                    let (edge, new_pos) = self.parse_gml_edge(&tokens, pos, warnings)?;
+                    if let Some((source, target, attrs)) = edge {
+                        let mut skip_edge = false;
+                        if let std::collections::btree_map::Entry::Vacant(entry) =
+                            id_to_label.entry(source)
+                        {
+                            let warning = format!("gml edge references missing source {source}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            let candidate = source.to_string();
+                            if label_set.contains(&candidate) {
+                                skip_edge = true;
+                            } else {
+                                label_set.insert(candidate.clone());
+                                entry.insert(candidate);
+                            }
+                        }
+                        if let std::collections::btree_map::Entry::Vacant(entry) =
+                            id_to_label.entry(target)
+                        {
+                            let warning = format!("gml edge references missing target {target}");
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            let candidate = target.to_string();
+                            if label_set.contains(&candidate) {
+                                skip_edge = true;
+                            } else {
+                                label_set.insert(candidate.clone());
+                                entry.insert(candidate);
+                            }
+                        }
+                        if skip_edge {
+                            pos = new_pos;
+                            continue;
+                        }
+                        let source_label = id_to_label
+                            .get(&source)
+                            .cloned()
+                            .unwrap_or_else(|| source.to_string());
+                        let target_label = id_to_label
+                            .get(&target)
+                            .cloned()
+                            .unwrap_or_else(|| target.to_string());
+                        // Ensure nodes exist
+                        id_to_label.entry(source).or_insert_with(|| {
+                            let _ = graph.add_node(source_label.clone());
+                            source_label.clone()
+                        });
+                        id_to_label.entry(target).or_insert_with(|| {
+                            let _ = graph.add_node(target_label.clone());
+                            target_label.clone()
+                        });
+                        let _ = graph.add_edge_with_attrs(source_label, target_label, attrs);
+                    }
+                    pos = new_pos;
+                }
+                key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    let (map, new_pos, closed) = parse_gml_nested_attr(&tokens, pos + 1);
+                    if !closed {
+                        let warning =
+                            format!("gml graph attribute '{key}' missing closing bracket");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                    } else {
+                        graph_attrs.insert(key.to_owned(), CgseValue::Map(map));
+                    }
+                    pos = new_pos;
+                }
+                "]" => {
+                    graph_block_open = false;
+                    pos += 1;
+                    break;
+                }
+                key if pos + 1 < tokens.len()
+                    && tokens[pos + 1] != "["
+                    && tokens[pos + 1] != "]" =>
+                {
+                    graph_attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
+                    pos += 2;
+                }
+                _ => {
+                    pos += 1;
+                }
+            }
+        }
+
+        // br-gmlbal: nx raises NetworkXError("expected ']', found EOF") when
+        // the outer "graph [" block is unclosed; mirror that contract here
+        // in strict mode, while preserving hardened-mode recovery.
+        if graph_block_open {
+            let warning = "expected ']', found EOF in GML stream".to_owned();
+            if self.mode == CompatibilityMode::Strict {
+                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_gml",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning.clone());
+            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        }
+        while pos < tokens.len() {
+            if tokens[pos] == "]" {
+                let warning = "expected EOF, found ']' after GML graph block".to_owned();
+                if self.mode == CompatibilityMode::Strict {
+                    self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_gml",
+                        reason: warning,
+                    });
+                }
+                warnings.push(warning.clone());
+                self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+            }
+            pos += 1;
+        }
+
+        // Apply node attributes
+        for (id, attrs) in node_attrs_pending {
+            if let Some(label) = id_to_label.get(&id) {
+                graph.add_node_with_attrs(label.clone(), attrs);
+            }
+        }
+
+        Ok(GmlDirectedFlag {
+            declared: directed_declared,
+            value: directed,
+        })
+    }
+
+    fn parse_gml_node(
+        &mut self,
+        tokens: &[GmlTok],
+        mut pos: usize,
+        warnings: &mut Vec<String>,
+    ) -> GmlNodeParseResult {
+        let mut id: Option<i64> = None;
+        let mut label: Option<String> = None;
+        let mut attrs = AttrMap::new();
+        let mut invalid = false;
+
+        while pos < tokens.len() {
+            match tokens[pos].as_str() {
+                "]" => {
+                    pos += 1;
+                    if id.is_none() {
+                        let warning = "gml node missing id".to_owned();
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, pos));
+                    }
+                    if invalid {
+                        return Ok((None, pos));
+                    }
+                    return Ok(match id {
+                        Some(id) => (Some((id, label, attrs)), pos),
+                        None => (None, pos),
+                    });
+                }
+                "id" if pos + 1 < tokens.len() => {
+                    match tokens[pos + 1].as_str().parse::<i64>() {
+                        Ok(parsed) => {
+                            id = Some(parsed);
+                        }
+                        Err(_) => {
+                            let warning = format!("invalid node id '{}'", tokens[pos + 1]);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            invalid = true;
+                        }
+                    }
+                    pos += 2;
+                }
+                "label" if pos + 1 < tokens.len() => {
+                    label = Some(gml_unescape(tokens[pos + 1].as_str()));
+                    pos += 2;
+                }
+                key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    let (map, new_pos, closed) = parse_gml_nested_attr(tokens, pos + 1);
+                    if !closed {
+                        let warning = format!("gml node attribute '{key}' missing closing bracket");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, new_pos));
+                    }
+                    attrs.insert(key.to_owned(), CgseValue::Map(map));
+                    pos = new_pos;
+                }
+                key => {
+                    if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
+                        attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
+                        pos += 2;
+                    } else {
+                        pos += 1;
+                    }
+                }
+            }
+        }
+        let warning = "gml node missing closing bracket".to_owned();
+        if self.mode == CompatibilityMode::Strict {
+            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+            return Err(ReadWriteError::FailClosed {
+                operation: "read_gml",
+                reason: warning,
+            });
+        }
+        warnings.push(warning.clone());
+        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        Ok((None, pos))
+    }
+
+    fn parse_gml_edge(
+        &mut self,
+        tokens: &[GmlTok],
+        mut pos: usize,
+        warnings: &mut Vec<String>,
+    ) -> GmlEdgeParseResult {
+        let mut source: Option<i64> = None;
+        let mut target: Option<i64> = None;
+        let mut attrs = AttrMap::new();
+        let mut invalid = false;
+
+        while pos < tokens.len() {
+            match tokens[pos].as_str() {
+                "]" => {
+                    pos += 1;
+                    if source.is_none() || target.is_none() {
+                        let warning = format!(
+                            "gml edge missing source/target: source={:?} target={:?}",
+                            source, target
+                        );
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, pos));
+                    }
+                    if invalid {
+                        return Ok((None, pos));
+                    }
+                    return Ok(match (source, target) {
+                        (Some(source), Some(target)) => (Some((source, target, attrs)), pos),
+                        _ => (None, pos),
+                    });
+                }
+                "source" if pos + 1 < tokens.len() => {
+                    match tokens[pos + 1].as_str().parse::<i64>() {
+                        Ok(parsed) => {
+                            source = Some(parsed);
+                        }
+                        Err(_) => {
+                            let warning = format!("invalid edge source id '{}'", tokens[pos + 1]);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            invalid = true;
+                        }
+                    }
+                    pos += 2;
+                }
+                "target" if pos + 1 < tokens.len() => {
+                    match tokens[pos + 1].as_str().parse::<i64>() {
+                        Ok(parsed) => {
+                            target = Some(parsed);
+                        }
+                        Err(_) => {
+                            let warning = format!("invalid edge target id '{}'", tokens[pos + 1]);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_gml",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning.clone());
+                            self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                            invalid = true;
+                        }
+                    }
+                    pos += 2;
+                }
+                key if pos + 1 < tokens.len() && tokens[pos + 1] == "[" => {
+                    let (map, new_pos, closed) = parse_gml_nested_attr(tokens, pos + 1);
+                    if !closed {
+                        let warning = format!("gml edge attribute '{key}' missing closing bracket");
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_gml",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning.clone());
+                        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+                        return Ok((None, new_pos));
+                    }
+                    attrs.insert(key.to_owned(), CgseValue::Map(map));
+                    pos = new_pos;
+                }
+                key => {
+                    if pos + 1 < tokens.len() && tokens[pos + 1] != "[" && tokens[pos + 1] != "]" {
+                        attrs.insert(key.to_owned(), gml_scalar_value(&tokens[pos + 1]));
+                        pos += 2;
+                    } else {
+                        pos += 1;
+                    }
+                }
+            }
+        }
+        let warning = "gml edge missing closing bracket".to_owned();
+        if self.mode == CompatibilityMode::Strict {
+            self.record("read_gml", DecisionAction::FailClosed, &warning, 1.0);
+            return Err(ReadWriteError::FailClosed {
+                operation: "read_gml",
+                reason: warning,
+            });
+        }
+        warnings.push(warning.clone());
+        self.record("read_gml", DecisionAction::FullValidate, &warning, 0.7);
+        Ok((None, pos))
+    }
+
+    fn record(
+        &mut self,
+        operation: &'static str,
+        action: DecisionAction,
+        message: &str,
+        incompatibility_probability: f64,
+    ) {
+        self.runtime_policy.record(
+            operation,
+            action,
+            incompatibility_probability,
+            message.to_owned(),
+            vec![EvidenceTerm {
+                signal: "message".into(),
+                observed_value: message.to_owned().into(),
+                log_likelihood_ratio: if action == DecisionAction::Allow {
+                    -1.0
+                } else {
+                    2.0
+                },
+            }],
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GML helpers
+// ---------------------------------------------------------------------------
+
+/// A single GML token plus whether it was a quoted string literal.
+///
+/// GML grammar distinguishes ``value ::= integer | real | string`` where a
+/// string is quoted (``"..."``) and integer/real are bare. The tokenizer
+/// strips the quotes, so without tracking the quoted bit a bare ``2.5`` and a
+/// quoted ``"2.5"`` would be indistinguishable — and the reader would coerce
+/// (or fail to coerce) both the same way. networkx keeps quoted values as
+/// strings and parses bare numeric values to int/float, so we carry the bit.
+#[derive(Clone, Debug)]
+struct GmlTok {
+    text: String,
+    quoted: bool,
+}
+
+impl GmlTok {
+    fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
+impl PartialEq<&str> for GmlTok {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
+impl std::fmt::Display for GmlTok {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+/// Convert a GML scalar value token to a typed attribute value, matching
+/// networkx: a quoted token is always a string; a bare token that looks
+/// numeric parses as int (i64) first, then float (f64); anything else (a bare
+/// non-numeric word, an i64-overflowing magnitude, or a non-finite literal
+/// like ``nan``/``inf``) stays a string. Bare integers larger than i64 are a
+/// rare GML corner — nx keeps them as Python big-ints, which CgseValue cannot
+/// represent, so they fall through to f64 (and, if still not finite, string).
+fn gml_scalar_value(tok: &GmlTok) -> CgseValue {
+    if !tok.quoted {
+        let s = tok.text.as_str();
+        let first = s.as_bytes().first().copied();
+        if matches!(
+            first,
+            Some(b'0'..=b'9') | Some(b'+') | Some(b'-') | Some(b'.')
+        ) {
+            if let Ok(i) = s.parse::<i64>() {
+                return CgseValue::Int(i);
+            }
+            if let Ok(f) = s.parse::<f64>()
+                && f.is_finite()
+            {
+                return CgseValue::Float(f);
+            }
+        }
+    }
+    CgseValue::String(gml_unescape(&tok.text))
+}
+
+/// Tokenize a GML string into a flat list of tokens.
+/// Handles quoted strings, brackets, and whitespace-separated values.
+fn gml_tokenize(input: &str) -> Vec<GmlTok> {
+    let mut tokens = Vec::new();
+    let mut chars = input.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
+        // br-r37-c1-xuezl: the inner word-building branch below breaks on
+        // ``c.is_whitespace()`` (broader than the outer set), so any
+        // Unicode whitespace not listed here (e.g. ``\x0b`` vertical tab,
+        // ``\x0c`` form feed, Unicode spaces) would never be consumed by
+        // either branch — the outer loop saw it again, infinite-looped.
+        // Use ``is_whitespace`` here too to match.
+        if ch.is_whitespace() {
+            chars.next();
+            continue;
+        }
+        match ch {
+            ' ' | '\t' | '\n' | '\r' => {
+                chars.next();
+            }
+            '#' => {
+                // Skip comment to end of line
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c == '\n' {
+                        break;
+                    }
+                }
+            }
+            '[' | ']' => {
+                tokens.push(GmlTok {
+                    text: ch.to_string(),
+                    quoted: false,
+                });
+                chars.next();
+            }
+            '"' => {
+                chars.next(); // consume opening quote
+                let mut s = String::new();
+                while let Some(&c) = chars.peek() {
+                    chars.next();
+                    if c == '"' {
+                        break;
+                    }
+                    if c == '\\' {
+                        if let Some(&escaped) = chars.peek() {
+                            chars.next();
+                            s.push(escaped);
+                        }
+                    } else {
+                        s.push(c);
+                    }
+                }
+                tokens.push(GmlTok {
+                    text: s,
+                    quoted: true,
+                });
+            }
+            _ => {
+                let mut word = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_whitespace() || c == '[' || c == ']' || c == '"' {
+                        break;
+                    }
+                    word.push(c);
+                    chars.next();
+                }
+                if !word.is_empty() {
+                    tokens.push(GmlTok {
+                        text: word,
+                        quoted: false,
+                    });
+                }
+            }
+        }
+    }
+
+    tokens
+}
+
+fn parse_gml_nested_attr(tokens: &[GmlTok], mut pos: usize) -> (AttrMap, usize, bool) {
+    let mut map = AttrMap::new();
+    if tokens.get(pos).map(GmlTok::as_str) != Some("[") {
+        return (map, pos, false);
+    }
+    pos += 1;
+
+    while pos < tokens.len() {
+        if tokens[pos] == "]" {
+            return (map, pos + 1, true);
+        }
+
+        let key = tokens[pos].text.clone();
+        if pos + 1 >= tokens.len() {
+            return (map, pos + 1, false);
+        }
+
+        if tokens[pos + 1] == "[" {
+            let (nested, new_pos, closed) = parse_gml_nested_attr(tokens, pos + 1);
+            if !closed {
+                return (map, new_pos, false);
+            }
+            map.insert(key, CgseValue::Map(nested));
+            pos = new_pos;
+        } else if tokens[pos + 1] == "]" {
+            pos += 1;
+        } else {
+            map.insert(key, gml_scalar_value(&tokens[pos + 1]));
+            pos += 2;
+        }
+    }
+
+    (map, pos, false)
+}
+
+fn push_gml_attr(out: &mut String, indent: usize, key: &str, value: &CgseValue) {
+    push_gml_indent(out, indent);
+    match value {
+        CgseValue::Map(map) => {
+            out.push_str(key);
+            out.push_str(" [\n");
+            for (nested_key, nested_value) in map {
+                push_gml_attr(out, indent + 2, nested_key, nested_value);
+            }
+            push_gml_indent(out, indent);
+            out.push_str("]\n");
+        }
+        _ => {
+            out.push_str(key);
+            out.push(' ');
+            out.push_str(&gml_value_str(value));
+            out.push('\n');
+        }
+    }
+}
+
+fn push_gml_indent(out: &mut String, indent: usize) {
+    for _ in 0..indent {
+        out.push(' ');
+    }
+}
+
+fn push_networkx_gml_edge_attr(
+    out: &mut String,
+    key: &str,
+    value: &CgseValue,
+) -> Result<(), ReadWriteError> {
+    if !is_networkx_gml_key(key) {
+        return Err(ReadWriteError::FailClosed {
+            operation: "write_gml",
+            reason: format!("'{key}' is not a valid key"),
+        });
+    }
+    if key == "source" || key == "target" {
+        return Ok(());
+    }
+    if key == "label" {
+        return Err(ReadWriteError::FailClosed {
+            operation: "write_gml",
+            reason: "label edge attributes are not supported by int edge-attr fast path".to_owned(),
+        });
+    }
+
+    push_gml_indent(out, 4);
+    out.push_str(key);
+    out.push(' ');
+    match value {
+        CgseValue::Bool(value) => {
+            if *value {
+                out.push('1');
+            } else {
+                out.push('0');
+            }
+        }
+        CgseValue::Int(value) => {
+            if (i64::from(i32::MIN)..(i64::from(i32::MAX) + 1)).contains(value) {
+                out.push_str(&value.to_string());
+            } else {
+                out.push('"');
+                out.push_str(&value.to_string());
+                out.push('"');
+            }
+        }
+        CgseValue::String(value) => {
+            out.push('"');
+            out.push_str(&gml_escape(value));
+            out.push('"');
+        }
+        CgseValue::Float(_) | CgseValue::Map(_) => {
+            return Err(ReadWriteError::FailClosed {
+                operation: "write_gml",
+                reason: "edge attribute value is not supported by int edge-attr fast path"
+                    .to_owned(),
+            });
+        }
+    }
+    out.push('\n');
+    Ok(())
+}
+
+fn is_networkx_gml_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    first.is_ascii_alphabetic() && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+/// Escape a string for GML output (wrap in quotes).
+fn gml_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        let needs_escape = matches!(ch, '&' | '"') || !(' '..='~').contains(&ch);
+        if needs_escape {
+            out.push_str(&format!("&#{};", ch as u32));
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Format a value for GML: try numeric, otherwise quote it.
+fn gml_value_str(value: &CgseValue) -> String {
+    match value {
+        CgseValue::String(s) => format!("\"{}\"", gml_escape(s)),
+        CgseValue::Int(i) => i.to_string(),
+        CgseValue::Bool(b) => {
+            if *b {
+                "1".to_owned()
+            } else {
+                "0".to_owned()
+            }
+        }
+        CgseValue::Map(map) => {
+            let text = serde_json::to_string(map).unwrap_or_else(|_| "{}".to_owned());
+            format!("\"{}\"", gml_escape(&text))
+        }
+        CgseValue::Float(f) => {
+            if f.is_infinite() {
+                if f.is_sign_positive() {
+                    "+INF".to_owned()
+                } else {
+                    "-INF".to_owned()
+                }
+            } else if f.is_nan() {
+                "NAN".to_owned()
+            } else {
+                let mut text = f.to_string();
+                if !text.contains('.') && !text.contains('e') && !text.contains('E') {
+                    text.push_str(".0");
+                }
+                text
+            }
+        }
+    }
+}
+
+fn parse_gml_directed_value(value: &str) -> Option<bool> {
+    match value.trim() {
+        "0" => Some(false),
+        "1" => Some(true),
+        _ => None,
+    }
+}
+
+fn graphml_attr_type(value: &CgseValue) -> &'static str {
+    GraphmlValueType::from_value(value).as_str()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum GraphmlValueType {
+    Boolean,
+    Int,
+    Float,
+    String,
+}
+
+impl GraphmlValueType {
+    fn from_value(value: &CgseValue) -> Self {
+        match value {
+            CgseValue::Bool(_) => Self::Boolean,
+            CgseValue::Int(_) => Self::Int,
+            CgseValue::Float(_) => Self::Float,
+            CgseValue::String(_) => Self::String,
+            CgseValue::Map(_) => Self::String,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::Int => "int",
+            Self::Float => "double",
+            Self::String => "string",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum GexfValueType {
+    Boolean,
+    Long,
+    Double,
+    String,
+}
+
+impl GexfValueType {
+    fn from_value(value: &CgseValue) -> Self {
+        match value {
+            CgseValue::Bool(_) => Self::Boolean,
+            CgseValue::Int(_) => Self::Long,
+            CgseValue::Float(_) => Self::Double,
+            CgseValue::String(_) | CgseValue::Map(_) => Self::String,
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::Long => "long",
+            Self::Double => "double",
+            Self::String => "string",
+        }
+    }
+}
+
+fn insert_gexf_attr_type(
+    attr_types: &mut BTreeMap<String, GexfValueType>,
+    key: String,
+    value: &CgseValue,
+) {
+    let incoming = GexfValueType::from_value(value);
+    attr_types
+        .entry(key)
+        .and_modify(|existing| {
+            if *existing != incoming {
+                *existing = GexfValueType::String;
+            }
+        })
+        .or_insert(incoming);
+}
+
+fn gexf_value_str(value: &CgseValue) -> String {
+    match value {
+        CgseValue::Bool(flag) => flag.to_string(),
+        CgseValue::Int(value) => value.to_string(),
+        CgseValue::Float(value) => value.to_string(),
+        CgseValue::String(value) => value.clone(),
+        CgseValue::Map(map) => serde_json::to_string(map).unwrap_or_else(|_| "{}".to_owned()),
+    }
+}
+
+fn write_gexf_attr_decls(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    class: &str,
+    attr_types: &BTreeMap<String, GexfValueType>,
+    attr_ids: &mut BTreeMap<String, String>,
+    next_attr_id: &mut usize,
+) -> Result<(), ReadWriteError> {
+    let mut attrs_elem = BytesStart::new("attributes");
+    attrs_elem.push_attribute(("mode", "static"));
+    attrs_elem.push_attribute(("class", class));
+    writer
+        .write_event(Event::Start(attrs_elem))
+        .map_err(|e| xml_write_err_for("write_gexf", "attributes_start", e))?;
+
+    for (title, attr_type) in attr_types {
+        let attr_id = next_attr_id.to_string();
+        *next_attr_id += 1;
+        let mut attr_elem = BytesStart::new("attribute");
+        attr_elem.push_attribute(("id", attr_id.as_str()));
+        attr_elem.push_attribute(("title", title.as_str()));
+        attr_elem.push_attribute(("type", attr_type.as_str()));
+        writer
+            .write_event(Event::Empty(attr_elem))
+            .map_err(|e| xml_write_err_for("write_gexf", "attribute_empty", e))?;
+        attr_ids.insert(title.clone(), attr_id);
+    }
+
+    writer
+        .write_event(Event::End(BytesEnd::new("attributes")))
+        .map_err(|e| xml_write_err_for("write_gexf", "attributes_end", e))?;
+    Ok(())
+}
+
+fn write_gexf_attvalues(
+    writer: &mut Writer<Cursor<Vec<u8>>>,
+    attrs: &[(&String, &CgseValue)],
+    attr_ids: &BTreeMap<String, String>,
+) -> Result<(), ReadWriteError> {
+    writer
+        .write_event(Event::Start(BytesStart::new("attvalues")))
+        .map_err(|e| xml_write_err_for("write_gexf", "attvalues_start", e))?;
+    for (title, value) in attrs {
+        let Some(attr_id) = attr_ids.get(*title) else {
+            return Err(ReadWriteError::FailClosed {
+                operation: "write_gexf",
+                reason: format!("gexf attribute id not declared: title={title}"),
+            });
+        };
+        let value = gexf_value_str(value);
+        let mut attvalue_elem = BytesStart::new("attvalue");
+        attvalue_elem.push_attribute(("for", attr_id.as_str()));
+        attvalue_elem.push_attribute(("value", value.as_str()));
+        writer
+            .write_event(Event::Empty(attvalue_elem))
+            .map_err(|e| xml_write_err_for("write_gexf", "attvalue_empty", e))?;
+    }
+    writer
+        .write_event(Event::End(BytesEnd::new("attvalues")))
+        .map_err(|e| xml_write_err_for("write_gexf", "attvalues_end", e))?;
+    Ok(())
+}
+
+/// Remove surrounding quotes from a GML token.
+fn gml_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '&' {
+            out.push(ch);
+            continue;
+        }
+
+        let mut entity = String::new();
+        let mut terminated = false;
+        while let Some(&next) = chars.peek() {
+            chars.next();
+            if next == ';' {
+                terminated = true;
+                break;
+            }
+            entity.push(next);
+        }
+
+        if !terminated {
+            out.push('&');
+            out.push_str(&entity);
+            break;
+        }
+
+        let decoded = if let Some(hex) = entity
+            .strip_prefix("#x")
+            .or_else(|| entity.strip_prefix("#X"))
+        {
+            u32::from_str_radix(hex, 16).ok()
+        } else if let Some(dec) = entity.strip_prefix('#') {
+            dec.parse::<u32>().ok()
+        } else {
+            match entity.as_str() {
+                "amp" => Some('&' as u32),
+                "quot" => Some('"' as u32),
+                "lt" => Some('<' as u32),
+                "gt" => Some('>' as u32),
+                "apos" => Some('\'' as u32),
+                _ => None,
+            }
+        };
+
+        if let Some(codepoint) = decoded.and_then(char::from_u32) {
+            out.push(codepoint);
+        } else {
+            out.push('&');
+            out.push_str(&entity);
+            out.push(';');
+        }
+    }
+
+    out
+}
+
+trait GraphLikeRead {
+    fn nodes_ordered(&self) -> Vec<&str>;
+    fn node_attrs(&self, node: &str) -> Option<&AttrMap>;
+    fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)>;
+    fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)>;
+}
+
+impl GraphLikeRead for Graph {
+    fn nodes_ordered(&self) -> Vec<&str> {
+        self.nodes_ordered()
+    }
+    fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
+        self.node_attrs(node)
+    }
+    fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_ordered_borrowed()
+    }
+    fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_storage_order_borrowed()
+    }
+}
+
+impl GraphLikeRead for DiGraph {
+    fn nodes_ordered(&self) -> Vec<&str> {
+        self.nodes_ordered()
+    }
+    fn node_attrs(&self, node: &str) -> Option<&AttrMap> {
+        self.node_attrs(node)
+    }
+    fn edges_ordered_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_ordered_borrowed()
+    }
+    fn gml_edges_borrowed(&self) -> Vec<(&str, &str, &AttrMap)> {
+        self.edges_ordered_borrowed()
+    }
+}
+
+trait GraphLike {
+    fn add_node(&mut self, node: String) -> bool;
+    fn add_node_with_attrs(&mut self, node: String, attrs: AttrMap) -> bool;
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError>;
+    fn apply_node_defaults(&mut self, defaults: &AttrMap);
+    fn apply_edge_defaults(&mut self, defaults: &AttrMap);
+    fn is_directed(&self) -> bool;
+    fn has_edge(&self, source: &str, target: &str) -> bool;
+}
+
+impl GraphLike for Graph {
+    fn add_node(&mut self, node: String) -> bool {
+        self.add_node(node)
+    }
+    fn add_node_with_attrs(&mut self, node: String, attrs: AttrMap) -> bool {
+        self.add_node_with_attrs(node, attrs)
+    }
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs)
+            .map(|_| true)
+    }
+
+    fn apply_node_defaults(&mut self, defaults: &AttrMap) {
+        let _ = Graph::apply_node_defaults(self, defaults);
+    }
+
+    fn apply_edge_defaults(&mut self, defaults: &AttrMap) {
+        let _ = Graph::apply_edge_defaults(self, defaults);
+    }
+
+    fn is_directed(&self) -> bool {
+        false
+    }
+
+    fn has_edge(&self, source: &str, target: &str) -> bool {
+        self.has_edge(source, target)
+    }
+}
+
+impl GraphLike for DiGraph {
+    fn add_node(&mut self, node: String) -> bool {
+        self.add_node(node)
+    }
+    fn add_node_with_attrs(&mut self, node: String, attrs: AttrMap) -> bool {
+        self.add_node_with_attrs(node, attrs)
+    }
+    fn add_edge_with_attrs(
+        &mut self,
+        source: String,
+        target: String,
+        attrs: AttrMap,
+    ) -> Result<bool, GraphError> {
+        self.add_edge_with_attrs(source, target, attrs)
+            .map(|_| true)
+    }
+
+    fn apply_node_defaults(&mut self, defaults: &AttrMap) {
+        let _ = DiGraph::apply_node_defaults(self, defaults);
+    }
+
+    fn apply_edge_defaults(&mut self, defaults: &AttrMap) {
+        let _ = DiGraph::apply_edge_defaults(self, defaults);
+    }
+
+    fn is_directed(&self) -> bool {
+        true
+    }
+
+    fn has_edge(&self, source: &str, target: &str) -> bool {
+        self.has_edge(source, target)
+    }
+}
+
+fn attr_escape(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len());
+    let mut literal_start = 0usize;
+    for (index, byte) in s.bytes().enumerate() {
+        let replacement = match byte {
+            b'%' => "%25",
+            b'#' => "%23",
+            b'=' => "%3D",
+            b';' => "%3B",
+            b' ' => "%20",
+            b'\t' => "%09",
+            b'\n' => "%0A",
+            b'\r' => "%0D",
+            _ => continue,
+        };
+        escaped.push_str(&s[literal_start..index]);
+        escaped.push_str(replacement);
+        literal_start = index + 1;
+    }
+    escaped.push_str(&s[literal_start..]);
+    escaped
+}
+
+fn attr_unescape(s: &str) -> String {
+    if !s.contains('%') {
+        return s.to_owned();
+    }
+    let mut unescaped = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0usize;
+    let mut literal_start = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let repl = match (bytes[i + 1], bytes[i + 2]) {
+                (b'0', b'D') | (b'0', b'd') => Some("\r"),
+                (b'0', b'A') | (b'0', b'a') => Some("\n"),
+                (b'0', b'9') => Some("\t"),
+                (b'2', b'0') => Some(" "),
+                (b'2', b'3') => Some("#"),
+                (b'3', b'B') | (b'3', b'b') => Some(";"),
+                (b'3', b'D') | (b'3', b'd') => Some("="),
+                (b'2', b'5') => Some("%"),
+                _ => None,
+            };
+            if let Some(r) = repl {
+                unescaped.push_str(&s[literal_start..i]);
+                unescaped.push_str(r);
+                i += 3;
+                literal_start = i;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    unescaped.push_str(&s[literal_start..]);
+    unescaped
+}
+
+fn encode_attrs(attrs: &AttrMap) -> String {
+    if attrs.is_empty() {
+        return "-".to_owned();
+    }
+    attrs
+        .iter()
+        .map(|(k, v)| format!("{}={}", attr_escape(k), attr_escape(&v.as_str())))
+        .collect::<Vec<String>>()
+        .join(";")
+}
+
+fn encode_edgelist_edges(edges: &[(&str, &str, &AttrMap)]) -> String {
+    let mut output = String::with_capacity(edges.len().saturating_mul(24));
+    for (idx, edge) in edges.iter().enumerate() {
+        let (left, right, attrs) = *edge;
+        if idx > 0 {
+            output.push('\n');
+        }
+        output.push_str(left);
+        output.push(' ');
+        output.push_str(right);
+        output.push(' ');
+        output.push_str(&encode_attrs(attrs));
+    }
+    output
+}
+
+fn encode_adjlist_graph(graph: &Graph) -> String {
+    let mut output = String::with_capacity(
+        graph
+            .node_count()
+            .saturating_add(graph.edge_count())
+            .saturating_mul(16),
+    );
+    for node_index in 0..graph.node_count() {
+        if node_index > 0 {
+            output.push('\n');
+        }
+        output.push_str(
+            graph
+                .get_node_name(node_index)
+                .expect("ordered node index is valid"),
+        );
+        if let Some(neighbor_indices) = graph.neighbors_indices(node_index) {
+            for &neighbor_index in neighbor_indices {
+                if neighbor_index >= node_index {
+                    output.push(' ');
+                    output.push_str(
+                        graph
+                            .get_node_name(neighbor_index)
+                            .expect("adjacency node index is valid"),
+                    );
+                }
+            }
+        }
+    }
+    output
+}
+
+fn encode_adjlist_digraph(graph: &DiGraph) -> String {
+    let mut output = String::with_capacity(
+        graph
+            .node_count()
+            .saturating_add(graph.edge_count())
+            .saturating_mul(16),
+    );
+    for node_index in 0..graph.node_count() {
+        if node_index > 0 {
+            output.push('\n');
+        }
+        output.push_str(
+            graph
+                .get_node_name(node_index)
+                .expect("ordered node index is valid"),
+        );
+        if let Some(successor_indices) = graph.successors_indices(node_index) {
+            for &successor_index in successor_indices {
+                output.push(' ');
+                output.push_str(
+                    graph
+                        .get_node_name(successor_index)
+                        .expect("successor node index is valid"),
+                );
+            }
+        }
+    }
+    output
+}
+
+fn decode_attrs(
+    encoded: &str,
+    mode: CompatibilityMode,
+    warnings: &mut Vec<String>,
+    line_no: usize,
+) -> Result<AttrMap, ReadWriteError> {
+    if encoded == "-" {
+        return Ok(AttrMap::new());
+    }
+
+    let mut attrs = AttrMap::new();
+    for pair in encoded.split(';') {
+        if pair.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = pair.split_once('=') else {
+            let warning = format!("line {line_no} malformed attr pair `{pair}`");
+            if mode == CompatibilityMode::Strict {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_edgelist",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning);
+            continue;
+        };
+        if key.is_empty() {
+            let warning = format!("line {line_no} malformed attr pair `{pair}`");
+            if mode == CompatibilityMode::Strict {
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_edgelist",
+                    reason: warning,
+                });
+            }
+            warnings.push(warning);
+            continue;
+        }
+        attrs.insert(
+            attr_unescape(key),
+            CgseValue::parse_relaxed(&attr_unescape(value)),
+        );
+    }
+    Ok(attrs)
+}
+
+fn xml_write_err(context: &str, err: std::io::Error) -> ReadWriteError {
+    xml_write_err_for("write_graphml", context, err)
+}
+
+fn xml_write_err_for(
+    operation: &'static str,
+    context: &str,
+    err: std::io::Error,
+) -> ReadWriteError {
+    ReadWriteError::FailClosed {
+        operation,
+        reason: format!("xml write error ({context}): {err}"),
+    }
+}
+
+fn parse_xml_attr<'a>(
+    attr: Result<Attribute<'a>, quick_xml::events::attributes::AttrError>,
+    operation: &'static str,
+    context: &str,
+) -> Result<Attribute<'a>, ReadWriteError> {
+    attr.map_err(|err| ReadWriteError::FailClosed {
+        operation,
+        reason: format!("{context} parse error: {err}"),
+    })
+}
+
+fn xml_attr_value(attr: &Attribute<'_>, decoder: Decoder) -> Result<String, ReadWriteError> {
+    attr.decoded_and_normalized_value(XmlVersion::Implicit1_0, decoder)
+        .map(|value| value.into_owned())
+        .map_err(|err| ReadWriteError::FailClosed {
+            operation: "read_gexf",
+            reason: format!("xml attribute decode error: {err}"),
+        })
+}
+
+fn decode_graphml_text_content(event: &BytesText<'_>) -> Result<String, String> {
+    let decoded = event.xml10_content().map_err(|err| err.to_string())?;
+    quick_xml::escape::unescape(&decoded)
+        .map(|value| value.into_owned())
+        .map_err(|err| err.to_string())
+}
+
+fn decode_graphml_entity_ref(event: &BytesRef<'_>) -> Result<String, String> {
+    if let Some(ch) = event.resolve_char_ref().map_err(|err| err.to_string())? {
+        return Ok(ch.to_string());
+    }
+
+    let name = event.xml10_content().map_err(|err| err.to_string())?;
+    quick_xml::escape::resolve_xml_entity(&name)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("unrecognized entity `{name}`"))
+}
+
+fn set<const N: usize>(values: [&str; N]) -> BTreeSet<String> {
+    values.into_iter().map(str::to_owned).collect()
+}
+
+fn xml_local_name(name: &[u8]) -> &[u8] {
+    name.iter()
+        .rposition(|b| *b == b':')
+        .map_or(name, |idx| &name[idx + 1..])
+}
+
+type GmlNodeParsed = (i64, Option<String>, AttrMap);
+type GmlEdgeParsed = (i64, i64, AttrMap);
+type GmlNodeParseResult = Result<(Option<GmlNodeParsed>, usize), ReadWriteError>;
+type GmlEdgeParseResult = Result<(Option<GmlEdgeParsed>, usize), ReadWriteError>;
+
+#[derive(Clone, Copy, Debug)]
+struct GmlDirectedFlag {
+    declared: bool,
+    value: bool,
+}
+
+#[derive(Clone, Debug)]
+struct GraphmlDirectedFlag {
+    declared: bool,
+    value: bool,
+    warning: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GexfDirectedFlag {
+    declared: bool,
+    value: bool,
+}
+
+fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
+    let scope = for_scope.trim().to_ascii_lowercase();
+    if scope.is_empty() || scope == "all" {
+        return true;
+    }
+    scope == target
+}
+
+fn gexf_class_matches(class: &str, target: &str) -> bool {
+    let class = class.trim().to_ascii_lowercase();
+    class.is_empty() || class == target
+}
+
+fn parse_graphml_directed_value(value: &[u8]) -> Option<bool> {
+    let text = std::str::from_utf8(value).ok()?;
+    match text.trim().to_ascii_lowercase().as_str() {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+fn parse_graphml_edgedefault_value(value: &[u8]) -> Option<bool> {
+    let text = std::str::from_utf8(value).ok()?;
+    match text.trim().to_ascii_lowercase().as_str() {
+        "directed" => Some(true),
+        "undirected" => Some(false),
+        _ => None,
+    }
+}
+
+// =============================================================================
+// Pajek format parser (.net files)
+// =============================================================================
+//
+// Pajek format is a text format used by Pajek network analysis software.
+// Format:
+//   *Vertices N
+//   1 "label1" [x y z]
+//   2 "label2" [x y z]
+//   ...
+//   *Edges (or *Arcs for directed)
+//   1 2 [weight]
+//   3 4 [weight]
+//   ...
+//
+// This parser handles the basic format without coordinate data.
+// All edges after *Edges are undirected; all edges after *Arcs are directed.
+
+/// Parser state for Pajek format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PajekSection {
+    None,
+    Vertices,
+    Edges,
+    Arcs,
+}
+
+impl EdgeListEngine {
+    /// Parse a Pajek format string into an undirected graph.
+    ///
+    /// Returns an error if the input contains *Arcs (directed edges) in strict mode.
+    /// In hardened mode, *Arcs are converted to undirected edges with a warning.
+    pub fn read_pajek(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_pajek".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_pajek"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = Graph::new(self.mode);
+        let mut warnings = Vec::new();
+        let mut section = PajekSection::None;
+        let mut vertex_map: BTreeMap<i64, String> = BTreeMap::new();
+        let mut vertex_count: Option<usize> = None;
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('%') {
+                continue;
+            }
+
+            // Section headers
+            let line_lower = line.to_ascii_lowercase();
+            if line_lower.starts_with("*vertices") {
+                section = PajekSection::Vertices;
+                // Parse vertex count if present
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2
+                    && let Ok(count) = parts[1].parse::<usize>()
+                {
+                    vertex_count = Some(count);
+                }
+                continue;
+            }
+            if line_lower.starts_with("*edges") || line_lower.starts_with("*edgeslist") {
+                section = PajekSection::Edges;
+                continue;
+            }
+            if line_lower.starts_with("*arcs") || line_lower.starts_with("*arcslist") {
+                section = PajekSection::Arcs;
+                if self.mode == CompatibilityMode::Strict {
+                    let warning = format!(
+                        "line {}: *Arcs section in undirected graph parse",
+                        line_no + 1
+                    );
+                    self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                    return Err(ReadWriteError::FailClosed {
+                        operation: "read_pajek",
+                        reason: warning,
+                    });
+                }
+                warnings.push(format!(
+                    "line {}: *Arcs converted to undirected edges",
+                    line_no + 1
+                ));
+                continue;
+            }
+            if line_lower.starts_with('*') {
+                // Unknown section - skip
+                section = PajekSection::None;
+                continue;
+            }
+
+            match section {
+                PajekSection::None => {
+                    // Skip lines outside known sections
+                }
+                PajekSection::Vertices => {
+                    // Format: ID "label" [x y z ...]
+                    // We only care about ID and optional label
+                    let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+                    let id = match parts.first().and_then(|s| s.parse::<i64>().ok()) {
+                        Some(id) => id,
+                        None => {
+                            let warning = format!("line {}: invalid vertex ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    // Extract label if present (quoted string)
+                    let label = if let Some(rest) = parts.get(1) {
+                        let rest = rest.trim();
+                        if let Some(stripped) = rest.strip_prefix('"') {
+                            // Find closing quote
+                            if let Some(end) = stripped.find('"') {
+                                stripped[..end].to_owned()
+                            } else {
+                                stripped.trim_matches('"').to_owned()
+                            }
+                        } else {
+                            // No quotes - use first token as label
+                            rest.split_whitespace()
+                                .next()
+                                .map_or_else(|| id.to_string(), |s| s.to_owned())
+                        }
+                    } else {
+                        id.to_string()
+                    };
+
+                    vertex_map.insert(id, label.clone());
+                    graph.add_node(&label);
+                }
+                PajekSection::Edges | PajekSection::Arcs => {
+                    // Format: source target [weight]
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 2 {
+                        let warning = format!("line {}: malformed edge", line_no + 1);
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_pajek",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning);
+                        continue;
+                    }
+
+                    let src_id = match parts[0].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid source ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let dst_id = match parts[1].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid target ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    // Look up vertex labels
+                    let src_label = vertex_map
+                        .get(&src_id)
+                        .cloned()
+                        .unwrap_or_else(|| src_id.to_string());
+                    let dst_label = vertex_map
+                        .get(&dst_id)
+                        .cloned()
+                        .unwrap_or_else(|| dst_id.to_string());
+
+                    // Ensure nodes exist
+                    if !graph.has_node(&src_label) {
+                        graph.add_node(&src_label);
+                    }
+                    if !graph.has_node(&dst_label) {
+                        graph.add_node(&dst_label);
+                    }
+
+                    // Parse optional weight
+                    let mut attrs = AttrMap::new();
+                    if let Some(weight_str) = parts.get(2)
+                        && let Ok(weight) = weight_str.parse::<f64>()
+                    {
+                        attrs.insert("weight".to_owned(), CgseValue::Float(weight));
+                    }
+
+                    let _ = graph.add_edge_with_attrs(&src_label, &dst_label, attrs);
+                }
+            }
+        }
+
+        // Validate vertex count if declared
+        if let Some(expected) = vertex_count
+            && graph.node_count() != expected
+        {
+            let warning = format!(
+                "declared {} vertices but found {}",
+                expected,
+                graph.node_count()
+            );
+            warnings.push(warning);
+        }
+
+        self.record(
+            "read_pajek",
+            DecisionAction::Allow,
+            "pajek parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_graph_report(graph, AttrMap::new(), warnings))
+    }
+
+    /// Parse a Pajek format string into a directed graph.
+    ///
+    /// Both *Edges and *Arcs sections are supported.
+    /// *Edges are converted to bidirectional arcs.
+    pub fn read_digraph_pajek(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_pajek".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_pajek"]),
+            risk_probability: 0.08,
+            unknown_incompatible_feature: false,
+        })?;
+
+        let mut graph = DiGraph::new(self.mode);
+        let mut warnings = Vec::new();
+        let mut section = PajekSection::None;
+        let mut vertex_map: BTreeMap<i64, String> = BTreeMap::new();
+        let mut vertex_count: Option<usize> = None;
+
+        for (line_no, raw_line) in input.lines().enumerate() {
+            let line = raw_line.trim();
+            if line.is_empty() || line.starts_with('%') {
+                continue;
+            }
+
+            let line_lower = line.to_ascii_lowercase();
+            if line_lower.starts_with("*vertices") {
+                section = PajekSection::Vertices;
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2
+                    && let Ok(count) = parts[1].parse::<usize>()
+                {
+                    vertex_count = Some(count);
+                }
+                continue;
+            }
+            if line_lower.starts_with("*edges") || line_lower.starts_with("*edgeslist") {
+                section = PajekSection::Edges;
+                continue;
+            }
+            if line_lower.starts_with("*arcs") || line_lower.starts_with("*arcslist") {
+                section = PajekSection::Arcs;
+                continue;
+            }
+            if line_lower.starts_with('*') {
+                section = PajekSection::None;
+                continue;
+            }
+
+            match section {
+                PajekSection::None => {}
+                PajekSection::Vertices => {
+                    let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+                    let id = match parts.first().and_then(|s| s.parse::<i64>().ok()) {
+                        Some(id) => id,
+                        None => {
+                            let warning = format!("line {}: invalid vertex ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let label = if let Some(rest) = parts.get(1) {
+                        let rest = rest.trim();
+                        if let Some(stripped) = rest.strip_prefix('"') {
+                            if let Some(end) = stripped.find('"') {
+                                stripped[..end].to_owned()
+                            } else {
+                                stripped.trim_matches('"').to_owned()
+                            }
+                        } else {
+                            rest.split_whitespace()
+                                .next()
+                                .map_or_else(|| id.to_string(), |s| s.to_owned())
+                        }
+                    } else {
+                        id.to_string()
+                    };
+
+                    vertex_map.insert(id, label.clone());
+                    graph.add_node(&label);
+                }
+                PajekSection::Edges | PajekSection::Arcs => {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() < 2 {
+                        let warning = format!("line {}: malformed edge", line_no + 1);
+                        if self.mode == CompatibilityMode::Strict {
+                            self.record("read_pajek", DecisionAction::FailClosed, &warning, 1.0);
+                            return Err(ReadWriteError::FailClosed {
+                                operation: "read_pajek",
+                                reason: warning,
+                            });
+                        }
+                        warnings.push(warning);
+                        continue;
+                    }
+
+                    let src_id = match parts[0].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid source ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let dst_id = match parts[1].parse::<i64>() {
+                        Ok(id) => id,
+                        Err(_) => {
+                            let warning = format!("line {}: invalid target ID", line_no + 1);
+                            if self.mode == CompatibilityMode::Strict {
+                                self.record(
+                                    "read_pajek",
+                                    DecisionAction::FailClosed,
+                                    &warning,
+                                    1.0,
+                                );
+                                return Err(ReadWriteError::FailClosed {
+                                    operation: "read_pajek",
+                                    reason: warning,
+                                });
+                            }
+                            warnings.push(warning);
+                            continue;
+                        }
+                    };
+
+                    let src_label = vertex_map
+                        .get(&src_id)
+                        .cloned()
+                        .unwrap_or_else(|| src_id.to_string());
+                    let dst_label = vertex_map
+                        .get(&dst_id)
+                        .cloned()
+                        .unwrap_or_else(|| dst_id.to_string());
+
+                    if !graph.has_node(&src_label) {
+                        graph.add_node(&src_label);
+                    }
+                    if !graph.has_node(&dst_label) {
+                        graph.add_node(&dst_label);
+                    }
+
+                    let mut attrs = AttrMap::new();
+                    if let Some(weight_str) = parts.get(2)
+                        && let Ok(weight) = weight_str.parse::<f64>()
+                    {
+                        attrs.insert("weight".to_owned(), CgseValue::Float(weight));
+                    }
+
+                    // For *Edges, add both directions
+                    if section == PajekSection::Edges {
+                        let _ = graph.add_edge_with_attrs(&src_label, &dst_label, attrs.clone());
+                        let _ = graph.add_edge_with_attrs(&dst_label, &src_label, attrs);
+                    } else {
+                        // *Arcs - single direction
+                        let _ = graph.add_edge_with_attrs(&src_label, &dst_label, attrs);
+                    }
+                }
+            }
+        }
+
+        if let Some(expected) = vertex_count
+            && graph.node_count() != expected
+        {
+            let warning = format!(
+                "declared {} vertices but found {}",
+                expected,
+                graph.node_count()
+            );
+            warnings.push(warning);
+        }
+
+        self.record(
+            "read_pajek",
+            DecisionAction::Allow,
+            "digraph pajek parse completed",
+            0.04,
+        );
+
+        Ok(self.finish_digraph_report(graph, AttrMap::new(), warnings))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{EdgeListEngine, ReadWriteError};
+    use fnx_classes::digraph::DiGraph;
+    use fnx_classes::{AttrMap, EdgeSnapshot, Graph, GraphSnapshot};
+    use fnx_runtime::{
+        CgseValue, CompatibilityMode, DecisionAction, ForensicsBundleIndex, StructuredTestLog,
+        TestKind, TestStatus, canonical_environment_fingerprint,
+        structured_test_log_schema_version,
+    };
+    use proptest::prelude::*;
+    use std::collections::BTreeMap;
+
+    fn attr_escape_frozen(s: &str) -> String {
+        s.replace('%', "%25")
+            .replace('#', "%23")
+            .replace('=', "%3D")
+            .replace(';', "%3B")
+            .replace(' ', "%20")
+            .replace('\t', "%09")
+            .replace('\n', "%0A")
+            .replace('\r', "%0D")
+    }
+
+    fn encode_attrs_frozen(attrs: &AttrMap) -> String {
+        if attrs.is_empty() {
+            return "-".to_owned();
+        }
+        attrs
+            .iter()
+            .map(|(key, value)| {
+                format!(
+                    "{}={}",
+                    attr_escape_frozen(key),
+                    attr_escape_frozen(&value.as_str())
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    fn packet_006_forensics_bundle(
+        run_id: &str,
+        test_id: &str,
+        replay_ref: &str,
+        bundle_id: &str,
+        artifact_refs: Vec<String>,
+    ) -> ForensicsBundleIndex {
+        ForensicsBundleIndex {
+            bundle_id: bundle_id.to_owned(),
+            run_id: run_id.to_owned(),
+            test_id: test_id.to_owned(),
+            bundle_hash_id: "bundle-hash-p2c006".to_owned(),
+            captured_unix_ms: 1,
+            replay_ref: replay_ref.to_owned(),
+            artifact_refs,
+            raptorq_sidecar_refs: Vec::new(),
+            decode_proof_refs: Vec::new(),
+        }
+    }
+
+    fn stable_digest_hex(input: &str) -> String {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in input.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01B3_u64);
+        }
+        format!("sha256:{hash:016x}")
+    }
+
+    fn snapshot_digest(snapshot: &GraphSnapshot) -> String {
+        let canonical = serde_json::to_string(snapshot).expect("snapshot json should serialize");
+        stable_digest_hex(&canonical)
+    }
+
+    fn graph_fingerprint(graph: &Graph) -> String {
+        let snapshot = graph.snapshot();
+        let mode = match snapshot.mode {
+            CompatibilityMode::Strict => "strict",
+            CompatibilityMode::Hardened => "hardened",
+        };
+        let mut edge_signature = snapshot
+            .edges
+            .iter()
+            .map(|edge| {
+                let attrs = edge
+                    .attrs
+                    .iter()
+                    .map(|(key, value)| format!("{key}={}", value.as_str()))
+                    .collect::<Vec<String>>()
+                    .join(";");
+                format!("{}>{}[{attrs}]", edge.left, edge.right)
+            })
+            .collect::<Vec<String>>();
+        edge_signature.sort();
+        format!(
+            "mode:{mode};nodes:{};edges:{};sig:{}",
+            snapshot.nodes.join(","),
+            snapshot.edges.len(),
+            edge_signature.join("|")
+        )
+    }
+
+    fn serialize_digraph_json_graph_frozen(
+        graph: &DiGraph,
+        graph_attrs: &AttrMap,
+    ) -> Result<String, serde_json::Error> {
+        let snapshot = graph.snapshot();
+        let payload = super::JsonGraphPayload {
+            mode: snapshot.mode,
+            directed: Some(true),
+            graph_attrs: graph_attrs.clone(),
+            nodes: snapshot.nodes,
+            edges: snapshot.edges,
+        };
+        serde_json::to_string_pretty(&payload)
+    }
+
+    fn assert_digraph_json_payload_parity(graph: &DiGraph, graph_attrs: &AttrMap) {
+        let frozen = serialize_digraph_json_graph_frozen(graph, graph_attrs)
+            .map_err(|error| error.to_string());
+        let borrowed = super::serialize_digraph_json_graph(graph, graph_attrs)
+            .map_err(|error| error.to_string());
+        assert_eq!(borrowed, frozen);
+    }
+
+    fn packet_006_contract_graph() -> Graph {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs(
+                "a",
+                "b",
+                AttrMap::from([("weight".to_owned(), CgseValue::Int(1))]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "a",
+                "c",
+                AttrMap::from([("label".to_owned(), CgseValue::String("blue".to_owned()))]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "b",
+                "d",
+                AttrMap::from([
+                    ("weight".to_owned(), CgseValue::Int(3)),
+                    ("capacity".to_owned(), CgseValue::Int(7)),
+                ]),
+            )
+            .expect("edge add should succeed");
+        graph
+    }
+
+    #[test]
+    fn round_trip_is_deterministic() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_edgelist(&graph)
+            .expect("serialization should succeed");
+        let parsed = engine
+            .read_edgelist(&text)
+            .expect("parse should succeed")
+            .graph;
+
+        assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn edgelist_roundtrip_preserves_whitespace_attrs() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs(
+                "a",
+                "b",
+                AttrMap::from([
+                    (
+                        "note".to_owned(),
+                        CgseValue::String("line1\nline2\tend\r".to_owned()),
+                    ),
+                    ("label".to_owned(), CgseValue::String("a b;c%".to_owned())),
+                    ("hash".to_owned(), CgseValue::String("tag#a".to_owned())),
+                ]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_edgelist(&graph)
+            .expect("serialization should succeed");
+        assert!(text.contains("%0A"));
+        assert!(text.contains("%09"));
+        assert!(text.contains("%0D"));
+        assert!(text.contains("%23"));
+
+        let parsed = engine
+            .read_edgelist(&text)
+            .expect("parse should succeed")
+            .graph;
+
+        let attrs = parsed.edge_attrs("a", "b").expect("edge should exist");
+        assert_eq!(
+            attrs.get("note"),
+            Some(&CgseValue::String("line1\nline2\tend\r".to_owned()))
+        );
+        assert_eq!(
+            attrs.get("label"),
+            Some(&CgseValue::String("a b;c%".to_owned()))
+        );
+        assert_eq!(
+            attrs.get("hash"),
+            Some(&CgseValue::String("tag#a".to_owned()))
+        );
+    }
+
+    #[test]
+    fn attr_escape_single_scan_preserves_exact_encoding() {
+        let exhaustive_ascii = String::from_utf8((0u8..=127).collect())
+            .expect("the exhaustive ASCII fixture is valid UTF-8");
+        for input in [
+            "",
+            "plain",
+            "%20",
+            "%2520",
+            "#=; \t\n\r",
+            "café-東京-🦀",
+            exhaustive_ascii.as_str(),
+        ] {
+            assert_eq!(
+                super::attr_escape(input),
+                attr_escape_frozen(input),
+                "escaping drifted for {input:?}"
+            );
+        }
+        assert_eq!(super::attr_escape("%20"), "%2520");
+
+        let attrs = AttrMap::from([
+            (
+                "z key%=#;".to_owned(),
+                CgseValue::String("line 1\tline 2\nend\r".to_owned()),
+            ),
+            (
+                "unicode-é".to_owned(),
+                CgseValue::String("東京-🦀-%20".to_owned()),
+            ),
+        ]);
+        assert_eq!(super::encode_attrs(&attrs), encode_attrs_frozen(&attrs));
+    }
+
+    #[test]
+    fn attr_unescape_roundtrip_and_edge_cases() {
+        let exhaustive_ascii = String::from_utf8((0u8..=127).collect())
+            .expect("the exhaustive ASCII fixture is valid UTF-8");
+        for input in [
+            "",
+            "plain",
+            "%20",
+            "%2520",
+            "#=; \t\n\r",
+            "café-東京-🦀",
+            "%0D%0d%0A%0a%09%20%23%3B%3b%3D%3d%25",
+            "trailing%",
+            "incomplete%2",
+            "nonhex%zz",
+            exhaustive_ascii.as_str(),
+        ] {
+            let escaped = super::attr_escape(input);
+            let unescaped = super::attr_unescape(&escaped);
+            assert_eq!(unescaped, input, "roundtrip failed for {input:?}");
+        }
+        assert_eq!(super::attr_unescape("%0d%0a%3b%3d"), "\r\n;=");
+        assert_eq!(super::attr_unescape("%0D%0A%3B%3D"), "\r\n;=");
+        assert_eq!(super::attr_unescape("100% pure"), "100% pure");
+        assert_eq!(super::attr_unescape("bad%9"), "bad%9");
+    }
+
+    /// Same-binary paired A/B for edge-list attribute encoding. The frozen
+    /// arm retains the former eight-replacement escape chain, while the
+    /// candidate scans each key and value once into one output buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn attr_escape_single_scan_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let attrs = (0..4_096usize)
+            .map(|index| {
+                (
+                    format!("key-{index:05} % # = ; spaces\tline\ncarriage\r unicode-é"),
+                    CgseValue::String(format!(
+                        "value-{index:05} % # = ; spaces\tline\ncarriage\r unicode-東京-🦀"
+                    )),
+                )
+            })
+            .collect::<AttrMap>();
+
+        assert_eq!(
+            super::encode_attrs(&attrs),
+            encode_attrs_frozen(&attrs),
+            "complete encoded attribute bytes drifted"
+        );
+
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            let output = if candidate {
+                super::encode_attrs(&attrs)
+            } else {
+                encode_attrs_frozen(&attrs)
+            };
+            black_box(output);
+            started.elapsed().as_nanos()
+        };
+
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let rounds = 15usize;
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "ATTR_ESCAPE_SINGLE_SCAN_AB {name}: attrs={} baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds} \
+                 exact_bytes=true",
+                attrs.len(),
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("replace_chain_vs_single_scan", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("single_scan_vs_single_scan_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn adjlist_round_trip_is_deterministic() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("a", "c").expect("edge add should succeed");
+        graph.add_node("d");
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_adjlist(&graph)
+            .expect("adjlist serialization should succeed");
+        assert_eq!(text, "a b c\nb\nc\nd");
+
+        let parsed = engine
+            .read_adjlist(&text)
+            .expect("adjlist parse should succeed")
+            .graph;
+        assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    fn populate_adjlist_frozen_valid(graph: &mut Graph, input: &str) {
+        for raw_line in input.lines() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph
+                    .add_edge(node.clone(), neighbor)
+                    .expect("valid adjacency-list edge should insert");
+            }
+        }
+    }
+
+    #[test]
+    fn read_adjlist_index_batch_preserves_first_touch_order_and_revision() {
+        let input = "# leading comment\nz q a\nm z\nq a z\nb a\nisolated\nz z q # duplicates\n";
+        let mut frozen = Graph::strict();
+        populate_adjlist_frozen_valid(&mut frozen, input);
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_adjlist(input)
+            .expect("valid adjacency list should parse");
+
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.snapshot(), frozen.snapshot());
+        assert_eq!(report.graph.revision(), frozen.revision());
+    }
+
+    /// Same-binary paired A/B for the undirected adjacency-list population
+    /// kernel. The frozen arm retains the former per-node/per-neighbor graph
+    /// mutation loop; the candidate resolves first-touch indices while parsing
+    /// and submits nodes and edges through ordered batches.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn read_adjlist_index_batch_ab() {
+        use std::fmt::Write as _;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let mut input = String::with_capacity(n * 64);
+        for node in 0..n {
+            write!(&mut input, "node-{node:05}").expect("String write should succeed");
+            for offset in [1usize, 17, 97, 257] {
+                write!(&mut input, " node-{:05}", (node + offset) % n)
+                    .expect("String write should succeed");
+            }
+            if node == 0 {
+                write!(&mut input, " node-{node:05}").expect("String write should succeed");
+            }
+            input.push('\n');
+        }
+
+        let mut frozen = Graph::strict();
+        populate_adjlist_frozen_valid(&mut frozen, &input);
+        let mut candidate_engine = EdgeListEngine::strict();
+        let mut candidate = Graph::strict();
+        let mut candidate_warnings = Vec::new();
+        candidate_engine
+            .populate_adjlist_indexed(&mut candidate, &mut candidate_warnings, &input)
+            .expect("valid adjacency list should batch");
+        assert!(candidate_warnings.is_empty());
+        assert_eq!(candidate.snapshot(), frozen.snapshot());
+        assert_eq!(candidate.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut engine = EdgeListEngine::strict();
+            let mut graph = Graph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                engine
+                    .populate_adjlist_indexed(&mut graph, &mut warnings, &input)
+                    .expect("valid adjacency list should batch");
+            } else {
+                populate_adjlist_frozen_valid(&mut graph, &input);
+            }
+            black_box((engine, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "READ_ADJLIST_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
+    }
+
+    fn populate_digraph_adjlist_frozen_valid(graph: &mut DiGraph, input: &str) {
+        for raw_line in input.lines() {
+            let line = raw_line
+                .split_once('#')
+                .map_or(raw_line, |(prefix, _)| prefix)
+                .trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let mut parts = line.split_whitespace();
+            let Some(node) = parts.next() else {
+                continue;
+            };
+            let node = node.to_owned();
+            let _ = graph.add_node(node.clone());
+            for neighbor in parts {
+                graph
+                    .add_edge(node.clone(), neighbor)
+                    .expect("valid directed adjacency-list edge should insert");
+            }
+        }
+    }
+
+    #[test]
+    fn read_digraph_adjlist_index_batch_preserves_order_and_revision() {
+        let input = "# leading comment\nz q a\nm z\nq a z\nb a\nisolated\nz z q # duplicates\n";
+        let mut frozen = DiGraph::strict();
+        populate_digraph_adjlist_frozen_valid(&mut frozen, input);
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_adjlist(input)
+            .expect("valid directed adjacency list should parse");
+
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.snapshot(), frozen.snapshot());
+        assert_eq!(report.graph.revision(), frozen.revision());
+    }
+
+    /// Same-binary paired A/B for the directed adjacency-list population
+    /// kernel. The frozen arm retains the former per-node/per-neighbor graph
+    /// mutation loop; the candidate resolves first-touch indices while parsing
+    /// and submits nodes and directed pairs through ordered batches.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn read_digraph_adjlist_index_batch_ab() {
+        use std::fmt::Write as _;
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let n = 2_048usize;
+        let mut input = String::with_capacity(n * 64);
+        for node in 0..n {
+            write!(&mut input, "node-{node:05}").expect("String write should succeed");
+            for offset in [1usize, 17, 97, 257] {
+                write!(&mut input, " node-{:05}", (node + offset) % n)
+                    .expect("String write should succeed");
+            }
+            if node == 0 {
+                write!(&mut input, " node-{node:05}").expect("String write should succeed");
+            }
+            input.push('\n');
+        }
+
+        let mut frozen = DiGraph::strict();
+        populate_digraph_adjlist_frozen_valid(&mut frozen, &input);
+        let mut candidate_engine = EdgeListEngine::strict();
+        let mut candidate = DiGraph::strict();
+        let mut candidate_warnings = Vec::new();
+        candidate_engine
+            .populate_digraph_adjlist_indexed(&mut candidate, &mut candidate_warnings, &input)
+            .expect("valid directed adjacency list should batch");
+        assert!(candidate_warnings.is_empty());
+        assert_eq!(candidate.snapshot(), frozen.snapshot());
+        assert_eq!(candidate.revision(), frozen.revision());
+
+        let rounds = 15usize;
+        let time = |batch: bool| {
+            let started = Instant::now();
+            let mut engine = EdgeListEngine::strict();
+            let mut graph = DiGraph::strict();
+            let mut warnings = Vec::new();
+            if batch {
+                engine
+                    .populate_digraph_adjlist_indexed(&mut graph, &mut warnings, &input)
+                    .expect("valid directed adjacency list should batch");
+            } else {
+                populate_digraph_adjlist_frozen_valid(&mut graph, &input);
+            }
+            black_box((engine, graph, warnings));
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "READ_DIGRAPH_ADJLIST_INDEX_BATCH_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_index_batch", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("index_batch_vs_index_batch_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn digraph_adjlist_preserves_order_self_loops_and_isolates() {
+        let mut graph = DiGraph::strict();
+        for node in ["z", "a", "m", "q", "b", "isolated"] {
+            graph.add_node(node);
+        }
+        let inserted = graph.extend_existing_index_edges_unrecorded([
+            (0, 0),
+            (0, 3),
+            (4, 1),
+            (2, 4),
+            (3, 1),
+            (3, 0),
+        ]);
+        assert_eq!(inserted, 6);
+
+        let mut engine = EdgeListEngine::strict();
+        let text = engine
+            .write_digraph_adjlist(&graph)
+            .expect("directed adjlist serialization should succeed");
+        assert_eq!(text, "z z q\na\nm b\nq a z\nb a\nisolated");
+    }
+
+    /// Paired same-binary A/B for undirected adjacency-list encoding. The
+    /// frozen arm retains the former owned token/line/seen representation; the
+    /// candidate streams the same insertion-index rows into one buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn write_adjlist_index_stream_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let encode_frozen = |graph: &Graph| {
+            let mut lines = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for node in graph.nodes_ordered() {
+                let mut tokens = vec![node.to_owned()];
+                if let Some(neighbors) = graph.neighbors(node) {
+                    for neighbor in neighbors {
+                        if !seen.contains(neighbor) {
+                            tokens.push(neighbor.to_owned());
+                        }
+                    }
+                }
+                lines.push(tokens.join(" "));
+                seen.insert(node.to_owned());
+            }
+            lines.join("\n")
+        };
+
+        let mut boundary = Graph::strict();
+        for node in ["z", "a", "m", "q", "b"] {
+            boundary.add_node(node);
+        }
+        for (left, right) in [(0, 0), (0, 3), (4, 1), (2, 4), (3, 1)] {
+            let inserted = boundary.extend_existing_index_edges_unrecorded([(left, right)]);
+            assert_eq!(inserted, 1);
+        }
+        assert_eq!(
+            encode_frozen(&Graph::strict()),
+            super::encode_adjlist_graph(&Graph::strict())
+        );
+        assert_eq!(
+            encode_frozen(&boundary),
+            super::encode_adjlist_graph(&boundary),
+            "indexed stream must preserve node, neighbor, self-loop, and isolate order"
+        );
+
+        let n = 4_096usize;
+        let mut graph = Graph::strict();
+        for node in 0..n {
+            graph.add_node(format!("node-{node:05}"));
+        }
+        let mut edges = Vec::with_capacity(n * 4 + 1);
+        for node in 0..n {
+            for offset in [1usize, 17, 97, 257] {
+                edges.push((node, (node + offset) % n));
+            }
+        }
+        edges.push((0, 0));
+        let _ = graph.extend_existing_index_edges_unrecorded(edges);
+        assert_eq!(
+            encode_frozen(&graph),
+            super::encode_adjlist_graph(&graph),
+            "timed fixture output must be byte-identical"
+        );
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |stream: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if stream {
+                    black_box(super::encode_adjlist_graph(&graph));
+                } else {
+                    black_box(encode_frozen(&graph));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "ADJLIST_INDEX_STREAM_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_stream", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("stream_vs_stream_null", &null_a_ns, &null_b_ns);
+    }
+
+    /// Paired same-binary A/B for directed adjacency-list encoding. The
+    /// frozen arm retains the former owned token/line representation; the
+    /// candidate streams the same insertion-index rows into one buffer.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn write_digraph_adjlist_index_stream_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let encode_frozen = |graph: &DiGraph| {
+            let mut lines = Vec::new();
+            for node in graph.nodes_ordered() {
+                let mut tokens = vec![node.to_owned()];
+                if let Some(successors) = graph.successors(node) {
+                    for successor in successors {
+                        tokens.push(successor.to_owned());
+                    }
+                }
+                lines.push(tokens.join(" "));
+            }
+            lines.join("\n")
+        };
+
+        let mut boundary = DiGraph::strict();
+        for node in ["z", "a", "m", "q", "b", "isolated"] {
+            boundary.add_node(node);
+        }
+        let inserted = boundary.extend_existing_index_edges_unrecorded([
+            (0, 0),
+            (0, 3),
+            (4, 1),
+            (2, 4),
+            (3, 1),
+            (3, 0),
+        ]);
+        assert_eq!(inserted, 6);
+        assert_eq!(
+            encode_frozen(&DiGraph::strict()),
+            super::encode_adjlist_digraph(&DiGraph::strict())
+        );
+        assert_eq!(
+            encode_frozen(&boundary),
+            super::encode_adjlist_digraph(&boundary),
+            "indexed stream must preserve node, successor, self-loop, and isolate order"
+        );
+
+        let n = 4_096usize;
+        let mut graph = DiGraph::strict();
+        for node in 0..n {
+            graph.add_node(format!("node-{node:05}"));
+        }
+        let mut edges = Vec::with_capacity(n * 4 + 1);
+        for node in 0..n {
+            for offset in [1usize, 17, 97, 257] {
+                edges.push((node, (node + offset) % n));
+            }
+        }
+        edges.push((0, 0));
+        assert_eq!(
+            graph.extend_existing_index_edges_unrecorded(edges),
+            n * 4 + 1
+        );
+        assert_eq!(
+            encode_frozen(&graph),
+            super::encode_adjlist_digraph(&graph),
+            "timed fixture output must be byte-identical"
+        );
+
+        let calls = 4usize;
+        let rounds = 15usize;
+        let time = |stream: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                if stream {
+                    black_box(super::encode_adjlist_digraph(&graph));
+                } else {
+                    black_box(encode_frozen(&graph));
+                }
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let base_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(base, candidate)| base > candidate)
+                .count();
+            println!(
+                "DIGRAPH_ADJLIST_INDEX_STREAM_AB {name}: baseline_median_ns={base_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                base_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "DIGRAPH_ADJLIST_INDEX_STREAM_AB fixture: nodes={} edges={} calls={calls}",
+            graph.node_count(),
+            graph.edge_count()
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("frozen_vs_stream", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("stream_vs_stream_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn hardened_adjlist_ignores_comments_and_empty_lines() {
+        let mut engine = EdgeListEngine::hardened();
+        let input = "# comment\n\na b c\nc a\n";
+        let report = engine
+            .read_adjlist(input)
+            .expect("hardened adjlist parse should succeed");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn adjlist_strips_inline_comments() {
+        let mut engine = EdgeListEngine::strict();
+        let input = "a b c # trailing comment\nb a # another\n# full line comment\nc a\n";
+        let report = engine
+            .read_adjlist(input)
+            .expect("strict adjlist parse should succeed");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 3);
+        assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn strict_mode_fails_closed_for_malformed_line() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_edgelist("a\n")
+            .expect_err("strict parser should fail closed");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_mode_keeps_valid_lines_with_warnings() {
+        let mut engine = EdgeListEngine::hardened();
+        let input = "a b weight=1;color=blue\nmalformed\nc d -";
+        let report = engine
+            .read_edgelist(input)
+            .expect("hardened parser should keep valid lines");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn strict_mode_fails_closed_for_empty_attr_key() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_edgelist("a b =1")
+            .expect_err("strict parser should fail on empty attr key");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_mode_warns_for_empty_attr_key() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("a b =1")
+            .expect("hardened parser should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report
+            .graph
+            .edge_attrs("a", "b")
+            .expect("edge should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn edgelist_strips_inline_comments() {
+        let mut engine = EdgeListEngine::strict();
+        let input = "a b weight=1;color=blue # trailing\nc d - # comment\n";
+        let report = engine
+            .read_edgelist(input)
+            .expect("strict edgelist parse should succeed");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 2);
+        let attrs = report
+            .graph
+            .edge_attrs("a", "b")
+            .expect("edge should exist");
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::Int(1)));
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("blue".to_owned()))
+        );
+    }
+
+    #[test]
+    fn json_round_trip_is_deterministic() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+        let mut engine = EdgeListEngine::strict();
+        let json = engine
+            .write_json_graph(&graph)
+            .expect("json write should succeed");
+        let parsed = engine
+            .read_json_graph(&json)
+            .expect("json read should succeed")
+            .graph;
+        assert_eq!(graph.snapshot(), parsed.snapshot());
+    }
+
+    #[test]
+    fn borrowed_digraph_json_payload_is_byte_identical() {
+        assert_digraph_json_payload_parity(&DiGraph::strict(), &AttrMap::new());
+
+        let mut graph = DiGraph::hardened();
+        graph.add_node_with_attrs(
+            "isolated-\"é\n".to_owned(),
+            AttrMap::from([(
+                "currently-omitted-node-attr".to_owned(),
+                CgseValue::String("must remain omitted".to_owned()),
+            )]),
+        );
+        graph
+            .add_edge_with_attrs(
+                "z-last",
+                "a-first",
+                AttrMap::from([
+                    ("bool".to_owned(), CgseValue::Bool(true)),
+                    ("float".to_owned(), CgseValue::Float(-0.0)),
+                    ("int".to_owned(), CgseValue::Int(-7)),
+                    (
+                        "map".to_owned(),
+                        CgseValue::Map(AttrMap::from([(
+                            "nested".to_owned(),
+                            CgseValue::String("line\nquote\"".to_owned()),
+                        )])),
+                    ),
+                ]),
+            )
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs(
+                "a-first",
+                "z-last",
+                AttrMap::from([(
+                    "string".to_owned(),
+                    CgseValue::String("antiparallel".to_owned()),
+                )]),
+            )
+            .expect("antiparallel edge add should succeed");
+        graph
+            .add_edge_with_attrs("z-last", "z-last", AttrMap::new())
+            .expect("self-loop add should succeed");
+        let graph_attrs = AttrMap::from([
+            (
+                "name".to_owned(),
+                CgseValue::String("demo\n\"graph".to_owned()),
+            ),
+            (
+                "nested".to_owned(),
+                CgseValue::Map(AttrMap::from([(
+                    "enabled".to_owned(),
+                    CgseValue::Bool(false),
+                )])),
+            ),
+        ]);
+        assert_digraph_json_payload_parity(&graph, &graph_attrs);
+
+        let mut strict_engine = EdgeListEngine::strict();
+        let public = strict_engine
+            .write_digraph_json_graph_with_graph_attrs(&graph, &graph_attrs)
+            .expect("engine mode must not replace graph mode");
+        let frozen = serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+            .expect("frozen serializer should succeed");
+        assert_eq!(public, frozen);
+    }
+
+    /// Same-binary paired A/B for directed JSON serialization. The frozen arm
+    /// snapshots and deep-clones the graph; the candidate serializes borrowed
+    /// labels and attribute maps in the identical node/edge order.
+    #[test]
+    #[ignore = "measurement; run with --profile release --ignored --nocapture"]
+    fn digraph_json_borrowed_payload_ab() {
+        use std::hint::black_box;
+        use std::time::Instant;
+
+        let node_count = 2_048usize;
+        let offsets = 8usize;
+        let labels = (0..node_count)
+            .map(|index| format!("node-{index:04}-payload"))
+            .collect::<Vec<_>>();
+        let mut graph = DiGraph::strict();
+        for label in &labels {
+            graph.add_node(label.clone());
+        }
+        for source in 0..node_count {
+            for offset in 1..=offsets {
+                let target = (source + offset) % node_count;
+                graph
+                    .add_edge_with_attrs(
+                        labels[source].clone(),
+                        labels[target].clone(),
+                        AttrMap::from([
+                            (
+                                "kind".to_owned(),
+                                CgseValue::String("payload-edge".to_owned()),
+                            ),
+                            (
+                                "weight".to_owned(),
+                                CgseValue::Int(((source + offset) % 97) as i64),
+                            ),
+                        ]),
+                    )
+                    .expect("fixture edge add should succeed");
+            }
+        }
+        let graph_attrs = AttrMap::from([
+            (
+                "fixture".to_owned(),
+                CgseValue::String("borrowed-json".to_owned()),
+            ),
+            ("version".to_owned(), CgseValue::Int(1)),
+        ]);
+        let frozen = serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+            .expect("frozen serialization should succeed");
+        let borrowed = super::serialize_digraph_json_graph(&graph, &graph_attrs)
+            .expect("borrowed serialization should succeed");
+        assert_eq!(borrowed, frozen, "timed fixture JSON bytes drifted");
+
+        let calls = 2usize;
+        let rounds = 15usize;
+        let time = |candidate: bool| {
+            let started = Instant::now();
+            for _ in 0..calls {
+                let output = if candidate {
+                    super::serialize_digraph_json_graph(&graph, &graph_attrs)
+                } else {
+                    serialize_digraph_json_graph_frozen(&graph, &graph_attrs)
+                }
+                .expect("timed serialization should succeed");
+                black_box(output);
+            }
+            started.elapsed().as_nanos()
+        };
+        for _ in 0..3 {
+            black_box(time(false));
+            black_box(time(true));
+        }
+
+        let paired = |candidate: bool, baseline: bool| {
+            let mut baseline_ns = Vec::with_capacity(rounds);
+            let mut candidate_ns = Vec::with_capacity(rounds);
+            for round in 0..rounds {
+                let (base, cand) = if round % 2 == 0 {
+                    (time(baseline), time(candidate))
+                } else {
+                    let cand = time(candidate);
+                    let base = time(baseline);
+                    (base, cand)
+                };
+                baseline_ns.push(base);
+                candidate_ns.push(cand);
+            }
+            (baseline_ns, candidate_ns)
+        };
+        let median = |samples: &[u128]| {
+            let mut sorted = samples.to_vec();
+            sorted.sort_unstable();
+            sorted[sorted.len() / 2]
+        };
+        let report = |name: &str, baseline_ns: &[u128], candidate_ns: &[u128]| {
+            let baseline_median = median(baseline_ns);
+            let candidate_median = median(candidate_ns);
+            let wins = baseline_ns
+                .iter()
+                .zip(candidate_ns)
+                .filter(|(baseline, candidate)| baseline > candidate)
+                .count();
+            println!(
+                "DIGRAPH_JSON_BORROWED_AB {name}: baseline_median_ns={baseline_median} \
+                 candidate_median_ns={candidate_median} ratio={:.4}x wins={wins}/{rounds}",
+                baseline_median as f64 / candidate_median as f64,
+            );
+        };
+
+        println!(
+            "DIGRAPH_JSON_BORROWED_AB fixture: nodes={} edges={} output_bytes={} \
+             baseline_label_clones={} baseline_edge_attr_clones={} calls={calls}",
+            graph.node_count(),
+            graph.edge_count(),
+            borrowed.len(),
+            graph.node_count() + 2 * graph.edge_count(),
+            graph.edge_count(),
+        );
+        let (baseline_ns, candidate_ns) = paired(true, false);
+        report("owned_snapshot_vs_borrowed", &baseline_ns, &candidate_ns);
+        let (null_a_ns, null_b_ns) = paired(true, true);
+        report("borrowed_vs_borrowed_null", &null_a_ns, &null_b_ns);
+    }
+
+    #[test]
+    fn strict_mode_fails_closed_for_malformed_json() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_json_graph("{invalid")
+            .expect_err("strict json parsing should fail closed");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_mode_warns_and_recovers_for_malformed_json() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_json_graph("{invalid")
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_round_trip_no_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        assert!(xml.contains("<graphml"));
+        assert!(xml.contains("edgedefault=\"undirected\""));
+
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn digraph_graphml_round_trip() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "c").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_digraph_graphml(&graph)
+            .expect("graphml write should succeed");
+        assert!(xml.contains("<graphml"));
+        assert!(xml.contains("edgedefault=\"directed\""));
+
+        let parsed = engine
+            .read_digraph_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn gexf_round_trip_preserves_labels_and_typed_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_node_with_attrs(
+            "n0".to_owned(),
+            AttrMap::from([
+                (
+                    "label".to_owned(),
+                    CgseValue::String("Node Zero".to_owned()),
+                ),
+                ("color".to_owned(), CgseValue::String("red".to_owned())),
+                ("size".to_owned(), CgseValue::Int(3)),
+                ("ok".to_owned(), CgseValue::Bool(true)),
+            ]),
+        );
+        graph.add_node("n1");
+        graph
+            .add_edge_with_attrs(
+                "n0",
+                "n1",
+                AttrMap::from([
+                    ("weight".to_owned(), CgseValue::Float(2.5)),
+                    ("kind".to_owned(), CgseValue::String("demo".to_owned())),
+                ]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_gexf(&graph)
+            .expect("gexf write should succeed");
+        assert!(xml.contains("<gexf"));
+        assert!(xml.contains("defaultedgetype=\"undirected\""));
+
+        let parsed = engine.read_gexf(&xml).expect("gexf read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(parsed.graph.node_count(), 2);
+        assert_eq!(parsed.graph.edge_count(), 1);
+        let attrs = parsed.graph.node_attrs("n0").expect("node attrs");
+        assert_eq!(
+            attrs.get("label"),
+            Some(&CgseValue::String("Node Zero".to_owned()))
+        );
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
+        assert_eq!(attrs.get("size"), Some(&CgseValue::Int(3)));
+        assert_eq!(attrs.get("ok"), Some(&CgseValue::Bool(true)));
+        let edge_attrs = parsed
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge attrs should exist");
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
+        assert_eq!(
+            edge_attrs.get("kind"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(
+            edge_attrs.get("id"),
+            Some(&CgseValue::String("0".to_owned()))
+        );
+    }
+
+    #[test]
+    fn digraph_gexf_round_trip_preserves_direction() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_digraph_gexf(&graph)
+            .expect("gexf write should succeed");
+        assert!(xml.contains("defaultedgetype=\"directed\""));
+
+        let parsed = engine
+            .read_digraph_gexf(&xml)
+            .expect("gexf read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(parsed.graph.node_count(), 2);
+        assert_eq!(parsed.graph.edge_count(), 1);
+        assert!(parsed.graph.has_edge("a", "b"));
+        assert!(!parsed.graph.has_edge("b", "a"));
+    }
+
+    #[test]
+    fn gexf_read_preserves_edge_label_attribute() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="n0" label="Node Zero"/>
+      <node id="n1" label="Node One"/>
+    </nodes>
+    <edges>
+      <edge id="e0" source="n0" target="n1" weight="2.5" label="edge label"/>
+    </edges>
+  </graph>
+</gexf>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gexf(xml).expect("gexf read should succeed");
+        let edge_attrs = parsed
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge attrs should exist");
+        assert_eq!(
+            edge_attrs.get("label"),
+            Some(&CgseValue::String("edge label".to_owned()))
+        );
+        assert_eq!(
+            edge_attrs.get("id"),
+            Some(&CgseValue::String("e0".to_owned()))
+        );
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
+    }
+
+    #[test]
+    fn gexf_read_omits_absent_node_label_attribute() {
+        let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="n0"/>
+    </nodes>
+    <edges/>
+  </graph>
+</gexf>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gexf(xml).expect("gexf read should succeed");
+        let node_attrs = parsed
+            .graph
+            .node_attrs("n0")
+            .expect("node attrs should exist");
+        assert!(!node_attrs.contains_key("label"));
+    }
+
+    #[test]
+    fn gexf_read_applies_xml_attribute_value_normalization() {
+        // XML 1.0 attribute-value normalization: a literal tab, LF or CR LF in an
+        // attribute value is read as one space, while a character reference such as
+        // &#10; is kept. networkx gets the same value from xml.etree.ElementTree.
+        let label = "x\ny\tz\r\nw &#10;q";
+        let xml = format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<gexf xmlns="http://www.gexf.net/1.2draft" version="1.2">
+  <graph mode="static" defaultedgetype="undirected">
+    <nodes>
+      <node id="n0" label="{label}"/>
+    </nodes>
+    <edges/>
+  </graph>
+</gexf>"#
+        );
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gexf(&xml).expect("gexf read should succeed");
+        let node_attrs = parsed
+            .graph
+            .node_attrs("n0")
+            .expect("node attrs should exist");
+        assert_eq!(
+            node_attrs.get("label"),
+            Some(&CgseValue::String("x y z w \nq".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_round_trip_with_edge_attrs() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge_with_attrs("a", "b", AttrMap::from([("weight".to_owned(), "1".into())]))
+            .expect("edge add should succeed");
+        graph
+            .add_edge_with_attrs("b", "c", AttrMap::from([("weight".to_owned(), "3".into())]))
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+    }
+
+    #[test]
+    fn graphml_round_trip_with_node_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_node_with_attrs(
+            "a".to_owned(),
+            AttrMap::from([("color".to_owned(), "red".into())]),
+        );
+        graph.add_node_with_attrs(
+            "b".to_owned(),
+            AttrMap::from([("color".to_owned(), "blue".into())]),
+        );
+        graph.add_edge("a", "b").expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(graph.snapshot(), parsed.graph.snapshot());
+        assert_eq!(
+            parsed.graph.node_attrs("a").unwrap().get("color").unwrap(),
+            &CgseValue::String("red".to_owned())
+        );
+    }
+
+    #[test]
+    fn graphml_round_trip_preserves_typed_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_node_with_attrs(
+            "a".to_owned(),
+            AttrMap::from([
+                ("count".to_owned(), CgseValue::Int(2)),
+                ("ratio".to_owned(), CgseValue::Float(1.5)),
+                ("ok".to_owned(), CgseValue::Bool(true)),
+            ]),
+        );
+        graph
+            .add_edge_with_attrs(
+                "a",
+                "b",
+                AttrMap::from([
+                    ("weight".to_owned(), CgseValue::Float(2.5)),
+                    ("flag".to_owned(), CgseValue::Bool(false)),
+                ]),
+            )
+            .expect("edge add should succeed");
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let parsed = engine
+            .read_graphml(&xml)
+            .expect("graphml read should succeed");
+
+        let attrs = parsed.graph.node_attrs("a").expect("node attrs");
+        assert_eq!(attrs.get("count"), Some(&CgseValue::Int(2)));
+        assert_eq!(attrs.get("ratio"), Some(&CgseValue::Float(1.5)));
+        assert_eq!(attrs.get("ok"), Some(&CgseValue::Bool(true)));
+
+        let edges = parsed.graph.edges_ordered();
+        assert_eq!(edges.len(), 1);
+        let edge_attrs = &edges[0].attrs;
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Float(2.5)));
+        assert_eq!(edge_attrs.get("flag"), Some(&CgseValue::Bool(false)));
+    }
+
+    #[test]
+    fn write_json_graph_preserves_graph_attrs_and_directed_flag() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = AttrMap::from([
+            ("name".to_owned(), CgseValue::String("demo".to_owned())),
+            ("version".to_owned(), CgseValue::Int(3)),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let payload = engine
+            .write_digraph_json_graph_with_graph_attrs(&graph, &graph_attrs)
+            .expect("json graph write should succeed");
+
+        assert!(payload.contains("\"directed\": true"));
+        assert!(payload.contains("\"graph_attrs\""));
+        assert!(payload.contains("\"name\": \"demo\""));
+        assert!(payload.contains("\"version\": 3"));
+    }
+
+    #[test]
+    fn read_json_graph_preserves_graph_attrs() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {
+    "name": "demo",
+    "version": 3
+  },
+  "nodes": ["a", "b"],
+  "edges": [
+    {
+      "left": "a",
+      "right": "b",
+      "attrs": {}
+    }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine
+            .read_json_graph(input)
+            .expect("json graph read should succeed");
+
+        assert_eq!(
+            parsed.graph_attrs.get("name"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn strict_json_missing_directed_allows_graph() {
+        let input = r#"{
+  "mode": "strict",
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_json_graph(input)
+            .expect("missing directed should not fail for Graph");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_json_missing_directed_allows_digraph() {
+        let input = r#"{
+  "mode": "strict",
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("missing directed should not fail for DiGraph");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_json_directed_mismatch_fails_closed() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": true,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_json_graph(input)
+            .expect_err("strict mode should fail on directed json for undirected reader");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_json_directed_mismatch_warns() {
+        let input = r#"{
+  "mode": "hardened",
+  "directed": true,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_json_graph(input)
+            .expect("hardened mode should recover from directed json");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_json_undirected_mismatch_fails_closed() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": false,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_json_graph(input)
+            .expect_err("strict mode should fail on undirected json for digraph reader");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_json_undirected_mismatch_warns() {
+        let input = r#"{
+  "mode": "hardened",
+  "directed": false,
+  "graph_attrs": {},
+  "nodes": ["a", "b"],
+  "edges": [
+    { "left": "a", "right": "b", "attrs": {} }
+  ]
+}"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("hardened mode should recover from undirected json");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn graphml_declares_directed_handles_single_quotes() {
+        let input = r#"<?xml version='1.0' encoding='UTF-8'?>
+<graphml xmlns='http://graphml.graphdrawing.org/xmlns'>
+  <graph id='G' edgedefault='directed'>
+    <node id='a'/>
+    <node id='b'/>
+    <edge source='a' target='b'/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            engine
+                .graphml_declares_directed(input)
+                .expect("graphml directed detection should succeed")
+        );
+    }
+
+    #[test]
+    fn graphml_declares_directed_handles_prefixed_graph() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<g:graphml xmlns:g="http://graphml.graphdrawing.org/xmlns">
+  <g:graph id="G" edgedefault="directed">
+    <g:node id="a"/>
+    <g:node id="b"/>
+    <g:edge source="a" target="b"/>
+  </g:graph>
+</g:graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            engine
+                .graphml_declares_directed(input)
+                .expect("graphml directed detection should succeed")
+        );
+    }
+
+    #[test]
+    fn graphml_declares_directed_hardened_recovers_from_malformed_xml() {
+        let mut engine = EdgeListEngine::hardened();
+        assert!(
+            !engine
+                .graphml_declares_directed("<graphml><graph")
+                .expect("hardened directed detection should recover")
+        );
+    }
+
+    #[test]
+    fn strict_graphml_directed_mismatch_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="directed">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on directed graphml for Graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_graphml_directed_mismatch_warns() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="directed">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover from directed graphml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_graphml_undirected_mismatch_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_graphml(input)
+            .expect_err("strict mode should fail on undirected graphml for DiGraph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_graphml_undirected_mismatch_warns() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_graphml(input)
+            .expect("hardened mode should recover from undirected graphml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_graphml_invalid_edgedefault_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="sideways">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on invalid edgedefault");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_graphml_invalid_edgedefault_warns() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G" edgedefault="sideways">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover from invalid edgedefault");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_graphml_missing_edgedefault_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on missing edgedefault");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_graphml_missing_edgedefault_warns() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph id="G">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover from missing edgedefault");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn gml_declares_directed_ignores_attribute_text() {
+        let input = r#"graph [
+  label "mentions directed 1"
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            !engine
+                .gml_declares_directed(input)
+                .expect("gml directed detection should succeed")
+        );
+    }
+
+    #[test]
+    fn gml_declares_directed_detects_late_header() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  directed 1
+  edge [
+    source 0
+    target 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        assert!(
+            engine
+                .gml_declares_directed(input)
+                .expect("gml directed detection should succeed")
+        );
+    }
+
+    #[test]
+    fn strict_gml_directed_mismatch_fails_closed() {
+        let input = r#"graph [
+  directed 1
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict mode should fail on directed gml for Graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_gml_directed_mismatch_warns() {
+        let input = r#"graph [
+  directed 1
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_gml(input)
+            .expect("hardened mode should recover from directed gml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn strict_gml_invalid_directed_value_fails_closed() {
+        let input = r#"graph [
+  directed 2
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on invalid directed value");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_gml_invalid_directed_value_warns() {
+        let input = r#"graph [
+  directed 2
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_gml(input)
+            .expect("hardened gml should recover from invalid directed value");
+        assert!(report.warnings.iter().any(
+            |warning| warning.contains("directed value") && warning.contains("must be 0 or 1")
+        ));
+    }
+
+    #[test]
+    fn strict_gml_undirected_mismatch_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_gml(input)
+            .expect_err("strict mode should fail on undirected gml for DiGraph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn hardened_gml_undirected_mismatch_warns() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_gml(input)
+            .expect("hardened mode should recover from undirected gml");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn read_gml_preserves_graph_attrs() {
+        let input = r#"graph [
+  directed 0
+  label "demo"
+  owner "qa"
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gml(input).expect("gml read should succeed");
+
+        assert_eq!(
+            parsed.graph_attrs.get("label"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(
+            parsed.graph_attrs.get("owner"),
+            Some(&CgseValue::String("qa".to_owned()))
+        );
+    }
+
+    #[test]
+    fn read_gml_nested_attrs_do_not_truncate_graph() {
+        let input = r#"graph [
+  directed 0
+  metadata [
+    owner "qa"
+    nested [
+      level "inner"
+    ]
+  ]
+  node [
+    id 0
+    label "a"
+    graphics [
+      fill "red"
+    ]
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+    graphics [
+      width "2"
+    ]
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gml(input).expect("gml read should succeed");
+
+        assert_eq!(parsed.graph.node_count(), 2);
+        assert_eq!(parsed.graph.edge_count(), 1);
+
+        let metadata = match parsed.graph_attrs.get("metadata") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            metadata.get("owner"),
+            Some(&CgseValue::String("qa".to_owned()))
+        );
+        let nested = match metadata.get("nested") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            nested.get("level"),
+            Some(&CgseValue::String("inner".to_owned()))
+        );
+
+        let node_attrs = parsed.graph.node_attrs("a").expect("node attrs");
+        let graphics = match node_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            graphics.get("fill"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
+
+        let edge_attrs = parsed.graph.edge_attrs("a", "b").expect("edge attrs");
+        let edge_graphics = match edge_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            edge_graphics.get("width"),
+            Some(&CgseValue::String("2".to_owned()))
+        );
+    }
+
+    #[test]
+    fn gml_nested_attrs_round_trip_as_nested_blocks() {
+        let input = r#"graph [
+  directed 0
+  metadata [
+    owner "qa"
+    nested [
+      level "inner"
+    ]
+  ]
+  node [
+    id 0
+    label "a"
+    graphics [
+      fill "red"
+    ]
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+    target 1
+    graphics [
+      width "2"
+    ]
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine.read_gml(input).expect("gml read should succeed");
+        let written = engine
+            .write_gml_with_graph_attrs(&parsed.graph, &parsed.graph_attrs)
+            .expect("gml write should succeed");
+
+        assert!(written.contains("  metadata [\n"));
+        assert!(written.contains("    nested [\n"));
+        assert!(written.contains("    graphics [\n"));
+
+        let reparsed = engine
+            .read_gml(&written)
+            .expect("rewritten gml should parse");
+        let metadata = match reparsed.graph_attrs.get("metadata") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            metadata.get("owner"),
+            Some(&CgseValue::String("qa".to_owned()))
+        );
+        let nested = match metadata.get("nested") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            nested.get("level"),
+            Some(&CgseValue::String("inner".to_owned()))
+        );
+
+        let node_attrs = reparsed.graph.node_attrs("a").expect("node attrs");
+        let node_graphics = match node_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            node_graphics.get("fill"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
+
+        let edge_attrs = reparsed.graph.edge_attrs("a", "b").expect("edge attrs");
+        let edge_graphics = match edge_attrs.get("graphics") {
+            Some(CgseValue::Map(map)) => map,
+            other => {
+                assert!(matches!(other, Some(CgseValue::Map(_))));
+                return;
+            }
+        };
+        assert_eq!(
+            edge_graphics.get("width"),
+            Some(&CgseValue::String("2".to_owned()))
+        );
+    }
+
+    #[test]
+    fn gml_escaped_quotes_preserved_in_label() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "\"quoted\""
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.read_gml(input).expect("gml read should succeed");
+        let nodes = report.graph.nodes_ordered();
+        assert_eq!(nodes, vec!["\"quoted\""]);
+    }
+
+    #[test]
+    fn gml_unescape_numeric_entity_decodes() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "fish &#38; chips"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.read_gml(input).expect("gml read should succeed");
+        let nodes = report.graph.nodes_ordered();
+        assert_eq!(nodes, vec!["fish & chips"]);
+    }
+
+    #[test]
+    fn gml_unescape_named_entity_decodes() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "bread &amp; butter &quot;ok&quot; &lt;tag&gt; &apos;x&apos;"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.read_gml(input).expect("gml read should succeed");
+        let nodes = report.graph.nodes_ordered();
+        assert_eq!(nodes, vec!["bread & butter \"ok\" <tag> 'x'"]);
+    }
+
+    #[test]
+    fn gml_node_missing_label_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on node missing label");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_missing_label_hardened_recovers_with_id_label() {
+        let input = r#"graph [
+  node [
+    id 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["0"]);
+    }
+
+    #[test]
+    fn gml_node_duplicate_id_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 0
+    label "b"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on duplicate node id");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_duplicate_id_hardened_warns_and_skips() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 0
+    label "b"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["a"]);
+    }
+
+    #[test]
+    fn gml_node_duplicate_label_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on duplicate node label");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_duplicate_label_hardened_warns_and_skips() {
+        let input = r#"graph [
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["a"]);
+    }
+
+    #[test]
+    fn gml_node_missing_id_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on node missing id");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_missing_id_hardened_warns_and_skips() {
+        let input = r#"graph [
+  directed 0
+  node [
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn gml_node_missing_closing_bracket_strict_fails_closed() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "a"
+"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on missing closing bracket");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_missing_closing_bracket_hardened_warns_and_skips() {
+        let input = r#"graph [
+  node [
+    id 1
+    label "a"
+"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn gml_node_invalid_id_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id abc
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on invalid node id");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_node_invalid_id_hardened_warns_and_skips() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id abc
+    label "a"
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn gml_edge_missing_target_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on edge missing target");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_edge_missing_target_hardened_warns_and_skips() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  node [
+    id 1
+    label "b"
+  ]
+  edge [
+    source 0
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn gml_edge_unknown_endpoint_strict_fails_closed() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_gml(input)
+            .expect_err("strict gml should fail on unknown edge endpoint");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn gml_edge_unknown_endpoint_hardened_recovers_creates_node() {
+        let input = r#"graph [
+  directed 0
+  node [
+    id 0
+    label "a"
+  ]
+  edge [
+    source 0
+    target 1
+  ]
+]"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine.read_gml(input).expect("hardened gml should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 1);
+        assert_eq!(report.graph.nodes_ordered(), vec!["a", "1"]);
+    }
+
+    #[test]
+    fn read_graphml_preserves_graph_attrs() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="g0" for="graph" attr.name="name" attr.type="string"/>
+  <key id="g1" for="graph" attr.name="version" attr.type="int"/>
+  <graph id="G" edgedefault="undirected">
+    <data key="g0">demo</data>
+    <data key="g1">3</data>
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b"/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine
+            .read_graphml(input)
+            .expect("graphml read should succeed");
+
+        assert_eq!(
+            parsed.graph_attrs.get("name"),
+            Some(&CgseValue::String("demo".to_owned()))
+        );
+        assert_eq!(parsed.graph_attrs.get("version"), Some(&CgseValue::Int(3)));
+    }
+
+    #[test]
+    fn graphml_validation_parallel_edges_does_not_change_ordinary_reader() {
+        let input = r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+<key id="w" for="edge" attr.name="weight" attr.type="int"/>
+<graph edgedefault="undirected"><node id="a"/><node id="b"/>
+<edge source="a" target="b"><data key="w">1</data></edge>
+<edge source="a" target="b"><data key="w">2</data></edge>
+</graph></graphml>"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .validate_graphml(input)
+            .expect("validation projection");
+        assert!(report.warnings.is_empty());
+        assert_eq!(
+            report.graph.edge_count(),
+            1,
+            "projection is not a multigraph"
+        );
+        let records = report.graph.evidence_ledger().records();
+        assert!(records.iter().any(|record| {
+            record.rationale == "graphml parallel edges require multigraph reconstruction"
+        }));
+        assert!(matches!(
+            engine.read_graphml(input),
+            Err(ReadWriteError::FailClosed { .. })
+        ));
+        assert!(
+            engine.validate_graphml(input).is_ok(),
+            "no mutable validation flag leaks"
+        );
+    }
+
+    #[test]
+    fn graphml_validation_checks_attributes_on_later_parallel_edges() {
+        let input = r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+<key id="w" for="edge" attr.name="weight" attr.type="int"/>
+<graph edgedefault="undirected"><node id="a"/><node id="b"/>
+<edge source="a" target="b"><data key="w">1</data></edge>
+<edge source="a" target="b"><data key="w">not-an-int</data></edge>
+</graph></graphml>"#;
+        assert!(matches!(
+            EdgeListEngine::strict().validate_graphml(input),
+            Err(ReadWriteError::FailClosed { .. })
+        ));
+        let report = EdgeListEngine::hardened()
+            .validate_graphml(input)
+            .expect("bounded recovery is reported, not a complete multigraph");
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("not-an-int"))
+        );
+        let records = report.graph.evidence_ledger().records();
+        assert!(records.iter().any(|record| {
+            record.rationale == "graphml parallel edges require multigraph reconstruction"
+        }));
+    }
+
+    #[test]
+    fn graphml_validation_directed_parallel_projection_retains_direction_gate() {
+        let input = r#"<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+<graph edgedefault="directed"><node id="a"/><node id="b"/>
+<edge source="a" target="b"/><edge source="a" target="b"/>
+</graph></graphml>"#;
+        let report = EdgeListEngine::strict()
+            .validate_digraph_graphml(input)
+            .expect("directed projection");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+        assert!(EdgeListEngine::strict().validate_graphml(input).is_err());
+        assert!(
+            EdgeListEngine::strict()
+                .read_digraph_graphml(input)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn graphml_data_missing_key_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data>oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on missing data key");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_missing_key_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data>oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_node_attr_parse_error_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on malformed node attribute");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_node_attr_parse_error_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 0);
+    }
+
+    #[test]
+    fn graphml_edge_attr_parse_error_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on malformed edge attribute");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_edge_attr_parse_error_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b" bad/>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_data_unknown_key_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on unknown data key");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_unknown_key_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">oops</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_data_scope_mismatch_strict_fails_closed() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" attr.name="weight" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(input)
+            .expect_err("strict mode should fail on scope mismatch");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_scope_mismatch_hardened_warns_and_skips() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" attr.name="weight" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>"#;
+
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(input)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn read_graphml_handles_prefixed_elements() {
+        let input = r#"<?xml version="1.0" encoding="UTF-8"?>
+<g:graphml xmlns:g="http://graphml.graphdrawing.org/xmlns">
+  <g:key id="d0" for="node" attr.name="color" attr.type="string"/>
+  <g:graph id="G" edgedefault="undirected">
+    <g:node id="n0">
+      <g:data key="d0">red</g:data>
+    </g:node>
+  </g:graph>
+</g:graphml>"#;
+
+        let mut engine = EdgeListEngine::strict();
+        let parsed = engine
+            .read_graphml(input)
+            .expect("graphml read should succeed");
+
+        assert!(parsed.warnings.is_empty());
+        assert_eq!(parsed.graph.node_count(), 1);
+        let attrs = parsed.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("red".to_owned()))
+        );
+    }
+
+    #[test]
+    fn write_gml_preserves_graph_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = AttrMap::from([
+            ("label".to_owned(), CgseValue::String("demo".to_owned())),
+            ("owner".to_owned(), CgseValue::String("qa".to_owned())),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let gml = engine
+            .write_gml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("gml write should succeed");
+
+        assert!(gml.contains("  label \"demo\"\n"));
+        assert!(gml.contains("  owner \"qa\"\n"));
+    }
+
+    #[test]
+    fn gml_round_trip_preserves_entities() {
+        let mut graph = Graph::strict();
+        graph
+            .add_edge("caf\u{00e9} & tea", "b")
+            .expect("edge add should succeed");
+        let mut engine = EdgeListEngine::strict();
+        let gml = engine.write_gml(&graph).expect("gml write should succeed");
+        assert!(gml.contains("caf&#233; &#38; tea"));
+
+        let parsed = engine.read_gml(&gml).expect("gml read should succeed");
+        assert!(parsed.graph.has_node("caf\u{00e9} & tea"));
+    }
+
+    #[test]
+    fn write_gml_preserves_string_types_and_scalars() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = AttrMap::from([
+            ("enabled".to_owned(), CgseValue::Bool(true)),
+            ("ratio".to_owned(), CgseValue::Float(1.0)),
+            ("version".to_owned(), CgseValue::String("01".to_owned())),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let gml = engine
+            .write_gml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("gml write should succeed");
+
+        assert!(gml.contains("  enabled 1\n"));
+        assert!(gml.contains("  ratio 1.0\n"));
+        assert!(gml.contains("  version \"01\"\n"));
+    }
+
+    #[test]
+    fn write_graphml_preserves_graph_attrs() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let graph_attrs = AttrMap::from([
+            ("name".to_owned(), CgseValue::String("demo".to_owned())),
+            ("version".to_owned(), CgseValue::Int(3)),
+            ("public".to_owned(), CgseValue::Bool(true)),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("graphml write should succeed");
+
+        assert!(xml.contains(r#"<key id="g0" for="graph" attr.name="name" attr.type="string"/>"#));
+        assert!(
+            xml.contains(r#"<key id="g1" for="graph" attr.name="public" attr.type="boolean"/>"#)
+        );
+        assert!(xml.contains(r#"<key id="g2" for="graph" attr.name="version" attr.type="int"/>"#));
+        assert!(xml.contains(r#"<data key="g0">demo</data>"#));
+        assert!(xml.contains(r#"<data key="g1">true</data>"#));
+        assert!(xml.contains(r#"<data key="g2">3</data>"#));
+    }
+
+    #[test]
+    fn write_graphml_emits_default_keys() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let node_defaults =
+            AttrMap::from([("color".to_owned(), CgseValue::String("yellow".to_owned()))]);
+        let edge_defaults = AttrMap::from([("weight".to_owned(), CgseValue::Int(7))]);
+        let graph_attrs = AttrMap::from([
+            ("node_default".to_owned(), CgseValue::Map(node_defaults)),
+            ("edge_default".to_owned(), CgseValue::Map(edge_defaults)),
+        ]);
+
+        let mut engine = EdgeListEngine::strict();
+        let xml = engine
+            .write_graphml_with_graph_attrs(&graph, &graph_attrs)
+            .expect("graphml write should succeed");
+
+        assert!(xml.contains(r#"attr.name="color""#));
+        assert!(xml.contains(r#"<default>yellow</default>"#));
+        assert!(xml.contains(r#"attr.name="weight""#));
+        assert!(xml.contains(r#"<default>7</default>"#));
+        assert!(!xml.contains("node_default"));
+        assert!(!xml.contains("edge_default"));
+    }
+
+    #[test]
+    fn graphml_strict_fails_closed_for_malformed_xml() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml("<not-valid-graphml")
+            .expect_err("strict graphml parsing should fail closed for malformed xml");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_hardened_recovers_for_malformed_xml() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml("<not-valid-graphml")
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+    }
+
+    #[test]
+    fn graphml_invalid_entity_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">&bogus;</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail closed on invalid entity");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_invalid_entity_hardened_warns_and_skips_attr() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">&bogus;</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from invalid entity");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 1);
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_typed_double_parses_float() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="weight" attr.type="double"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("typed double should parse");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::Float(1.0)));
+    }
+
+    #[test]
+    fn graphml_missing_attr_type_defaults_to_string() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("missing attr.type should default to string");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("count"), Some(&CgseValue::String("1".to_owned())));
+    }
+
+    #[test]
+    fn graphml_missing_attr_name_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on missing attr.name");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_missing_attr_name_hardened_warns_and_skips_key() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from missing attr.name");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_key_default_applies_to_node_attrs() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="color" attr.type="string">
+    <default>yellow</default>
+  </key>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml default for node should parse");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("yellow".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_key_default_applies_to_edge_attrs() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="edge" attr.name="weight" attr.type="int">
+    <default>7</default>
+  </key>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml default for edge should parse");
+        let attrs = report
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge should exist");
+        assert_eq!(attrs.get("weight"), Some(&CgseValue::Int(7)));
+    }
+
+    #[test]
+    fn graphml_defaults_apply_when_keys_after_graph() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+  <key id="d0" for="node" attr.name="color" attr.type="string">
+    <default>yellow</default>
+  </key>
+  <key id="d1" for="edge" attr.name="weight" attr.type="int">
+    <default>7</default>
+  </key>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml defaults should apply after graph");
+        let node_attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            node_attrs.get("color"),
+            Some(&CgseValue::String("yellow".to_owned()))
+        );
+        let edge_attrs = report
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge should exist");
+        assert_eq!(edge_attrs.get("weight"), Some(&CgseValue::Int(7)));
+    }
+
+    #[test]
+    fn graphml_defaults_recorded_in_graph_attrs() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="color" attr.type="string">
+    <default>yellow</default>
+  </key>
+  <key id="d1" for="edge" attr.name="weight" attr.type="int">
+    <default>7</default>
+  </key>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml defaults should parse");
+        let node_default = report
+            .graph_attrs
+            .get("node_default")
+            .expect("node_default should exist");
+        assert!(
+            matches!(node_default, CgseValue::Map(_)),
+            "node_default should be map"
+        );
+        if let CgseValue::Map(map) = node_default {
+            assert_eq!(
+                map.get("color"),
+                Some(&CgseValue::String("yellow".to_owned()))
+            );
+        }
+        let edge_default = report
+            .graph_attrs
+            .get("edge_default")
+            .expect("edge_default should exist");
+        assert!(
+            matches!(edge_default, CgseValue::Map(_)),
+            "edge_default should be map"
+        );
+        if let CgseValue::Map(map) = edge_default {
+            assert_eq!(map.get("weight"), Some(&CgseValue::Int(7)));
+        }
+    }
+
+    #[test]
+    fn graphml_graph_default_applies_to_graph_attrs() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+  </graph>
+  <key id="g0" for="graph" attr.name="creator" attr.type="string">
+    <default>nx</default>
+  </key>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml graph default should apply");
+        assert_eq!(
+            report.graph_attrs.get("creator"),
+            Some(&CgseValue::String("nx".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_edge_id_attribute_preserved() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge id="edge-7" source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("graphml edge id should parse");
+        let attrs = report
+            .graph
+            .edge_attrs("n0", "n1")
+            .expect("edge should exist");
+        assert_eq!(
+            attrs.get("id"),
+            Some(&CgseValue::String("edge-7".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_multiedge_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on multiedge graphml");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_multiedge_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1"/>
+    <edge source="n0" target="n1"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from multiedge");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn graphml_data_nested_elements_strict_fails_closed() {
+        let graphml = r#"
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode/>
+      </data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on nested data elements");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_data_nested_elements_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode/>
+      </data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should skip nested data elements");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert!(attrs.is_empty());
+    }
+
+    #[test]
+    fn graphml_nested_data_does_not_poison_next_data() {
+        let graphml = r#"
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns" xmlns:y="http://www.yworks.com/xml/graphml">
+  <key id="d0" for="node" attr.name="label" attr.type="string"/>
+  <key id="d1" for="node" attr.name="color" attr.type="string"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">
+        <y:ShapeNode/>
+      </data>
+      <data key="d1">blue</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from nested data");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("color"),
+            Some(&CgseValue::String("blue".to_owned()))
+        );
+        assert!(attrs.get("label").is_none());
+    }
+
+    #[test]
+    fn graphml_hyperedge_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <hyperedge id="h0">
+      <endpoint node="n0"/>
+      <endpoint node="n1"/>
+    </hyperedge>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on hyperedge");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_hyperedge_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <hyperedge id="h0">
+      <endpoint node="n0"/>
+      <endpoint node="n1"/>
+    </hyperedge>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should skip hyperedge");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_edge_directed_in_undirected_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="true"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on directed edge in undirected graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_edge_directed_in_undirected_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="undirected">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="true"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover from directed edge in undirected graph");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_edge_undirected_in_directed_strict_fails_closed() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="directed">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="false"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_digraph_graphml(graphml)
+            .expect_err("strict mode should fail on undirected edge in directed graph");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_edge_undirected_in_directed_hardened_warns_and_skips() {
+        let graphml = r#"
+<graphml>
+  <graph edgedefault="directed">
+    <node id="n0"/>
+    <node id="n1"/>
+    <edge source="n0" target="n1" directed="false"/>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_digraph_graphml(graphml)
+            .expect("hardened mode should recover from undirected edge in directed graph");
+        assert!(!report.warnings.is_empty());
+        assert_eq!(report.graph.node_count(), 2);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn graphml_typed_int_allows_empty_data() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0"/>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("empty typed data should parse as empty string");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("count"), Some(&CgseValue::String(String::new())));
+    }
+
+    #[test]
+    fn graphml_typed_int_strict_fails_on_non_int() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1.5</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_graphml(graphml)
+            .expect_err("strict mode should fail on invalid int");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn graphml_typed_int_hardened_warns_and_preserves_string() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="count" attr.type="int"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1.5</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("hardened mode should recover");
+        assert!(!report.warnings.is_empty());
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(
+            attrs.get("count"),
+            Some(&CgseValue::String("1.5".to_owned()))
+        );
+    }
+
+    #[test]
+    fn graphml_typed_boolean_accepts_numeric_literals() {
+        let graphml = r#"
+<graphml>
+  <key id="d0" for="node" attr.name="flag" attr.type="boolean"/>
+  <key id="d1" for="node" attr.name="off" attr.type="boolean"/>
+  <graph edgedefault="undirected">
+    <node id="n0">
+      <data key="d0">1</data>
+      <data key="d1">0</data>
+    </node>
+  </graph>
+</graphml>
+"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_graphml(graphml)
+            .expect("boolean numeric literals should parse");
+        let attrs = report.graph.node_attrs("n0").expect("node should exist");
+        assert_eq!(attrs.get("flag"), Some(&CgseValue::Bool(true)));
+        assert_eq!(attrs.get("off"), Some(&CgseValue::Bool(false)));
+    }
+
+    #[test]
+    fn graphml_deterministic_emission() {
+        let mut graph = Graph::strict();
+        graph.add_edge("x", "y").expect("edge add should succeed");
+        graph.add_edge("y", "z").expect("edge add should succeed");
+
+        let mut engine_a = EdgeListEngine::strict();
+        let mut engine_b = EdgeListEngine::strict();
+        let xml_a = engine_a
+            .write_graphml(&graph)
+            .expect("graphml write should succeed");
+        let xml_b = engine_b
+            .write_graphml(&graph)
+            .expect("graphml replay should succeed");
+        assert_eq!(xml_a, xml_b, "graphml emission must be deterministic");
+    }
+
+    #[test]
+    fn unit_packet_006_contract_asserted() {
+        let graph = packet_006_contract_graph();
+        let expected_snapshot = graph.snapshot();
+
+        let mut engine = EdgeListEngine::strict();
+        let edgelist = engine
+            .write_edgelist(&graph)
+            .expect("packet-006 unit contract edgelist write should succeed");
+        let parsed_edgelist = engine
+            .read_edgelist(&edgelist)
+            .expect("packet-006 unit contract edgelist read should succeed");
+        assert!(
+            parsed_edgelist.warnings.is_empty(),
+            "strict edgelist path must stay warning-free for valid fixture"
+        );
+        assert_eq!(parsed_edgelist.graph.snapshot(), expected_snapshot);
+
+        let json_payload = engine
+            .write_json_graph(&graph)
+            .expect("packet-006 unit contract json write should succeed");
+        let parsed_json = engine
+            .read_json_graph(&json_payload)
+            .expect("packet-006 unit contract json read should succeed");
+        assert!(
+            parsed_json.warnings.is_empty(),
+            "strict json path must stay warning-free for valid fixture"
+        );
+        assert_eq!(parsed_json.graph.snapshot(), expected_snapshot);
+
+        let records = engine.evidence_ledger().records();
+        assert_eq!(records.len(), 4, "unit contract should emit four decisions");
+        let expected_operations = [
+            "write_edgelist",
+            "read_edgelist",
+            "write_json_graph",
+            "read_json_graph",
+        ];
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(
+                record.operation, expected_operations[index],
+                "decision order drifted at index {index}"
+            );
+            assert_eq!(
+                record.action,
+                DecisionAction::Allow,
+                "valid fixture should remain allow-only"
+            );
+        }
+
+        let mut adversarial_engine = EdgeListEngine::strict();
+        let err = adversarial_engine
+            .read_edgelist("malformed")
+            .expect_err("strict mode should fail closed for malformed packet-006 input");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+
+        let mut environment = BTreeMap::new();
+        environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+        environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+        environment.insert("io_path".to_owned(), "edgelist+json_graph".to_owned());
+        environment.insert("strict_mode".to_owned(), "true".to_owned());
+        environment.insert("input_digest".to_owned(), stable_digest_hex(&edgelist));
+        environment.insert(
+            "output_digest".to_owned(),
+            snapshot_digest(&parsed_json.graph.snapshot()),
+        );
+
+        let replay_command = "rch exec -- cargo test -p fnx-readwrite unit_packet_006_contract_asserted -- --nocapture";
+        let artifact_refs = vec!["artifacts/conformance/latest/structured_logs.jsonl".to_owned()];
+        let log = StructuredTestLog {
+            schema_version: structured_test_log_schema_version().to_owned(),
+            run_id: "readwrite-p2c006-unit".to_owned(),
+            ts_unix_ms: 1,
+            crate_name: "fnx-readwrite".to_owned(),
+            suite_id: "unit".to_owned(),
+            packet_id: "FNX-P2C-006".to_owned(),
+            test_name: "unit_packet_006_contract_asserted".to_owned(),
+            test_id: "unit::fnx-p2c-006::contract".to_owned(),
+            test_kind: TestKind::Unit,
+            mode: CompatibilityMode::Strict,
+            fixture_id: Some("readwrite::contract::edgelist_json_roundtrip".to_owned()),
+            seed: Some(7106),
+            env_fingerprint: canonical_environment_fingerprint(&environment),
+            environment,
+            duration_ms: 9,
+            replay_command: replay_command.to_owned(),
+            artifact_refs: artifact_refs.clone(),
+            forensic_bundle_id: "forensics::readwrite::unit::contract".to_owned(),
+            hash_id: "sha256:readwrite-p2c006-unit".to_owned(),
+            status: TestStatus::Passed,
+            reason_code: None,
+            failure_repro: None,
+            e2e_step_traces: Vec::new(),
+            forensics_bundle_index: Some(packet_006_forensics_bundle(
+                "readwrite-p2c006-unit",
+                "unit::fnx-p2c-006::contract",
+                replay_command,
+                "forensics::readwrite::unit::contract",
+                artifact_refs,
+            )),
+        };
+        log.validate()
+            .expect("unit packet-006 telemetry log should satisfy strict schema");
+    }
+
+    // --- Adversarial fixture tests ---
+    // Verify parsers handle malformed and adversarial inputs gracefully.
+
+    #[test]
+    fn adversarial_empty_edgelist_strict_returns_empty() {
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_edgelist("")
+            .expect("empty edgelist should return empty graph");
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn adversarial_empty_edgelist_hardened_returns_empty() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("")
+            .expect("hardened empty edgelist should return empty graph");
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn adversarial_empty_json_strict_fails_closed() {
+        let mut engine = EdgeListEngine::strict();
+        let err = engine
+            .read_json_graph("")
+            .expect_err("empty json in strict mode should fail");
+        assert!(matches!(err, ReadWriteError::FailClosed { .. }));
+    }
+
+    #[test]
+    fn adversarial_empty_graphml_strict_returns_empty() {
+        let mut engine = EdgeListEngine::strict();
+        // Empty XML returns empty graph (no graph element found).
+        let report = engine
+            .read_graphml("")
+            .expect("empty graphml should return empty graph");
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn adversarial_empty_gml_strict_returns_empty() {
+        let mut engine = EdgeListEngine::strict();
+        // Empty GML returns empty graph (no graph block found).
+        let report = engine
+            .read_gml("")
+            .expect("empty gml should return empty graph");
+        assert_eq!(report.graph.node_count(), 0);
+        assert_eq!(report.graph.edge_count(), 0);
+    }
+
+    #[test]
+    fn adversarial_unicode_json_parses_correctly() {
+        let input = include_str!("../../fnx-conformance/fixtures/adversarial/unicode_nodes.json");
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_json_graph(input)
+            .expect("unicode json should parse in strict mode");
+        assert_eq!(report.graph.node_count(), 7, "should have 7 unicode nodes");
+        assert_eq!(report.graph.edge_count(), 4);
+    }
+
+    #[test]
+    fn adversarial_self_loops_json_parses() {
+        let input = include_str!("../../fnx-conformance/fixtures/adversarial/self_loops_only.json");
+        let mut engine = EdgeListEngine::strict();
+        // Self-loops may or may not be supported; either Ok or Err is fine, but no panic.
+        let _ = engine.read_json_graph(input);
+    }
+
+    #[test]
+    fn adversarial_negative_weights_json_parses() {
+        let input =
+            include_str!("../../fnx-conformance/fixtures/adversarial/negative_weights.json");
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("negative weights json should parse as digraph");
+        assert_eq!(report.graph.node_count(), 5);
+        assert_eq!(report.graph.edge_count(), 7);
+    }
+
+    #[test]
+    fn adversarial_malformed_graphml_hardened_recovers() {
+        let input =
+            include_str!("../../fnx-conformance/fixtures/adversarial/malformed_xml.graphml");
+        let mut engine = EdgeListEngine::hardened();
+        // Must not panic. Should return Ok with warnings or Err.
+        let _ = engine.read_graphml(input);
+    }
+
+    #[test]
+    fn adversarial_malformed_gml_hardened_recovers() {
+        let input =
+            include_str!("../../fnx-conformance/fixtures/adversarial/malformed_nesting.gml");
+        let mut engine = EdgeListEngine::hardened();
+        // Must not panic. Should return Ok with warnings or Err.
+        let _ = engine.read_gml(input);
+    }
+
+    #[test]
+    fn runtime_policy_tracks_parser_decisions() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("malformed")
+            .expect("hardened malformed edgelist should recover with warnings");
+
+        assert!(!report.warnings.is_empty());
+        assert_eq!(engine.runtime_policy().mode(), CompatibilityMode::Hardened);
+        assert!(!engine.runtime_policy().decision_log().records().is_empty());
+        assert!(engine.runtime_policy().posterior().observation_count >= 1);
+    }
+
+    #[test]
+    fn graph_report_inherits_engine_runtime_policy() {
+        let mut engine = EdgeListEngine::hardened();
+        let report = engine
+            .read_edgelist("malformed")
+            .expect("hardened malformed edgelist should recover with warnings");
+
+        assert_eq!(report.graph.runtime_policy(), engine.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), engine.evidence_ledger());
+    }
+
+    #[test]
+    fn digraph_report_inherits_engine_runtime_policy() {
+        let input = r#"{
+  "mode": "strict",
+  "directed": true,
+  "graph_attrs": {"name": "demo"},
+  "nodes": ["a", "b"],
+  "edges": [{"left": "a", "right": "b", "attrs": {"weight": 1}}]
+}"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine
+            .read_digraph_json_graph(input)
+            .expect("directed json graph should parse");
+
+        assert_eq!(report.graph.runtime_policy(), engine.runtime_policy());
+        assert_eq!(report.graph.evidence_ledger(), engine.evidence_ledger());
+    }
+
+    proptest! {
+        #[test]
+        fn property_packet_006_invariants(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..40)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                graph
+                    .add_edge_with_attrs(
+                        left_node,
+                        right_node,
+                        AttrMap::from([(
+                            "weight".to_owned(),
+                            ((u16::from(*left) + u16::from(*right)) + 1)
+                                .to_string()
+                                .into(),
+                        )]),
+                    )
+                    .expect("generated edge insertion should succeed");
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut strict_a = EdgeListEngine::strict();
+            let mut strict_b = EdgeListEngine::strict();
+
+            let edgelist_a = strict_a
+                .write_edgelist(&graph)
+                .expect("strict edgelist emit should succeed");
+            let edgelist_b = strict_b
+                .write_edgelist(&graph)
+                .expect("strict edgelist replay emit should succeed");
+
+            // Invariant family 1: strict edgelist emission is deterministic.
+            prop_assert_eq!(
+                &edgelist_a,
+                &edgelist_b,
+                "P2C006-IV-1 strict edgelist emission drifted"
+            );
+
+            let strict_parsed_a = strict_a
+                .read_edgelist(&edgelist_a)
+                .expect("strict edgelist parse should succeed");
+            let strict_parsed_b = strict_b
+                .read_edgelist(&edgelist_b)
+                .expect("strict edgelist replay parse should succeed");
+
+            // Invariant family 2: strict round-trip topology/data is deterministic and warning-free.
+            prop_assert_eq!(
+                &strict_parsed_a.graph.snapshot(),
+                &strict_parsed_b.graph.snapshot(),
+                "P2C006-IV-2 strict round-trip snapshot drifted"
+            );
+            prop_assert!(
+                strict_parsed_a.warnings.is_empty() && strict_parsed_b.warnings.is_empty(),
+                "P2C006-IV-2 strict round-trip should not emit warnings for valid generated payloads"
+            );
+
+            let json_a = strict_a
+                .write_json_graph(&graph)
+                .expect("strict json emit should succeed");
+            let json_b = strict_b
+                .write_json_graph(&graph)
+                .expect("strict json replay emit should succeed");
+
+            // Invariant family 3: strict json emission is deterministic.
+            prop_assert_eq!(
+                &json_a,
+                &json_b,
+                "P2C006-IV-3 strict json emission drifted"
+            );
+
+            let strict_json_a = strict_a
+                .read_json_graph(&json_a)
+                .expect("strict json parse should succeed");
+            let strict_json_b = strict_b
+                .read_json_graph(&json_b)
+                .expect("strict json replay parse should succeed");
+
+            // Invariant family 4: strict json reconstruction is deterministic and warning-free.
+            prop_assert_eq!(
+                &strict_json_a.graph.snapshot(),
+                &strict_json_b.graph.snapshot(),
+                "P2C006-IV-3 strict json reconstruction drifted"
+            );
+            prop_assert!(
+                strict_json_a.warnings.is_empty() && strict_json_b.warnings.is_empty(),
+                "P2C006-IV-3 strict json reconstruction should not emit warnings for valid payloads"
+            );
+
+            let malformed_payload = format!(
+                "{edgelist_a}\nmalformed\n# comment only\ninvalid_attr_line x y z\na\n"
+            );
+            let mut hardened_a = EdgeListEngine::hardened();
+            let mut hardened_b = EdgeListEngine::hardened();
+            let hardened_report_a = hardened_a
+                .read_edgelist(&malformed_payload)
+                .expect("hardened parse should recover deterministically");
+            let hardened_report_b = hardened_b
+                .read_edgelist(&malformed_payload)
+                .expect("hardened replay parse should recover deterministically");
+
+            // Invariant family 5: hardened malformed-input recovery is deterministic and auditable.
+            prop_assert_eq!(
+                &hardened_report_a.graph.snapshot(),
+                &hardened_report_b.graph.snapshot(),
+                "P2C006-IV-2 hardened recovery snapshot drifted"
+            );
+            prop_assert_eq!(
+                &hardened_report_a.warnings,
+                &hardened_report_b.warnings,
+                "P2C006-IV-2 hardened recovery warning envelope drifted"
+            );
+            prop_assert!(
+                !hardened_report_a.warnings.is_empty(),
+                "P2C006-IV-2 adversarial malformed payload should emit deterministic warnings"
+            );
+
+            for strict_engine in [&strict_a, &strict_b] {
+                let records = strict_engine.evidence_ledger().records();
+                prop_assert_eq!(
+                    records.len(),
+                    4,
+                    "strict replay ledger should contain exactly write/read decisions for edgelist+json"
+                );
+                prop_assert!(
+                    records.iter().all(|record| {
+                        record.action == DecisionAction::Allow
+                            && matches!(
+                                record.operation.as_ref(),
+                                "write_edgelist"
+                                    | "read_edgelist"
+                                    | "write_json_graph"
+                                    | "read_json_graph"
+                            )
+                    }),
+                    "strict replay ledger should remain allow-only for valid generated payloads"
+                );
+            }
+
+            for hardened_engine in [&hardened_a, &hardened_b] {
+                let records = hardened_engine.evidence_ledger().records();
+                prop_assert!(
+                    records
+                        .iter()
+                        .any(|record| record.action == DecisionAction::FullValidate),
+                    "hardened malformed replay should include a full-validate decision"
+                );
+                prop_assert_eq!(
+                    records.last().map(|record| record.action),
+                    Some(DecisionAction::Allow),
+                    "hardened malformed replay should end with allow after bounded recovery"
+                );
+            }
+
+            let deterministic_seed = edges.iter().fold(7206_u64, |acc, (left, right)| {
+                acc.wrapping_mul(131)
+                    .wrapping_add((u64::from(*left)) << 8)
+                    .wrapping_add(u64::from(*right))
+            });
+
+            let mut environment = BTreeMap::new();
+            environment.insert("os".to_owned(), std::env::consts::OS.to_owned());
+            environment.insert("arch".to_owned(), std::env::consts::ARCH.to_owned());
+            environment.insert("graph_fingerprint".to_owned(), graph_fingerprint(&graph));
+            environment.insert("mode_policy".to_owned(), "strict_and_hardened".to_owned());
+            environment.insert("invariant_id".to_owned(), "P2C006-IV-1".to_owned());
+            environment.insert("input_digest".to_owned(), stable_digest_hex(&malformed_payload));
+            environment.insert(
+                "output_digest".to_owned(),
+                snapshot_digest(&strict_json_a.graph.snapshot()),
+            );
+
+            let replay_command =
+                "rch exec -- cargo test -p fnx-readwrite property_packet_006_invariants -- --nocapture";
+            let artifact_refs = vec![
+                "artifacts/conformance/latest/structured_log_emitter_normalization_report.json"
+                    .to_owned(),
+            ];
+            let log = StructuredTestLog {
+                schema_version: structured_test_log_schema_version().to_owned(),
+                run_id: "readwrite-p2c006-property".to_owned(),
+                ts_unix_ms: 2,
+                crate_name: "fnx-readwrite".to_owned(),
+                suite_id: "property".to_owned(),
+                packet_id: "FNX-P2C-006".to_owned(),
+                test_name: "property_packet_006_invariants".to_owned(),
+                test_id: "property::fnx-p2c-006::invariants".to_owned(),
+                test_kind: TestKind::Property,
+                mode: CompatibilityMode::Hardened,
+                fixture_id: Some("readwrite::property::roundtrip_recovery_matrix".to_owned()),
+                seed: Some(deterministic_seed),
+                env_fingerprint: canonical_environment_fingerprint(&environment),
+                environment,
+                duration_ms: 15,
+                replay_command: replay_command.to_owned(),
+                artifact_refs: artifact_refs.clone(),
+                forensic_bundle_id: "forensics::readwrite::property::invariants".to_owned(),
+                hash_id: "sha256:readwrite-p2c006-property".to_owned(),
+                status: TestStatus::Passed,
+                reason_code: None,
+                failure_repro: None,
+                e2e_step_traces: Vec::new(),
+                forensics_bundle_index: Some(packet_006_forensics_bundle(
+                    "readwrite-p2c006-property",
+                    "property::fnx-p2c-006::invariants",
+                    replay_command,
+                    "forensics::readwrite::property::invariants",
+                    artifact_refs,
+                )),
+            };
+            prop_assert!(
+                log.validate().is_ok(),
+                "packet-006 property telemetry log should satisfy strict schema"
+            );
+        }
+
+        #[test]
+        fn property_gml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            // GML format coerces attribute types to strings, so use string attrs.
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let gml = engine.write_gml(&graph).expect("gml write should succeed");
+            let parsed = engine.read_gml(&gml).expect("gml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict gml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "gml round-trip snapshot should be identical"
+            );
+
+            // Determinism: writing the same graph twice produces identical GML.
+            let mut engine2 = EdgeListEngine::strict();
+            let gml2 = engine2.write_gml(&graph).expect("gml replay write should succeed");
+            prop_assert_eq!(&gml, &gml2, "gml emission must be deterministic");
+        }
+
+        #[test]
+        fn property_graphml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let xml = engine.write_graphml(&graph).expect("graphml write should succeed");
+            let parsed = engine.read_graphml(&xml).expect("graphml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict graphml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "graphml round-trip snapshot should be identical"
+            );
+
+            // Determinism check.
+            let mut engine2 = EdgeListEngine::strict();
+            let xml2 = engine2.write_graphml(&graph).expect("graphml replay write should succeed");
+            prop_assert_eq!(&xml, &xml2, "graphml emission must be deterministic");
+        }
+
+        #[test]
+        fn property_adjlist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge(&left_node, &right_node);
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_adjlist(&graph).expect("adjlist write should succeed");
+            let parsed = engine.read_adjlist(&text).expect("adjlist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict adjlist round-trip should have no warnings");
+            // Adjlist may reorder nodes (adjacency-list enumeration order);
+            // compare node/edge sets rather than exact snapshot.
+            prop_assert_eq!(graph.node_count(), parsed.graph.node_count(), "node count mismatch");
+            prop_assert_eq!(graph.edge_count(), parsed.graph.edge_count(), "edge count mismatch");
+            let mut orig_nodes: Vec<_> = graph.snapshot().nodes.clone();
+            let mut parsed_nodes: Vec<_> = parsed.graph.snapshot().nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets differ");
+        }
+
+        #[test]
+        fn property_edgelist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                // Use Int type since edgelist parse_relaxed infers numeric types
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_edgelist(&graph).expect("edgelist write should succeed");
+            let parsed = engine.read_edgelist(&text).expect("edgelist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict edgelist round-trip should have no warnings");
+            // Edgelist format doesn't preserve node order - compare as sets.
+            // For undirected graphs, the edge endpoint orientation is also
+            // not preserved: `edges_ordered` emits (u, v) in node-insertion
+            // order, and the parsed graph's node-insertion order is driven
+            // by the order each node first appears in the edgelist text,
+            // which can differ from the original. Canonicalise each edge
+            // to (min, max) before sorting so we test "same multiset of
+            // undirected edges + attrs" rather than orientation per edge.
+            let orig = graph.snapshot();
+            let parsed_snap = parsed.graph.snapshot();
+            prop_assert_eq!(orig.mode, parsed_snap.mode, "modes should match");
+            let mut orig_nodes = orig.nodes.clone();
+            let mut parsed_nodes = parsed_snap.nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets should match");
+            let canonicalise = |mut e: EdgeSnapshot| {
+                if e.left > e.right {
+                    std::mem::swap(&mut e.left, &mut e.right);
+                }
+                e
+            };
+            let mut orig_edges: Vec<_> =
+                orig.edges.iter().cloned().map(canonicalise).collect();
+            let mut parsed_edges: Vec<_> =
+                parsed_snap.edges.iter().cloned().map(canonicalise).collect();
+            orig_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            parsed_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            prop_assert_eq!(orig_edges, parsed_edges, "edge sets should match");
+        }
+
+        #[test]
+        fn property_json_graph_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = Graph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let json = engine.write_json_graph(&graph).expect("json write should succeed");
+            let parsed = engine.read_json_graph(&json).expect("json read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict json round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "json round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_gml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let gml = engine.write_digraph_gml(&graph).expect("gml write should succeed");
+            let parsed = engine.read_digraph_gml(&gml).expect("gml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph gml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph gml round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_graphml_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let xml = engine.write_digraph_graphml(&graph).expect("graphml write should succeed");
+            let parsed = engine.read_digraph_graphml(&xml).expect("graphml read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph graphml round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph graphml round-trip snapshot should be identical"
+            );
+        }
+
+        #[test]
+        fn property_digraph_adjlist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge(&left_node, &right_node);
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_digraph_adjlist(&graph).expect("adjlist write should succeed");
+            let parsed = engine.read_digraph_adjlist(&text).expect("adjlist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph adjlist round-trip should have no warnings");
+            prop_assert_eq!(graph.node_count(), parsed.graph.node_count(), "node count mismatch");
+            prop_assert_eq!(graph.edge_count(), parsed.graph.edge_count(), "edge count mismatch");
+            let mut orig_nodes: Vec<_> = graph.snapshot().nodes.clone();
+            let mut parsed_nodes: Vec<_> = parsed.graph.snapshot().nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets differ");
+        }
+
+        #[test]
+        fn property_digraph_edgelist_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                // Use Int type since edgelist parse_relaxed infers numeric types
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::Int(i64::from(*left) + 1))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let text = engine.write_digraph_edgelist(&graph).expect("edgelist write should succeed");
+            let parsed = engine.read_digraph_edgelist(&text).expect("edgelist read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph edgelist round-trip should have no warnings");
+            // Edgelist format doesn't preserve node order - compare as sets
+            let orig = graph.snapshot();
+            let parsed_snap = parsed.graph.snapshot();
+            prop_assert_eq!(orig.mode, parsed_snap.mode, "modes should match");
+            let mut orig_nodes = orig.nodes.clone();
+            let mut parsed_nodes = parsed_snap.nodes.clone();
+            orig_nodes.sort();
+            parsed_nodes.sort();
+            prop_assert_eq!(orig_nodes, parsed_nodes, "node sets should match");
+            let mut orig_edges = orig.edges.clone();
+            let mut parsed_edges = parsed_snap.edges.clone();
+            orig_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            parsed_edges.sort_by(|a, b| (&a.left, &a.right).cmp(&(&b.left, &b.right)));
+            prop_assert_eq!(orig_edges, parsed_edges, "edge sets should match");
+        }
+
+        #[test]
+        fn property_digraph_json_graph_round_trip(edges in prop::collection::vec((0_u8..8, 0_u8..8), 1..30)) {
+            let mut graph = DiGraph::strict();
+            for (left, right) in &edges {
+                let left_node = format!("n{left}");
+                let right_node = format!("n{right}");
+                let _ = graph.add_edge_with_attrs(
+                    left_node,
+                    right_node,
+                    AttrMap::from([("weight".to_owned(), CgseValue::String(format!("{}", *left + 1)))]),
+                );
+            }
+            prop_assume!(graph.edge_count() > 0);
+
+            let mut engine = EdgeListEngine::strict();
+            let json = engine.write_digraph_json_graph(&graph).expect("json write should succeed");
+            let parsed = engine.read_digraph_json_graph(&json).expect("json read should succeed");
+
+            prop_assert!(parsed.warnings.is_empty(), "strict digraph json round-trip should have no warnings");
+            prop_assert_eq!(
+                graph.snapshot(),
+                parsed.graph.snapshot(),
+                "digraph json round-trip snapshot should be identical"
+            );
+        }
+
+    }
+
+    proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// Fast text-format parsers: edgelist, adjlist, JSON, GML.
+        /// GraphML (XML) is excluded because quick-xml can be slow on adversarial
+        /// input; that surface is covered by the cargo-fuzz harness instead.
+        #[test]
+        fn property_malformed_input_never_panics(data in "[\\x20-\\x7e]{0,120}") {
+            let mut strict = EdgeListEngine::strict();
+            let _ = strict.read_edgelist(&data);
+
+            let mut strict2 = EdgeListEngine::strict();
+            let _ = strict2.read_adjlist(&data);
+
+            let mut strict3 = EdgeListEngine::strict();
+            let _ = strict3.read_json_graph(&data);
+
+            let mut strict4 = EdgeListEngine::strict();
+            let _ = strict4.read_gml(&data);
+
+            // Hardened mode must never panic either.
+            let mut hardened = EdgeListEngine::hardened();
+            let _ = hardened.read_edgelist(&data);
+
+            let mut hardened2 = EdgeListEngine::hardened();
+            let _ = hardened2.read_adjlist(&data);
+
+            let mut hardened3 = EdgeListEngine::hardened();
+            let _ = hardened3.read_json_graph(&data);
+
+            let mut hardened4 = EdgeListEngine::hardened();
+            let _ = hardened4.read_gml(&data);
+        }
+    }
+}

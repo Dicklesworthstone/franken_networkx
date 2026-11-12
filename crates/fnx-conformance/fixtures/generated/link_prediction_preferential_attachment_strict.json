@@ -1,0 +1,40 @@
+{
+  "suite": "link_prediction_v1",
+  "mode": "strict",
+  "operations": [
+    {"op": "add_edge", "left": "alice", "right": "bob"},
+    {"op": "add_edge", "left": "alice", "right": "carol"},
+    {"op": "add_edge", "left": "bob", "right": "carol"},
+    {"op": "add_edge", "left": "bob", "right": "frank"},
+    {"op": "add_edge", "left": "carol", "right": "david"},
+    {"op": "add_edge", "left": "david", "right": "eve"},
+    {
+      "op": "preferential_attachment_query",
+      "ebunch": [
+        ["alice", "david"],
+        ["bob", "david"],
+        ["alice", "frank"],
+        ["carol", "frank"]
+      ]
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": ["alice", "bob", "carol", "frank", "david", "eve"],
+      "edges": [
+        {"left": "alice", "right": "bob", "attrs": {}},
+        {"left": "alice", "right": "carol", "attrs": {}},
+        {"left": "bob", "right": "carol", "attrs": {}},
+        {"left": "bob", "right": "frank", "attrs": {}},
+        {"left": "carol", "right": "david", "attrs": {}},
+        {"left": "david", "right": "eve", "attrs": {}}
+      ]
+    },
+    "preferential_attachment": [
+      {"u": "alice", "v": "david", "score": 4.0},
+      {"u": "bob", "v": "david", "score": 6.0},
+      {"u": "alice", "v": "frank", "score": 2.0},
+      {"u": "carol", "v": "frank", "score": 3.0}
+    ]
+  }
+}

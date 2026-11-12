@@ -1,0 +1,88 @@
+         742590 function calls (726075 primitive calls) in 0.540 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1341 to 80 due to restriction <80>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       25    0.000    0.000    0.540    0.022 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/tests/artifacts/perf/20260613T-random-geometric-boldfalcon/random_geometric_harness.py:75(<lambda>)
+       25    0.005    0.000    0.540    0.022 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:52038(wrapper)
+       25    0.045    0.002    0.535    0.021 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:40782(random_geometric_graph)
+    286/2    0.001    0.000    0.335    0.168 <frozen importlib._bootstrap>:1349(_find_and_load)
+    278/2    0.001    0.000    0.335    0.168 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    273/2    0.001    0.000    0.335    0.167 <frozen importlib._bootstrap>:911(_load_unlocked)
+    226/2    0.000    0.000    0.335    0.167 <frozen importlib._bootstrap_external>:1020(exec_module)
+    691/4    0.003    0.000    0.335    0.084 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    234/2    0.002    0.000    0.335    0.167 {built-in method builtins.exec}
+      6/1    0.000    0.000    0.328    0.328 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/__init__.py:129(__getattr__)
+      9/1    0.000    0.000    0.328    0.328 /usr/lib/python3.13/importlib/__init__.py:71(import_module)
+      9/1    0.000    0.000    0.328    0.328 <frozen importlib._bootstrap>:1375(_gcd_import)
+        1    0.000    0.000    0.328    0.328 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/__init__.py:1(<module>)
+    99/43    0.000    0.000    0.250    0.006 {built-in method builtins.__import__}
+    45/12    0.000    0.000    0.226    0.019 <frozen importlib._bootstrap_external>:1326(exec_module)
+    45/12    0.009    0.000    0.226    0.019 {built-in method _imp.exec_dynamic}
+   162/59    0.000    0.000    0.166    0.003 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+      230    0.000    0.000    0.136    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:579(__init__)
+      230    0.001    0.000    0.123    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:140(__init__)
+        1    0.000    0.000    0.113    0.113 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/_kdtree.py:1(<module>)
+        1    0.000    0.000    0.112    0.112 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/sparse/__init__.py:1(<module>)
+        1    0.000    0.000    0.107    0.107 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/linalg/__init__.py:1(<module>)
+        1    0.000    0.000    0.101    0.101 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/sparse/_base.py:1(<module>)
+        1    0.000    0.000    0.101    0.101 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/sparse/_sputils.py:1(<module>)
+        1    0.000    0.000    0.100    0.100 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_util.py:1(<module>)
+        1    0.000    0.000    0.099    0.099 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_array_api.py:1(<module>)
+       25    0.018    0.001    0.095    0.004 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2499(add_nodes_from)
+      230    0.003    0.000    0.091    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:388(_parse)
+        1    0.000    0.000    0.084    0.084 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/array_api_compat/numpy/__init__.py:1(<module>)
+      154    0.001    0.000    0.080    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_array_api.py:840(decorator)
+        3    0.000    0.000    0.078    0.026 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/array_api_compat/_internal.py:56(clone_module)
+2557/1972    0.001    0.000    0.078    0.000 {built-in method builtins.hasattr}
+       11    0.000    0.000    0.077    0.007 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/__init__.py:704(__getattr__)
+       70    0.006    0.000    0.075    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_util.py:1148(decorator)
+    20000    0.007    0.000    0.067    0.000 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2465(add_node)
+        1    0.000    0.000    0.066    0.066 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/_geometric_slerp.py:1(<module>)
+        1    0.000    0.000    0.066    0.066 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/distance.py:1(<module>)
+        1    0.000    0.000    0.063    0.063 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/special/__init__.py:1(<module>)
+    20000    0.059    0.000    0.059    0.000 {function Graph.add_node at 0x726e459b3f60}
+        1    0.000    0.000    0.056    0.056 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/linalg/_basic.py:1(<module>)
+        1    0.000    0.000    0.052    0.052 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/special/_support_alternative_backends.py:1(<module>)
+       91    0.000    0.000    0.050    0.001 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/special/_support_alternative_backends.py:86(wrapper)
+        1    0.000    0.000    0.049    0.049 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/__init__.py:1(<module>)
+        1    0.000    0.000    0.048    0.048 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/f2py2e.py:1(<module>)
+        1    0.000    0.000    0.041    0.041 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/capi_maps.py:1(<module>)
+        1    0.000    0.000    0.038    0.038 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/transform/__init__.py:1(<module>)
+        1    0.000    0.000    0.038    0.038 /home/ubuntu/.local/lib/python3.13/site-packages/numpy/f2py/crackfortran.py:1(<module>)
+     1162    0.002    0.000    0.037    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:201(_read_to_next_section)
+     1662    0.001    0.000    0.037    0.000 /usr/lib/python3.13/re/__init__.py:330(_compile)
+  248/245    0.002    0.000    0.036    0.000 {built-in method builtins.__build_class__}
+      486    0.000    0.000    0.036    0.000 /usr/lib/python3.13/re/__init__.py:287(compile)
+     1210    0.001    0.000    0.036    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:212(_read_sections)
+       85    0.000    0.000    0.035    0.000 /usr/lib/python3.13/re/_compiler.py:743(compile)
+      447    0.003    0.000    0.034    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:224(_parse_param_list)
+      226    0.001    0.000    0.032    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+     1863    0.004    0.000    0.031    0.000 /usr/lib/python3.13/textwrap.py:419(dedent)
+       31    0.030    0.001    0.030    0.001 {built-in method builtins.sorted}
+        1    0.000    0.000    0.027    0.027 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/transform/_rotation.py:1(<module>)
+  273/269    0.000    0.000    0.025    0.000 <frozen importlib._bootstrap>:806(module_from_spec)
+       25    0.000    0.000    0.024    0.001 /data/projects/.scratch/franken_networkx-cod-opt-20260613T161804Z/python/franken_networkx/__init__.py:2809(add_edges_from)
+       25    0.024    0.001    0.024    0.001 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+     3201    0.014    0.000    0.023    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:168(_is_at_section)
+    45/43    0.000    0.000    0.021    0.000 <frozen importlib._bootstrap_external>:1318(create_module)
+    45/43    0.020    0.000    0.021    0.000 {built-in method _imp.create_dynamic}
+      226    0.003    0.000    0.020    0.000 <frozen importlib._bootstrap_external>:782(_compile_bytecode)
+     1467    0.001    0.000    0.019    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:573(dedent_lines)
+        1    0.000    0.000    0.019    0.019 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/linalg/_decomp.py:1(<module>)
+       85    0.000    0.000    0.019    0.000 /usr/lib/python3.13/re/_compiler.py:576(_code)
+     3879    0.007    0.000    0.017    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:67(read_to_condition)
+ 8881/231    0.007    0.000    0.017    0.000 /usr/lib/python3.13/copy.py:119(deepcopy)
+     2971    0.001    0.000    0.016    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:77(read_to_next_empty_line)
+      226    0.016    0.000    0.016    0.000 {built-in method marshal.loads}
+  470/231    0.002    0.000    0.016    0.000 /usr/lib/python3.13/copy.py:218(_deepcopy_dict)
+       85    0.000    0.000    0.016    0.000 /usr/lib/python3.13/re/_parser.py:970(parse)
+      277    0.001    0.000    0.016    0.000 <frozen importlib._bootstrap>:1240(_find_spec)
+   479/85    0.001    0.000    0.015    0.000 /usr/lib/python3.13/re/_parser.py:451(_parse_sub)
+        1    0.000    0.000    0.015    0.015 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/spatial/transform/_rotation.py:63(Rotation)
+   631/85    0.006    0.000    0.015    0.000 /usr/lib/python3.13/re/_parser.py:511(_parse)
+  1145/85    0.007    0.000    0.015    0.000 /usr/lib/python3.13/re/_compiler.py:37(_compile)
+      230    0.001    0.000    0.013    0.000 /home/ubuntu/.local/lib/python3.13/site-packages/scipy/_lib/_docscrape.py:366(_parse_summary)
+
+

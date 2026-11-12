@@ -1,0 +1,77 @@
+{
+  "suite": "matching_v1",
+  "mode": "hardened",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "isolated",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {
+        "weight": "3"
+      }
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {
+        "weight": "5"
+      }
+    },
+    {
+      "op": "maximal_matching_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c",
+        "isolated"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {
+            "weight": "3"
+          }
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {
+            "weight": "5"
+          }
+        }
+      ]
+    },
+    "maximal_matching": [
+      [
+        "a",
+        "b"
+      ]
+    ]
+  }
+}

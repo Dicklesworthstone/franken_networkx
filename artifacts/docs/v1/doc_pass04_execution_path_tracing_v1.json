@@ -1,0 +1,1641 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "doc-pass-04-execution-path-tracing-v1",
+  "generated_at_utc": "2026-02-16T07:07:36.663944+00:00",
+  "baseline_comparator": "legacy_networkx/main@python3.12",
+  "execution_summary": {
+    "workflow_count": 8,
+    "branch_count": 16,
+    "fallback_count": 8,
+    "workspace_crate_count": 9,
+    "verification_bead_count": 7
+  },
+  "execution_paths": [
+    {
+      "path_id": "graph_mutation_lifecycle",
+      "title": "Graph Mutation and Fail-Closed Edge Admission",
+      "subsystem_family": "graph-storage",
+      "objective": "Mutate adjacency/edge state deterministically while enforcing strict fail-closed metadata policy.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-classes",
+          "file_path": "crates/fnx-classes/src/lib.rs",
+          "symbol": "Graph::add_node_with_attrs",
+          "line_start": 176
+        },
+        {
+          "crate_name": "fnx-classes",
+          "file_path": "crates/fnx-classes/src/lib.rs",
+          "symbol": "Graph::add_edge_with_attrs",
+          "line_start": 225
+        },
+        {
+          "crate_name": "fnx-classes",
+          "file_path": "crates/fnx-classes/src/lib.rs",
+          "symbol": "Graph::remove_node",
+          "line_start": 354
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "graph_mutation_lifecycle-01-mutation_intent",
+          "description": "Capture mutation intent and existing-node/attribute evidence.",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_node_with_attrs",
+            "line_start": 176
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "step_id": "graph_mutation_lifecycle-02-compatibility_gate",
+          "description": "Evaluate incompatibility probability and strict/hardened decision action.",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_node_with_attrs",
+            "line_start": 176
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "step_id": "graph_mutation_lifecycle-03-state_commit",
+          "description": "Apply deterministic node/edge mutations and revision bump only on state change.",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_node_with_attrs",
+            "line_start": 176
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "unknown_feature_fail_closed",
+          "condition": "Unknown incompatible edge metadata encountered.",
+          "strict_behavior": "Return GraphError::FailClosed before state mutation.",
+          "hardened_behavior": "Also fail closed to preserve compatibility contract.",
+          "fallback_behavior": "Emit evidence ledger record with reason `unknown_incompatible_feature`.",
+          "outcome": "mutation_rejected",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_edge_with_attrs",
+            "line_start": 225
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "branch_id": "autocreate_missing_nodes",
+          "condition": "Edge endpoint not present in node table.",
+          "strict_behavior": "Autocreate endpoint nodes and continue.",
+          "hardened_behavior": "Autocreate endpoint nodes and continue.",
+          "fallback_behavior": "Record left/right autocreate signals in evidence ledger.",
+          "outcome": "mutation_committed",
+          "code_anchor": {
+            "crate_name": "fnx-classes",
+            "file_path": "crates/fnx-classes/src/lib.rs",
+            "symbol": "Graph::add_edge_with_attrs",
+            "line_start": 225
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "graph_mutation_forensics",
+          "branch_id": "unknown_feature_fail_closed",
+          "trigger": "DecisionAction::FailClosed",
+          "recovery_actions": [
+            "preserve prior graph snapshot",
+            "emit deterministic replay command",
+            "attach structured log forensics bundle ref"
+          ],
+          "terminal_state": "fail_closed",
+          "evidence_refs": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_classes::tests::add_edge_autocreates_nodes_and_preserves_order",
+          "fnx_classes::tests::remove_node_removes_incident_edges"
+        ],
+        "property": [
+          "property::fnx_classes::mutation_invariants"
+        ],
+        "differential": [
+          "fixture::graph_core_mutation_hardened"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::happy_path"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.23",
+        "bd-315.10"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-classes --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+      ],
+      "risk_notes": [
+        "Fail-closed branch must not partially mutate adjacency maps.",
+        "Autocreate path must preserve deterministic insertion order."
+      ]
+    },
+    {
+      "path_id": "view_cache_projection_refresh",
+      "title": "Graph View Projection and Cached Snapshot Refresh",
+      "subsystem_family": "graph-view-api",
+      "objective": "Serve deterministic read views while refreshing stale cache snapshots on revision drift.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-views",
+          "file_path": "crates/fnx-views/src/lib.rs",
+          "symbol": "GraphView::neighbors",
+          "line_start": 32
+        },
+        {
+          "crate_name": "fnx-views",
+          "file_path": "crates/fnx-views/src/lib.rs",
+          "symbol": "CachedSnapshotView::is_stale",
+          "line_start": 68
+        },
+        {
+          "crate_name": "fnx-views",
+          "file_path": "crates/fnx-views/src/lib.rs",
+          "symbol": "CachedSnapshotView::refresh_if_stale",
+          "line_start": 73
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "view_cache_projection_refresh-01-projection_read",
+          "description": "Resolve live graph projection for nodes/edges/neighbors.",
+          "code_anchor": {
+            "crate_name": "fnx-views",
+            "file_path": "crates/fnx-views/src/lib.rs",
+            "symbol": "GraphView::neighbors",
+            "line_start": 32
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "view_cache_projection_refresh-02-stale_detection",
+          "description": "Compare cached revision with graph revision.",
+          "code_anchor": {
+            "crate_name": "fnx-views",
+            "file_path": "crates/fnx-views/src/lib.rs",
+            "symbol": "GraphView::neighbors",
+            "line_start": 32
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "view_cache_projection_refresh-03-cache_refresh",
+          "description": "Refresh snapshot only when revision drift is observed.",
+          "code_anchor": {
+            "crate_name": "fnx-views",
+            "file_path": "crates/fnx-views/src/lib.rs",
+            "symbol": "GraphView::neighbors",
+            "line_start": 32
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "cache_fresh_no_refresh",
+          "condition": "Cached revision matches current graph revision.",
+          "strict_behavior": "Return cached snapshot unchanged.",
+          "hardened_behavior": "Return cached snapshot unchanged.",
+          "fallback_behavior": "No-op branch with deterministic snapshot identity.",
+          "outcome": "cache_hot",
+          "code_anchor": {
+            "crate_name": "fnx-views",
+            "file_path": "crates/fnx-views/src/lib.rs",
+            "symbol": "CachedSnapshotView::refresh_if_stale",
+            "line_start": 73
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "branch_id": "cache_stale_refresh",
+          "condition": "Cached revision differs from graph revision.",
+          "strict_behavior": "Rebuild snapshot and update cached revision.",
+          "hardened_behavior": "Rebuild snapshot and update cached revision.",
+          "fallback_behavior": "Force snapshot recomputation before returning reads.",
+          "outcome": "cache_refreshed",
+          "code_anchor": {
+            "crate_name": "fnx-views",
+            "file_path": "crates/fnx-views/src/lib.rs",
+            "symbol": "CachedSnapshotView::refresh_if_stale",
+            "line_start": 73
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "view_refresh_recompute",
+          "branch_id": "cache_stale_refresh",
+          "trigger": "revision_mismatch",
+          "recovery_actions": [
+            "discard stale snapshot",
+            "recompute from graph snapshot",
+            "record updated revision anchor"
+          ],
+          "terminal_state": "cache_hot",
+          "evidence_refs": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_views::tests::cached_snapshot_refreshes_on_revision_change"
+        ],
+        "property": [
+          "property::fnx_views::cache_coherence"
+        ],
+        "differential": [
+          "fixture::view_neighbors_strict"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::edge_path"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.23"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-views --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+      ],
+      "risk_notes": [
+        "Snapshot staleness branch must always refresh before read exposure.",
+        "View ordering must remain deterministic across refreshes."
+      ]
+    },
+    {
+      "path_id": "dispatch_resolution_runtime",
+      "title": "Compatibility-Aware Dispatch Resolution",
+      "subsystem_family": "compat-dispatch",
+      "objective": "Resolve backend deterministically with fail-closed handling for incompatible requests.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-dispatch",
+          "file_path": "crates/fnx-dispatch/src/lib.rs",
+          "symbol": "BackendRegistry::resolve",
+          "line_start": 100
+        },
+        {
+          "crate_name": "fnx-dispatch",
+          "file_path": "crates/fnx-dispatch/src/lib.rs",
+          "symbol": "BackendRegistry::record_dispatch",
+          "line_start": 168
+        },
+        {
+          "crate_name": "fnx-runtime",
+          "file_path": "crates/fnx-runtime/src/lib.rs",
+          "symbol": "decision_theoretic_action",
+          "line_start": 1140
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "dispatch_resolution_runtime-01-risk_scoring",
+          "description": "Compute decision action from mode, risk probability, and incompatibility feature flag.",
+          "code_anchor": {
+            "crate_name": "fnx-dispatch",
+            "file_path": "crates/fnx-dispatch/src/lib.rs",
+            "symbol": "BackendRegistry::resolve",
+            "line_start": 100
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "step_id": "dispatch_resolution_runtime-02-backend_filtering",
+          "description": "Filter backend registry by mode permissions and required features.",
+          "code_anchor": {
+            "crate_name": "fnx-dispatch",
+            "file_path": "crates/fnx-dispatch/src/lib.rs",
+            "symbol": "BackendRegistry::resolve",
+            "line_start": 100
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "step_id": "dispatch_resolution_runtime-03-deterministic_selection",
+          "description": "Select backend by priority then lexical order and log decision evidence.",
+          "code_anchor": {
+            "crate_name": "fnx-dispatch",
+            "file_path": "crates/fnx-dispatch/src/lib.rs",
+            "symbol": "BackendRegistry::resolve",
+            "line_start": 100
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "dispatch_unknown_feature_fail_closed",
+          "condition": "unknown_incompatible_feature=true",
+          "strict_behavior": "Fail closed and return DispatchError::FailClosed.",
+          "hardened_behavior": "Fail closed and return DispatchError::FailClosed.",
+          "fallback_behavior": "Persist ledger entry tagged unknown_incompatible_feature.",
+          "outcome": "dispatch_rejected",
+          "code_anchor": {
+            "crate_name": "fnx-dispatch",
+            "file_path": "crates/fnx-dispatch/src/lib.rs",
+            "symbol": "BackendRegistry::resolve",
+            "line_start": 100
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "branch_id": "dispatch_no_backend",
+          "condition": "No backend satisfies compatibility + feature constraints.",
+          "strict_behavior": "Return DispatchError::NoCompatibleBackend.",
+          "hardened_behavior": "Return DispatchError::NoCompatibleBackend.",
+          "fallback_behavior": "Record reason code `no_compatible_backend` for forensics.",
+          "outcome": "dispatch_rejected",
+          "code_anchor": {
+            "crate_name": "fnx-dispatch",
+            "file_path": "crates/fnx-dispatch/src/lib.rs",
+            "symbol": "BackendRegistry::resolve",
+            "line_start": 100
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "dispatch_failure_forensics",
+          "branch_id": "dispatch_unknown_feature_fail_closed",
+          "trigger": "decision_action_fail_closed",
+          "recovery_actions": [
+            "emit deterministic dispatch replay command",
+            "capture requested backend and required feature evidence",
+            "link failure reason code in structured logs"
+          ],
+          "terminal_state": "fail_closed",
+          "evidence_refs": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_dispatch::tests::strict_mode_rejects_unknown_incompatible_request",
+          "fnx_dispatch::tests::deterministic_priority_selects_highest_then_name"
+        ],
+        "property": [
+          "property::fnx_dispatch::deterministic_selection"
+        ],
+        "differential": [
+          "fixture::dispatch_route_strict"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::malformed_input"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.10",
+        "bd-315.23"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-dispatch --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+      ],
+      "risk_notes": [
+        "Dispatch fail-closed branches must not silently degrade to alternate backends."
+      ]
+    },
+    {
+      "path_id": "conversion_payload_ingest",
+      "title": "Conversion Ingest (Edge List + Adjacency)",
+      "subsystem_family": "conversion-ingest",
+      "objective": "Convert external graph payloads into native graph state with strict/hardened parsing branches.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-convert",
+          "file_path": "crates/fnx-convert/src/lib.rs",
+          "symbol": "GraphConverter::from_edge_list",
+          "line_start": 133
+        },
+        {
+          "crate_name": "fnx-convert",
+          "file_path": "crates/fnx-convert/src/lib.rs",
+          "symbol": "GraphConverter::from_adjacency",
+          "line_start": 220
+        },
+        {
+          "crate_name": "fnx-convert",
+          "file_path": "crates/fnx-convert/src/lib.rs",
+          "symbol": "GraphConverter::record",
+          "line_start": 332
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "conversion_payload_ingest-01-dispatch_gate",
+          "description": "Resolve conversion backend compatibility contract.",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_edge_list",
+            "line_start": 133
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "conversion_payload_ingest-02-node_edge_parse",
+          "description": "Parse payload rows and classify malformed/empty identifiers.",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_edge_list",
+            "line_start": 133
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "conversion_payload_ingest-03-graph_apply",
+          "description": "Apply converted rows into graph mutation API with warning accumulation.",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_edge_list",
+            "line_start": 133
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "convert_strict_malformed_fail_closed",
+          "condition": "Strict mode receives malformed node/edge payload.",
+          "strict_behavior": "Return ConvertError::FailClosed and stop conversion.",
+          "hardened_behavior": "Not applicable (hardened path differs).",
+          "fallback_behavior": "Emit fail-closed ledger event with malformed payload context.",
+          "outcome": "conversion_failed",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_edge_list",
+            "line_start": 133
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "branch_id": "convert_hardened_warn_skip",
+          "condition": "Hardened mode receives malformed row.",
+          "strict_behavior": "Not applicable (strict fails closed).",
+          "hardened_behavior": "Record warning + FullValidate and skip malformed row.",
+          "fallback_behavior": "Continue conversion with deterministic warning list.",
+          "outcome": "conversion_degraded_but_completed",
+          "code_anchor": {
+            "crate_name": "fnx-convert",
+            "file_path": "crates/fnx-convert/src/lib.rs",
+            "symbol": "GraphConverter::from_adjacency",
+            "line_start": 220
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "convert_hardened_continuation",
+          "branch_id": "convert_hardened_warn_skip",
+          "trigger": "malformed_input_hardened_mode",
+          "recovery_actions": [
+            "append warning",
+            "emit full-validate decision record",
+            "continue ingest of well-formed rows"
+          ],
+          "terminal_state": "completed_with_warnings",
+          "evidence_refs": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_convert::tests::edge_list_conversion_is_deterministic",
+          "fnx_convert::tests::strict_mode_fails_closed_for_malformed_edge"
+        ],
+        "property": [
+          "property::fnx_convert::roundtrip_stability"
+        ],
+        "differential": [
+          "fixture::convert_adjacency_hardened"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::malformed_input"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.23"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-convert --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+      ],
+      "risk_notes": [
+        "Strict/hardened divergence must remain explicit and replay-verifiable."
+      ]
+    },
+    {
+      "path_id": "readwrite_serialization_roundtrip",
+      "title": "Read/Write Serialization and Parse Recovery",
+      "subsystem_family": "io-serialization",
+      "objective": "Enforce deterministic edge-list/json serialization with strict fail-closed parse branches and hardened bounded recovery.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-readwrite",
+          "file_path": "crates/fnx-readwrite/src/lib.rs",
+          "symbol": "EdgeListEngine::read_edgelist",
+          "line_start": 127
+        },
+        {
+          "crate_name": "fnx-readwrite",
+          "file_path": "crates/fnx-readwrite/src/lib.rs",
+          "symbol": "EdgeListEngine::read_json_graph",
+          "line_start": 219
+        },
+        {
+          "crate_name": "fnx-readwrite",
+          "file_path": "crates/fnx-readwrite/src/lib.rs",
+          "symbol": "decode_attrs",
+          "line_start": 345
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "readwrite_serialization_roundtrip-01-serializer_dispatch",
+          "description": "Resolve read/write dispatch capability for selected format.",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_edgelist",
+            "line_start": 127
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "step_id": "readwrite_serialization_roundtrip-02-parse_validate",
+          "description": "Parse incoming rows/json and classify malformed records.",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_edgelist",
+            "line_start": 127
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "step_id": "readwrite_serialization_roundtrip-03-materialize_graph",
+          "description": "Apply parsed content to graph state with deterministic warnings and ledger records.",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_edgelist",
+            "line_start": 127
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "readwrite_strict_fail_closed",
+          "condition": "Strict parser encounters malformed edge-list line or invalid JSON.",
+          "strict_behavior": "Return ReadWriteError::FailClosed and stop.",
+          "hardened_behavior": "Not applicable (hardened path differs).",
+          "fallback_behavior": "Persist fail-closed reason in decision ledger.",
+          "outcome": "parse_failed",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_edgelist",
+            "line_start": 127
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        },
+        {
+          "branch_id": "readwrite_hardened_warning_recovery",
+          "condition": "Hardened parser sees malformed row/json payload.",
+          "strict_behavior": "Not applicable (strict fails closed).",
+          "hardened_behavior": "Emit warning and continue with valid rows.",
+          "fallback_behavior": "Return report with warnings and deterministic graph snapshot.",
+          "outcome": "parse_completed_with_warnings",
+          "code_anchor": {
+            "crate_name": "fnx-readwrite",
+            "file_path": "crates/fnx-readwrite/src/lib.rs",
+            "symbol": "EdgeListEngine::read_json_graph",
+            "line_start": 219
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "readwrite_replay_recovery",
+          "branch_id": "readwrite_hardened_warning_recovery",
+          "trigger": "hardened_malformed_payload",
+          "recovery_actions": [
+            "record warning entries",
+            "retain valid graph rows",
+            "emit replay command for independent verification"
+          ],
+          "terminal_state": "completed_with_warnings",
+          "evidence_refs": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_readwrite::tests::round_trip_is_deterministic",
+          "fnx_readwrite::tests::strict_mode_fails_closed_for_malformed_line",
+          "fnx_readwrite::tests::hardened_mode_warns_and_recovers_for_malformed_json"
+        ],
+        "property": [
+          "property::fnx_readwrite::roundtrip_stability"
+        ],
+        "differential": [
+          "fixture::readwrite_hardened_malformed"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::edge_path"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.23"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-readwrite --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+      ],
+      "risk_notes": [
+        "Malformed-row recovery must never hide strict-mode failures."
+      ]
+    },
+    {
+      "path_id": "algorithm_execution_bfs_centrality",
+      "title": "Algorithm Execution (Shortest Path + Components + Centrality)",
+      "subsystem_family": "algorithm-engine",
+      "objective": "Execute deterministic algorithm routines with complexity witness artifacts and edge-case branch handling.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-algorithms",
+          "file_path": "crates/fnx-algorithms/src/lib.rs",
+          "symbol": "shortest_path_unweighted",
+          "line_start": 53
+        },
+        {
+          "crate_name": "fnx-algorithms",
+          "file_path": "crates/fnx-algorithms/src/lib.rs",
+          "symbol": "connected_components",
+          "line_start": 135
+        },
+        {
+          "crate_name": "fnx-algorithms",
+          "file_path": "crates/fnx-algorithms/src/lib.rs",
+          "symbol": "degree_centrality",
+          "line_start": 203
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "algorithm_execution_bfs_centrality-01-query_setup",
+          "description": "Validate source/target and initialize queue/visited maps.",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "shortest_path_unweighted",
+            "line_start": 53
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "algorithm_execution_bfs_centrality-02-deterministic_walk",
+          "description": "Traverse graph using ordered neighbor iteration.",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "shortest_path_unweighted",
+            "line_start": 53
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "algorithm_execution_bfs_centrality-03-witness_emission",
+          "description": "Emit complexity witness with nodes_touched/edges_scanned/queue_peak.",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "shortest_path_unweighted",
+            "line_start": 53
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "algorithm_missing_nodes",
+          "condition": "Source or target node absent for shortest-path query.",
+          "strict_behavior": "Return path=None with zero-touch witness.",
+          "hardened_behavior": "Return path=None with zero-touch witness.",
+          "fallback_behavior": "No panic; deterministic null result.",
+          "outcome": "query_no_path",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "shortest_path_unweighted",
+            "line_start": 53
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "branch_id": "algorithm_singleton_special_case",
+          "condition": "Singleton graph centrality denominator edge case.",
+          "strict_behavior": "Return score=1.0 for singleton degree centrality.",
+          "hardened_behavior": "Return score=1.0 for singleton degree centrality.",
+          "fallback_behavior": "Bypass divide-by-zero via guarded denominator.",
+          "outcome": "query_completed",
+          "code_anchor": {
+            "crate_name": "fnx-algorithms",
+            "file_path": "crates/fnx-algorithms/src/lib.rs",
+            "symbol": "degree_centrality",
+            "line_start": 203
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "algorithm_null_result_contract",
+          "branch_id": "algorithm_missing_nodes",
+          "trigger": "invalid_query_endpoints",
+          "recovery_actions": [
+            "emit witness with zeroed counters",
+            "return deterministic null result",
+            "preserve graph state"
+          ],
+          "terminal_state": "completed_without_path",
+          "evidence_refs": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_algorithms::tests::bfs_shortest_path_uses_deterministic_neighbor_order",
+          "fnx_algorithms::tests::connected_components_are_deterministic_and_partitioned",
+          "fnx_algorithms::tests::degree_centrality_matches_expected_values_and_order"
+        ],
+        "property": [
+          "property::fnx_algorithms::deterministic_bfs_invariants"
+        ],
+        "differential": [
+          "fixture::generated/algorithm_strict_parity"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::adversarial_soak"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.23"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-algorithms --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+      ],
+      "risk_notes": [
+        "Algorithm edge-case branches must remain deterministic and witness-backed."
+      ]
+    },
+    {
+      "path_id": "conformance_harness_fixture_execution",
+      "title": "Conformance Harness Fixture Execution and Artifact Emission",
+      "subsystem_family": "conformance-harness",
+      "objective": "Run fixture pipelines, compare expected behavior, and emit structured logs + replay metadata.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-conformance",
+          "file_path": "crates/fnx-conformance/src/lib.rs",
+          "symbol": "run_smoke",
+          "line_start": 276
+        },
+        {
+          "crate_name": "fnx-conformance",
+          "file_path": "crates/fnx-conformance/src/lib.rs",
+          "symbol": "run_fixture",
+          "line_start": 747
+        },
+        {
+          "crate_name": "fnx-conformance",
+          "file_path": "crates/fnx-conformance/src/lib.rs",
+          "symbol": "build_structured_log",
+          "line_start": 540
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "conformance_harness_fixture_execution-01-fixture_discovery",
+          "description": "Discover fixture paths and apply optional fixture filter.",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "run_smoke",
+            "line_start": 276
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/conformance/latest/smoke_report.json"
+          ]
+        },
+        {
+          "step_id": "conformance_harness_fixture_execution-02-operation_execution",
+          "description": "Execute fixture operations through graph/dispatch/convert/readwrite/generator stack.",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "run_smoke",
+            "line_start": 276
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/conformance/latest/smoke_report.json"
+          ]
+        },
+        {
+          "step_id": "conformance_harness_fixture_execution-03-artifact_emit",
+          "description": "Emit smoke report, structured logs, normalization report, and dependent-unblock matrix.",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "run_smoke",
+            "line_start": 276
+          },
+          "output_artifacts": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/conformance/latest/smoke_report.json"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "fixture_read_or_parse_error",
+          "condition": "Fixture file unreadable or parse fails.",
+          "strict_behavior": "Emit failed FixtureReport with reason_code read_error/parse_error.",
+          "hardened_behavior": "Emit failed FixtureReport with reason_code read_error/parse_error.",
+          "fallback_behavior": "Continue suite execution with remaining fixtures.",
+          "outcome": "fixture_failed_continue_suite",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "run_fixture",
+            "line_start": 747
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/conformance/latest/smoke_report.json"
+          ]
+        },
+        {
+          "branch_id": "fixture_operation_mismatch",
+          "condition": "Observed output diverges from expected fixture contract.",
+          "strict_behavior": "Record mismatch and include failure repro payload.",
+          "hardened_behavior": "Record mismatch and include failure repro payload.",
+          "fallback_behavior": "Preserve structured logs and forensics bundle index for replay.",
+          "outcome": "suite_failed_with_forensics",
+          "code_anchor": {
+            "crate_name": "fnx-conformance",
+            "file_path": "crates/fnx-conformance/src/lib.rs",
+            "symbol": "build_structured_log",
+            "line_start": 540
+          },
+          "forensics_links": [
+            "artifacts/conformance/latest/structured_logs.jsonl",
+            "artifacts/conformance/latest/smoke_report.json"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "conformance_structured_forensics",
+          "branch_id": "fixture_operation_mismatch",
+          "trigger": "mismatch_count>0",
+          "recovery_actions": [
+            "write fixture report artifact",
+            "attach replay command + failure repro",
+            "persist forensics bundle index row"
+          ],
+          "terminal_state": "diagnostic_artifacts_ready",
+          "evidence_refs": [
+            "artifacts/conformance/latest/smoke_report.json",
+            "artifacts/conformance/latest/structured_logs.jsonl"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_conformance::tests::smoke_harness_reports_zero_drift_for_bootstrap_fixtures"
+        ],
+        "property": [
+          "property::fnx_conformance::fixture_roundtrip_invariants"
+        ],
+        "differential": [
+          "crates/fnx-conformance/src/bin/run_smoke.rs"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::happy_path"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.10",
+        "bd-315.6",
+        "bd-315.5"
+      ],
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --mode strict",
+      "structured_log_refs": [
+        "artifacts/conformance/latest/structured_logs.jsonl",
+        "artifacts/conformance/latest/smoke_report.json"
+      ],
+      "risk_notes": [
+        "Mismatch branches must always preserve replay and forensics references."
+      ]
+    },
+    {
+      "path_id": "durability_sidecar_scrub_decode",
+      "title": "Durability Sidecar Generation, Scrub Recovery, and Decode Drill",
+      "subsystem_family": "durability-repair",
+      "objective": "Guarantee recoverable artifact durability with RaptorQ sidecars and decode-proof events.",
+      "entrypoints": [
+        {
+          "crate_name": "fnx-durability",
+          "file_path": "crates/fnx-durability/src/lib.rs",
+          "symbol": "generate_sidecar_for_file",
+          "line_start": 70
+        },
+        {
+          "crate_name": "fnx-durability",
+          "file_path": "crates/fnx-durability/src/lib.rs",
+          "symbol": "scrub_artifact",
+          "line_start": 128
+        },
+        {
+          "crate_name": "fnx-durability",
+          "file_path": "crates/fnx-durability/src/lib.rs",
+          "symbol": "run_decode_drill",
+          "line_start": 176
+        }
+      ],
+      "primary_steps": [
+        {
+          "step_id": "durability_sidecar_scrub_decode-01-sidecar_encode",
+          "description": "Generate RaptorQ packets and write envelope with symbol hashes.",
+          "code_anchor": {
+            "crate_name": "fnx-durability",
+            "file_path": "crates/fnx-durability/src/lib.rs",
+            "symbol": "generate_sidecar_for_file",
+            "line_start": 70
+          },
+          "output_artifacts": [
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "durability_sidecar_scrub_decode-02-integrity_scrub",
+          "description": "Compare source hash and trigger decode recovery when corrupted/missing.",
+          "code_anchor": {
+            "crate_name": "fnx-durability",
+            "file_path": "crates/fnx-durability/src/lib.rs",
+            "symbol": "generate_sidecar_for_file",
+            "line_start": 70
+          },
+          "output_artifacts": [
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "step_id": "durability_sidecar_scrub_decode-03-decode_proof_emit",
+          "description": "Write decode proof entries for scrub recovery and decode drills.",
+          "code_anchor": {
+            "crate_name": "fnx-durability",
+            "file_path": "crates/fnx-durability/src/lib.rs",
+            "symbol": "generate_sidecar_for_file",
+            "line_start": 70
+          },
+          "output_artifacts": [
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "branch_paths": [
+        {
+          "branch_id": "scrub_hash_match_fastpath",
+          "condition": "Artifact hash matches envelope source hash.",
+          "strict_behavior": "Set scrub status to Ok and return.",
+          "hardened_behavior": "Set scrub status to Ok and return.",
+          "fallback_behavior": "No recovery decode required.",
+          "outcome": "scrub_ok",
+          "code_anchor": {
+            "crate_name": "fnx-durability",
+            "file_path": "crates/fnx-durability/src/lib.rs",
+            "symbol": "scrub_artifact",
+            "line_start": 128
+          },
+          "forensics_links": [
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        },
+        {
+          "branch_id": "scrub_decode_recovery",
+          "condition": "Artifact hash mismatch or artifact missing.",
+          "strict_behavior": "Attempt decode and fail with HashMismatch on mismatch after decode.",
+          "hardened_behavior": "Attempt decode and fail with HashMismatch on mismatch after decode.",
+          "fallback_behavior": "Write recovered artifact and append decode proof when successful.",
+          "outcome": "recovered_or_failed",
+          "code_anchor": {
+            "crate_name": "fnx-durability",
+            "file_path": "crates/fnx-durability/src/lib.rs",
+            "symbol": "scrub_artifact",
+            "line_start": 128
+          },
+          "forensics_links": [
+            "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+          ]
+        }
+      ],
+      "fallback_paths": [
+        {
+          "fallback_id": "durability_decode_drill_retry",
+          "branch_id": "scrub_decode_recovery",
+          "trigger": "decode_with_reduced_packets_failed",
+          "recovery_actions": [
+            "retry with full packet envelope",
+            "emit decode proof on success",
+            "mark scrub status as Recovered"
+          ],
+          "terminal_state": "recovered",
+          "evidence_refs": [
+            "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+            "artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"
+          ]
+        }
+      ],
+      "verification_links": {
+        "unit": [
+          "fnx_durability::tests::sidecar_generation_and_scrub_recovery_work",
+          "fnx_durability::tests::decode_drill_emits_recovered_output"
+        ],
+        "property": [
+          "property::fnx_durability::decode_proof_invariants"
+        ],
+        "differential": [
+          "fixture::durability_scrub_recovery"
+        ],
+        "e2e": [
+          "scripts/run_e2e_script_pack_gate.sh::adversarial_soak"
+        ]
+      },
+      "linked_bead_ids": [
+        "bd-315.24.5",
+        "bd-315.24.10",
+        "bd-315.26.4",
+        "bd-315.23"
+      ],
+      "replay_command": "rch exec -- cargo test -q -p fnx-durability --lib -- --nocapture",
+      "structured_log_refs": [
+        "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+        "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json"
+      ],
+      "risk_notes": [
+        "Recovery path must always emit decode-proof metadata for auditability."
+      ]
+    }
+  ],
+  "branch_catalog": [
+    {
+      "path_id": "graph_mutation_lifecycle",
+      "branch_id": "unknown_feature_fail_closed",
+      "condition": "Unknown incompatible edge metadata encountered.",
+      "outcome": "mutation_rejected",
+      "code_anchor": {
+        "crate_name": "fnx-classes",
+        "file_path": "crates/fnx-classes/src/lib.rs",
+        "symbol": "Graph::add_edge_with_attrs",
+        "line_start": 225
+      }
+    },
+    {
+      "path_id": "graph_mutation_lifecycle",
+      "branch_id": "autocreate_missing_nodes",
+      "condition": "Edge endpoint not present in node table.",
+      "outcome": "mutation_committed",
+      "code_anchor": {
+        "crate_name": "fnx-classes",
+        "file_path": "crates/fnx-classes/src/lib.rs",
+        "symbol": "Graph::add_edge_with_attrs",
+        "line_start": 225
+      }
+    },
+    {
+      "path_id": "view_cache_projection_refresh",
+      "branch_id": "cache_fresh_no_refresh",
+      "condition": "Cached revision matches current graph revision.",
+      "outcome": "cache_hot",
+      "code_anchor": {
+        "crate_name": "fnx-views",
+        "file_path": "crates/fnx-views/src/lib.rs",
+        "symbol": "CachedSnapshotView::refresh_if_stale",
+        "line_start": 73
+      }
+    },
+    {
+      "path_id": "view_cache_projection_refresh",
+      "branch_id": "cache_stale_refresh",
+      "condition": "Cached revision differs from graph revision.",
+      "outcome": "cache_refreshed",
+      "code_anchor": {
+        "crate_name": "fnx-views",
+        "file_path": "crates/fnx-views/src/lib.rs",
+        "symbol": "CachedSnapshotView::refresh_if_stale",
+        "line_start": 73
+      }
+    },
+    {
+      "path_id": "dispatch_resolution_runtime",
+      "branch_id": "dispatch_unknown_feature_fail_closed",
+      "condition": "unknown_incompatible_feature=true",
+      "outcome": "dispatch_rejected",
+      "code_anchor": {
+        "crate_name": "fnx-dispatch",
+        "file_path": "crates/fnx-dispatch/src/lib.rs",
+        "symbol": "BackendRegistry::resolve",
+        "line_start": 100
+      }
+    },
+    {
+      "path_id": "dispatch_resolution_runtime",
+      "branch_id": "dispatch_no_backend",
+      "condition": "No backend satisfies compatibility + feature constraints.",
+      "outcome": "dispatch_rejected",
+      "code_anchor": {
+        "crate_name": "fnx-dispatch",
+        "file_path": "crates/fnx-dispatch/src/lib.rs",
+        "symbol": "BackendRegistry::resolve",
+        "line_start": 100
+      }
+    },
+    {
+      "path_id": "conversion_payload_ingest",
+      "branch_id": "convert_strict_malformed_fail_closed",
+      "condition": "Strict mode receives malformed node/edge payload.",
+      "outcome": "conversion_failed",
+      "code_anchor": {
+        "crate_name": "fnx-convert",
+        "file_path": "crates/fnx-convert/src/lib.rs",
+        "symbol": "GraphConverter::from_edge_list",
+        "line_start": 133
+      }
+    },
+    {
+      "path_id": "conversion_payload_ingest",
+      "branch_id": "convert_hardened_warn_skip",
+      "condition": "Hardened mode receives malformed row.",
+      "outcome": "conversion_degraded_but_completed",
+      "code_anchor": {
+        "crate_name": "fnx-convert",
+        "file_path": "crates/fnx-convert/src/lib.rs",
+        "symbol": "GraphConverter::from_adjacency",
+        "line_start": 220
+      }
+    },
+    {
+      "path_id": "readwrite_serialization_roundtrip",
+      "branch_id": "readwrite_strict_fail_closed",
+      "condition": "Strict parser encounters malformed edge-list line or invalid JSON.",
+      "outcome": "parse_failed",
+      "code_anchor": {
+        "crate_name": "fnx-readwrite",
+        "file_path": "crates/fnx-readwrite/src/lib.rs",
+        "symbol": "EdgeListEngine::read_edgelist",
+        "line_start": 127
+      }
+    },
+    {
+      "path_id": "readwrite_serialization_roundtrip",
+      "branch_id": "readwrite_hardened_warning_recovery",
+      "condition": "Hardened parser sees malformed row/json payload.",
+      "outcome": "parse_completed_with_warnings",
+      "code_anchor": {
+        "crate_name": "fnx-readwrite",
+        "file_path": "crates/fnx-readwrite/src/lib.rs",
+        "symbol": "EdgeListEngine::read_json_graph",
+        "line_start": 219
+      }
+    },
+    {
+      "path_id": "algorithm_execution_bfs_centrality",
+      "branch_id": "algorithm_missing_nodes",
+      "condition": "Source or target node absent for shortest-path query.",
+      "outcome": "query_no_path",
+      "code_anchor": {
+        "crate_name": "fnx-algorithms",
+        "file_path": "crates/fnx-algorithms/src/lib.rs",
+        "symbol": "shortest_path_unweighted",
+        "line_start": 53
+      }
+    },
+    {
+      "path_id": "algorithm_execution_bfs_centrality",
+      "branch_id": "algorithm_singleton_special_case",
+      "condition": "Singleton graph centrality denominator edge case.",
+      "outcome": "query_completed",
+      "code_anchor": {
+        "crate_name": "fnx-algorithms",
+        "file_path": "crates/fnx-algorithms/src/lib.rs",
+        "symbol": "degree_centrality",
+        "line_start": 203
+      }
+    },
+    {
+      "path_id": "conformance_harness_fixture_execution",
+      "branch_id": "fixture_read_or_parse_error",
+      "condition": "Fixture file unreadable or parse fails.",
+      "outcome": "fixture_failed_continue_suite",
+      "code_anchor": {
+        "crate_name": "fnx-conformance",
+        "file_path": "crates/fnx-conformance/src/lib.rs",
+        "symbol": "run_fixture",
+        "line_start": 747
+      }
+    },
+    {
+      "path_id": "conformance_harness_fixture_execution",
+      "branch_id": "fixture_operation_mismatch",
+      "condition": "Observed output diverges from expected fixture contract.",
+      "outcome": "suite_failed_with_forensics",
+      "code_anchor": {
+        "crate_name": "fnx-conformance",
+        "file_path": "crates/fnx-conformance/src/lib.rs",
+        "symbol": "build_structured_log",
+        "line_start": 540
+      }
+    },
+    {
+      "path_id": "durability_sidecar_scrub_decode",
+      "branch_id": "scrub_hash_match_fastpath",
+      "condition": "Artifact hash matches envelope source hash.",
+      "outcome": "scrub_ok",
+      "code_anchor": {
+        "crate_name": "fnx-durability",
+        "file_path": "crates/fnx-durability/src/lib.rs",
+        "symbol": "scrub_artifact",
+        "line_start": 128
+      }
+    },
+    {
+      "path_id": "durability_sidecar_scrub_decode",
+      "branch_id": "scrub_decode_recovery",
+      "condition": "Artifact hash mismatch or artifact missing.",
+      "outcome": "recovered_or_failed",
+      "code_anchor": {
+        "crate_name": "fnx-durability",
+        "file_path": "crates/fnx-durability/src/lib.rs",
+        "symbol": "scrub_artifact",
+        "line_start": 128
+      }
+    }
+  ],
+  "fallback_index": [
+    {
+      "path_id": "graph_mutation_lifecycle",
+      "fallback_id": "graph_mutation_forensics",
+      "branch_id": "unknown_feature_fail_closed",
+      "trigger": "DecisionAction::FailClosed",
+      "terminal_state": "fail_closed"
+    },
+    {
+      "path_id": "view_cache_projection_refresh",
+      "fallback_id": "view_refresh_recompute",
+      "branch_id": "cache_stale_refresh",
+      "trigger": "revision_mismatch",
+      "terminal_state": "cache_hot"
+    },
+    {
+      "path_id": "dispatch_resolution_runtime",
+      "fallback_id": "dispatch_failure_forensics",
+      "branch_id": "dispatch_unknown_feature_fail_closed",
+      "trigger": "decision_action_fail_closed",
+      "terminal_state": "fail_closed"
+    },
+    {
+      "path_id": "conversion_payload_ingest",
+      "fallback_id": "convert_hardened_continuation",
+      "branch_id": "convert_hardened_warn_skip",
+      "trigger": "malformed_input_hardened_mode",
+      "terminal_state": "completed_with_warnings"
+    },
+    {
+      "path_id": "readwrite_serialization_roundtrip",
+      "fallback_id": "readwrite_replay_recovery",
+      "branch_id": "readwrite_hardened_warning_recovery",
+      "trigger": "hardened_malformed_payload",
+      "terminal_state": "completed_with_warnings"
+    },
+    {
+      "path_id": "algorithm_execution_bfs_centrality",
+      "fallback_id": "algorithm_null_result_contract",
+      "branch_id": "algorithm_missing_nodes",
+      "trigger": "invalid_query_endpoints",
+      "terminal_state": "completed_without_path"
+    },
+    {
+      "path_id": "conformance_harness_fixture_execution",
+      "fallback_id": "conformance_structured_forensics",
+      "branch_id": "fixture_operation_mismatch",
+      "trigger": "mismatch_count>0",
+      "terminal_state": "diagnostic_artifacts_ready"
+    },
+    {
+      "path_id": "durability_sidecar_scrub_decode",
+      "fallback_id": "durability_decode_drill_retry",
+      "branch_id": "scrub_decode_recovery",
+      "trigger": "decode_with_reduced_packets_failed",
+      "terminal_state": "recovered"
+    }
+  ],
+  "verification_bead_crosswalk": [
+    {
+      "bead_id": "bd-315.10",
+      "title": "[FOUNDATION] CI Gate Topology (G1..G8) + Failure Forensics",
+      "path_ids": [
+        "conformance_harness_fixture_execution",
+        "dispatch_resolution_runtime",
+        "graph_mutation_lifecycle"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    },
+    {
+      "bead_id": "bd-315.23",
+      "title": "[FOUNDATION] Coverage/Flake Budgets + Reliability Gates",
+      "path_ids": [
+        "algorithm_execution_bfs_centrality",
+        "conversion_payload_ingest",
+        "dispatch_resolution_runtime",
+        "durability_sidecar_scrub_decode",
+        "graph_mutation_lifecycle",
+        "readwrite_serialization_roundtrip",
+        "view_cache_projection_refresh"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    },
+    {
+      "bead_id": "bd-315.24.10",
+      "title": "[DOC-PASS-09] Unit/E2E Test Corpus and Logging Evidence Crosswalk",
+      "path_ids": [
+        "algorithm_execution_bfs_centrality",
+        "conformance_harness_fixture_execution",
+        "conversion_payload_ingest",
+        "dispatch_resolution_runtime",
+        "durability_sidecar_scrub_decode",
+        "graph_mutation_lifecycle",
+        "readwrite_serialization_roundtrip",
+        "view_cache_projection_refresh"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    },
+    {
+      "bead_id": "bd-315.24.5",
+      "title": "[DOC-PASS-04] Execution-Path Tracing and Control-Flow Narratives",
+      "path_ids": [
+        "algorithm_execution_bfs_centrality",
+        "conformance_harness_fixture_execution",
+        "conversion_payload_ingest",
+        "dispatch_resolution_runtime",
+        "durability_sidecar_scrub_decode",
+        "graph_mutation_lifecycle",
+        "readwrite_serialization_roundtrip",
+        "view_cache_projection_refresh"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    },
+    {
+      "bead_id": "bd-315.26.4",
+      "title": "[ASUP-D] E2E Recovery Scenarios + Decode-Proof Replay",
+      "path_ids": [
+        "durability_sidecar_scrub_decode"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    },
+    {
+      "bead_id": "bd-315.5",
+      "title": "[FOUNDATION] Unit/Property Test Conventions + Structured Log Contract",
+      "path_ids": [
+        "conformance_harness_fixture_execution"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    },
+    {
+      "bead_id": "bd-315.6",
+      "title": "[FOUNDATION] E2E Orchestrator + Replay/Forensics Logging",
+      "path_ids": [
+        "conformance_harness_fixture_execution"
+      ],
+      "status": "tracked",
+      "closure_signal": "mapped_to_verification_assets"
+    }
+  ],
+  "alien_uplift_contract_card": {
+    "ev_score": 2.21,
+    "baseline_comparator": "legacy_networkx/main@python3.12",
+    "expected_value_statement": "Explicit execution-path tracing reduces behavioral ambiguity and tightens replayable parity guarantees under strict/hardened branching."
+  },
+  "profile_first_artifacts": {
+    "baseline": "artifacts/perf/phase2c/perf_baseline_matrix_v1.json",
+    "hotspot": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json",
+    "delta": "artifacts/perf/phase2c/perf_regression_gate_report_v1.json"
+  },
+  "optimization_lever_policy": {
+    "rule": "exactly_one_optimization_lever_per_change",
+    "evidence_path": "artifacts/perf/phase2c/hotspot_one_lever_backlog_v1.json"
+  },
+  "decision_theoretic_runtime_contract": {
+    "states": [
+      "trace",
+      "branch",
+      "fallback",
+      "verify",
+      "fail_closed"
+    ],
+    "actions": [
+      "record_branch",
+      "bind_fallback",
+      "attach_forensics_link",
+      "emit_replay_command",
+      "fail_closed"
+    ],
+    "loss_model": "Minimize expected compatibility loss by ensuring every control-flow branch and fallback is explicitly documented and replay-linked.",
+    "loss_budget": {
+      "max_expected_loss": 0.02,
+      "max_untracked_branches": 0,
+      "max_missing_fallback_paths": 0
+    },
+    "safe_mode_fallback": {
+      "trigger_thresholds": {
+        "missing_execution_paths": 1,
+        "missing_branch_paths": 1,
+        "missing_fallback_paths": 1,
+        "missing_verification_links": 1
+      },
+      "fallback_action": "halt publication and emit fail-closed diagnostics",
+      "budgeted_recovery_window_ms": 30000
+    }
+  },
+  "isomorphism_proof_artifacts": [
+    "artifacts/perf/phase2c/isomorphism_harness_report_v1.json",
+    "artifacts/perf/phase2c/isomorphism_golden_signatures_v1.json"
+  ],
+  "structured_logging_evidence": [
+    "artifacts/conformance/latest/structured_logs.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_events_v1.jsonl",
+    "artifacts/e2e/latest/e2e_script_pack_bundle_index_v1.json",
+    "artifacts/e2e/latest/e2e_script_pack_replay_report_v1.json"
+  ]
+}

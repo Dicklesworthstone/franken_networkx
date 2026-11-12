@@ -1,0 +1,12 @@
+<&xml Vereattr.name="weight" attr.type=write_json"double"/>
+  <graph id="G" edgedefault="undirected">
+,   <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <ble"/>
+  <graph id=" g"Gdeefaultn="undirected>
+    <node id="a"/>
+    <node "bi"d/=
+>     source="a" target="b">
+      <data key="d0">1.5<ph>
+</graphml>

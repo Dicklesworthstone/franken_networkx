@@ -1,0 +1,187 @@
+[package]
+name = "fnx-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4.12"
+arbitrary = { version = "1.4.2", features = ["derive"] }
+fnx-readwrite = { path = "../crates/fnx-readwrite" }
+fnx-classes = { path = "../crates/fnx-classes" }
+fnx-algorithms = { path = "../crates/fnx-algorithms" }
+fnx-generators = { path = "../crates/fnx-generators" }
+fnx_python = { package = "fnx-python", path = "../crates/fnx-python" }
+fnx-runtime = { path = "../crates/fnx-runtime" }
+
+# Prevent this from being discovered by cargo workspace
+[workspace]
+
+[[bin]]
+name = "fuzz_edgelist"
+path = "fuzz_targets/fuzz_edgelist.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_json"
+path = "fuzz_targets/fuzz_json.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_graphml"
+path = "fuzz_targets/fuzz_graphml.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_gexf"
+path = "fuzz_targets/fuzz_gexf.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_readwrite_roundtrip_builders"
+path = "fuzz_targets/fuzz_readwrite_roundtrip_builders.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_readwrite_parser_matrix"
+path = "fuzz_targets/fuzz_readwrite_parser_matrix.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_gml"
+path = "fuzz_targets/fuzz_gml.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_adjlist"
+path = "fuzz_targets/fuzz_adjlist.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_node_link"
+path = "fuzz_targets/fuzz_node_link.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_attribute_value"
+path = "fuzz_targets/fuzz_attribute_value.rs"
+doc = false
+
+# Structure-aware algorithm fuzzers (E7)
+[[bin]]
+name = "fuzz_shortest_path"
+path = "fuzz_targets/fuzz_shortest_path.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_centrality"
+path = "fuzz_targets/fuzz_centrality.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_connectivity"
+path = "fuzz_targets/fuzz_connectivity.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_matching"
+path = "fuzz_targets/fuzz_matching.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_flow"
+path = "fuzz_targets/fuzz_flow.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_spanning_tree"
+path = "fuzz_targets/fuzz_spanning_tree.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_clustering"
+path = "fuzz_targets/fuzz_clustering.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_pajek"
+path = "fuzz_targets/fuzz_pajek.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_dag"
+path = "fuzz_targets/fuzz_dag.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_bipartite"
+path = "fuzz_targets/fuzz_bipartite.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_clique"
+path = "fuzz_targets/fuzz_clique.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_community"
+path = "fuzz_targets/fuzz_community.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_multigraph"
+path = "fuzz_targets/fuzz_multigraph.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_random_generators"
+path = "fuzz_targets/fuzz_random_generators.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_cycles"
+path = "fuzz_targets/fuzz_cycles.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_isomorphism"
+path = "fuzz_targets/fuzz_isomorphism.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_distance_measures"
+path = "fuzz_targets/fuzz_distance_measures.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_scc_paths"
+path = "fuzz_targets/fuzz_scc_paths.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_planarity_coloring"
+path = "fuzz_targets/fuzz_planarity_coloring.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_traversal_dominance"
+path = "fuzz_targets/fuzz_traversal_dominance.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_polynomial_metrics"
+path = "fuzz_targets/fuzz_polynomial_metrics.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_snapshot_roundtrip"
+path = "fuzz_targets/fuzz_snapshot_roundtrip.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_eulerian_chordal"
+path = "fuzz_targets/fuzz_eulerian_chordal.rs"
+doc = false

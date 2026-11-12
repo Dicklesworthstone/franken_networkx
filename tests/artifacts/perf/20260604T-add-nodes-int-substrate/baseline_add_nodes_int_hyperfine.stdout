@@ -1,0 +1,4 @@
+Benchmark 1: env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case add_nodes_int --impl fnx --repeats 3 >/dev/null
+  Time (mean ± σ):     626.7 ms ±  30.5 ms    [User: 4336.0 ms, System: 124.4 ms]
+  Range (min … max):   591.4 ms … 675.5 ms    10 runs
+ 

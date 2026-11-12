@@ -1,0 +1,18 @@
+{
+  "function": "is_eulerian (undirected)",
+  "lever": "the UNDIRECTED native _raw_is_eulerian kernel does O(E) work and was 18-30x slower than nx on dense graphs (K301: 1.65ms vs 0.06ms). nx's test is trivial: all degrees even AND connected. Replace the undirected _raw call with the direct check using fnx's O(V) degree view + native is_connected, matching nx's short-circuit order (degrees first). DIRECTED keeps the native kernel (already fast: 6.6x faster than nx).",
+  "parity": {
+    "cases": 73,
+    "mismatches": 0,
+    "coverage": "complete/cycle/path (eulerian + not), directed+undirected, self-loops (delegated path), empty/single/null, disconnected, 40 random gnp directed+undirected",
+    "pytest": "385 passed (euler/eulerian)"
+  },
+  "bench_min_of_9_ms": {
+    "K101_undir": {"nx": 0.025, "old_raw": 0.200, "new": 0.027, "self_speedup": 7.4, "vs_nx": 1.07},
+    "K301_undir": {"nx": 0.073, "old_raw": 1.861, "new": 0.124, "self_speedup": 15.0, "vs_nx": 1.71},
+    "K601_undir": {"nx": 0.113, "old_raw": 6.566, "new": 0.354, "self_speedup": 18.6, "vs_nx": 3.14},
+    "dicycle_dir": {"note": "unchanged, native kernel kept; 6.6x faster than nx (vs_nx 0.15)"}
+  },
+  "headline": "is_eulerian undirected: native kernel was 18-30x slower than nx on dense graphs -> 7.4-18.6x self-speedup via the trivial degree-parity + is_connected check, byte-exact. Directed kept on the fast native kernel. Pure Python, no rebuild.",
+  "residual": "undirected vs-nx 1.07-3.14x (grows with density) = the substrate is_connected + DegreeView O(V) cost on dense graphs; huge improvement from 18-30x. is_connected dense substrate is a separate native-kernel gap worth a follow-up."
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0.0",
+  "artifact_id": "e2e-step-traces-v1",
+  "run_id": "e2e-script-pack-20260218T215618Z",
+  "scenario_id": "view_neighbors_hardened",
+  "packet_id": "FNX-P2C-002",
+  "pass_label": "baseline",
+  "mode": "hardened",
+  "fixture_id": "generated/view_neighbors_strict.json",
+  "bundle_id": "e2e-bundle-f2e091333103f31d",
+  "stable_fingerprint": "3c3c3c77c53a3b9f",
+  "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode hardened",
+  "env_fingerprint": "be05642192abd4ed",
+  "generated_at_utc": "2026-02-18T21:57:49.208876+00:00",
+  "traces": [
+    {
+      "run_id": "e2e-script-pack-20260218T215618Z",
+      "test_id": "scenario::view_neighbors_hardened",
+      "step_id": "view_neighbors_hardened::cycle-01",
+      "step_label": "execute:regression_path",
+      "phase": "execute",
+      "status": "passed",
+      "start_unix_ms": 1771451852248,
+      "end_unix_ms": 1771451869178,
+      "duration_ms": 16930,
+      "retry_count": 0,
+      "command_or_api": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode hardened",
+      "input_ref": "generated/view_neighbors_strict.json",
+      "output_ref": "artifacts/e2e/latest/bundles/view_neighbors_hardened/baseline/selected_structured_log.json",
+      "replay_command": "rch exec -- cargo run -q -p fnx-conformance --bin run_smoke -- --fixture generated/view_neighbors_strict.json --mode hardened",
+      "forensic_bundle_id": "forensics::FNX-P2C-002::generated::view_neighbors_strict.json",
+      "artifact_refs": [
+        "artifacts/e2e/latest/bundles/view_neighbors_hardened/baseline/command.log",
+        "artifacts/e2e/latest/bundles/view_neighbors_hardened/baseline/selected_structured_log.json"
+      ],
+      "hash_id": "61175eee16ef2fe7",
+      "outcome": "passed",
+      "reason_code": null
+    }
+  ]
+}

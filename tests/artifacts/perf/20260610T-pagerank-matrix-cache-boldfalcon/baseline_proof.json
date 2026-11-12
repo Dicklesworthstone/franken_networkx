@@ -1,0 +1,28 @@
+{
+  "all_close": true,
+  "cases": [
+    {
+      "case": "clean",
+      "fnx_sha256": "8fb324f959a9872543ac098c3558dee9c793e932e5c1b0ee64f416daedb82bb8",
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "nx_sha256": "8fb324f959a9872543ac098c3558dee9c793e932e5c1b0ee64f416daedb82bb8"
+    },
+    {
+      "case": "dirty_edges",
+      "fnx_sha256": "8d0ac324f42c1977694df98fa9f1f107e4e28d05e8beed1987b7a29714fa6de3",
+      "max_abs": 0.0,
+      "max_rel": 0.0,
+      "nx_sha256": "8d0ac324f42c1977694df98fa9f1f107e4e28d05e8beed1987b7a29714fa6de3"
+    }
+  ],
+  "edges": 5600,
+  "floating_point": "same scipy sparse power iteration path; only pre-sync route changes",
+  "max_abs": 0.0,
+  "max_rel": 0.0,
+  "n": 1400,
+  "ordering": "pagerank returns dict(zip(list(G), x)); node insertion order unchanged",
+  "proof_sha256": "c66ea1ffb099ce950ce1c1a069354f76290dc838a6c60479547150f46c358b7f",
+  "rng": "none; deterministic modular edge schedule",
+  "tie_breaking": "no ordering-dependent ties; matrix rows follow list(G)"
+}

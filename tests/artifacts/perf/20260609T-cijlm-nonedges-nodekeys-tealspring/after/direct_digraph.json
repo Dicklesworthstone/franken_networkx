@@ -1,0 +1,24 @@
+{
+  "fnx": {
+    "graph_type": "DiGraph",
+    "impl": "franken_networkx",
+    "loops": 3,
+    "n": 750,
+    "non_edges_count": 1680750,
+    "non_edges_seconds": 0.0743535200599581,
+    "non_neighbors_count": 154629,
+    "non_neighbors_seconds": 0.003228926914744079,
+    "step": 17
+  },
+  "nx": {
+    "graph_type": "DiGraph",
+    "impl": "networkx",
+    "loops": 3,
+    "n": 750,
+    "non_edges_count": 1680750,
+    "non_edges_seconds": 0.0840024909703061,
+    "non_neighbors_count": 154629,
+    "non_neighbors_seconds": 0.0022416870342567563,
+    "step": 17
+  }
+}

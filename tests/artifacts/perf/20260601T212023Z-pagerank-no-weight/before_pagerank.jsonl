@@ -1,0 +1,5 @@
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":100,"total_ms":101.0934,"per_iter_ms":1.0109,"checksum":100.000000}
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":100,"total_ms":98.6328,"per_iter_ms":0.9863,"checksum":100.000000}
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":100,"total_ms":94.7626,"per_iter_ms":0.9476,"checksum":100.000000}
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":100,"total_ms":120.9968,"per_iter_ms":1.2100,"checksum":100.000000}
+{"algo":"pagerank","n":1500,"m":6000,"avg_deg":8,"iters":100,"total_ms":101.7526,"per_iter_ms":1.0175,"checksum":100.000000}

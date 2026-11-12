@@ -1,0 +1,231 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index d68c3c506..ed0cebaa2 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -34635,23 +34635,96 @@ pub fn max_weight_clique(graph: &Graph, weight_attr: &str) -> (Vec<String>, f64)
+ /// A general digraph is aperiodic if every strongly connected component is aperiodic.
+ #[must_use]
+ pub fn is_aperiodic(digraph: &DiGraph) -> bool {
++    let n = digraph.node_count();
++    if n == 0 {
++        return true;
++    }
++    // Get SCCs
++    let sccs = strongly_connected_components(digraph);
++    if sccs.is_empty() {
++        return true;
++    }
++
++    // br-r37-c1-aperiod (cc): the per-SCC BFS that computes the GCD of cycle lengths
++    // ran on a String-keyed `HashMap<&str, usize>` `dist` + `HashSet<&str>` `scc_set`
++    // and called `successors(u)` (a `Vec<&str>` alloc per pop). Mark the SCC in a
++    // reusable `in_scc` array, key `dist`/`visited` by node index, and walk
++    // `successors_indices(u)`. Byte-identical: `successors_indices` yields the same
++    // successor order as `successors`, so the BFS visits identically → identical
++    // `dist`, identical tree/back-edge classification, identical `cycle_len` sequence
++    // (including the pre-existing usize wraparound when a back edge points one level
++    // ahead, which yields `cycle_len == 0` and `gcd(x, 0) == x`), and `gcd` is
++    // commutative+associative anyway. `strongly_connected_components` unchanged.
++    let mut in_scc = vec![false; n];
++    let mut visited = vec![false; n];
++    let mut dist = vec![0usize; n];
++    for scc in &sccs {
++        if scc.len() <= 1 {
++            continue;
++        }
++        let scc_idx: Vec<usize> = scc
++            .iter()
++            .filter_map(|name| digraph.get_node_index(name))
++            .collect();
++        for &ci in &scc_idx {
++            in_scc[ci] = true;
++        }
++        let start = scc_idx[0];
++        visited[start] = true;
++        dist[start] = 0;
++        let mut queue = VecDeque::new();
++        queue.push_back(start);
++        let mut gcd_val = 0usize;
++        while let Some(u) = queue.pop_front() {
++            let d_u = dist[u];
++            if let Some(succs) = digraph.successors_indices(u) {
++                for &s in succs {
++                    if !in_scc[s] {
++                        continue;
++                    }
++                    if visited[s] {
++                        // Back edge: cycle length = d_u - d_s + 1
++                        let cycle_len = d_u - dist[s] + 1;
++                        gcd_val = gcd(gcd_val, cycle_len);
++                    } else {
++                        visited[s] = true;
++                        dist[s] = d_u + 1;
++                        queue.push_back(s);
++                    }
++                }
++            }
++        }
++        for &ci in &scc_idx {
++            in_scc[ci] = false;
++            visited[ci] = false;
++        }
++        if gcd_val != 1 {
++            return false;
++        }
++    }
++    true
++}
++
++/// br-r37-c1-aperiod A/B baseline: the pre-lever `is_aperiodic` that ran the per-SCC
++/// GCD BFS on a `HashMap<&str, usize>` `dist` + `HashSet<&str>` and called
++/// `successors()` (`Vec<&str>` alloc per pop). Test-only; byte-identical to
++/// `is_aperiodic`.
++#[cfg(test)]
++fn is_aperiodic_orig_string(digraph: &DiGraph) -> bool {
+     let nodes = digraph.nodes_ordered();
+     if nodes.is_empty() {
+         return true;
+     }
+-    // Get SCCs
+     let sccs = strongly_connected_components(digraph);
+     if sccs.is_empty() {
+         return true;
+     }
+-    // For each non-trivial SCC, compute GCD of cycle lengths
+     for scc in &sccs {
+         if scc.len() <= 1 {
+             continue;
+         }
+         let scc_set: HashSet<&str> = scc.iter().map(|s| s.as_str()).collect();
+         let start = scc[0].as_str();
+-        // BFS to compute distances within the SCC
+         let mut dist: HashMap<&str, usize> = HashMap::new();
+         dist.insert(start, 0);
+         let mut queue = VecDeque::new();
+@@ -34665,7 +34738,6 @@ pub fn is_aperiodic(digraph: &DiGraph) -> bool {
+                         continue;
+                     }
+                     if let Some(&d_s) = dist.get(s) {
+-                        // Back edge: cycle length = d_u - d_s + 1
+                         let cycle_len = d_u - d_s + 1;
+                         gcd_val = gcd(gcd_val, cycle_len);
+                     } else {
+@@ -50327,6 +50399,118 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-aperiod: paired-interleaved median A/B for the integer per-SCC GCD
++    /// BFS `is_aperiodic` vs the old `HashMap<&str,usize>` + `successors()` (`Vec<&str>`)
++    /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
++    /// (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib is_aperiodic_aperiod_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn is_aperiodic_aperiod_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Dense single-SCC graph: a spanning cycle (i -> (i+1)%n) guarantees one SCC,
++        // plus ~deg chord edges per node give density and mixed cycle lengths (so the
++        // GCD is 1 -> aperiodic -> true, after the FULL per-SCC BFS over ~n*deg edges).
++        let n = 3000usize;
++        let deg = 10usize;
++        let mut g = DiGraph::strict();
++        for i in 0..n {
++            let _ = g.add_node(format!("n{i}"));
++        }
++        for i in 0..n {
++            let _ = g.add_edge(format!("n{i}"), format!("n{}", (i + 1) % n));
++        }
++        for i in 0..n {
++            for k in 1..=deg {
++                let j = ((i as u64)
++                    .wrapping_mul(1_000_003)
++                    .wrapping_add((k as u64).wrapping_mul(97))
++                    % n as u64) as usize;
++                if j != i {
++                    let _ = g.add_edge(format!("n{i}"), format!("n{j}"));
++                }
++            }
++        }
++
++        // Parity: dense SCC (aperiodic -> true, full BFS), a pure 5-cycle (period 5
++        // -> false), and a 3-node DAG (all trivial SCCs -> true).
++        let mut c5 = DiGraph::strict();
++        for i in 0..5usize {
++            let _ = c5.add_node(format!("c{i}"));
++        }
++        for i in 0..5usize {
++            let _ = c5.add_edge(format!("c{i}"), format!("c{}", (i + 1) % 5));
++        }
++        let mut dag = DiGraph::strict();
++        for i in 0..3usize {
++            let _ = dag.add_node(format!("d{i}"));
++        }
++        let _ = dag.add_edge("d0".to_string(), "d1".to_string());
++        let _ = dag.add_edge("d1".to_string(), "d2".to_string());
++        for gr in [&g, &c5, &dag] {
++            assert_eq!(
++                super::is_aperiodic(gr),
++                super::is_aperiodic_orig_string(gr),
++                "integer is_aperiodic must equal the String baseline"
++            );
++        }
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            for _ in 0..3 {
++                if lever {
++                    black_box(super::is_aperiodic(&g));
++                } else {
++                    black_box(super::is_aperiodic_orig_string(&g));
++                }
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "APERIOD_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("APERIOD_AB n={n} deg={deg} (dense SCC) rounds={rounds} (>1 = integer faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

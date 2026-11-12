@@ -1,0 +1,30 @@
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:814:
+                         .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                         .transpose()?
+                         .unwrap_or_default();
+[31m-                    g.inner.add_node_with_attrs(canonical.to_owned(), rust_attrs);
+[m[32m+                    g.inner
+[m[32m+                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+[m                     g.node_key_map
+                         .insert(canonical.to_owned(), other.py_node_key(py, canonical));
+                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:3053:
+                         .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                         .transpose()?
+                         .unwrap_or_default();
+[31m-                    g.inner.add_node_with_attrs(canonical.to_owned(), rust_attrs);
+[m[32m+                    g.inner
+[m[32m+                        .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+[m                     g.node_key_map
+                         .insert(canonical.to_owned(), other.py_node_key(py, canonical));
+                     if let Some(attrs) = other.node_py_attrs.get(canonical) {
+Diff in /data/projects/franken_networkx/crates/fnx-python/src/lib.rs:4067:
+                 .map(|attrs| py_dict_to_attr_map(attrs.bind(py)))
+                 .transpose()?
+                 .unwrap_or_default();
+[31m-            dg.inner.add_node_with_attrs(canonical.to_owned(), rust_attrs);
+[m[32m+            dg.inner
+[m[32m+                .add_node_with_attrs(canonical.to_owned(), rust_attrs);
+[m             dg.node_key_map
+                 .insert(canonical.to_owned(), self.py_node_key(py, canonical));
+             if let Some(attrs) = self.node_py_attrs.get(canonical) {

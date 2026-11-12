@@ -1,0 +1,1 @@
+{"case":"adjacency_default","digest":"987fb0c41578a61146699304815a73d3c6d70160384e8fb3046d1d0c7b7d13c6","impl":"fnx","m":4,"n":8000,"profile":"tests/artifacts/perf/20260602T-vs-upstream-sweep/after_profile_adjacency_default_fnx.txt","repeats":3}

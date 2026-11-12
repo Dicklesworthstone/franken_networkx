@@ -1,0 +1,1 @@
+{"mode":"strict","directed":false,"gtrs":{"name":"demo"},"nodes":["a","b"],"edges":[{"left":"a","right":"b","e":"strict","di":1}}]}

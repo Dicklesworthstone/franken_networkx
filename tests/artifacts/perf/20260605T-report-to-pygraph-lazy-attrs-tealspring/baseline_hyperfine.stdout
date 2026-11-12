@@ -1,0 +1,26 @@
+  [2m2026-06-05T04:29:15.737143Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: hyperfine --warmup 3 --runs 10 --export-json tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/baseline_hyperfine.json 'python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case gnp_700_006 --loops 80' 'python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case barabasi_700_4 --loops 80' 'python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case powerlaw_700_4 --loops 80' 'python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case watts_800_8 --loops 80'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case gnp_700_006 --loops 80
+  Time (mean ± σ):      5.551 s ±  0.414 s    [User: 6.930 s, System: 0.138 s]
+  Range (min … max):    5.219 s …  6.496 s    10 runs
+
+Benchmark 2: python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case barabasi_700_4 --loops 80
+  Time (mean ± σ):      4.217 s ±  0.203 s    [User: 7.925 s, System: 0.068 s]
+  Range (min … max):    4.081 s …  4.776 s    10 runs
+
+  Warning: Statistical outliers were detected. Consider re-running this benchmark on a quiet system without any interferences from other programs. It might help to use the '--warmup' or '--prepare' options.
+
+Benchmark 3: python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case powerlaw_700_4 --loops 80
+  Time (mean ± σ):     996.2 ms ±  57.5 ms    [User: 4398.4 ms, System: 59.4 ms]
+  Range (min … max):   928.0 ms … 1098.0 ms    10 runs
+
+Benchmark 4: python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case watts_800_8 --loops 80
+  Time (mean ± σ):      1.795 s ±  0.245 s    [User: 4.982 s, System: 0.064 s]
+  Range (min … max):    1.531 s …  2.274 s    10 runs
+
+Summary
+  python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case powerlaw_700_4 --loops 80 ran
+    1.80 ± 0.27 times faster than python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case watts_800_8 --loops 80
+    4.23 ± 0.32 times faster than python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case barabasi_700_4 --loops 80
+    5.57 ± 0.53 times faster than python3 tests/artifacts/perf/20260605T-report-to-pygraph-lazy-attrs-tealspring/generator_report_bench.py bench --case gnp_700_006 --loops 80

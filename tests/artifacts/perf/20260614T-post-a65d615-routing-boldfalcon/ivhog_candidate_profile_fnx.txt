@@ -1,0 +1,22 @@
+case=unique_path impl=fnx sha256=ef2da480a805f3e27bb0f5486e0b14b71b0e4a75f686226e846dbd0216b2950c
+         250076 function calls in 1.084 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.005    0.001    1.084    0.217 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py:81(build_graph)
+        5    0.000    0.000    1.039    0.208 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2847(_multi_add_edges_from)
+        5    0.937    0.187    0.937    0.187 {method '_native_add_keyed_edges_no_data' of 'franken_networkx.MultiGraph' objects}
+        5    0.073    0.015    0.084    0.017 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:2835(_is_exact_int_keyed_multiedge_list)
+        5    0.000    0.000    0.040    0.008 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py:59(_case_edges)
+        5    0.040    0.008    0.040    0.008 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/tests/artifacts/perf/20260614T-post-a65d615-routing-boldfalcon/bench_multigraph_int_keys.py:55(_unique_edges)
+   250005    0.012    0.000    0.012    0.000 {built-in method builtins.len}
+        5    0.009    0.002    0.009    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.008    0.002    0.008    0.002 {method '_try_add_str_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-boldfalcon-next-20260614T0345Z/python/franken_networkx/__init__.py:3637(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       15    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+
+
+

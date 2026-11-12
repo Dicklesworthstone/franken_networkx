@@ -1,0 +1,8 @@
+SLICE validation (br-r37-c1-gnmbatch):
+A/B (real worker): GNM_BATCH_AB present; BATCH_vs_string 8.5547x (61/61, p5_p95 [2.61,12.97]); NULL 0.978x.
+  parity assert_eq! (edges_ordered_borrowed + nodes_ordered) GREEN -> byte-identical.
+gnm tests: 6 passed, 0 failed, 1 ignored. INCLUDES the exact-vs-nx gate:
+  gnm_random_graph_matches_networkx_seeded_example ... ok  (proves the seeded edge set == nx unchanged)
+  gnm_generators_saturate_to_complete_graphs ... ok
+  dense_gnm_random_graph_matches_networkx_seeded_example ... ok
+clippy --release -p fnx-generators --lib --tests -- -D warnings: CLEAN.

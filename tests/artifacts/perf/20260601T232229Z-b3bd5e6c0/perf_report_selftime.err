@@ -1,0 +1,2 @@
+WARNING: The tests/artifacts/perf/20260601T232229Z-b3bd5e6c0/perf_betweenness.data file's data size field is 0 which is unexpected.
+Was the 'perf record' command properly terminated?

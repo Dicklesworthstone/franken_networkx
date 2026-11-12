@@ -1,0 +1,52 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl fnx --repeats 200",
+      "mean": 0.8950888556200001,
+      "stddev": 0.018478032362073217,
+      "median": 0.90129356642,
+      "user": 5.06269306,
+      "system": 0.05971718,
+      "min": 0.87350566342,
+      "max": 0.91474474742,
+      "times": [
+        0.87350566342,
+        0.90129356642,
+        0.91474474742,
+        0.9082131104200001,
+        0.87768719042
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl nx --repeats 200",
+      "mean": 3.6085282206200007,
+      "stddev": 0.03339611134338025,
+      "median": 3.6106794834200002,
+      "user": 7.81527806,
+      "system": 0.08418718,
+      "min": 3.5585310094200002,
+      "max": 3.6515462374200003,
+      "times": [
+        3.61782142042,
+        3.6515462374200003,
+        3.5585310094200002,
+        3.60406295242,
+        3.6106794834200002
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+31861b6963054f5598942cc5d2201df6f9545bcc1b5d941b75046553a679fafb  tests/artifacts/perf/20260603T-dfs-edges-indexed/golden_before_sha256.txt
+31861b6963054f5598942cc5d2201df6f9545bcc1b5d941b75046553a679fafb  tests/artifacts/perf/20260603T-dfs-edges-indexed/golden_after_sha256.txt

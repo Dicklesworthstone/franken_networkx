@@ -1,0 +1,12 @@
+  [2m2026-06-03T18:57:47.366634Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py bench --mode reciprocal-ring --n 400 --degree 4 --samples 1 --engines fnx nx[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T18:57:48.184107Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py bench --mode directed-chord --n 400 --degree 4 --samples 1 --engines fnx nx[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T18:57:49.899470Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py bench --mode gnm-ring --n 400 --degree 4 --samples 1 --engines fnx nx[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+  [2m2026-06-03T18:57:50.585788Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python tests/artifacts/perf/20260603T-node-connectivity-native/bench_node_connectivity.py bench --mode regular-to-directed --n 400 --degree 4 --samples 1 --engines fnx nx[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+

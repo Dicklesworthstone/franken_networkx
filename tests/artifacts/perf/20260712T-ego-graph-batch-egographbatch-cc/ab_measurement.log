@@ -1,0 +1,13 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib ego_graph_batch_ab -- --ignored --nocapture
+
+EGOGRAPH_BATCH_AB K60_all rounds=61 (>1 = batch faster)
+EGOGRAPH_BATCH_AB BATCH_vs_string: median=1.7740x win_rate=61/61 p5_p95=[1.5516,1.9859]
+EGOGRAPH_BATCH_AB NULL_batch_vs_batch: median=1.0309x win_rate=45/61 p5_p95=[0.8794,1.2021]
+test tests::ego_graph_batch_ab ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 978 filtered out; finished in 0.47s
+
+Gate: candidate p5 (1.5516) > NULL p95 (1.2021); 61/61 rounds. Byte-identity parity assert
+(edges_ordered_borrowed + nodes_ordered on ego of K60 = whole graph, 1770 edges) passed before timing.
+Marker EGOGRAPH_BATCH_AB + test name confirmed (fresh binary). Smaller win (1.77x) — ego_graph's edge
+insertion is |E|-bounded and the BFS is common to both arms; the win is the per-edge policy record folded
+to one bulk extend_edges_with_attrs_unrecorded.

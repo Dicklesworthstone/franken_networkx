@@ -1,0 +1,1 @@
+GOLDEN {"undir_unw": [true, "2c4948af2730ecdb"], "undir_w": [true, "c5202a412abe2aca"], "dir_unw": [true, "d6f2c6fc61d093e6"], "dir_w": [true, "c9342084e43f1ce7"]}

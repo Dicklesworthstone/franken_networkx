@@ -1,0 +1,69 @@
+[package]
+name = "fnx-python"
+version = "0.3.0"
+edition = "2024"
+license-file = "../../LICENSE"
+description = "PyO3 Python bindings for FrankenNetworkX — a Rust-backed drop-in replacement for NetworkX"
+repository.workspace = true
+
+[lib]
+name = "_fnx"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+arrayvec = "0.7.6"
+fnx-classes = { version = "0.4.0", path = "../fnx-classes" }
+fnx-algorithms = { version = "0.4.0", path = "../fnx-algorithms" }
+fnx-cgse = { version = "0.3.0", path = "../fnx-cgse" }
+fnx-generators = { version = "0.3.0", path = "../fnx-generators" }
+fnx-readwrite = { version = "0.3.0", path = "../fnx-readwrite" }
+fnx-convert = { version = "0.3.0", path = "../fnx-convert" }
+fnx-views = { version = "0.3.0", path = "../fnx-views" }
+fnx-runtime = { version = "0.4.0", path = "../fnx-runtime" }
+hex = "0.4.3"
+pyo3 = { version = "0.29.3", features = ["abi3-py310", "multiple-pymethods", "generate-import-lib"] }
+pyo3-log = "0.13.3"
+log = "0.4.29"
+serde_json = "1.0.149"
+rustc-hash = "2.1.2"
+rayon = "1.10.0"
+
+[features]
+extension-module = ["pyo3/extension-module"]
+bench-internals = []
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["html_reports"] }
+proptest = "1.11.0"
+sha2 = "0.10.9"
+
+[[bench]]
+name = "networkx_head_to_head"
+harness = false
+
+# br-r37-c1-qan46: an EXAMPLE, not a bench, and the difference decides whether the
+# number is admissible. `cargo bench` and `cargo build` land in different rch target
+# POOLS (…-pool-4a7eb17c… against …-pool-94a6bb82…) even on one worker, so a cdylib
+# built by a preceding call is invisible to the bench, and the harness silently falls
+# back to whatever stale `python/franken_networkx/_fnx.abi3.so` the tree happens to
+# carry — a file peers rebuild under you mid-run. `cargo run --example` builds and
+# loads the cdylib in ONE invocation, which is what every other admissible H2H in
+# this repo uses.
+[[example]]
+name = "has_node_h2h"
+
+# br-r37-c1-jc9e4: an EXAMPLE for the same reason has_node_h2h is one — see that note.
+[[example]]
+name = "add_node_h2h"
+
+# br-r37-c1-uta2n: chunk-size sweep that locates the k=8 cliff against its guard constant.
+[[example]]
+name = "add_edges_chunk_sweep"
+
+[[bench]]
+name = "public_api_gauntlet"
+harness = false
+
+[[bench]]
+name = "tree_submodule_head_to_head"
+harness = false

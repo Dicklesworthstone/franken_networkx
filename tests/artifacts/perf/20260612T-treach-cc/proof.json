@@ -1,0 +1,19 @@
+{
+  "function": "tournament.is_reachable",
+  "lever": "tournament.py re-exported nx's is_reachable (import *), so it ran nx's O(V^3) closed-set scan directly on the fnx graph, hammering fnx's slow ._adj/._pred accessors thousands of times (3.9x slower than nx). Override with an fnx-native version that snapshots successor/predecessor adjacency into plain set dicts ONCE, then runs nx's EXACT algorithm on them. Deterministic boolean -> byte-exact, no per-access accessor tax.",
+  "parity": {
+    "cases": 9658,
+    "true": 6395,
+    "false": 3263,
+    "mismatches": 0,
+    "coverage": "random tournaments (all-True, strongly connected) + transitive/near-transitive tournaments (False cases) + undirected/multigraph NetworkXNotImplemented parity",
+    "pytest": "447 passed (tournament/reachable)"
+  },
+  "bench_min_of_9_ms": {
+    "n60":  {"nx": 0.560, "old_nx_on_fnx": 2.025, "new": 0.765, "self_speedup": 2.65, "vs_nx": 1.37},
+    "n100": {"nx": 1.623, "old_nx_on_fnx": 5.731, "new": 2.008, "self_speedup": 2.85, "vs_nx": 1.24},
+    "n150": {"nx": 3.657, "old_nx_on_fnx": 13.528,"new": 4.249, "self_speedup": 3.18, "vs_nx": 1.16},
+    "n200": {"nx": 6.129, "old_nx_on_fnx": 26.986,"new": 7.312, "self_speedup": 3.69, "vs_nx": 1.19}
+  },
+  "headline": "tournament.is_reachable: 3.9x slower than nx -> ~1.2x near-parity, 2.65-3.69x self-speedup (grows with n), byte-exact. Snapshot adjacency once instead of letting nx's O(V^3) scan hammer fnx accessors. Pure Python, no rebuild."
+}

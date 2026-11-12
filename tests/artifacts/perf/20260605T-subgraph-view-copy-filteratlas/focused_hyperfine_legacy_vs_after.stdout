@@ -1,0 +1,11 @@
+Benchmark 1: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/bench.py --module fnx --legacy-fnx 2000 50 8000 20
+  Time (mean ± σ):      1.230 s ±  0.043 s    [User: 4.433 s, System: 0.077 s]
+  Range (min … max):    1.171 s …  1.286 s    10 runs
+
+Benchmark 2: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/bench.py --module fnx 2000 50 8000 20
+  Time (mean ± σ):     613.9 ms ±  44.0 ms    [User: 3667.4 ms, System: 75.2 ms]
+  Range (min … max):   550.6 ms … 696.2 ms    10 runs
+
+Summary
+  env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/bench.py --module fnx 2000 50 8000 20 ran
+    2.00 ± 0.16 times faster than env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-filteratlas/bench.py --module fnx --legacy-fnx 2000 50 8000 20

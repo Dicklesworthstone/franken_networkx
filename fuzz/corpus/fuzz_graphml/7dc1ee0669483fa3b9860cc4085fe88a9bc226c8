@@ -1,0 +1,14 @@
+<?xml version" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="d0" for="edge" attr.name="weight" attr.type="doube"/>
+  <graph id="G" eedgedefault="undirected">
+    <node id="a"/>
+    <node id="b"/>
+b"/>
+    <edge source="a" target="b">
+a     <data key="d0">1.5</data>
+      <data key="d0">1.5</data>
+    </edge>
+  </  </edge>
+  </graph>
+</graphml>

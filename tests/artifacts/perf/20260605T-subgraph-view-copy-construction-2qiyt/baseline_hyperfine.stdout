@@ -1,0 +1,11 @@
+Benchmark 1: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-direct-g114w/bench.py --module fnx 2000 50 8000 20
+  Time (mean ± σ):     627.1 ms ±  55.1 ms    [User: 2100.7 ms, System: 80.8 ms]
+  Range (min … max):   554.1 ms … 728.0 ms    10 runs
+
+Benchmark 2: env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-direct-g114w/bench.py --module nx 2000 50 8000 20
+  Time (mean ± σ):     594.6 ms ± 153.1 ms    [User: 1880.8 ms, System: 75.6 ms]
+  Range (min … max):   495.9 ms … 980.1 ms    10 runs
+
+Summary
+  env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-direct-g114w/bench.py --module nx 2000 50 8000 20 ran
+    1.05 ± 0.29 times faster than env PYTHONPATH=/data/projects/franken_networkx/python:/data/projects/franken_networkx python3 tests/artifacts/perf/20260605T-subgraph-view-copy-direct-g114w/bench.py --module fnx 2000 50 8000 20

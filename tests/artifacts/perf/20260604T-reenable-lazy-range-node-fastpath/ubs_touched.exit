@@ -1,0 +1,2 @@
+ubs_exit=124
+note=timed out after 300s while scanning python/franken_networkx/__init__.py; rust phase completed and no findings were emitted before timeout

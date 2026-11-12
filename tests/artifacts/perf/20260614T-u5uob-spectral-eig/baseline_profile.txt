@@ -1,0 +1,43 @@
+         6066 function calls (6061 primitive calls) in 0.988 seconds
+
+   Ordered by: cumulative time
+   List reduced from 135 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.988    0.988 spectral_bipartivity_harness.py:104(bench_once)
+        9    0.001    0.000    0.984    0.109 bipartite.py:384(spectral_bipartivity)
+        4    0.950    0.238    0.950    0.238 _linalg.py:1514(eigh)
+        5    0.028    0.006    0.029    0.006 _linalg.py:1264(eigvalsh)
+        1    0.000    0.000    0.004    0.004 spectral_bipartivity_harness.py:47(make_pair)
+        9    0.000    0.000    0.004    0.000 __init__.py:52909(wrapper)
+        9    0.000    0.000    0.004    0.000 __init__.py:48850(to_numpy_array)
+        2    0.000    0.000    0.003    0.001 spectral_bipartivity_harness.py:25(_add_fixture_edges)
+        9    0.002    0.000    0.002    0.000 {built-in method franken_networkx._fnx.adjacency_arrays}
+      423    0.000    0.000    0.002    0.000 __init__.py:2545(add_edge)
+      423    0.002    0.000    0.002    0.000 {function Graph.add_edge at 0x79b926d7e980}
+      192    0.000    0.000    0.001    0.000 __init__.py:2609(add_node)
+       45    0.001    0.000    0.001    0.000 {built-in method numpy.asarray}
+      423    0.000    0.000    0.001    0.000 graph.py:917(add_edge)
+      192    0.000    0.000    0.001    0.000 {function Graph.add_node at 0x79b926d7eca0}
+        1    0.000    0.000    0.000    0.000 decorators.py:783(func)
+        9    0.000    0.000    0.000    0.000 numeric.py:323(full)
+        1    0.000    0.000    0.000    0.000 decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 decorators.py:869(compile)
+        1    0.000    0.000    0.000    0.000 decorators.py:917(assemble)
+        1    0.000    0.000    0.000    0.000 decorators.py:1059(signature)
+      192    0.000    0.000    0.000    0.000 graph.py:535(add_node)
+      2/1    0.000    0.000    0.000    0.000 inspect.py:3373(signature)
+      2/1    0.000    0.000    0.000    0.000 inspect.py:3094(from_callable)
+      2/1    0.000    0.000    0.000    0.000 inspect.py:2487(_signature_from_callable)
+        1    0.000    0.000    0.000    0.000 backends.py:503(__signature__)
+      615    0.000    0.000    0.000    0.000 misc.py:645(_clear_cache)
+      618    0.000    0.000    0.000    0.000 {method 'update' of 'dict' objects}
+       10    0.000    0.000    0.000    0.000 {method 'sum' of 'numpy.ndarray' objects}
+       10    0.000    0.000    0.000    0.000 _methods.py:47(_sum)
+       18    0.000    0.000    0.000    0.000 __init__.py:36927(__iter__)
+        1    0.000    0.000    0.000    0.000 {built-in method builtins.compile}
+       10    0.000    0.000    0.000    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+       27    0.000    0.000    0.000    0.000 __init__.py:6160(predicate)
+     1038    0.000    0.000    0.000    0.000 {built-in method builtins.hash}
+
+

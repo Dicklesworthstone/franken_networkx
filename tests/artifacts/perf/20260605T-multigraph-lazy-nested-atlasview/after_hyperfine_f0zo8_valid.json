@@ -1,0 +1,228 @@
+{
+  "results": [
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multigraph --operation gu --loops 10 --samples 3 > /dev/null",
+      "mean": 0.44662355634,
+      "stddev": 0.03788175965764715,
+      "median": 0.44913177534000004,
+      "user": 3.9048134142857145,
+      "system": 0.07901705428571427,
+      "min": 0.40105272834000005,
+      "max": 0.50971002134,
+      "times": [
+        0.41440950134000004,
+        0.40105272834000005,
+        0.41967393834000005,
+        0.50971002134,
+        0.46325383834000006,
+        0.44913177534000004,
+        0.46913309134000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multigraph --operation guv --loops 10 --samples 3 > /dev/null",
+      "mean": 0.41419772491142853,
+      "stddev": 0.028406407097677423,
+      "median": 0.39885197634,
+      "user": 4.1561892714285715,
+      "system": 0.07659119714285713,
+      "min": 0.38891151734,
+      "max": 0.46923275934,
+      "times": [
+        0.41913038734,
+        0.43062252734000006,
+        0.46923275934,
+        0.38891151734,
+        0.39485270734000005,
+        0.39778219934000003,
+        0.39885197634
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multidigraph --operation gu --loops 10 --samples 3 > /dev/null",
+      "mean": 0.4067369301971429,
+      "stddev": 0.03551202272225343,
+      "median": 0.39929030534000004,
+      "user": 4.2960448428571425,
+      "system": 0.08111534,
+      "min": 0.35847306134,
+      "max": 0.45630622034,
+      "times": [
+        0.38885577134000004,
+        0.45630622034,
+        0.38223462334,
+        0.44870850134000007,
+        0.35847306134,
+        0.41329002834000006,
+        0.39929030534000004
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library fnx --graph multidigraph --operation guv --loops 10 --samples 3 > /dev/null",
+      "mean": 0.4186082919114286,
+      "stddev": 0.032376528801140426,
+      "median": 0.42711051934000005,
+      "user": 4.0446787,
+      "system": 0.07673691142857142,
+      "min": 0.38080243734,
+      "max": 0.47148554734000003,
+      "times": [
+        0.47148554734000003,
+        0.43633956034000004,
+        0.43158765434,
+        0.42711051934000005,
+        0.38724651034,
+        0.39568581434000005,
+        0.38080243734
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multigraph --operation gu --loops 10 --samples 3 > /dev/null",
+      "mean": 0.3207966070542857,
+      "stddev": 0.02486747819418536,
+      "median": 0.32101501134000004,
+      "user": 4.180387557142857,
+      "system": 0.057156768571428575,
+      "min": 0.29011739534000003,
+      "max": 0.36850650434000004,
+      "times": [
+        0.36850650434000004,
+        0.32101501134000004,
+        0.32563148034000006,
+        0.29011739534000003,
+        0.31579779334,
+        0.30003647334000005,
+        0.32447159134000003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multigraph --operation guv --loops 10 --samples 3 > /dev/null",
+      "mean": 0.3266448713400001,
+      "stddev": 0.02223235269510619,
+      "median": 0.33227448934000003,
+      "user": 4.181461414285714,
+      "system": 0.06726376857142857,
+      "min": 0.28179557334000005,
+      "max": 0.35034542634000004,
+      "times": [
+        0.31941738234000006,
+        0.33886391734000004,
+        0.33911421134,
+        0.28179557334000005,
+        0.33227448934000003,
+        0.35034542634000004,
+        0.32470309934
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multidigraph --operation gu --loops 10 --samples 3 > /dev/null",
+      "mean": 0.31986504062571436,
+      "stddev": 0.021842620980504848,
+      "median": 0.31847466534,
+      "user": 4.2683098428571435,
+      "system": 0.054824911428571425,
+      "min": 0.29428641434,
+      "max": 0.34712697634000006,
+      "times": [
+        0.34712697634000006,
+        0.33959369934000005,
+        0.30443271434,
+        0.29725685534,
+        0.33788395934000004,
+        0.31847466534,
+        0.29428641434
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "python3 tests/artifacts/perf/20260605T-multigraph-lazy-nested-atlasview/multigraph_nested_atlasview_baseline.py benchmark --library nx --graph multidigraph --operation guv --loops 10 --samples 3 > /dev/null",
+      "mean": 0.3240262919114286,
+      "stddev": 0.02177685376549429,
+      "median": 0.32448986434000004,
+      "user": 4.197733557142857,
+      "system": 0.060090911428571425,
+      "min": 0.29809017434,
+      "max": 0.36495339834,
+      "times": [
+        0.29809017434,
+        0.31929678334000006,
+        0.30352778834000005,
+        0.33080324934000005,
+        0.36495339834,
+        0.32448986434000004,
+        0.32702278534
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

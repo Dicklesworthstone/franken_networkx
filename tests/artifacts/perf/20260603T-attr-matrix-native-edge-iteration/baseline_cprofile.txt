@@ -1,0 +1,42 @@
+         1941353 function calls in 0.798 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       50    0.001    0.000    0.817    0.016 /data/projects/franken_networkx/python/franken_networkx/__init__.py:43289(wrapper)
+       50    0.369    0.007    0.816    0.016 /data/projects/franken_networkx/python/franken_networkx/__init__.py:23711(attr_matrix)
+    40050    0.010    0.000    0.221    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1039(<genexpr>)
+    40000    0.187    0.000    0.211    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1160(__getitem__)
+    40000    0.013    0.000    0.130    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1104(__iter__)
+    40000    0.008    0.000    0.114    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1098(_atlas)
+    40000    0.090    0.000    0.106    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1170(<lambda>)
+  1200000    0.054    0.000    0.054    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:23768(node_value)
+    80050    0.014    0.000    0.033    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1142(_atlas)
+       50    0.019    0.000    0.019    0.000 {built-in method numpy.zeros}
+   300000    0.014    0.000    0.014    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:23748(edge_value)
+    40000    0.004    0.000    0.004    0.000 {method 'add' of 'set' objects}
+    40050    0.004    0.000    0.004    0.000 {built-in method builtins.iter}
+       50    0.000    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1037(__iter__)
+    40000    0.003    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1095(__init__)
+       50    0.000    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1148(__iter__)
+       50    0.003    0.000    0.003    0.000 {built-in method fromkeys}
+    40000    0.003    0.000    0.003    0.000 {built-in method builtins.hash}
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29882(<lambda>)
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29158(_private_adj_mapping)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5277(predicate)
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:29096(_private_override)
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1086(_adjacency_view_items)
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1267(_accessor)
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+       50    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x70f8f9e0e980}
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19130(_validate_backend_dispatch_keywords)
+      100    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+       50    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       50    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x70f8f9e0e8e0}
+       50    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1034(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1285(<lambda>)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1139(__init__)
+
+

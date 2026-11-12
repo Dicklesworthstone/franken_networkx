@@ -1,0 +1,46 @@
+{
+  "all_match_new_eq_old": true,
+  "golden_sha256": "fbd2579308a9a1b32640c1542ee6760494ea1ebd4a228a0038e707a85dce13c3",
+  "cases": {
+    "karate": {
+      "match_new_eq_old": true,
+      "n_edges": 561
+    },
+    "petersen": {
+      "match_new_eq_old": true,
+      "n_edges": 45
+    },
+    "wkarate": {
+      "match_new_eq_old": true,
+      "n_edges": 561
+    },
+    "grid": {
+      "match_new_eq_old": true,
+      "n_edges": 300
+    },
+    "path_8": {
+      "match_new_eq_old": true,
+      "n_edges": 28
+    },
+    "complete_6": {
+      "match_new_eq_old": true,
+      "n_edges": 15
+    },
+    "ws_60_1": {
+      "match_new_eq_old": true,
+      "n_edges": 1770
+    },
+    "ws_60_7": {
+      "match_new_eq_old": true,
+      "n_edges": 1770
+    },
+    "ws_150_42": {
+      "match_new_eq_old": true,
+      "n_edges": 11175
+    },
+    "ws_300_3": {
+      "match_new_eq_old": true,
+      "n_edges": 44850
+    }
+  }
+}

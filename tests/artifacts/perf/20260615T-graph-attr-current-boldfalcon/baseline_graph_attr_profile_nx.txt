@@ -1,0 +1,32 @@
+marker=[1999, 7984]
+         4564752 function calls (4564747 primitive calls) in 1.998 seconds
+
+   Ordered by: cumulative time
+   List reduced from 84 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      120    0.001    0.000    1.886    0.016 /data/projects/franken_networkx/tests/artifacts/perf/20260615T-graph-attr-current-boldfalcon/graph_attr_construction_harness.py:37(build_graph)
+      120    1.444    0.012    1.882    0.016 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:986(add_edges_from)
+  1920122    0.280    0.000    0.280    0.000 {method 'update' of 'dict' objects}
+      120    0.000    0.000    0.111    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1961(number_of_edges)
+      120    0.001    0.000    0.111    0.001 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1918(size)
+      120    0.016    0.000    0.110    0.001 {built-in method builtins.sum}
+   960124    0.104    0.000    0.104    0.000 {method 'get' of 'dict' objects}
+   240000    0.030    0.000    0.094    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1954(<genexpr>)
+  1200240    0.065    0.000    0.065    0.000 {built-in method builtins.len}
+   240000    0.052    0.000    0.065    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:531(__iter__)
+      120    0.000    0.000    0.003    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      120    0.002    0.000    0.003    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:554(_call_if_any_backends_installed)
+      120    0.000    0.000    0.001    0.000 /usr/lib/python3.13/functools.py:1010(__get__)
+      120    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:349(__init__)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:1510(degree)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:783(func)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:715(_lazy_compile)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:869(compile)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/backends.py:1484(_call_with_backend)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/misc.py:645(_clear_cache)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/reportviews.py:421(__init__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:917(assemble)
+      120    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/classes/graph.py:345(__new__)
+        1    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/networkx/utils/decorators.py:1059(signature)
+      243    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}

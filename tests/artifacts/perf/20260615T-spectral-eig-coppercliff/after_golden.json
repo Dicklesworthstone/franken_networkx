@@ -1,0 +1,16 @@
+{
+  "cases": [
+    2,
+    5,
+    8,
+    32,
+    96
+  ],
+  "fnx_quantized_sha256": "cc22d5b3fa648e3216b729ab83a743f39c7242b3df4a840f26c37af5c0847ee9",
+  "max_abs_delta": 1.7053025658242404e-13,
+  "max_rel_delta": 2.3365857859669603e-14,
+  "nx_quantized_sha256": "cc22d5b3fa648e3216b729ab83a743f39c7242b3df4a840f26c37af5c0847ee9",
+  "quantized_match": true,
+  "sha256": "598c286288aeedf5a6c085e36e6de7890e07f4f9e11b245a1b8a73e44a099ff0",
+  "within_1e_8": true
+}

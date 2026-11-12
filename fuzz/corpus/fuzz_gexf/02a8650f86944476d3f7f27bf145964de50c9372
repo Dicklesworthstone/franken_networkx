@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">
+  <graph mode="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edge id="0" source="a" tar%et="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/9999999999999999999999999999999999>
+     <node id="b" label="B"/>
+0" encoding="UTF-8"?>
+<?xml version="0.^^^^^^﻿ml version="1.0" encoding="UTF-8"?>
+<gexf ve<gexf version="1.2">
+  
+    <edges>
+      <edge id="0" source="a" tar%et="b" weight="1.5"/>
+    </edges>
+  de id="a" label="A"/99rce="a" target="b" weightrsion="1.2">
+  <graph mrde="static" defaultedg="1.5"/>
+    </edgeetype=s>"

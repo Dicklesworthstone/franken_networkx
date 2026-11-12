@@ -1,0 +1,6 @@
+  [2m2026-06-02T02:06:21.957717Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: zsh -lc 'PERF_SPANS=1 cargo run -q -p fnx-algorithms --profile release-perf --bin perf_harness -- --algo=betweenness --n=1500 --deg=8 --iters=1'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":95.294,"accum_phase_ms":29.957,"alloc_phase_ms":1.104}
+{"perf.profile.span_summary":true,"algo":"brandes_betweenness","n":1500,"edges_scanned":18000000,"bfs_phase_ms":83.119,"accum_phase_ms":26.120,"alloc_phase_ms":0.950}
+{"algo":"betweenness","n":1500,"m":6000,"avg_deg":8,"iters":1,"total_ms":112.1048,"per_iter_ms":112.1048,"checksum":2.761383}

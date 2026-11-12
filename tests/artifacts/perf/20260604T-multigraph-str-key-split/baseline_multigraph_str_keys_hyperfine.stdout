@@ -1,0 +1,11 @@
+Benchmark 1: PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1
+  Time (mean ± σ):     884.2 ms ±  88.7 ms    [User: 3809.8 ms, System: 155.2 ms]
+  Range (min … max):   764.9 ms … 989.1 ms    5 runs
+ 
+Benchmark 2: PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl nx --repeats 1
+  Time (mean ± σ):     579.2 ms ±  25.0 ms    [User: 3865.1 ms, System: 102.4 ms]
+  Range (min … max):   543.5 ms … 608.6 ms    5 runs
+ 
+Summary
+  PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl nx --repeats 1 ran
+    1.53 ± 0.17 times faster than PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260603T-construction-string-key-current/bench_construction.py bench --case multigraph_str_keys --impl fnx --repeats 1

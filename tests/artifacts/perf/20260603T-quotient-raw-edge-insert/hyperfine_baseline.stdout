@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260603T-quotient-raw-edge-insert/bench_quotient_graph.py bench --samples 1 --engines fnx
+  Time (mean ± σ):      2.581 s ±  0.046 s    [User: 5.765 s, System: 0.087 s]
+  Range (min … max):    2.520 s …  2.660 s    7 runs
+ 

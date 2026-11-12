@@ -1,0 +1,44 @@
+         196 function calls in 0.014 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    0.014    0.014 harness_write_gml_native.py:159(run)
+        3    0.000    0.000    0.014    0.005 harness_write_gml_native.py:47(write_payload)
+        3    0.000    0.000    0.013    0.004 __init__.py:17531(write_gml)
+        3    0.000    0.000    0.013    0.004 __init__.py:349(_write_gml_via_nx)
+        3    0.006    0.002    0.013    0.004 {built-in method franken_networkx._fnx.write_gml_nx_int_noattr}
+        3    0.000    0.000    0.007    0.002 _abc.py:635(write_bytes)
+        6    0.000    0.000    0.006    0.001 _local.py:531(open)
+        6    0.006    0.001    0.006    0.001 {built-in method _io.open}
+        3    0.000    0.000    0.001    0.000 _abc.py:621(read_bytes)
+        3    0.001    0.000    0.001    0.000 {method 'read' of '_io.BufferedReader' objects}
+        3    0.000    0.000    0.000    0.000 {method 'write' of '_io.BufferedWriter' objects}
+        6    0.000    0.000    0.000    0.000 {method '__exit__' of '_io._IOBase' objects}
+        3    0.000    0.000    0.000    0.000 __init__.py:384(_write_gml_native_plain_path_ok)
+        6    0.000    0.000    0.000    0.000 _local.py:166(__fspath__)
+        3    0.000    0.000    0.000    0.000 _abc.py:167(suffix)
+        6    0.000    0.000    0.000    0.000 _local.py:227(__str__)
+        3    0.000    0.000    0.000    0.000 _local.py:346(name)
+        7    0.000    0.000    0.000    0.000 _local.py:307(_tail)
+        7    0.000    0.000    0.000    0.000 _local.py:257(_parse_path)
+        4    0.000    0.000    0.000    0.000 _local.py:289(drive)
+        6    0.000    0.000    0.000    0.000 _local.py:500(__init__)
+        6    0.000    0.000    0.000    0.000 _local.py:116(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        6    0.000    0.000    0.000    0.000 _local.py:507(__new__)
+       21    0.000    0.000    0.000    0.000 {built-in method sys.intern}
+        7    0.000    0.000    0.000    0.000 _local.py:277(_raw_path)
+        4    0.000    0.000    0.000    0.000 _local.py:237(_format_parsed_parts)
+        7    0.000    0.000    0.000    0.000 {method 'split' of 'str' objects}
+        7    0.000    0.000    0.000    0.000 {built-in method posix._path_splitroot_ex}
+       17    0.000    0.000    0.000    0.000 {built-in method builtins.len}
+        6    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+        6    0.000    0.000    0.000    0.000 {method 'extend' of 'list' objects}
+        4    0.000    0.000    0.000    0.000 {method 'join' of 'str' objects}
+        3    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+        6    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+        3    0.000    0.000    0.000    0.000 {method 'rfind' of 'str' objects}
+        4    0.000    0.000    0.000    0.000 _local.py:298(root)
+
+

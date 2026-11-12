@@ -1,0 +1,16 @@
+# br-r37-c1-condmdg — MultiDiGraph condensation: build directly on multidigraph
+# adjacency + native SCC kernel, skip the simple-DiGraph projection.
+# Agent: BlackThrush. 2026-06-20. NetworkX 3.6.1. Base origin/main a9f239c75.
+
+## Perf vs NetworkX (warm min-of-N), by density. OLD = conversion path (a9f239c75).
+# n     m       #scc   OLD(fnx)   NEW(fnx)   nx        OLD/nx  NEW/nx   self-speedup
+# 1500  6000    51     24.74ms    3.47ms     4.07ms    0.17x   1.17x    7.1x
+# 2500  10000   97     42.94ms    11.25ms    6.87ms    0.17x   0.61x    3.8x
+# 4000  16000   183    74.48ms    22.15ms    11.61ms   0.18x   0.52x    3.4x
+# 4000  4000    3404   27.96ms    9.16ms     9.10ms    0.34x   0.99x    3.1x
+# 4000  40000   1      187.77ms   44.46ms    28.26ms   0.15x   0.64x    4.2x
+
+## Parity: 2000 random MultiDiGraphs incl parallels + self-loops, 0 mismatches
+## (members sets, node labels, edge SET + ITERATION ORDER, graph['mapping']).
+## DiGraph condensation non-regressed (1.21x). pytest -k 'condensation or
+## strongly_connected or scc': 780 passed.

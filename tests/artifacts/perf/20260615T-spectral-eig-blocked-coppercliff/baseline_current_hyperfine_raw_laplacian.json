@@ -1,0 +1,58 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl native --case laplacian --n 100 --loops 2 --samples 1",
+      "mean": 0.42608824710000004,
+      "stddev": 0.03959117976307166,
+      "median": 0.4215824375,
+      "user": 3.9432068799999995,
+      "system": 0.0709311,
+      "min": 0.37372062450000004,
+      "max": 0.4811093135,
+      "times": [
+        0.4115525015,
+        0.4811093135,
+        0.4215824375,
+        0.37372062450000004,
+        0.4424763585
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "100"
+      }
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260615T-spectral-eig-blocked-coppercliff/eig_baseline_harness.py raw --impl native --case laplacian --n 200 --loops 2 --samples 1",
+      "mean": 0.38889339330000006,
+      "stddev": 0.011736460415733594,
+      "median": 0.39004738250000004,
+      "user": 3.95074188,
+      "system": 0.0685963,
+      "min": 0.3745324125,
+      "max": 0.4058156505,
+      "times": [
+        0.38202855750000003,
+        0.4058156505,
+        0.39004738250000004,
+        0.3920429635,
+        0.3745324125
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "parameters": {
+        "n": "200"
+      }
+    }
+  ]
+}

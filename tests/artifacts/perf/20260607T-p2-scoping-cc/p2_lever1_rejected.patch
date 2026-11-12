@@ -1,0 +1,68 @@
+diff --git a/crates/fnx-classes/src/lib.rs b/crates/fnx-classes/src/lib.rs
+index 574d67058..b81a11358 100644
+--- a/crates/fnx-classes/src/lib.rs
++++ b/crates/fnx-classes/src/lib.rs
+@@ -1272,34 +1272,48 @@ impl Graph {
+                     }
+                 }
+             };
+-            let edge_key = EdgeKeyRef::new(&left, &right);
+-            if let Some(existing) = self.edges.get_mut(&edge_key) {
+-                // Duplicate edge (pre-existing or earlier in this batch):
+-                // merge attrs, matching add_edge_with_attrs' `extend`.
+-                if !attrs.is_empty()
+-                    && attrs
+-                        .iter()
+-                        .any(|(key, value)| existing.get(key) != Some(value))
+-                {
+-                    merged_changed = true;
++            // br-r37-c1-d58s8 P2 lever 1: pprof of this loop showed ~70% of
++            // samples in String hashing on the node/adjacency IndexMaps (the
++            // EdgeKey pair was only ~30%). nodes and adjacency are
++            // INDEX-ALIGNED maps (inserted and shift_removed together), so
++            // the row stores are fetched hash-free via get_index_mut, and the
++            // edges map is probed ONCE via the entry API instead of
++            // get_mut-then-insert.
++            debug_assert_eq!(self.nodes.len(), self.adjacency.len());
++            match self.edges.entry(EdgeKey::new(&left, &right)) {
++                indexmap::map::Entry::Occupied(mut occupied) => {
++                    // Duplicate edge (pre-existing or earlier in this batch):
++                    // merge attrs, matching add_edge_with_attrs' `extend`.
++                    let existing = occupied.get_mut();
++                    if !attrs.is_empty()
++                        && attrs
++                            .iter()
++                            .any(|(key, value)| existing.get(key) != Some(value))
++                    {
++                        merged_changed = true;
++                    }
++                    existing.extend(attrs);
++                    continue;
++                }
++                indexmap::map::Entry::Vacant(vacant) => {
++                    vacant.insert(attrs);
+                 }
+-                existing.extend(attrs);
+-                continue;
+             }
+             if left <= right {
+                 self.edge_index_endpoints.push((left_idx, right_idx));
+             } else {
+                 self.edge_index_endpoints.push((right_idx, left_idx));
+             }
+-            self.edges.insert(EdgeKey::new(&left, &right), attrs);
+             self.adjacency
+-                .get_mut(&left)
++                .get_index_mut(left_idx)
+                 .expect("edge endpoint must have an adjacency bucket")
++                .1
+                 .insert(right.clone());
+             if left != right {
+                 self.adjacency
+-                    .get_mut(&right)
++                    .get_index_mut(right_idx)
+                     .expect("edge endpoint must have an adjacency bucket")
++                    .1
+                     .insert(left.clone());
+             }
+ 

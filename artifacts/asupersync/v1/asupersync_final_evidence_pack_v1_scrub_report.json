@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "asupersync-final-evidence-pack-v1-scrub-report",
+  "generated_at_utc": "2026-02-16T22:28:30Z",
+  "artifact_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json",
+  "sidecar_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json",
+  "recovered_output_path": "artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.recovered.json",
+  "source_hash": "blake3:af7983f20b655feebedbb22d156c0ba6bc4b0f4776295138a2cd86fa3385686c",
+  "scrub_status": "recovered",
+  "decode_proof_count": 1,
+  "decode_proofs": [
+    {
+      "ts_unix_ms": 1771280905850,
+      "reason": "decode_drill",
+      "recovered_blocks": 7,
+      "proof_hash": "blake3:f8faed8f4ff6292db086e74ec47c05978a7f28ba1964e8f14d03dce553bb05cc"
+    }
+  ],
+  "commands": {
+    "generate": "cargo run -q -p fnx-durability --bin fnx-durability -- generate artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json asupersync-final-evidence-pack-v1 asupersync_final_evidence_bundle 1400 6",
+    "scrub": "cargo run -q -p fnx-durability --bin fnx-durability -- scrub artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.json artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json",
+    "decode_drill": "cargo run -q -p fnx-durability --bin fnx-durability -- decode-drill artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.raptorq.json artifacts/asupersync/v1/asupersync_final_evidence_pack_v1.recovered.json"
+  }
+}

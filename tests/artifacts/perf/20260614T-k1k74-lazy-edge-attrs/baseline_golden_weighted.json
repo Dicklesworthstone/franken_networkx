@@ -1,0 +1,57 @@
+{
+  "bundle_sha256": "3f4905e402e9c1b8da924b2d6191371ca61e9dce02ec4919ef3be9f548a4b178",
+  "rows": [
+    {
+      "fnx_digest": "d0e5fceb43424c5f2623b56414f03e97fab0eb1f72509f057b82a95d609436cc",
+      "fnx_edges": 240,
+      "fnx_elapsed_s": 0.0019319200073368847,
+      "fnx_nodes": 240,
+      "match": true,
+      "nx_digest": "d0e5fceb43424c5f2623b56414f03e97fab0eb1f72509f057b82a95d609436cc",
+      "nx_edges": 240,
+      "nx_elapsed_s": 0.0015123049961403012,
+      "nx_nodes": 240,
+      "scenario": "multidigraph_from_graph",
+      "weighted": true
+    },
+    {
+      "fnx_digest": "c84c0d8692d05022b055f5e848d5842c4054e448494c009946d63c784a879de8",
+      "fnx_edges": 240,
+      "fnx_elapsed_s": 0.0027802679978776723,
+      "fnx_nodes": 240,
+      "match": true,
+      "nx_digest": "c84c0d8692d05022b055f5e848d5842c4054e448494c009946d63c784a879de8",
+      "nx_edges": 240,
+      "nx_elapsed_s": 0.0023608740011695772,
+      "nx_nodes": 240,
+      "scenario": "multidigraph_from_multigraph",
+      "weighted": true
+    },
+    {
+      "fnx_digest": "20e0db15235411a14e1bd26a4995d2d2a709810b15f23bb79421835f5ea78e68",
+      "fnx_edges": 240,
+      "fnx_elapsed_s": 0.0019180539820808917,
+      "fnx_nodes": 240,
+      "match": true,
+      "nx_digest": "20e0db15235411a14e1bd26a4995d2d2a709810b15f23bb79421835f5ea78e68",
+      "nx_edges": 240,
+      "nx_elapsed_s": 0.0013178169901948422,
+      "nx_nodes": 240,
+      "scenario": "digraph_from_multigraph",
+      "weighted": true
+    },
+    {
+      "fnx_digest": "20358edbfdcd54647b2eb4c26d8d8de9e9be734815ac248f00c843e485ce31b6",
+      "fnx_edges": 120,
+      "fnx_elapsed_s": 0.0009619920165278018,
+      "fnx_nodes": 240,
+      "match": true,
+      "nx_digest": "20358edbfdcd54647b2eb4c26d8d8de9e9be734815ac248f00c843e485ce31b6",
+      "nx_edges": 120,
+      "nx_elapsed_s": 0.0007611920009367168,
+      "nx_nodes": 240,
+      "scenario": "multigraph_from_graph",
+      "weighted": true
+    }
+  ]
+}

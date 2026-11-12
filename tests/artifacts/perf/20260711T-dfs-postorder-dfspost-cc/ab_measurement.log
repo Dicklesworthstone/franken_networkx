@@ -1,0 +1,11 @@
+  [2m2026-07-11T06:16:29.150998Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib dfs_postorder -- --include-ignored --nocapture[0m
+test tests::dfs_postorder_nodes_depth_limit_omits_cutoff_node ... ok
+test tests::dfs_postorder_directed_depth_limit_omits_cutoff_node ... ok
+test tests::dfs_postorder_directed ... ok
+test tests::dfs_postorder_nodes_test ... ok
+DFSPOST_AB n=3000 deg=10 rounds=121 (>1 = integer faster)
+DFSPOST_AB INT_vs_string: median=6.4271x win_rate=121/121 p5_p95=[4.1155,11.6525]
+DFSPOST_AB NULL_int_vs_int: median=1.0083x win_rate=67/121 p5_p95=[0.7898,1.3417]
+test tests::dfs_postorder_dfspost_ab ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 944 filtered out; finished in 1.58s
+AB loop ended

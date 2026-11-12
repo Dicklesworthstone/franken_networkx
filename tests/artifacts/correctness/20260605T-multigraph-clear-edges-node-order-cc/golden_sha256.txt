@@ -1,0 +1,1 @@
+clear_edges_parity_proof.py: 1600 cases (4 classes x node-order/edges-cleared/attrs/copy-after-clear/re-add) vs networkx, 0 mismatches

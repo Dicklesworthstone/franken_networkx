@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="0.2">
+  <graph mo/de="static" defaultedgetype="directed">
+      <edge id="0" sourcd="a" taght="1.5"/rget="b" weight="1.a" label="A"/>
+     nodes>
+    <edges>
+     /edges>
+  </graph>
+</gexf>

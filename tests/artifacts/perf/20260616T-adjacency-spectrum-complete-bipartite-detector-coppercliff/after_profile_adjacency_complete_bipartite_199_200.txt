@@ -1,0 +1,27 @@
+         52001 function calls in 0.013 seconds
+
+   Ordered by: internal time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+     1000    0.001    0.000    0.004    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22744(_complete_bipartite_adjacency_spectrum_sorted_value_safe)
+     4000    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37693(__len__)
+     4000    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37130(_private_override)
+     3000    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37950(number_of_edges)
+     1000    0.001    0.000    0.012    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22847(adjacency_spectrum)
+     4000    0.001    0.000    0.004    0.000 {built-in method builtins.len}
+     8000    0.001    0.000    0.001    0.000 {built-in method builtins.vars}
+     1000    0.001    0.000    0.013    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53800(wrapper)
+     3000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37138(_has_networkx_private_storage)
+     1000    0.001    0.000    0.003    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22697(_edgeless_adjacency_spectrum_sorted_value_safe)
+     1000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:30111(_complete_bipartite_shape_certificate_parts)
+     1000    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22633(_star_adjacency_spectrum_raw_order_safe)
+     1000    0.001    0.000    0.002    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22709(_cycle_adjacency_spectrum_sorted_value_safe)
+     3000    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:315(number_of_edges)
+     1000    0.001    0.000    0.001    0.000 {built-in method numpy.zeros}
+     5000    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+     3000    0.000    0.000    0.000    0.000 {function Graph.number_of_edges at 0x790d6fccdee0}
+     4000    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+     1000    0.000    0.000    0.000    0.000 {method '_native_complete_bipartite_certificate_parts' of 'franken_networkx.Graph' objects}
+     1000    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:24570(_validate_backend_dispatch_keywords)
+     1000    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}

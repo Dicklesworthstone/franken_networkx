@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "ci-gate-topology-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "source_bead_id",
+    "gate_order",
+    "short_circuit",
+    "policies",
+    "drift_rules",
+    "gates",
+    "io_contract_matrix"
+  ],
+  "required_gate_ids": [
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "G5",
+    "G6",
+    "G7",
+    "G8"
+  ],
+  "required_short_circuit_keys": [
+    "enabled",
+    "stop_after_first_failure",
+    "policy_id",
+    "required_failure_envelope_fields"
+  ],
+  "required_policy_keys": [
+    "policy_id",
+    "domain",
+    "rule",
+    "violation_action",
+    "deterministic"
+  ],
+  "allowed_policy_domains": [
+    "compatibility",
+    "durability",
+    "orchestration",
+    "reliability",
+    "security"
+  ],
+  "required_drift_rule_keys": [
+    "rule_id",
+    "domain",
+    "threshold",
+    "policy_id",
+    "violation_action"
+  ],
+  "required_drift_rule_ids": [
+    "DRIFT-COMPAT-STRICT-000",
+    "DRIFT-COMPAT-HARDENED-001",
+    "DRIFT-SEC-INVARIANT-000",
+    "DRIFT-TELEMETRY-CONTRACT-000",
+    "DRIFT-DURABILITY-DECODE-000"
+  ],
+  "required_gate_keys": [
+    "gate_id",
+    "name",
+    "blocking",
+    "owner_bead_id",
+    "depends_on",
+    "short_circuit_on_fail",
+    "fail_closed_policy_ids",
+    "drift_rule_ids",
+    "budget_ids",
+    "input_contracts",
+    "output_artifacts",
+    "primary_commands",
+    "replay_commands"
+  ],
+  "required_input_contract_keys": [
+    "contract_id",
+    "description",
+    "required_paths"
+  ],
+  "required_output_artifact_keys": [
+    "artifact_id",
+    "description",
+    "path"
+  ],
+  "required_io_matrix_keys": [
+    "gate_id",
+    "input_contract_ids",
+    "output_artifact_ids",
+    "failure_envelope_policy_id",
+    "owner_bead_id"
+  ]
+}

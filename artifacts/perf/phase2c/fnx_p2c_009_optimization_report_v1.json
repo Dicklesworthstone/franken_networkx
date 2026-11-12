@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "fnx-p2c-009-optimization-report-v1",
+  "packet_id": "FNX-P2C-009",
+  "bead_id": "bd-315.20.8",
+  "generated_at_utc": "2026-02-18T22:15:17Z",
+  "single_lever": {
+    "description": "reuse one graph snapshot for expected-graph comparison in conformance fixture evaluation",
+    "changed_paths": [
+      "crates/fnx-conformance/src/lib.rs"
+    ],
+    "hotspot_context": "run_fixture expected graph comparison called snapshot twice per fixture before this change"
+  },
+  "profile_command": "rch exec -- cargo test -p fnx-conformance --test smoke packet_009_differential_metamorphic_and_adversarial_taxonomy_is_deterministic -- --exact --nocapture",
+  "measurements": {
+    "baseline": {
+      "remote_command_ms": 4190,
+      "notes": "rch remote command duration before lever"
+    },
+    "candidate": {
+      "remote_command_ms": 2521,
+      "notes": "rch remote command duration after lever"
+    },
+    "delta_pct": {
+      "remote_command_ms": -39.83293556085919
+    }
+  },
+  "behavior_isomorphism_checks": [
+    {
+      "command": "rch exec -- cargo test -p fnx-conformance --test smoke packet_009_differential_metamorphic_and_adversarial_taxonomy_is_deterministic -- --exact --nocapture",
+      "status": "pass",
+      "purpose": "packet-009 differential/metamorphic/adversarial behavior contract remains unchanged"
+    },
+    {
+      "command": "rch exec -- cargo test --workspace",
+      "status": "pass",
+      "purpose": "workspace-wide behavior and integration non-regression"
+    }
+  ],
+  "risk_notes": [
+    "optimization only reduces duplicate snapshot allocation; comparison semantics unchanged",
+    "measurement is command-level and includes harness overhead; treat as directional for this lever"
+  ],
+  "rollback": {
+    "trigger": "rollback if packet-009 hotspot command regresses by >5% for 2 consecutive runs",
+    "path": "git revert <optimization-commit-sha>"
+  },
+  "decision_contract": {
+    "states": [
+      "regression",
+      "parity_preserved_speedup"
+    ],
+    "actions": [
+      "ship_optimization",
+      "rollback"
+    ],
+    "loss_model": "parity regression cost dominates speedup benefit",
+    "safe_mode_budget_trigger": ">5% command-level regression for 2 consecutive runs"
+  },
+  "gate_summary": {
+    "status": "pass",
+    "isomorphism_status": "pass",
+    "regression_status": "pass"
+  }
+}

@@ -1,0 +1,14 @@
+  [2m2026-07-12T22:16:34.092785Z[0m [32m INFO[0m [1;32mrch::hook::transfer_orchestration[0m[32m: [32mExecuting command remotely: cargo test --release -p fnx-algorithms --lib chordal -- --include-ignored --nocapture[0m
+test tests::test_chordal_graph_cliques_cycle4_matches_networkx_runtime ... ok
+test tests::test_chordal_graph_cliques_star ... ok
+test tests::test_chordal_cycle_graph ... ok
+test tests::test_chordal_graph_treewidth_non_chordal ... ok
+test tests::test_chordal_graph_cliques_triangle ... ok
+test tests::test_chordal_graph_treewidth_star ... ok
+test tests::test_chordal_graph_cliques_path ... ok
+test tests::test_chordal_graph_treewidth_path ... ok
+CHORDALMCS_AB is_chordal 6000-node interval graph rounds=61 (>1 = bucket-MCS faster)
+CHORDALMCS_AB BUCKET_vs_scan: median=9.3968x win_rate=61/61 p5_p95=[7.8244,11.2900]
+CHORDALMCS_AB NULL_bucket_vs_bucket: median=1.0001x win_rate=31/61 p5_p95=[0.8530,1.2087]
+test tests::is_chordal_mcs_ab ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1013 filtered out; finished in 3.11s

@@ -1,0 +1,4 @@
+="`ttp://www.gexf.net/1.2draft">
+  <graph defaultedgetypei="drected" mode="static">
+    <nodes><node id="a" label="a"/><node id="b" label="b"/></nodes>
+    <edges><edge iread_adjlist="a" ersion="1.0" elabel="a"/><nn

@@ -1,0 +1,15 @@
+Profile Target
+==============
+
+Bead: br-r37-c1-45n6t
+Algorithm: harmonic centrality
+Command:
+RCH_ENV_ALLOWLIST=CARGO_TARGET_DIR rch exec -- cargo run -q -p fnx-algorithms --profile release-perf --features profile-pprof --bin perf_harness -- --pprof --pprof-top=20 --algo=harmonic --n=1600 --deg=5 --iters=3
+
+Observed profile summary:
+{"algo":"harmonic","n":1600,"m":4000,"avg_deg":5,"iters":3,"total_ms":396.1166,"per_iter_ms":132.0389,"checksum":1674332.847619}
+
+pprof top sample notes:
+- harmonic_centrality_generic<fnx_classes::Graph> carried all 345 inclusive samples.
+- Reverse adjacency construction and GraphView::get_node_index calls were visible in the sample top.
+- The tested lever targeted repeated per-source BFS queue and distance vector allocation.

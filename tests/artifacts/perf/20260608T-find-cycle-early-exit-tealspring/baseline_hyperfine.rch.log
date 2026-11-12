@@ -1,0 +1,6 @@
+  [2m2026-06-08T03:35:32.093948Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: bash -lc 'hyperfine --warmup 3 --runs 10 --export-json /tmp/fnx_find_cycle_baseline.json "python3 tests/artifacts/perf/20260608T-find-cycle-early-exit-tealspring/bench_find_cycle.py fnx 50" 1>&2; cat /tmp/fnx_find_cycle_baseline.json'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+Benchmark 1: python3 tests/artifacts/perf/20260608T-find-cycle-early-exit-tealspring/bench_find_cycle.py fnx 50
+  Time (mean ± σ):     334.0 ms ±  33.2 ms    [User: 4109.1 ms, System: 68.0 ms]
+  Range (min … max):   287.6 ms … 385.7 ms    10 runs

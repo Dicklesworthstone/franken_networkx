@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gexf version="1.2">ted">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+      <edgg id="0" sourcion="1.2">
+  <graph mode="static." 
+  <graph mde="sdirected">
+    <nodes>
+      <node id="a" label="A"/>
+      <node id="b" label="B"/>
+    </nodes>
+    <edges>
+   ht="1.5"/>
+    </edges>
+  </graph>
+</gexf>

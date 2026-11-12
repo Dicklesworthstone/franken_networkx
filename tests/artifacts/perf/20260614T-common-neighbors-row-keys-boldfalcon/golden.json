@@ -1,0 +1,37 @@
+{
+  "all_match": true,
+  "cases": [
+    {
+      "case": "ba1200",
+      "len": 6,
+      "match": true,
+      "new_sha256": "4771923fcb3ba86a786f6455f615d48096685058ba70b48809ec813774e33385",
+      "nx_sha256": "4771923fcb3ba86a786f6455f615d48096685058ba70b48809ec813774e33385",
+      "old_sha256": "4771923fcb3ba86a786f6455f615d48096685058ba70b48809ec813774e33385"
+    },
+    {
+      "case": "ba1200_empty",
+      "len": 0,
+      "match": true,
+      "new_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "nx_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "old_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "case": "ba200",
+      "len": 8,
+      "match": true,
+      "new_sha256": "37a88c5d8338aa38202a9ecc37a179166dcc1173bef73317d1bcffe64290a3f4",
+      "nx_sha256": "37a88c5d8338aa38202a9ecc37a179166dcc1173bef73317d1bcffe64290a3f4",
+      "old_sha256": "37a88c5d8338aa38202a9ecc37a179166dcc1173bef73317d1bcffe64290a3f4"
+    }
+  ],
+  "isomorphism": {
+    "floating_point": "N/A",
+    "missing_node_errors": "covered by existing focused pytest",
+    "ordering": "N/A: public output is a set",
+    "rng": "N/A",
+    "tie_breaking": "N/A"
+  },
+  "sha256": "9340c2974a7b8d928da698aa861e9ff21150d5ae81966fc2e09f4c6989240e91"
+}

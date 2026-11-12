@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at_utc": "2026-04-13T23:35:11.554680+00:00",
+  "algorithm": "fruchterman_reingold",
+  "iterations": 100,
+  "node_count": 9,
+  "edge_count": 7,
+  "metrics": {
+    "edge_crossing_estimate": 0.0,
+    "mean_edge_length": 0.394523,
+    "edge_length_variance": 0.013448,
+    "node_distribution_spread": 0.566767
+  },
+  "nodes": [
+    {
+      "id": "shortest_path",
+      "x": 0.99,
+      "y": 0.440801
+    },
+    {
+      "id": "components",
+      "x": 0.99,
+      "y": 0.847879
+    },
+    {
+      "id": "centrality",
+      "x": 0.300364,
+      "y": 0.01
+    },
+    {
+      "id": "flow",
+      "x": 0.289333,
+      "y": 0.427548
+    },
+    {
+      "id": "io_roundtrip",
+      "x": 0.01,
+      "y": 0.01
+    },
+    {
+      "id": "mutation_cycle",
+      "x": 0.01,
+      "y": 0.99
+    },
+    {
+      "id": "bfs_baseline",
+      "x": 0.99,
+      "y": 0.99
+    },
+    {
+      "id": "dijkstra",
+      "x": 0.656852,
+      "y": 0.167028
+    },
+    {
+      "id": "bellman_ford",
+      "x": 0.99,
+      "y": 0.01
+    }
+  ]
+}

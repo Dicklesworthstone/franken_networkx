@@ -1,0 +1,14 @@
+case=int_keys_list sha256=3a178de5d183ef7f5908b169571990e3b38be9c6632e2d31392796389ce82d1e
+         46 function calls in 0.884 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        5    0.052    0.010    0.884    0.177 multigraph_int_key_batch.py:56(_make_graph)
+        5    0.000    0.000    0.832    0.166 __init__.py:2835(_multi_add_edges_from)
+        5    0.820    0.164    0.820    0.164 {method '_try_add_int_keyed_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.011    0.002    0.011    0.002 {method '_try_add_edges_from_batch' of 'franken_networkx.MultiGraph' objects}
+        5    0.000    0.000    0.000    0.000 __init__.py:3625(__init__)
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+       10    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}

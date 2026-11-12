@@ -1,0 +1,58 @@
+{
+  "routing": {
+    "center": true,
+    "diameter": true,
+    "radius": true,
+    "periphery": true,
+    "eccentricity": true,
+    "barycenter": true,
+    "harmonic_diameter": true,
+    "kemeny_constant": true
+  },
+  "parity": {
+    "center_n200": {
+      "sha_match": true
+    },
+    "diameter_n200": {
+      "sha_match": true
+    },
+    "eccentricity_n200": {
+      "sha_match": true
+    },
+    "harmonic_diameter_n200": {
+      "sha_match": true
+    },
+    "kemeny_constant_n200": {
+      "sha_match": true
+    },
+    "center_n600": {
+      "sha_match": true
+    },
+    "diameter_n600": {
+      "sha_match": true
+    },
+    "eccentricity_n600": {
+      "sha_match": true
+    },
+    "harmonic_diameter_n600": {
+      "sha_match": true
+    },
+    "kemeny_constant_n600": {
+      "sha_match": true
+    }
+  },
+  "speedup": {
+    "harmonic_diameter": {
+      "routed_ms": 96.74,
+      "before_raw_nx_ms": 745.68,
+      "speedup": 7.7,
+      "vs_genuine_nx": 7.7
+    },
+    "kemeny_constant": {
+      "routed_ms": 66.8,
+      "before_raw_nx_ms": 1040.97,
+      "speedup": 15.6,
+      "vs_genuine_nx": 5.2
+    }
+  }
+}

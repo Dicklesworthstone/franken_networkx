@@ -1,0 +1,2 @@
+tests/artifacts/perf/20260604T-plain-edges-classes-prealloc/after_plain_edges_int.jsonl: OK
+tests/artifacts/perf/20260604T-plain-edges-classes-prealloc/plain_edges_valid_semantics_golden.jsonl: OK

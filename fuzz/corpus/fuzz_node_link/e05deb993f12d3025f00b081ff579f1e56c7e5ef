@@ -1,0 +1,1 @@
+{"mode":"strict","directed":false,"multigraph":true,"grattrs":{},"nodes":["a","b"],"edges":[{"left":"a","right":"b","attrs":{"w":1}},{"left":"a","right":"b","attrs":{"w":2}}]}

@@ -1,0 +1,15 @@
+{
+  "calls": 3000,
+  "cprofile_text": "         36001 function calls in 1.693 seconds\n\n   Ordered by: internal time\n\n   ncalls  tottime  percall  cumtime  percall filename:lineno(function)\n     3000    1.678    0.001    1.678    0.001 {built-in method franken_networkx._fnx.dfs_tree}\n     3000    0.004    0.000    1.689    0.001 __init__.py:45438(wrapper)\n     3000    0.003    0.000    1.693    0.001 __init__.py:45602(wrapper)\n     3000    0.003    0.000    1.684    0.001 __init__.py:10362(dfs_tree)\n     3000    0.002    0.000    0.004    0.000 __init__.py:11634(_coerce_arg_to_fnx_graph)\n    12000    0.002    0.000    0.002    0.000 {built-in method builtins.isinstance}\n     3000    0.001    0.000    0.001    0.000 {built-in method builtins.len}\n     3000    0.001    0.000    0.001    0.000 __init__.py:20397(_validate_backend_dispatch_keywords)\n     3000    0.000    0.000    0.000    0.000 {built-in method builtins.hash}\n        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}\n\n\n",
+  "graph": {
+    "directed": true,
+    "edges": 2000,
+    "nodes": 400,
+    "seed": 20260606,
+    "source": 0
+  },
+  "profile": "fnx.dfs_tree",
+  "sort": "tottime",
+  "top": 20,
+  "warmup": 200
+}

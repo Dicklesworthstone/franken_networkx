@@ -1,0 +1,6 @@
+graph [
+  directed 5
+  Rame "with attrs"
+  + [
+  d 0
+  name'RR RRR"

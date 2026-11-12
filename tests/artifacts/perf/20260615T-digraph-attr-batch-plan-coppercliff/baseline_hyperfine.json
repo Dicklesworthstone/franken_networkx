@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-post-graph-attr-routing-boldfalcon/construction_attr_survey.py once --case digraph_attr --impl fnx --loops 50",
+      "mean": 2.1509238786399996,
+      "stddev": 0.13846718525001708,
+      "median": 2.16686110994,
+      "user": 6.18939806,
+      "system": 0.33269469999999995,
+      "min": 1.9779873429400001,
+      "max": 2.31013724994,
+      "times": [
+        2.30840762294,
+        2.31013724994,
+        2.25855605894,
+        2.28228244194,
+        2.21828363394,
+        2.11543858594,
+        1.9779873429400001,
+        1.99416786494,
+        2.02669118394,
+        2.01728680094
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=python .venv/bin/python tests/artifacts/perf/20260615T-post-graph-attr-routing-boldfalcon/construction_attr_survey.py once --case digraph_attr --impl nx --loops 50",
+      "mean": 1.81674591684,
+      "stddev": 0.3193916954569406,
+      "median": 1.7022815599399999,
+      "user": 5.557983859999999,
+      "system": 0.0937433,
+      "min": 1.49460701694,
+      "max": 2.53737979894,
+      "times": [
+        1.49460701694,
+        1.56363315694,
+        2.2179331269399998,
+        2.53737979894,
+        1.8542382799400001,
+        1.6860441339399999,
+        1.6970660899399999,
+        1.70045901594,
+        1.71199444494,
+        1.70410410394
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

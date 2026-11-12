@@ -1,0 +1,64 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1000 --engines fnx-native-list --skip-digest",
+      "mean": 7.4811075446499995,
+      "stddev": 0.07275816857840617,
+      "median": 7.4777120328999995,
+      "user": 9.190844335,
+      "system": 1.537821755,
+      "min": 7.3554429383999995,
+      "max": 7.5839492494,
+      "times": [
+        7.5839492494,
+        7.4313727934,
+        7.4557096564,
+        7.3554429383999995,
+        7.4781005944,
+        7.5655773034,
+        7.5013843503999995,
+        7.477323471399999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260603T-dag-longest-path-native/bench_dag_longest_path.py bench --n 400 --edge-count 1600 --samples 1000 --engines fnx-native --skip-digest",
+      "mean": 7.345777205899999,
+      "stddev": 0.035316502102283986,
+      "median": 7.3449523064,
+      "user": 9.179832959999999,
+      "system": 1.5474082550000001,
+      "min": 7.2869173844,
+      "max": 7.390813415399999,
+      "times": [
+        7.3851639784,
+        7.3131210344,
+        7.3652581494,
+        7.3370741874,
+        7.390813415399999,
+        7.3528304254,
+        7.2869173844,
+        7.3350390724
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

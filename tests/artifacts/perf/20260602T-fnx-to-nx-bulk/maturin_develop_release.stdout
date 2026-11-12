@@ -1,0 +1,18 @@
+  [2m2026-06-02T18:23:19.711173Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: maturin develop --release --features pyo3/abi3-py310[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+🍹 Building a mixed python/rust project
+🔗 Found pyo3 bindings with abi3 support
+🐍 Found CPython 3.13 at /data/projects/franken_networkx/.venv/bin/python
+Ignoring numpy: markers 'extra == "all"' don't match your environment
+Ignoring scipy: markers 'extra == "all"' don't match your environment
+Ignoring numpy: markers 'extra == "numpy"' don't match your environment
+Ignoring scipy: markers 'extra == "scipy"' don't match your environment
+Ignoring pytest: markers 'extra == "test"' don't match your environment
+Ignoring hypothesis: markers 'extra == "test"' don't match your environment
+Ignoring networkx: markers 'extra == "test"' don't match your environment
+Requirement already satisfied: networkx>=3.0 in ./.venv/lib/python3.13/site-packages (3.6.1)
+    Finished `release` profile [optimized] target(s) in 0.08s
+📦 Built wheel for abi3 Python ≥ 3.10 to /data/tmp/.tmp03vuOI/franken_networkx-0.1.0-cp310-abi3-linux_x86_64.whl
+✏️ Setting installed package as editable
+🛠 Installed franken-networkx-0.1.0

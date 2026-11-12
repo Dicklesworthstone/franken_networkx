@@ -1,0 +1,1 @@
+{"case": "unweighted_sparse_pair", "impl": "fnx", "profile": "tests/artifacts/perf/20260604T-resistance-distance-single-pair-sparse/profile_baseline_unweighted.txt", "repeats": 3, "value": 0.473165320143585}

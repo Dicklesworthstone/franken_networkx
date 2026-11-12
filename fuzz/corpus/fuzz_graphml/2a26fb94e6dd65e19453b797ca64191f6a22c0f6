@@ -1,0 +1,7 @@
+<?ersion="0.0" encoding="UTF-8"?>
+<graphml xmlname="weight" attr.typE="double"/>
+  <graph id="G" edgedefault="undirected">
+    <node  id="b"/>
+    <edge source="a" target="b">
+      <data keyrsion="0.n0 "ecoding="UTF-8"?di
+</graphml>

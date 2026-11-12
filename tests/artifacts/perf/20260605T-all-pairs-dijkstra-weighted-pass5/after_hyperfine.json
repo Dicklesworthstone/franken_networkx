@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl fnx --repeats 30",
+      "mean": 2.279789675640001,
+      "stddev": 0.46817906914311713,
+      "median": 2.0810939740400003,
+      "user": 5.47255854,
+      "system": 0.12952758,
+      "min": 2.0306422785400002,
+      "max": 3.45266141554,
+      "times": [
+        2.7722026895400003,
+        2.11829657354,
+        2.0306422785400002,
+        2.06592252254,
+        2.0848260835400003,
+        2.0354106075400002,
+        2.11507407754,
+        2.0773618645400003,
+        2.04549864354,
+        3.45266141554
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "/data/projects/franken_networkx/.venv/bin/python tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case all_pairs_dijkstra_weighted --impl nx --repeats 30",
+      "mean": 2.59643821334,
+      "stddev": 0.5503073822712337,
+      "median": 2.26243281954,
+      "user": 5.225803139999998,
+      "system": 0.17788668,
+      "min": 2.11140509954,
+      "max": 3.39777661354,
+      "times": [
+        3.2954763975400003,
+        3.39777661354,
+        3.2475615435400003,
+        2.93409569254,
+        2.15831939654,
+        2.11140509954,
+        2.1369690555400003,
+        2.30136348754,
+        2.22350215154,
+        2.1579126955400003
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "suite": "centrality_v1",
+  "mode": "hardened",
+  "operations": [
+    {
+      "op": "add_node",
+      "node": "a",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_node",
+      "node": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "b",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "b",
+      "right": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "c",
+      "attrs": {}
+    },
+    {
+      "op": "add_edge",
+      "left": "a",
+      "right": "a",
+      "attrs": {}
+    },
+    {
+      "op": "degree_centrality_query"
+    }
+  ],
+  "expected": {
+    "graph": {
+      "nodes": [
+        "a",
+        "b",
+        "c"
+      ],
+      "edges": [
+        {
+          "left": "a",
+          "right": "b",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "c",
+          "attrs": {}
+        },
+        {
+          "left": "a",
+          "right": "a",
+          "attrs": {}
+        },
+        {
+          "left": "b",
+          "right": "c",
+          "attrs": {}
+        }
+      ]
+    },
+    "degree_centrality": [
+      {
+        "node": "a",
+        "score": 2.0
+      },
+      {
+        "node": "b",
+        "score": 1.0
+      },
+      {
+        "node": "c",
+        "score": 1.0
+      }
+    ]
+  },
+  "hardened_allowlisted_categories": [
+    "self_loop"
+  ]
+}

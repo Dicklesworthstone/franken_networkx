@@ -1,0 +1,2 @@
+  [2m2026-06-02T18:04:45.962646Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: .venv/bin/python -m pytest tests/python/test_io_conversion_parity.py -q -k 'scipy_sparse or to_scipy_sparse_array'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

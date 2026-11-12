@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0.0",
+  "report_id": "e2e-scenario-matrix-gate-report-v1",
+  "run_id": "e2e-scenario-matrix-20260621T052828Z",
+  "generated_at_utc": "2026-06-21T05:29:21.862082+00:00",
+  "step_count": 3,
+  "failed_step_count": 0,
+  "status": "pass",
+  "steps_log_path": "artifacts/e2e/latest/e2e_scenario_matrix_steps_v1.jsonl",
+  "scenario_report_path": "artifacts/e2e/latest/e2e_user_workflow_scenario_report_v1.json",
+  "journey_ids": [
+    "J-CENTRALITY",
+    "J-CONFORMANCE-HARNESS",
+    "J-CONVERT",
+    "J-DISPATCH",
+    "J-GENERATORS",
+    "J-GRAPH-CORE",
+    "J-MATCHING",
+    "J-READWRITE",
+    "J-RUNTIME-OPTIONAL",
+    "J-SHORTEST-PATH-COMPONENTS",
+    "J-STRUCTURE",
+    "J-VIEWS"
+  ],
+  "scenario_ids": [
+    "WF-CENTRALITY-001",
+    "WF-CONFORMANCE-HARNESS-001",
+    "WF-CONVERT-001",
+    "WF-DISPATCH-001",
+    "WF-GENERATORS-001",
+    "WF-GRAPH-CORE-001",
+    "WF-MATCHING-001",
+    "WF-READWRITE-001",
+    "WF-RUNTIME-OPTIONAL-001",
+    "WF-SHORTEST-PATH-COMPONENTS-001",
+    "WF-STRUCTURE-001",
+    "WF-VIEWS-001"
+  ],
+  "failed_step_ids": []
+}

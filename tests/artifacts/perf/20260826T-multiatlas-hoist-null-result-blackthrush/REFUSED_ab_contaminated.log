@@ -1,0 +1,8 @@
+===== pass 1 arm=before5 =====
+decidable 7/16; nulls nx [0.0917,7.6409] fnx [0.9264,8.4866]
+===== pass 2 arm=after5 =====
+decidable 9/16; nulls nx [0.9726,1.0374] fnx [0.8872,1.0162]
+===== pass 3 arm=after5 =====
+decidable 16/16; nulls nx [0.9842,1.0161] fnx [0.9947,1.0122]
+===== pass 4 arm=before5 =====
+decidable 16/16; nulls nx [0.9956,1.0032] fnx [0.9966,1.0051]

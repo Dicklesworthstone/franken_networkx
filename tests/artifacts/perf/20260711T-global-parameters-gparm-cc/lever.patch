@@ -1,0 +1,253 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 580f871da..cef877ce1 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -38362,16 +38362,19 @@ pub fn directed_edge_swap_seeded(
+ /// Returns `None` if the graph is not distance-regular.
+ #[must_use]
+ pub fn global_parameters(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
+-    let nodes = graph.nodes_ordered();
+-    let n = nodes.len();
++    let n = graph.node_count();
+     if n == 0 {
+         return Some((Vec::new(), Vec::new()));
+     }
+ 
+-    let idx: std::collections::HashMap<&str, usize> =
+-        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
+-
+-    // Compute all-pairs distances via BFS
++    // br-r37-c1-gparm (cc): all-pairs BFS + an O(V²·diameter) intersection-count pass.
++    // The old kernel walked `graph.neighbors(nodes[v])`/`graph.neighbors(nodes[j])`
++    // (a fresh `Vec<&str>` alloc per pop / per (i,j,k) triple) + `idx.get(nb)` String
++    // hash. Walk `graph.neighbors_indices` directly (zero-alloc `&[usize]`); `idx` and
++    // `nodes` dropped. Byte-identical: BFS distances are order-independent shortest
++    // paths; `b_count`/`c_count` are the same integer counts; and the `b_vals`/`c_vals`
++    // HashSets have the same contents, so `.len()` (distinct values) and the extracted
++    // single value are unchanged, as is the distance-regularity `None` short-circuit.
+     let mut all_dist = vec![vec![usize::MAX; n]; n];
+     let mut diameter = 0usize;
+ 
+@@ -38380,11 +38383,9 @@ pub fn global_parameters(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
+         let mut queue = std::collections::VecDeque::new();
+         queue.push_back(s);
+         while let Some(v) = queue.pop_front() {
+-            if let Some(nbrs) = graph.neighbors(nodes[v]) {
+-                for nb in nbrs {
+-                    if let Some(&ni) = idx.get(nb)
+-                        && all_dist[s][ni] == usize::MAX
+-                    {
++            if let Some(nbrs) = graph.neighbors_indices(v) {
++                for &ni in nbrs {
++                    if all_dist[s][ni] == usize::MAX {
+                         all_dist[s][ni] = all_dist[s][v] + 1;
+                         diameter = diameter.max(all_dist[s][ni]);
+                         queue.push_back(ni);
+@@ -38414,6 +38415,79 @@ pub fn global_parameters(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
+                 // Count neighbors of j at distance k-1 from i (c_k)
+                 let mut b_count = 0usize;
+                 let mut c_count = 0usize;
++                if let Some(nbrs) = graph.neighbors_indices(j) {
++                    for &ni in nbrs {
++                        if k < diameter && all_dist[i][ni] == k + 1 {
++                            b_count += 1;
++                        }
++                        if k > 0 && all_dist[i][ni] == k - 1 {
++                            c_count += 1;
++                        }
++                    }
++                }
++                b_vals.insert(b_count);
++                c_vals.insert(c_count);
++            }
++        }
++
++        if b_vals.len() > 1 || c_vals.len() > 1 {
++            return None; // Not distance-regular
++        }
++        b_params.push(b_vals.into_iter().next().unwrap_or(0));
++        c_params.push(c_vals.into_iter().next().unwrap_or(0));
++    }
++
++    Some((b_params, c_params))
++}
++
++/// br-r37-c1-gparm A/B baseline: the pre-lever `global_parameters` that walked
++/// `graph.neighbors(nodes[..])` (`Vec<&str>` allocs) + `idx.get` in both the all-pairs
++/// BFS and the O(V²·diameter) count pass. Test-only; byte-identical to
++/// `global_parameters`.
++#[cfg(test)]
++fn global_parameters_orig_string(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
++    let nodes = graph.nodes_ordered();
++    let n = nodes.len();
++    if n == 0 {
++        return Some((Vec::new(), Vec::new()));
++    }
++    let idx: std::collections::HashMap<&str, usize> =
++        nodes.iter().enumerate().map(|(i, n)| (*n, i)).collect();
++    let mut all_dist = vec![vec![usize::MAX; n]; n];
++    let mut diameter = 0usize;
++    for s in 0..n {
++        all_dist[s][s] = 0;
++        let mut queue = std::collections::VecDeque::new();
++        queue.push_back(s);
++        while let Some(v) = queue.pop_front() {
++            if let Some(nbrs) = graph.neighbors(nodes[v]) {
++                for nb in nbrs {
++                    if let Some(&ni) = idx.get(nb)
++                        && all_dist[s][ni] == usize::MAX
++                    {
++                        all_dist[s][ni] = all_dist[s][v] + 1;
++                        diameter = diameter.max(all_dist[s][ni]);
++                        queue.push_back(ni);
++                    }
++                }
++            }
++        }
++        if all_dist[s].contains(&usize::MAX) {
++            return None;
++        }
++    }
++    let mut b_params = Vec::with_capacity(diameter + 1);
++    let mut c_params = Vec::with_capacity(diameter + 1);
++    for k in 0..=diameter {
++        let mut b_vals = std::collections::HashSet::new();
++        let mut c_vals = std::collections::HashSet::new();
++        for i in 0..n {
++            for j in 0..n {
++                if all_dist[i][j] != k {
++                    continue;
++                }
++                let mut b_count = 0usize;
++                let mut c_count = 0usize;
+                 if let Some(nbrs) = graph.neighbors(nodes[j]) {
+                     for nb in nbrs {
+                         if let Some(&ni) = idx.get(nb) {
+@@ -38430,14 +38504,12 @@ pub fn global_parameters(graph: &Graph) -> Option<(Vec<usize>, Vec<usize>)> {
+                 c_vals.insert(c_count);
+             }
+         }
+-
+         if b_vals.len() > 1 || c_vals.len() > 1 {
+-            return None; // Not distance-regular
++            return None;
+         }
+         b_params.push(b_vals.into_iter().next().unwrap_or(0));
+         c_params.push(c_vals.into_iter().next().unwrap_or(0));
+     }
+-
+     Some((b_params, c_params))
+ }
+ 
+@@ -49055,6 +49127,111 @@ mod tests {
+         report("NULL_int_vs_int", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-gparm: paired-interleaved median A/B for the integer-adjacency
++    /// `global_parameters` vs the old `graph.neighbors()` (`Vec<&str>`) + `idx.get`
++    /// String baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
++    /// (measurement); run with
++    /// `cargo test --release -p fnx-algorithms --lib global_parameters_gparm_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn global_parameters_gparm_ab() {
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        // Complete graph K_n is distance-regular (diameter 1), so global_parameters
++        // runs the full O(V²·deg) count pass and returns Some — exercising exactly
++        // the path where the baseline allocs a Vec<&str> + idx.get-hashes every
++        // neighbour of every node. n=110.
++        let build_complete = |n: usize| {
++            let mut g = Graph::strict();
++            for i in 0..n {
++                let _ = g.add_node(format!("k{i}"));
++            }
++            for i in 0..n {
++                for j in (i + 1)..n {
++                    let _ = g.add_edge(format!("k{i}"), format!("k{j}"));
++                }
++            }
++            g
++        };
++        let g = build_complete(110);
++
++        // Parity across the Some path (K_n, C_m distance-regular) and the None path
++        // (a path graph, not distance-regular).
++        let mut cyc = Graph::strict();
++        for i in 0..20usize {
++            let _ = cyc.add_node(format!("c{i}"));
++        }
++        for i in 0..20usize {
++            let _ = cyc.add_edge(format!("c{i}"), format!("c{}", (i + 1) % 20));
++        }
++        let mut path = Graph::strict();
++        for i in 0..20usize {
++            let _ = path.add_node(format!("p{i}"));
++        }
++        for i in 0..19usize {
++            let _ = path.add_edge(format!("p{i}"), format!("p{}", i + 1));
++        }
++        for gr in [&g, &cyc, &path] {
++            assert_eq!(
++                super::global_parameters(gr),
++                super::global_parameters_orig_string(gr),
++                "integer global_parameters must equal the String baseline"
++            );
++        }
++
++        let time = |lever: bool| -> f64 {
++            let t0 = Instant::now();
++            if lever {
++                black_box(super::global_parameters(&g));
++            } else {
++                black_box(super::global_parameters_orig_string(&g));
++            }
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..2 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for r in 0..rounds {
++                let (tb, tc) = if r % 2 == 0 {
++                    let b = time(base);
++                    let c = time(cand);
++                    (b, c)
++                } else {
++                    let c = time(cand);
++                    let b = time(base);
++                    (b, c)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "GPARM_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("GPARM_AB n=110 (K_n complete) rounds={rounds} (>1 = integer faster)");
++        report("INT_vs_string", &paired(true, false));
++        report("NULL_int_vs_int", &paired(true, true));
++    }
++
+     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
+     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
+     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`

@@ -1,0 +1,72 @@
+{
+  "project": "/data/projects/.scratch/franken_networkx_boldfalcon_perf_20260609T050004Z",
+  "timestamp": "2026-06-09T05:46:19Z",
+  "scanners": [
+    {
+      "project": "/data/projects/.scratch/franken_networkx_boldfalcon_perf_20260609T050004Z",
+      "files": 1,
+      "critical": 0,
+      "warning": 0,
+      "info": 4,
+      "timestamp": "2026-06-09T05:44:25Z",
+      "format": "json",
+      "uv_tools": "ruff,bandit,pip-audit",
+      "categories": {
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0,
+        "5": 0,
+        "6": 0,
+        "7": 0,
+        "8": 4,
+        "9": 0,
+        "10": 0,
+        "11": 0,
+        "12": 0,
+        "13": 0,
+        "14": 0,
+        "15": 0,
+        "16": 0,
+        "17": 0,
+        "18": 0,
+        "19": 0,
+        "20": 0,
+        "21": 0,
+        "22": 0,
+        "23": 0
+      },
+      "ast_grep_rules": [],
+      "language": "python",
+      "extras": {
+        "deep_guard": {
+          "unguarded": 0,
+          "guarded": 0,
+          "samples": []
+        }
+      }
+    },
+    {
+      "project": "/data/projects/.scratch/franken_networkx_boldfalcon_perf_20260609T050004Z",
+      "files": 2,
+      "critical": 1,
+      "warning": 6745,
+      "info": 2125,
+      "timestamp": "2026-06-09T05:46:19Z",
+      "format": "json",
+      "language": "rust"
+    }
+  ],
+  "totals": {
+    "critical": 1,
+    "warning": 6745,
+    "info": 2129,
+    "files": 3
+  },
+  "generated_at": "2026-06-09T05:46:19Z",
+  "git": {
+    "repository": "https://github.com/Dicklesworthstone/franken_networkx",
+    "commit": "f1ab941da5a85d440d025a530a7ecdd5281e7207",
+    "blob_base": "https://github.com/Dicklesworthstone/franken_networkx/blob/f1ab941da5a85d440d025a530a7ecdd5281e7207"
+  }
+}

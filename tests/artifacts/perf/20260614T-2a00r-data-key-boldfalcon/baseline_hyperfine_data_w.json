@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "command": "PYTHONPATH=/data/projects/.scratch/franken_networkx-2a00r-data-key-baseline-20260614T2350/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --case edges_data_w --which fnx --loops 80 --warmup-calls 3",
+      "mean": 1.9812251560714282,
+      "stddev": 0.08516316170574818,
+      "median": 2.0296139644999998,
+      "user": 6.0376442714285705,
+      "system": 0.10646982000000002,
+      "min": 1.8419681295,
+      "max": 2.0452686074999997,
+      "times": [
+        1.9988025495000001,
+        1.8770614344999998,
+        1.8419681295,
+        2.0452686074999997,
+        2.0311875255,
+        2.0446738815,
+        2.0296139644999998
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "PYTHONPATH=/data/projects/.scratch/franken_networkx-2a00r-data-key-baseline-20260614T2350/python /data/projects/franken_networkx/.venv/bin/python /data/projects/franken_networkx/tests/artifacts/perf/20260614T-2a00r-guard-token-boldfalcon/guard_token_edgeview_harness.py loop --case edges_data_w --which nx --loops 80 --warmup-calls 3",
+      "mean": 0.843882244357143,
+      "stddev": 0.04380965838666981,
+      "median": 0.8597245965000001,
+      "user": 4.982762414285714,
+      "system": 0.06939124857142856,
+      "min": 0.7932361915000001,
+      "max": 0.8947048675000001,
+      "times": [
+        0.8740971615,
+        0.7932361915000001,
+        0.8831596775000001,
+        0.8027122215000001,
+        0.7995409945,
+        0.8947048675000001,
+        0.8597245965000001
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

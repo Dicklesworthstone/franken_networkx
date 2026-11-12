@@ -1,0 +1,104 @@
+{
+  "bead": "br-r37-c1-jfsyo",
+  "fnx_file": "/data/projects/.scratch/franken_networkx_jfsyo_boldfalcon_20260609/python/franken_networkx/__init__.py",
+  "genuine_networkx": "nx.k_components.orig_func",
+  "kind": "direct_baseline",
+  "nx_file": "/home/ubuntu/.local/lib/python3.13/site-packages/networkx/__init__.py",
+  "nx_version": "3.6.1",
+  "python": "/usr/bin/python3",
+  "repeats": 3,
+  "rows": [
+    {
+      "edges": 15,
+      "family": "chorded_cycle",
+      "fnx_mean": 0.048962216009385884,
+      "fnx_median": 0.048915675026364625,
+      "fnx_samples": [
+        0.05169087997637689,
+        0.046280093025416136,
+        0.048915675026364625
+      ],
+      "nodes": 12,
+      "nx_mean": 0.048494716679366924,
+      "nx_median": 0.04859316302463412,
+      "nx_samples": [
+        0.04859316302463412,
+        0.049814566038548946,
+        0.04707642097491771
+      ],
+      "ratio_fnx_over_nx_mean": 1.0096402115947998,
+      "ratio_fnx_over_nx_median": 1.0066369830991864,
+      "result_sha256": "0994c6151bd3f809184ac5a6977abcd76e90e7d83a0e10599b98d2ededc027d8",
+      "size": 12
+    },
+    {
+      "edges": 20,
+      "family": "chorded_cycle",
+      "fnx_mean": 0.6440396836648384,
+      "fnx_median": 0.6441234619123861,
+      "fnx_samples": [
+        0.6645257630152628,
+        0.6441234619123861,
+        0.6234698260668665
+      ],
+      "nodes": 16,
+      "nx_mean": 0.6252017656806856,
+      "nx_median": 0.6236707860371098,
+      "nx_samples": [
+        0.6236707860371098,
+        0.6204195580212399,
+        0.6315149529837072
+      ],
+      "ratio_fnx_over_nx_mean": 1.0301309417506892,
+      "ratio_fnx_over_nx_median": 1.0327940258437236,
+      "result_sha256": "f546ac56e7b627d76539490728c9bd9f3f163ab8907fb3b223990a3c36db7b5d",
+      "size": 16
+    },
+    {
+      "edges": 58,
+      "family": "paired_clique_barbell",
+      "fnx_mean": 0.014159113362741968,
+      "fnx_median": 0.01408675906714052,
+      "fnx_samples": [
+        0.014083013054914773,
+        0.014307567966170609,
+        0.01408675906714052
+      ],
+      "nodes": 16,
+      "nx_mean": 0.013600973024343451,
+      "nx_median": 0.013697973103262484,
+      "nx_samples": [
+        0.013697973103262484,
+        0.013741575996391475,
+        0.013363369973376393
+      ],
+      "ratio_fnx_over_nx_mean": 1.041036794749871,
+      "ratio_fnx_over_nx_median": 1.028382736697405,
+      "result_sha256": "a5701ad4e863ba769bc7ce0890bb71fb3f4cd1035a1d1e52ea4aaff8e9c96caf",
+      "size": 8
+    },
+    {
+      "edges": 59,
+      "family": "near_barbell_bypass",
+      "fnx_mean": 0.022177810353847843,
+      "fnx_median": 0.022067364072427154,
+      "fnx_samples": [
+        0.022067364072427154,
+        0.02174673799891025,
+        0.022719328990206122
+      ],
+      "nodes": 17,
+      "nx_mean": 0.02182221063412726,
+      "nx_median": 0.021866854978725314,
+      "nx_samples": [
+        0.02217240398749709,
+        0.021866854978725314,
+        0.021427372936159372
+      ],
+      "ratio_fnx_over_nx_mean": 1.0162953114916997,
+      "ratio_fnx_over_nx_median": 1.0091695442210102,
+      "result_sha256": "7e95f6875d1682b0e16b81a858df6dec2ff66d0d8b2238dbdeb4e2e608b8a95d",
+      "size": 8
+    }
+  ]
+}

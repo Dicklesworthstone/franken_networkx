@@ -1,0 +1,168 @@
+diff --git a/crates/fnx-algorithms/src/lib.rs b/crates/fnx-algorithms/src/lib.rs
+index 7f490484e..5ad27477e 100644
+--- a/crates/fnx-algorithms/src/lib.rs
++++ b/crates/fnx-algorithms/src/lib.rs
+@@ -39116,20 +39116,25 @@ pub fn attribute_mixing_dict(
+     attribute: &str,
+ ) -> std::collections::HashMap<(String, String), usize> {
+     let mut mixing = std::collections::HashMap::new();
+-    for edge in graph.edges_ordered() {
++    // br-r37-c1-attrmixborrow (cc): edges_ordered_borrowed() yields (&str, &str, &AttrMap) — zero
++    // per-edge allocation — instead of edges_ordered() which clones two owned Strings + an AttrMap per
++    // edge. This loop only reads the endpoint NAMES (node_attrs lookup + the self-loop name comparison)
++    // and never keeps the owned edge data, so the borrow is byte-identical (same edges, same walk order,
++    // same names → same mixing counts).
++    for (left, right, _attrs) in graph.edges_ordered_borrowed() {
+         let u_val = graph
+-            .node_attrs(&edge.left)
++            .node_attrs(left)
+             .and_then(|a| a.get(attribute))
+             .map(|v| v.as_str())
+             .unwrap_or_default();
+         let v_val = graph
+-            .node_attrs(&edge.right)
++            .node_attrs(right)
+             .and_then(|a| a.get(attribute))
+             .map(|v| v.as_str())
+             .unwrap_or_default();
+         // Undirected: count both directions for every edge
+         *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
+-        if edge.left != edge.right {
++        if left != right {
+             *mixing.entry((v_val, u_val)).or_insert(0) += 1;
+         }
+     }
+@@ -49071,6 +49076,133 @@ mod tests {
+         report("NULL_borrowed_vs_borrowed", &paired(true, true));
+     }
+ 
++    /// br-r37-c1-attrmixborrow: paired-interleaved median A/B for `attribute_mixing_dict`'s
++    /// edges_ordered() → edges_ordered_borrowed() swap. BOTH arms do the identical node_attrs lookups +
++    /// mixing-count inserts; they differ ONLY in owned vs borrowed edge iteration. Dense graph (8k
++    /// nodes with a 5-value node attribute, ~200k edges) so the per-edge EdgeSnapshot clone is a real
++    /// fraction (though diluted by the per-edge (String,String) map inserts). Output-dict parity
++    /// asserted first. `#[ignore]`; run with
++    /// `cargo test --release -p fnx-algorithms --lib attribute_mixing_dict_borrow_ab -- --ignored --nocapture`.
++    #[test]
++    #[ignore = "measurement; run with --release --ignored --nocapture"]
++    fn attribute_mixing_dict_borrow_ab() {
++        use fnx_classes::AttrMap;
++        use fnx_runtime::CgseValue;
++        use std::hint::black_box;
++        use std::time::Instant;
++
++        let n_nodes = 10000usize;
++        let attribute = "color";
++        let mut g = Graph::strict();
++        for i in 0..n_nodes {
++            let mut attrs = AttrMap::new();
++            attrs.insert(attribute.to_owned(), CgseValue::String((i % 5).to_string()));
++            let _ = g.add_node_with_attrs(i.to_string(), attrs);
++        }
++        // ~80 edges/node → ~400k edges; scaled up (per the sizing lesson) to amortize fixed per-round
++        // overhead and tighten the NULL, since the heavy per-edge (String,String) map inserts are noisy.
++        for i in 0..n_nodes {
++            for step in 1..=40usize {
++                let _ = g.add_edge(i.to_string(), ((i + step) % n_nodes).to_string());
++            }
++        }
++
++        let old_fn = |g: &Graph| -> std::collections::HashMap<(String, String), usize> {
++            let mut mixing = std::collections::HashMap::new();
++            for edge in g.edges_ordered() {
++                let u_val = g
++                    .node_attrs(&edge.left)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_str())
++                    .unwrap_or_default();
++                let v_val = g
++                    .node_attrs(&edge.right)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_str())
++                    .unwrap_or_default();
++                *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
++                if edge.left != edge.right {
++                    *mixing.entry((v_val, u_val)).or_insert(0) += 1;
++                }
++            }
++            mixing
++        };
++        let new_fn = |g: &Graph| -> std::collections::HashMap<(String, String), usize> {
++            let mut mixing = std::collections::HashMap::new();
++            for (left, right, _attrs) in g.edges_ordered_borrowed() {
++                let u_val = g
++                    .node_attrs(left)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_str())
++                    .unwrap_or_default();
++                let v_val = g
++                    .node_attrs(right)
++                    .and_then(|a| a.get(attribute))
++                    .map(|v| v.as_str())
++                    .unwrap_or_default();
++                *mixing.entry((u_val.clone(), v_val.clone())).or_insert(0) += 1;
++                if left != right {
++                    *mixing.entry((v_val, u_val)).or_insert(0) += 1;
++                }
++            }
++            mixing
++        };
++
++        assert_eq!(
++            old_fn(&g),
++            new_fn(&g),
++            "attribute_mixing_dict owned vs borrowed must be byte-identical"
++        );
++
++        let time = |cand: bool| -> f64 {
++            let t0 = Instant::now();
++            let r = if cand { new_fn(&g) } else { old_fn(&g) };
++            black_box(&r);
++            t0.elapsed().as_secs_f64()
++        };
++        for _ in 0..3 {
++            black_box(time(true));
++            black_box(time(false));
++        }
++        let median = |v: &[f64]| {
++            let mut s = v.to_vec();
++            s.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            s[s.len() / 2]
++        };
++        let rounds = 61usize;
++        let paired = |cand: bool, base_arm: bool| -> Vec<f64> {
++            let mut v = Vec::with_capacity(rounds);
++            for round in 0..rounds {
++                let (tb, tc) = if round.is_multiple_of(2) {
++                    let bt = time(base_arm);
++                    let ct = time(cand);
++                    (bt, ct)
++                } else {
++                    let ct = time(cand);
++                    let bt = time(base_arm);
++                    (bt, ct)
++                };
++                v.push(tb / tc);
++            }
++            v
++        };
++        let report = |name: &str, ratios: &[f64]| {
++            let wins = ratios.iter().filter(|&&r| r > 1.0).count();
++            let mut sorted = ratios.to_vec();
++            sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
++            println!(
++                "ATTRMIXBORROW_AB {name}: median={:.4}x win_rate={wins}/{rounds} \
++                 p5_p95=[{:.4},{:.4}]",
++                median(ratios),
++                sorted[rounds * 5 / 100],
++                sorted[rounds * 95 / 100],
++            );
++        };
++        println!("ATTRMIXBORROW_AB attribute_mixing_dict 10k/400k rounds={rounds} (>1 = borrowed faster)");
++        report("BORROWED_vs_owned", &paired(true, false));
++        report("NULL_borrowed_vs_borrowed", &paired(true, true));
++    }
++
+     /// br-r37-c1-ra004: paired-interleaved median A/B for the `neighbor_count`
+     /// no-alloc lever on `bfs_beam_edges` (one per-candidate-neighbor `Vec<&str>`
+     /// degree allocation removed from the BFS inner loop), against its exact

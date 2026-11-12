@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "required_topology_keys": [
+    "schema_version",
+    "topology_id",
+    "artifact_contract_ref",
+    "packets"
+  ],
+  "packet_required_keys": [
+    "packet_id",
+    "path",
+    "required_artifact_keys"
+  ]
+}

@@ -1,0 +1,8 @@
+graph [
+  diracwrite_edgelistl "a" ]
+[h [
+  directed 0
+  ode [ id 0 label "a"0  edge  [ uosrce 0 uosrce 0 ]
+  edge [ t0 l e]
+]label "same" ]
+]

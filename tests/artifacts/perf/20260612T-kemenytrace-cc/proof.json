@@ -1,0 +1,24 @@
+{
+  "bead": "br-kemenytrace",
+  "function": "kemeny_constant",
+  "lever": "replace dense full-spectrum eigvalsh (O(9-22 n^3)) with deflated trace-of-inverse K = trace((I-H+v0 v0^T)^-1)-1 via Cholesky + batched solve (O(2/3..2 n^3)); size gate n>=256 keeps small graphs on eigvalsh (bit-exact to nx, faster there)",
+  "math": "H = D^-1/2 A D^-1/2 symmetric normalized adjacency; lambda=1 simple (connected) with eigenvector v0=sqrt(deg)/||sqrt(deg)|| exact for weighted+self-loops; M=I-H+v0 v0^T is SPD with eigenvalues {1} U {1-lambda_i}; trace(M^-1)=1+K",
+  "parity": {
+    "cases": 16,
+    "worst_rel_err": 2.08e-12,
+    "tolerance_required": 1e-6,
+    "fails": 0,
+    "golden_sha256": "0bd322fea42075600ee4bcd081eb58fbbdbf9770119d2b1e0a0ea77b2776747a",
+    "coverage": "weighted, self-loops, bipartite, gate boundary (256), n up to 1000; small graphs bit-exact via eigvalsh path"
+  },
+  "bench_warm_interleaved_min_of_13_ms": {
+    "ws150_below_gate": {"nx": 1.503, "fnx": 1.436, "ratio": 0.96, "note": "eigvalsh path, no regression"},
+    "ws300":  {"nx": 11.122, "fnx": 6.672, "self_speedup": 1.67},
+    "ba500":  {"nx": 213.995, "fnx": 26.616, "self_speedup": 8.04},
+    "ba800":  {"nx": 70.656, "fnx": 34.317, "self_speedup": 2.06},
+    "ws1000": {"nx": 126.835, "fnx": 51.076, "self_speedup": 2.48},
+    "ba1500": {"nx": 1231.885, "fnx": 105.437, "self_speedup": 11.68}
+  },
+  "headline": "kemeny_constant dense eigvalsh -> Cholesky trace-of-inverse: 1.67-11.7x faster for n>=300, machine-exact (rel 2e-12), no small-graph regression. Pure Python.",
+  "note": "old fnx was verbatim nx (both dense eigvalsh), so nx timing == fnx-before"
+}

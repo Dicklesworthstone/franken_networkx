@@ -1,0 +1,2 @@
+  [2m2026-06-14T04:37:33.671043Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: python3 tests/artifacts/perf/20260614T-multigraph-int-key-batch-boldfalcon/multigraph_int_key_batch.py bench --case int_keys_list --impl nx --size 50000 --repeats 11[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)

@@ -1,0 +1,11 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib hypercube_batch_ab -- --ignored --nocapture
+
+HYPERCUBE_BATCH_AB dim=16 node_count=65536 rounds=61 (>1 = batch faster)
+HYPERCUBE_BATCH_AB BATCH_vs_string: median=6.4665x win_rate=61/61 p5_p95=[5.4167,7.5610]
+HYPERCUBE_BATCH_AB NULL_batch_vs_batch: median=1.0066x win_rate=32/61 p5_p95=[0.8748,1.1457]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 206 filtered out; finished in 122.99s
+
+Gate: candidate p5 (5.4167) >> NULL p95 (1.1457); 61/61 rounds. Byte-identity parity asserts
+(edges_ordered_borrowed + nodes_ordered) passed before timing. Lower magnitude than the short-label
+generators (6.47x vs hkn_harary 19.86x) because the long binary-tuple labels make the name-order
+endpoint canonicalization compare costlier in BOTH arms; the win is the dropped clones/hashes/policy.

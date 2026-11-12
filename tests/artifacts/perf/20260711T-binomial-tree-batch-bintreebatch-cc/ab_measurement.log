@@ -1,0 +1,10 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-generators --lib binomial_tree_batch_ab -- --ignored --nocapture
+
+BINTREE_BATCH_AB order=16 rounds=61 (>1 = batch faster)
+BINTREE_BATCH_AB BATCH_vs_string: median=6.9641x win_rate=61/61 p5_p95=[5.1021,8.9643]
+BINTREE_BATCH_AB NULL_batch_vs_batch: median=0.9940x win_rate=28/61 p5_p95=[0.7878,1.1050]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 208 filtered out; finished in 13.12s
+
+Gate: candidate p5 (5.1021) >> NULL p95 (1.1050); 61/61 rounds. Byte-identity parity asserts across
+6 orders (0,1,2,5,10,16) passed before timing — small multi-digit-label orders exercise the
+name-vs-index canonicalization difference.

@@ -1,0 +1,10 @@
+         161 function calls in 0.582 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+       80    0.002    0.000    0.582    0.007 /data/projects/franken_networkx/tests/artifacts/perf/20260608T-ctor-pylist-tealspring/dijkstra_length_probe.py:84(<lambda>)
+       80    0.580    0.007    0.580    0.007 {built-in method franken_networkx._fnx.single_source_dijkstra_path_length}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+
+

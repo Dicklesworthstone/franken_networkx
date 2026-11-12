@@ -1,0 +1,48 @@
+         971201 function calls in 0.421 seconds
+
+   Ordered by: cumulative time
+   List reduced from 55 to 40 due to restriction <40>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      100    0.001    0.000    0.421    0.004 <stdin>:34(one_fnx)
+      100    0.000    0.000    0.392    0.004 /data/projects/franken_networkx/python/franken_networkx/__init__.py:53389(wrapper)
+      100    0.001    0.000    0.392    0.004 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22707(adjacency_spectrum)
+      100    0.071    0.001    0.311    0.003 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22663(_path_adjacency_spectrum_sorted_value_safe)
+    79900    0.083    0.000    0.186    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37599(neighbors)
+      100    0.013    0.000    0.080    0.001 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22599(_star_adjacency_spectrum_raw_order_safe)
+      200    0.000    0.000    0.079    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:658(__iter__)
+      200    0.078    0.000    0.078    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:536(_materialize)
+    79900    0.067    0.000    0.067    0.000 {method '_native_adjacency_row_dict' of 'franken_networkx.Graph' objects}
+      100    0.000    0.000    0.029    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:19674(path_graph)
+      100    0.027    0.000    0.027    0.000 {built-in method franken_networkx._fnx.path_graph}
+   160500    0.015    0.000    0.015    0.000 {method 'get' of 'dict' objects}
+   159800    0.013    0.000    0.013    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:439(_gen)
+    81400    0.009    0.000    0.009    0.000 {built-in method builtins.vars}
+    79900    0.009    0.000    0.009    0.000 {method 'pop' of 'list' objects}
+    80000    0.008    0.000    0.008    0.000 {method 'append' of 'list' objects}
+    79800    0.008    0.000    0.008    0.000 {method 'add' of 'set' objects}
+    80100    0.007    0.000    0.007    0.000 {built-in method builtins.iter}
+    79900    0.007    0.000    0.007    0.000 {built-in method builtins.hash}
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37325(edges)
+      200    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:746(wrapped)
+      100    0.001    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:48878(_nodes_or_number_local)
+     1300    0.000    0.000    0.001    0.000 {built-in method builtins.len}
+      200    0.000    0.000    0.001    0.000 /usr/lib/python3.13/weakref.py:164(__setitem__)
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:414(_FailFastEdgeIterator)
+      200    0.000    0.000    0.001    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37372(degree)
+      800    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      300    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37282(__len__)
+      100    0.000    0.000    0.000    0.000 {built-in method numpy.arange}
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:22631(_complete_adjacency_spectrum_sorted_value_safe)
+      800    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36727(_has_networkx_private_storage)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:37539(number_of_edges)
+      100    0.000    0.000    0.000    0.000 <frozen abc>:117(__instancecheck__)
+      200    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:497(__init__)
+      100    0.000    0.000    0.000    0.000 {built-in method _abc._abc_instancecheck}
+      300    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:36719(_private_override)
+      100    0.000    0.000    0.000    0.000 {method 'astype' of 'numpy.ndarray' objects}
+      200    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:352(__init__)
+      200    0.000    0.000    0.000    0.000 /usr/lib/python3.13/weakref.py:347(__new__)
+      100    0.000    0.000    0.000    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:4778(_graph_degree)
+
+

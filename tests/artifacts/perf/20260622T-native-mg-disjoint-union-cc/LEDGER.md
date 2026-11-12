@@ -1,0 +1,2 @@
+# native MultiGraph disjoint_union (br-r37-c1-mgdju, cc)
+0.63x -> 2.05-2.13x (~3.3x self-speedup). Undirected keyed analog; proven edge_py_keys recipe generalized FIRST TRY. Relabel to int ranges, neighbors walk + symmetric dedup (canonical edge_key sorts u<=v -> no orientation ambiguity), preserve inner key + display key (edge_py_keys) + attrs. Byte-exact: 7 checks incl explicit keys + parallel self-loops. operator-parity[MultiGraph] + full suite zero new failures.

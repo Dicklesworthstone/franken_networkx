@@ -1,0 +1,4 @@
+Benchmark 1: .venv/bin/python tests/artifacts/perf/20260606T-ctor-graph-digraph-collapse-tealspring/ctor_graph_digraph_perf.py bench
+  Time (mean ± σ):      2.202 s ±  0.306 s    [User: 4.817 s, System: 0.125 s]
+  Range (min … max):    1.924 s …  2.782 s    10 runs
+ 

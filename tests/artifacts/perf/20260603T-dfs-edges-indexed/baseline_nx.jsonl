@@ -1,0 +1,1 @@
+{"graph_seed": 42, "impl": "nx", "m": 4, "max_seconds": 0.00395615299930796, "mean_seconds": 0.002059987590473611, "min_seconds": 0.0018472179945092648, "n": 3000, "op": "dfs_edges", "p50_seconds": 0.0019681679841596633, "repeat": 100, "sha256": "1e31bab114b588a27194040672c53b9e586f85ac82634c41918b6b14c129e1c4"}

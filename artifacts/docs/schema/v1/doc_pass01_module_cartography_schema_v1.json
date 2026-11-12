@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0.0",
+  "schema_id": "doc-pass-01-module-cartography-schema-v1",
+  "required_top_level_keys": [
+    "schema_version",
+    "artifact_id",
+    "generated_at_utc",
+    "baseline_comparator",
+    "workspace_summary",
+    "module_cartography",
+    "cross_module_dependency_map",
+    "layering_constraints",
+    "layering_violations",
+    "hidden_coupling_hotspots",
+    "alien_uplift_contract_card",
+    "profile_first_artifacts",
+    "decision_theoretic_runtime_contract",
+    "isomorphism_proof_artifacts",
+    "structured_logging_evidence"
+  ],
+  "required_workspace_summary_keys": [
+    "crate_count",
+    "layer_count",
+    "dependency_edge_count",
+    "hidden_coupling_count",
+    "layering_violation_count"
+  ],
+  "required_module_keys": [
+    "crate_name",
+    "manifest_path",
+    "source_root",
+    "layer",
+    "purpose",
+    "legacy_scope_paths",
+    "depends_on",
+    "external_dependencies",
+    "public_contract_surface",
+    "ownership_boundaries",
+    "strict_hardened_policy",
+    "verification_hooks",
+    "known_hidden_couplings"
+  ],
+  "required_verification_hook_keys": [
+    "unit",
+    "property",
+    "differential",
+    "e2e"
+  ],
+  "required_policy_keys": [
+    "strict_mode",
+    "hardened_mode"
+  ],
+  "required_edge_keys": [
+    "from_crate",
+    "to_crate",
+    "edge_type",
+    "justification"
+  ],
+  "required_constraint_keys": [
+    "constraint_id",
+    "description",
+    "source_layer",
+    "allowed_target_layers",
+    "fail_closed_on_violation"
+  ],
+  "required_hidden_coupling_keys": [
+    "coupling_id",
+    "crates_involved",
+    "description",
+    "risk_level",
+    "mitigation"
+  ]
+}

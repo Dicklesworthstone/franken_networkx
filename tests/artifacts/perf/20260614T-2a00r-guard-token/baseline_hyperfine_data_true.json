@@ -1,0 +1,72 @@
+{
+  "results": [
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token/edge_guard_token_harness.py --nodes 16000 --stride 17 --extra-stride 47 bench --library fnx --mode data_true --loops 15 --samples 1",
+      "mean": 1.3352451373799998,
+      "stddev": 0.11134703821495236,
+      "median": 1.29934253908,
+      "user": 4.332807399999999,
+      "system": 0.23780823999999998,
+      "min": 1.24307603208,
+      "max": 1.60026430808,
+      "times": [
+        1.26845284108,
+        1.45261036808,
+        1.2724802500799999,
+        1.3242325610799999,
+        1.28232443808,
+        1.3163606400799999,
+        1.24307603208,
+        1.34306821008,
+        1.60026430808,
+        1.2495817250799999
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": ".venv/bin/python tests/artifacts/perf/20260614T-2a00r-guard-token/edge_guard_token_harness.py --nodes 16000 --stride 17 --extra-stride 47 bench --library nx --mode data_true --loops 15 --samples 1",
+      "mean": 1.43386840868,
+      "stddev": 0.06024113860832955,
+      "median": 1.44820186758,
+      "user": 4.232994799999999,
+      "system": 0.17931473999999997,
+      "min": 1.33662623708,
+      "max": 1.51859183208,
+      "times": [
+        1.41419040208,
+        1.35849910008,
+        1.43594140308,
+        1.46566880408,
+        1.51859183208,
+        1.38038018808,
+        1.4604623320799999,
+        1.47158334708,
+        1.33662623708,
+        1.49674044108
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

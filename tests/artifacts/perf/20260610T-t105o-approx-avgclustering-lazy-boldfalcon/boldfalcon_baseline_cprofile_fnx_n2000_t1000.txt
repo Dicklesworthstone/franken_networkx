@@ -1,0 +1,44 @@
+         1432779 function calls (1432775 primitive calls) in 1.233 seconds
+
+   Ordered by: cumulative time
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.233    1.233 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/tests/artifacts/perf/20260610T-t105o-approx-avgclustering-lazy-boldfalcon/harness_avgclust_lazy.py:108(run)
+      100    0.040    0.000    1.233    0.012 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/tests/artifacts/perf/20260610T-t105o-approx-avgclustering-lazy-boldfalcon/harness_avgclust_lazy.py:29(_average_clustering)
+      100    0.321    0.003    1.193    0.012 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:15184(average_clustering)
+      100    0.001    0.000    0.543    0.005 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:2201(_simple_graph_adjacency)
+      100    0.542    0.005    0.542    0.005 {method '_native_adjacency_dict' of 'franken_networkx.Graph' objects}
+   100000    0.124    0.000    0.303    0.000 /usr/lib/python3.13/random.py:363(sample)
+   200123    0.078    0.000    0.117    0.000 /usr/lib/python3.13/random.py:245(_randbelow_with_getrandbits)
+   101000    0.023    0.000    0.055    0.000 {built-in method builtins.isinstance}
+   100000    0.016    0.000    0.031    0.000 <frozen abc>:117(__instancecheck__)
+   321186    0.022    0.000    0.022    0.000 {method 'getrandbits' of '_random.Random' objects}
+   200123    0.017    0.000    0.017    0.000 {method 'bit_length' of 'int' objects}
+   200100    0.016    0.000    0.016    0.000 {built-in method builtins.len}
+   100000    0.016    0.000    0.016    0.000 {built-in method _abc._abc_instancecheck}
+   100000    0.009    0.000    0.009    0.000 {method 'random' of '_random.Random' objects}
+      100    0.001    0.000    0.005    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:23477(_generator_random_state)
+      100    0.003    0.000    0.003    0.000 {built-in method builtins.__build_class__}
+      100    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:119(__init__)
+      100    0.001    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:33711(__iter__)
+      100    0.000    0.000    0.001    0.000 /usr/lib/python3.13/random.py:128(seed)
+     7636    0.001    0.000    0.001    0.000 {method 'add' of 'set' objects}
+      100    0.000    0.000    0.001    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:5735(predicate)
+      100    0.000    0.000    0.000    0.000 {function Random.seed at 0x71877e2523e0}
+      200    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:33217(_private_override)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:12061(_coerce_arg_to_fnx_graph)
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:23481(_NumpyRandIntAdapter)
+      100    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x71877cea6480}
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:33721(__len__)
+      200    0.000    0.000    0.000    0.000 {method 'items' of 'dict' objects}
+      200    0.000    0.000    0.000    0.000 {built-in method builtins.vars}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.iter}
+      100    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      100    0.000    0.000    0.000    0.000 /data/projects/.scratch/franken_networkx-t105o-boldfalcon/python/franken_networkx/__init__.py:21764(_validate_backend_dispatch_keywords)
+      200    0.000    0.000    0.000    0.000 {method 'get' of 'dict' objects}
+      3/1    0.000    0.000    0.000    0.000 <frozen abc>:121(__subclasscheck__)
+      3/1    0.000    0.000    0.000    0.000 {built-in method _abc._abc_subclasscheck}
+        1    0.000    0.000    0.000    0.000 {method 'disable' of '_lsprof.Profiler' objects}
+        3    0.000    0.000    0.000    0.000 <frozen _collections_abc>:345(__subclasshook__)
+
+

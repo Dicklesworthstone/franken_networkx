@@ -1,0 +1,20 @@
+{
+  "target": "matrix_exp_symmetric (used by communicability_betweenness_centrality)",
+  "lever": "replace naive 60-term Taylor (full O(n^3) i-j-l matmul per term, numerically unstable for large norm) with scaling-and-squaring (scale A by 2^-s so ||A 2^-s||_inf <= 1/2, short Taylor core, square s times) over a cache-friendly i-k-j GEMM",
+  "kernel_before_after_isolated_rustc_O": {
+    "n120_d6":  {"old_ms": 47.272,  "new_ms": 4.034,  "speedup": 11.72, "max_rel_new_vs_old": 1.33e-14},
+    "n220_d6":  {"old_ms": 319.671, "new_ms": 23.784, "speedup": 13.44, "max_rel_new_vs_old": 2.10e-14},
+    "n220_d20": {"old_ms": 490.114, "new_ms": 27.702, "speedup": 17.69, "max_rel_new_vs_old": 7.98e-13},
+    "n300_d40": {"old_ms": 1276.437,"new_ms": 82.804, "speedup": 15.42, "max_rel_new_vs_old": 2.00e-3,
+                 "note": "old naive Taylor is INACCURATE at high norm (overflow/cancellation before factorial dominates); new scaling-squaring is the correct value"}
+  },
+  "python_communicability_betweenness_ws220": {
+    "fnx_new_ms": 256.72,
+    "genuine_nx_ms": 26740.55,
+    "fnx_faster_than_nx": 104.16,
+    "max_rel_err_vs_nx": 1.05e-12,
+    "corpus_sha256": "169abb4e6194ed0100d7fbb8617c7ccb450a77a723383c067d76e62791c7e361",
+    "within_tol_1e-6": true,
+    "corpus_graphs": 18
+  }
+}

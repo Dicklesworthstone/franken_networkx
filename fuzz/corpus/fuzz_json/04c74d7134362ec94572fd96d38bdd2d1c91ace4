@@ -1,0 +1,1 @@
+{"mode":"strict","directed":false,"graph_attrs":{"name":"demo"},"nodes":["h_atb"],"eedges":[{"left":"a","rght":"b","attrs":{"weight":1}}]}

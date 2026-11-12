@@ -1,0 +1,12 @@
+<?xml version="1.0" enl version="1.0" encoding="UTF-8"?>
+<graault="undirected">
+    <nody id="a"/>
+    <node id="b"/>
+ey id="d0" for="edge" attr.name0" encoding="UTF-8"?>
+<graault="undirected">
+    <nody id="a"/>
+    <node id="b"/>
+ey id="d0" for="edge" attr.name="we="weightdouble"/>
+  <graph id="G" edgedefault="undirected">
+    <nody id="a"/>
+l>

@@ -1,0 +1,28 @@
+{
+  "bead": "br-r37-c1-2mfuj",
+  "lever": "direct NetworkX graph construction from native bulk adjacency for check_planarity",
+  "status": "rejected",
+  "reason": "The candidate preserved output hashes but regressed the planar grid case while only improving the random nonplanar case.",
+  "golden_sha256": {
+    "baseline_golden_json": "9777eb824e38b6e96da70eb7811aeca410ca45219857d55a04604ca68331e4b0",
+    "candidate_golden_json": "9777eb824e38b6e96da70eb7811aeca410ca45219857d55a04604ca68331e4b0",
+    "grid_output": "003cc7efd008f28e3445319bfe2dd971559df667ed9db28aa5355d5ceece3451",
+    "random_output": "cf10a0acfc8dfa1af67c2f9f165ae9df9f141b97c63a597397504871cbe6d06e"
+  },
+  "benchmark": {
+    "grid_baseline_mean_s": 0.017027496849186717,
+    "grid_candidate_mean_s": 0.01767830565222539,
+    "grid_speedup": 0.9631860193028879,
+    "random_baseline_mean_s": 0.007372749347268837,
+    "random_candidate_mean_s": 0.005554287951963488,
+    "random_speedup": 1.3273977530571686,
+    "accepted": false
+  },
+  "isomorphism_notes": {
+    "ordering": "Planar embedding serialization and nonplanar result hashes were unchanged.",
+    "tie_breaking": "No algorithmic tie-breaking path was changed.",
+    "floating_point": "No floating-point computation path was changed.",
+    "rng": "The random benchmark graph construction used fixed seed=0.",
+    "certificate_contract": "Planar graphs still returned PlanarEmbedding; nonplanar counterexample=False still returned None."
+  }
+}

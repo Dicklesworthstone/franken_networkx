@@ -1,0 +1,7 @@
+  [2m2026-06-03T23:40:57.838399Z[0m [33m WARN[0m [1;33mrch::hook[0m[33m: [33mexec called with non-compilation command: env 'PYTHONPATH=python' .venv/bin/python -m pytest tests/python/test_node_key_canonicalization_parity.py tests/python/test_attribute_access.py tests/python/test_graph_core.py -q -k 'add_nodes_from or node_key or nodes_seq or add_node or graph'[0m
+    [2;3mat[0m rch/src/hook.rs:402 [2;3mon[0m ThreadId(1)
+
+ERROR: file or directory not found: tests/python/test_attribute_access.py
+
+
+no tests ran in 0.16s

@@ -1,0 +1,80 @@
+{
+  "results": [
+    {
+      "command": "env PYTHONPATH=/data/projects/.scratch/franken_networkx-boldfalcon-current-baseline-package-55db python3 tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl fnx --size 2000 --repeats 30",
+      "mean": 0.49147367476666676,
+      "stddev": 0.03426367250395561,
+      "median": 0.4854766691000001,
+      "user": 3.317838366666667,
+      "system": 0.06823660000000001,
+      "min": 0.44297197460000004,
+      "max": 0.5492137456,
+      "times": [
+        0.5034035635999999,
+        0.5115553896,
+        0.5492137456,
+        0.49234339560000007,
+        0.5282391716,
+        0.47860994260000006,
+        0.44297197460000004,
+        0.4485456756,
+        0.47434691460000006,
+        0.47325148860000005,
+        0.46140166460000004,
+        0.5338011706
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "command": "env PYTHONPATH=/data/projects/.scratch/franken_networkx-boldfalcon-current-final-package-5054 python3 tests/artifacts/perf/20260604T-delegation-goldmine-sweep/bench_delegation_goldmines.py --case eulerian_path_directed --impl fnx --size 2000 --repeats 30",
+      "mean": 0.4444134915166667,
+      "stddev": 0.033173195178023286,
+      "median": 0.44160142060000007,
+      "user": 3.554432283333334,
+      "system": 0.06321618333333333,
+      "min": 0.4096460256,
+      "max": 0.5312288846,
+      "times": [
+        0.45221661060000007,
+        0.4461577796,
+        0.45272517460000006,
+        0.4633422816,
+        0.4252607526,
+        0.4096460256,
+        0.46058710960000004,
+        0.5312288846,
+        0.41051275660000003,
+        0.42670643160000005,
+        0.43704506160000006,
+        0.41753302960000005
+      ],
+      "exit_codes": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

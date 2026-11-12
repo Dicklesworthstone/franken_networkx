@@ -1,0 +1,252 @@
+{
+  "cases": [
+    {
+      "case": "k5_counterexample_false",
+      "counterexample": false,
+      "fnx": {
+        "certificate_edges": null,
+        "certificate_type": null,
+        "is_planar": false
+      },
+      "nx": {
+        "certificate_edges": null,
+        "certificate_type": null,
+        "is_planar": false
+      },
+      "same_bool": true
+    },
+    {
+      "case": "k5_counterexample_true",
+      "counterexample": true,
+      "fnx": {
+        "certificate_edges": [
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              1
+            ]
+          ],
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              2
+            ]
+          ],
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              3
+            ]
+          ],
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              4
+            ]
+          ],
+          [
+            [
+              "int",
+              1
+            ],
+            [
+              "int",
+              2
+            ]
+          ],
+          [
+            [
+              "int",
+              1
+            ],
+            [
+              "int",
+              3
+            ]
+          ],
+          [
+            [
+              "int",
+              1
+            ],
+            [
+              "int",
+              4
+            ]
+          ],
+          [
+            [
+              "int",
+              2
+            ],
+            [
+              "int",
+              3
+            ]
+          ],
+          [
+            [
+              "int",
+              2
+            ],
+            [
+              "int",
+              4
+            ]
+          ],
+          [
+            [
+              "int",
+              3
+            ],
+            [
+              "int",
+              4
+            ]
+          ]
+        ],
+        "certificate_type": "Graph",
+        "is_planar": false
+      },
+      "nx": {
+        "certificate_edges": [
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              1
+            ]
+          ],
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              2
+            ]
+          ],
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              3
+            ]
+          ],
+          [
+            [
+              "int",
+              0
+            ],
+            [
+              "int",
+              4
+            ]
+          ],
+          [
+            [
+              "int",
+              1
+            ],
+            [
+              "int",
+              2
+            ]
+          ],
+          [
+            [
+              "int",
+              1
+            ],
+            [
+              "int",
+              3
+            ]
+          ],
+          [
+            [
+              "int",
+              1
+            ],
+            [
+              "int",
+              4
+            ]
+          ],
+          [
+            [
+              "int",
+              2
+            ],
+            [
+              "int",
+              3
+            ]
+          ],
+          [
+            [
+              "int",
+              2
+            ],
+            [
+              "int",
+              4
+            ]
+          ],
+          [
+            [
+              "int",
+              3
+            ],
+            [
+              "int",
+              4
+            ]
+          ]
+        ],
+        "certificate_type": "Graph",
+        "is_planar": false
+      },
+      "same_bool": true
+    },
+    {
+      "case": "selfloop_counterexample_false",
+      "counterexample": false,
+      "fnx": {
+        "certificate_edges": [],
+        "certificate_type": "PlanarEmbedding",
+        "is_planar": true
+      },
+      "nx": {
+        "certificate_edges": [],
+        "certificate_type": "PlanarEmbedding",
+        "is_planar": true
+      },
+      "same_bool": true
+    }
+  ],
+  "impl": "planarity Euler early return proof"
+}

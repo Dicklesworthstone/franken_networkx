@@ -1,0 +1,60 @@
+         2376899 function calls (2369959 primitive calls) in 1.684 seconds
+
+   Ordered by: cumulative time
+   List reduced from 1356 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.684    1.684 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16285(pagerank)
+        1    0.002    0.002    1.566    1.566 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16239(_pagerank_scipy)
+        1    0.001    0.001    1.449    1.449 /data/projects/franken_networkx/python/franken_networkx/__init__.py:42056(wrapper)
+        1    0.151    0.151    1.449    1.449 /data/projects/franken_networkx/python/franken_networkx/__init__.py:38548(to_scipy_sparse_array)
+   199969    0.043    0.000    0.875    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:993(<genexpr>)
+   179968    0.034    0.000    0.662    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1041(_atlas)
+   159968    0.044    0.000    0.660    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1050(__getitem__)
+   179968    0.559    0.000    0.629    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1113(<lambda>)
+    20001    0.017    0.000    0.223    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:978(_adjacency_view_items)
+20270/20268    0.041    0.000    0.216    0.000 {built-in method builtins.__build_class__}
+    20000    0.159    0.000    0.171    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1103(__getitem__)
+    20053    0.020    0.000    0.158    0.000 <frozen abc>:105(__new__)
+20810/20748    0.120    0.000    0.121    0.000 {built-in method __new__ of type object at 0xa15020}
+    177/1    0.001    0.000    0.106    0.106 <frozen importlib._bootstrap>:1349(_find_and_load)
+    173/1    0.000    0.000    0.106    0.106 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+    413/3    0.000    0.000    0.105    0.035 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+    169/2    0.000    0.000    0.105    0.053 <frozen importlib._bootstrap>:911(_load_unlocked)
+    151/2    0.000    0.000    0.105    0.053 <frozen importlib._bootstrap_external>:1020(exec_module)
+    155/2    0.001    0.000    0.105    0.053 {built-in method builtins.exec}
+        1    0.000    0.000    0.096    0.096 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/__init__.py:1(<module>)
+        1    0.000    0.000    0.086    0.086 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_base.py:1(<module>)
+        1    0.000    0.000    0.085    0.085 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_sputils.py:1(<module>)
+    60/20    0.000    0.000    0.085    0.004 {built-in method builtins.__import__}
+        1    0.000    0.000    0.085    0.085 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_util.py:1(<module>)
+        1    0.000    0.000    0.083    0.083 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/_array_api.py:1(<module>)
+    96/20    0.000    0.000    0.078    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+   199969    0.034    0.000    0.078    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1085(_atlas)
+        1    0.000    0.000    0.070    0.070 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/array_api_compat/numpy/__init__.py:1(<module>)
+        1    0.000    0.000    0.067    0.067 /data/projects/franken_networkx/python/franken_networkx/__init__.py:5902(_sync_rust_edge_attrs)
+        1    0.067    0.067    0.067    0.067 {method '_fnx_sync_attrs_to_inner' of 'franken_networkx.Graph' objects}
+    20001    0.008    0.000    0.067    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:992(__iter__)
+        3    0.000    0.000    0.064    0.021 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/_lib/array_api_compat/_internal.py:56(clone_module)
+2264/1707    0.000    0.000    0.063    0.000 {built-in method builtins.hasattr}
+       10    0.000    0.000    0.063    0.006 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/__init__.py:704(__getattr__)
+   342960    0.062    0.000    0.062    0.000 {method 'get' of 'dict' objects}
+    20000    0.007    0.000    0.056    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1047(__iter__)
+        1    0.000    0.000    0.051    0.051 /data/projects/franken_networkx/python/franken_networkx/__init__.py:16206(_pagerank_needs_networkx_weight_parity)
+        1    0.051    0.051    0.051    0.051 {built-in method franken_networkx._fnx.graph_has_nonfinite_edge_weight}
+   498686    0.046    0.000    0.046    0.000 {method 'append' of 'list' objects}
+   199969    0.044    0.000    0.044    0.000 /data/projects/franken_networkx/python/franken_networkx/__init__.py:1228(<lambda>)
+        1    0.000    0.000    0.036    0.036 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/__init__.py:1(<module>)
+        1    0.000    0.000    0.036    0.036 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/f2py2e.py:1(<module>)
+      218    0.001    0.000    0.029    0.000 /usr/lib/python3.13/re/__init__.py:330(_compile)
+       76    0.000    0.000    0.028    0.000 /usr/lib/python3.13/re/__init__.py:287(compile)
+       81    0.000    0.000    0.028    0.000 /usr/lib/python3.13/re/_compiler.py:743(compile)
+        1    0.000    0.000    0.027    0.027 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/capi_maps.py:1(<module>)
+        1    0.000    0.000    0.025    0.025 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/numpy/f2py/crackfortran.py:1(<module>)
+      151    0.001    0.000    0.020    0.000 <frozen importlib._bootstrap_external>:1093(get_code)
+        1    0.000    0.000    0.019    0.019 /data/projects/franken_networkx/.venv/lib/python3.13/site-packages/scipy/sparse/_coo.py:32(__init__)
+    20053    0.018    0.000    0.018    0.000 {built-in method _abc._abc_init}
+
+
+
+checksum 1.000000000000

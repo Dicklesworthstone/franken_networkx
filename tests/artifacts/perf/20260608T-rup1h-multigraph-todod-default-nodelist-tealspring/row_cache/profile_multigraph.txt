@@ -1,0 +1,45 @@
+         2688196 function calls in 1.110 seconds
+
+   Ordered by: cumulative time
+   List reduced from 64 to 35 due to restriction <35>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.005    0.005    1.110    1.110 multigraph_keydict_harness.py:67(run_case)
+        1    0.097    0.097    0.612    0.612 multigraph_keydict_harness.py:41(canonicalize)
+       80    0.275    0.003    0.387    0.005 __init__.py:43665(to_dict_of_dicts)
+    71822    0.068    0.000    0.156    0.000 __init__.py:1129(__getitem__)
+    47882    0.059    0.000    0.141    0.000 __init__.py:1187(__getitem__)
+   131675    0.025    0.000    0.126    0.000 __init__.py:1169(_atlas)
+        1    0.013    0.013    0.106    0.106 multigraph_keydict_harness.py:27(build_graph)
+    83793    0.016    0.000    0.103    0.000 __init__.py:1112(_atlas)
+   131675    0.067    0.000    0.100    0.000 __init__.py:1402(<lambda>)
+    47882    0.012    0.000    0.092    0.000 __init__.py:1050(<genexpr>)
+    17956    0.091    0.000    0.091    0.000 {method 'add_edge' of 'franken_networkx.MultiGraph' objects}
+    83793    0.034    0.000    0.087    0.000 __init__.py:1198(<lambda>)
+   957844    0.078    0.000    0.078    0.000 {method 'get' of 'dict' objects}
+   275557    0.066    0.000    0.066    0.000 {method '_native_adjacency_row' of 'franken_networkx.MultiGraph' objects}
+    47882    0.040    0.000    0.063    0.000 __init__.py:1394(_multigraph_getitem_from_native_row)
+    11971    0.005    0.000    0.055    0.000 __init__.py:42415(items)
+    11971    0.005    0.000    0.046    0.000 __init__.py:42400(_current)
+    11971    0.005    0.000    0.045    0.000 __init__.py:1048(__iter__)
+   107733    0.028    0.000    0.044    0.000 multigraph_keydict_harness.py:50(<genexpr>)
+    11971    0.008    0.000    0.040    0.000 __init__.py:1118(__iter__)
+   192726    0.023    0.000    0.023    0.000 {built-in method builtins.repr}
+        1    0.000    0.000    0.022    0.022 __init__.py:183(dumps)
+        1    0.000    0.000    0.022    0.022 encoder.py:183(encode)
+        1    0.021    0.021    0.021    0.021 encoder.py:205(iterencode)
+    11971    0.015    0.000    0.015    0.000 {built-in method builtins.iter}
+    96000    0.011    0.000    0.011    0.000 {method 'setdefault' of 'dict' objects}
+    98164    0.008    0.000    0.008    0.000 {built-in method builtins.hash}
+    49082    0.005    0.000    0.005    0.000 {method 'append' of 'list' objects}
+    47882    0.005    0.000    0.005    0.000 __init__.py:1164(__init__)
+    47882    0.005    0.000    0.005    0.000 __init__.py:1106(__init__)
+    11971    0.004    0.000    0.005    0.000 __init__.py:1097(_adjacency_view_items)
+    37112    0.004    0.000    0.004    0.000 {method 'items' of 'dict' objects}
+    11971    0.004    0.000    0.004    0.000 __init__.py:42394(__init__)
+        1    0.001    0.001    0.003    0.003 __init__.py:2408(add_nodes_from)
+     1200    0.000    0.000    0.002    0.000 __init__.py:2376(add_node)
+
+
+
+RESULT {"alias_pairs": 0, "degree": 5, "directed": false, "edge_count": 17956, "elapsed": 0.3912306979764253, "live_mutations": 35911, "module": "fnx", "node_count": 1200, "nodes": 1200, "parallel": 3, "repeats": 80, "row_count": 11971, "sha256": "231583cedff594f62d823fb4b31b13b96ed668cfb49879e4509e99bd1aa417a5"}

@@ -1,0 +1,51 @@
+         973441 function calls in 0.946 seconds
+
+   Ordered by: cumulative time
+   List reduced from 59 to 45 due to restriction <45>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      160    0.000    0.000    0.946    0.006 harness_generators.py:69(build)
+      160    0.032    0.000    0.946    0.006 harness_generators.py:37(<lambda>)
+      160    0.063    0.000    0.914    0.006 __init__.py:48383(random_regular_graph)
+      160    0.098    0.001    0.662    0.004 __init__.py:2694(add_edges_from)
+      160    0.494    0.003    0.494    0.003 {method '_try_add_edges_from_batch' of 'franken_networkx.Graph' objects}
+      160    0.126    0.001    0.126    0.001 {built-in method franken_networkx._fnx.random_regular_edges_pyset}
+   960160    0.070    0.000    0.070    0.000 {method 'append' of 'list' objects}
+      160    0.002    0.000    0.056    0.000 __init__.py:50197(wrapper)
+      160    0.000    0.000    0.055    0.000 __init__.py:18171(empty_graph)
+      160    0.000    0.000    0.047    0.000 __init__.py:45788(_add_nodes_in_order)
+      160    0.000    0.000    0.047    0.000 __init__.py:2411(add_nodes_from)
+      160    0.047    0.000    0.047    0.000 {method '_fast_add_int_nodes' of 'franken_networkx.Graph' objects}
+      160    0.001    0.000    0.004    0.000 __init__.py:24210(_generator_random_state)
+      320    0.000    0.000    0.004    0.000 __init__.py:45760(_classic_default_graph_type)
+      160    0.003    0.000    0.003    0.000 __init__.py:45725(_nodes_or_number_local)
+      160    0.000    0.000    0.003    0.000 <class 'networkx.utils.decorators.argmap'> compilation 4:1(argmap___new___1)
+      160    0.002    0.000    0.002    0.000 backends.py:554(_call_if_any_backends_installed)
+      160    0.001    0.000    0.002    0.000 __init__.py:45669(_checked_create_using)
+      160    0.002    0.000    0.002    0.000 {built-in method builtins.__build_class__}
+      160    0.000    0.000    0.001    0.000 random.py:119(__init__)
+      160    0.000    0.000    0.001    0.000 random.py:128(seed)
+      160    0.000    0.000    0.001    0.000 graph.py:349(__init__)
+      160    0.000    0.000    0.001    0.000 __init__.py:45773(_classic_graph_from_create_using)
+      160    0.001    0.000    0.001    0.000 {function Random.seed at 0x78a5d4a45f80}
+      160    0.000    0.000    0.000    0.000 {built-in method builtins.all}
+      320    0.000    0.000    0.000    0.000 __init__.py:5754(predicate)
+      160    0.000    0.000    0.000    0.000 __init__.py:5638(clear)
+     2400    0.000    0.000    0.000    0.000 {built-in method builtins.isinstance}
+      320    0.000    0.000    0.000    0.000 __init__.py:3350(__init__)
+      160    0.000    0.000    0.000    0.000 backends.py:1484(_call_with_backend)
+      640    0.000    0.000    0.000    0.000 __init__.py:45676(<genexpr>)
+      160    0.000    0.000    0.000    0.000 __init__.py:45556(_empty_graph_from_create_using)
+      160    0.000    0.000    0.000    0.000 __init__.py:24214(_NumpyRandIntAdapter)
+      160    0.000    0.000    0.000    0.000 graph.py:345(__new__)
+      640    0.000    0.000    0.000    0.000 {built-in method builtins.hasattr}
+      160    0.000    0.000    0.000    0.000 {function _make_clear_with_attr_override.<locals>.clear at 0x78a5d36adee0}
+      160    0.000    0.000    0.000    0.000 configs.py:162(get)
+      320    0.000    0.000    0.000    0.000 {built-in method builtins.getattr}
+      160    0.000    0.000    0.000    0.000 {built-in method __new__ of type object at 0xa15020}
+      160    0.000    0.000    0.000    0.000 graph.py:63(__set__)
+      160    0.000    0.000    0.000    0.000 {function _make_class_safe_predicate.<locals>.predicate at 0x78a5d36ae3e0}
+     160    0.000    0.000    0.000    0.000 graph.py:38(__set__)
+     160    0.000    0.000    0.000    0.000 backends.py:1052(_will_call_mutate_input)
+     320    0.000    0.000    0.000    0.000 __init__.py:22452(_validate_backend_dispatch_keywords)
+     160    0.000    0.000    0.000    0.000 {built-in method builtins.vars}

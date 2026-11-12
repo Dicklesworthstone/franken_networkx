@@ -1,0 +1,18 @@
+$ RCH_REQUIRE_REMOTE=1 env -u CARGO_TARGET_DIR rch exec -- cargo test --release -p fnx-algorithms --lib full_join_batch_ab -- --ignored --nocapture
+
+FULLJOIN_BATCH_AB C100_C100 rounds=61 (>1 = batch faster)
+FULLJOIN_BATCH_AB BATCH_vs_string: median=8.6553x win_rate=61/61 p5_p95=[6.4055,12.2860]
+FULLJOIN_BATCH_AB NULL_batch_vs_batch: median=0.9951x win_rate=30/61 p5_p95=[0.9073,1.1185]
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 982 filtered out; finished in 1.38s
+
+Marker FULLJOIN_BATCH_AB + test name confirmed (fresh binary). Parity assert
+(edges_ordered_borrowed + nodes_ordered) passed before timing (test result: ok).
+
+$ cargo test --release -p fnx-algorithms --lib full_join -- --nocapture
+test tests::test_full_join_empty ... ok
+test tests::test_full_join_cross_edges ... ok
+test result: ok. 2 passed; 0 failed; 1 ignored; ...
+
+$ cargo clippy --release -p fnx-algorithms --lib --tests -- -D warnings
+--> NONE of my lines flagged (production ~39513-39534 / test ~68185-68314)
+--> 12 pre-existing peer -D warnings errors (untouched, shared checkout)

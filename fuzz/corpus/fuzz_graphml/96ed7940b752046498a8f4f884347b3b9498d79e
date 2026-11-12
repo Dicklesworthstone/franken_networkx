@@ -1,0 +1,7 @@
+<?xml version="10" encoding="UTF-6"?>
+<graphml xm>
+    <node id="a"/>
+    <node id="b"/>
+    <edge source="a" target="b">
+      <data key="d0""a" targ
+</graphml>
