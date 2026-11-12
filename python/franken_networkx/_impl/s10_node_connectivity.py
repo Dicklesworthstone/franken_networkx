@@ -428,9 +428,18 @@ def average_neighbor_degree(
     """Returns the average degree of the neighborhood of each node."""
     _validate_backend_dispatch_keywords("average_neighbor_degree", backend, backend_kwargs)
 
-    # br-r37-c1-c7xg2: materialize SubgraphView before crossing into
-    # Rust so the filter is honored. Pass-through for plain fnx graphs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # Only owned simple graphs can be read from the native store here. Views
+    # may expose a different weight at each end of an undirected edge, and a
+    # node-bunch iterator or custom degree/adjacency provider can mutate the
+    # caller's graph while the measure is computed. Keep those rows live in
+    # the Python path below instead of snapshotting them before iteration.
+    native_graph = (
+        type(G) in (Graph, DiGraph)
+        and _adc_has_native_graph_access(G)
+        and not any(name in vars(G) for name in ("is_directed", "is_multigraph"))
+        and type(source) is str
+        and type(target) is str
+    )
 
     # br-mgavgnbd: the Rust fast path ignored parallel multi-edges, so
     # sum(t_deg[nbr] for nbr in adj[n]) was computed against an
@@ -441,7 +450,8 @@ def average_neighbor_degree(
     # already follows that contract, so just skip the Rust shortcut
     # for multigraphs.
     if (
-        not G.is_directed()
+        native_graph
+        and not G.is_directed()
         and not G.is_multigraph()
         and source == "out"
         and target == "out"
@@ -483,11 +493,27 @@ def average_neighbor_degree(
             )
         source_degree = target_degree = G.degree
 
-    if (
-        nodes is None
-        and not G.is_multigraph()
-        and (weight is None or isinstance(weight, str))
-    ):
+    native_weights = weight is None
+    if native_graph and nodes is None and weight is not None:
+        weighted_rows = _adc_native_weight_rows(G, weight)
+        if weighted_rows is not None:
+            # The native compensated sums require finite intermediates. A
+            # simple node has at most 2*n degree and 2*n incident terms;
+            # leave room for both products and the compensation. NaNs,
+            # infinities and finite weights whose products can overflow keep
+            # Python's sum/division behavior in the live path below.
+            magnitude_limit = _sys.float_info.max / (8 * max(1, len(G)) ** 2)
+            native_weights = all(
+                abs(attrs.get(weight, 1)) <= magnitude_limit
+                for row in weighted_rows.values()
+                for attrs in row.values()
+            )
+    if native_graph and nodes is None and native_weights:
+        # Unlike the shortest-path bindings, this binding does not synchronize
+        # escaped Python edge dictionaries. Flush retained-dict mutations on
+        # every weighted call before it reads the native attribute store.
+        if weight is not None:
+            _sync_rust_edge_attrs(G, edge_only=True)
         res = _raw_average_neighbor_degree(G, source, target, weight)
         if res is not None:
             return res

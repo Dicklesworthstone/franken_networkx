@@ -158,6 +158,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "all_shortest_paths",
         "average_shortest_path_length",
         "average_degree_connectivity",
+        "average_neighbor_degree",
         "quotient_graph",
         "greedy_modularity_communities",
         "greedy_color",
@@ -264,7 +265,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "floyd_warshall", "floyd_warshall_predecessor_and_distance",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "average_shortest_path_length",
-        "average_degree_connectivity",
+        "average_degree_connectivity", "average_neighbor_degree",
         "stoer_wagner",
     }
 )
@@ -285,7 +286,7 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         return True
     if name in _BIPARTITE_MATCHING_ALGORITHMS:
         return _bipartite_matching_dispatch_uses_live_providers(name, graph, arguments)
-    if name == "average_degree_connectivity":
+    if name in {"average_degree_connectivity", "average_neighbor_degree"}:
         return _degree_connectivity_dispatch_uses_live_providers(graph, arguments)
     if name in {"bellman_ford_predecessor_and_distance", "goldberg_radzik"}:
         # Their owned relaxations read live edge dictionaries, and Bellman-Ford

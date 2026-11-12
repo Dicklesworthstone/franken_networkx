@@ -357,7 +357,8 @@ def _degree_connectivity_backend_graph(cls_name="Graph"):
 
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("view_kind", ["undirected", "filtered", "reverse"])
-def test_backend_degree_connectivity_keeps_live_view_rows(cached, view_kind, monkeypatch):
+@pytest.mark.parametrize("algorithm", ["average_degree_connectivity", "average_neighbor_degree"])
+def test_backend_degree_connectivity_keeps_live_view_rows(cached, view_kind, algorithm, monkeypatch):
     root = nx.DiGraph()
     for u, v, cost in [(0, 1, 2), (1, 0, 10), (0, 2, 1), (2, 0, 1), (1, 3, 1), (1, 4, 1)]:
         root.add_edge(u, v, cost=cost)
@@ -370,8 +371,9 @@ def test_backend_degree_connectivity_keeps_live_view_rows(cached, view_kind, mon
     if cached:
         _warm_live_input_cache(graph, monkeypatch)
     root[1][0]["cost"] = 13
-    expected = nx.average_degree_connectivity(graph, weight="cost", backend="networkx")
-    actual = nx.average_degree_connectivity(graph, weight="cost", backend="franken_networkx")
+    function = getattr(nx, algorithm)
+    expected = function(graph, weight="cost", backend="networkx")
+    actual = function(graph, weight="cost", backend="franken_networkx")
     assert list(actual.items()) == list(expected.items())
 
 
@@ -423,7 +425,8 @@ def test_backend_degree_connectivity_observes_numeric_mutations(cached, cls_name
 
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("weighted", [False, True])
-def test_backend_degree_connectivity_observes_selector_mutations(cached, weighted, monkeypatch):
+@pytest.mark.parametrize("algorithm", ["average_degree_connectivity", "average_neighbor_degree"])
+def test_backend_degree_connectivity_observes_selector_mutations(cached, weighted, algorithm, monkeypatch):
     def run(backend):
         graph = _degree_connectivity_backend_graph()
         if cached and backend == "franken_networkx":
@@ -441,7 +444,7 @@ def test_backend_degree_connectivity_observes_selector_mutations(cached, weighte
                 yield 1
                 yield 2
 
-        result = nx.average_degree_connectivity(
+        result = getattr(nx, algorithm)(
             graph, nodes=Nodes(), weight="cost" if weighted else None, backend=backend
         )
         if backend == "franken_networkx":
@@ -499,14 +502,15 @@ def test_backend_degree_connectivity_keeps_graph_providers(cached, provider, mon
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("weight", [None, "cost"])
 @pytest.mark.parametrize("nodes", [None, [0, 1, 2]])
-def test_backend_degree_connectivity_reuses_plain_native_input(cached, cls_name, weight, nodes, monkeypatch):
+@pytest.mark.parametrize("algorithm", ["average_degree_connectivity", "average_neighbor_degree"])
+def test_backend_degree_connectivity_reuses_plain_native_input(cached, cls_name, weight, nodes, algorithm, monkeypatch):
     from functools import wraps
     from franken_networkx import backend as backend_module
 
     monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
     graph = _degree_connectivity_backend_graph(cls_name)
     kwargs = dict(nodes=nodes, weight=weight)
-    expected = nx.average_degree_connectivity(graph, **kwargs, backend="networkx")
+    expected = getattr(nx, algorithm)(graph, **kwargs, backend="networkx")
     # Ordinary cached public views must still qualify for native conversion.
     list(graph.degree)
     list(graph.nodes)
@@ -518,7 +522,7 @@ def test_backend_degree_connectivity_reuses_plain_native_input(cached, cls_name,
         list(graph.succ)
     if cached:
         _warm_live_input_cache(graph, monkeypatch)
-    function = backend_module._SUPPORTED_ALGORITHMS["average_degree_connectivity"]
+    function = backend_module._SUPPORTED_ALGORITHMS[algorithm]
     received = []
 
     @wraps(function)
@@ -526,12 +530,66 @@ def test_backend_degree_connectivity_reuses_plain_native_input(cached, cls_name,
         received.append(args[0] if args else options["G"])
         return function(*args, **options)
 
-    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "average_degree_connectivity", record_input)
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, algorithm, record_input)
     for _ in range(2):
-        assert list(nx.average_degree_connectivity(graph, **kwargs, backend="franken_networkx").items()) == list(expected.items())
+        assert list(getattr(nx, algorithm)(graph, **kwargs, backend="franken_networkx").items()) == list(expected.items())
     assert type(received[0]) is getattr(fnx, cls_name)
     assert received[0] is received[1]
     assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_backend_neighbor_degree_keeps_mutating_attribute_readers(cached, cls_name, monkeypatch):
+    def run(backend):
+        graph = _degree_connectivity_backend_graph(cls_name)
+        if cached and backend == "franken_networkx":
+            _warm_live_input_cache(graph, monkeypatch)
+        events = []
+
+        class Attributes(dict):
+            def get(self, key, default=None):
+                events.append(key)
+                graph[1][2]["cost"] = 2
+                return super().get(key, default)
+
+        attrs = Attributes(cost=1)
+        graph._adj[0][1] = attrs
+        if graph.is_directed():
+            graph._pred[1][0] = attrs
+        else:
+            graph._adj[1][0] = attrs
+        result = nx.average_neighbor_degree(graph, weight="cost", backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return list(result.items()), events, graph[1][2]["cost"]
+
+    expected = run("networkx")
+    assert expected[1] and expected[2] == 2
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_neighbor_degree_discards_mutated_conversions_on_error(cached, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = nx.Graph()
+    graph.add_edge(0, 1, weight=2)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+
+    class Nodes:
+        def __iter__(self):
+            assert nx.dijkstra_path_length(graph, 0, 1, backend="franken_networkx") == 2
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+            graph[0][1]["weight"] = 9
+            raise RuntimeError("node selector stopped after a live write")
+
+    with pytest.raises(RuntimeError, match="node selector stopped after a live write"):
+        nx.average_neighbor_degree(
+            graph, nodes=Nodes(), weight="weight", backend="franken_networkx"
+        )
+    assert not graph.__networkx_cache__.get("backends")
+    assert nx.dijkstra_path_length(graph, 0, 1, backend="franken_networkx") == 9
 
 
 @pytest.mark.parametrize("cls_name", CLASSES)

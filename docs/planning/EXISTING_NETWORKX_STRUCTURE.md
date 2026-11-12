@@ -2261,6 +2261,17 @@ mapping, selector or numeric providers execute on the original graph, even
 when another backend call already populated the conversion cache. Admission
 does not invoke custom providers or numeric protocols.
 
+Weighted `average_neighbor_degree` reads retained edge-attribute dictionaries
+on every call before an admitted native reduction. Its numerator uses
+unweighted target degrees and its denominator uses source strength; directed
+incoming and outgoing terms retain their distinct rows. Views preserve
+endpoint-specific attributes instead of collapsing them into one undirected
+edge. Nonfinite weights, potentially overflowing intermediates, and unsupported
+numeric domains keep the owned Python arithmetic. Observable graph, degree,
+mapping and node-selector providers retain the original graph through backend
+dispatch, with cached conversions invalidated after provider execution and
+exceptions.
+
 ## 82. Core Decomposition Backend Availability
 
 Explicit backend dispatch advertises and executes `k_core`, `k_shell`,
