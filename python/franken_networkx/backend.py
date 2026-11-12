@@ -170,6 +170,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "barycenter",
         "closeness_centrality",
         "harmonic_centrality",
+        "group_betweenness_centrality",
+        "group_closeness_centrality",
         "constraint",
         "local_constraint",
         "effective_size",
@@ -238,6 +240,14 @@ _MULTI_SOURCE_DIJKSTRA_ALGORITHMS = frozenset(
 _DIJKSTRA_INPUT_ALGORITHMS = _MULTI_SOURCE_DIJKSTRA_ALGORITHMS | {
     "dijkstra_predecessor_and_distance", "bidirectional_dijkstra"
 }
+_WEIGHTED_PATH_INPUT_ALGORITHMS = _DIJKSTRA_INPUT_ALGORITHMS | {
+    "dijkstra_path", "dijkstra_path_length",
+    "single_source_dijkstra", "single_source_dijkstra_path", "single_source_dijkstra_path_length",
+    "bellman_ford_path", "bellman_ford_path_length",
+    "single_source_bellman_ford", "single_source_bellman_ford_path", "single_source_bellman_ford_path_length",
+    "shortest_path", "shortest_path_length", "all_shortest_paths",
+    "astar_path", "astar_path_length",
+}
 _FLOW_INPUT_ALGORITHMS = frozenset(
     {
         "capacity_scaling", "cost_of_flow", "flow_hierarchy", "max_flow_min_cost",
@@ -255,7 +265,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
     | _FLOW_SOLVER_INPUT_ALGORITHMS
     | _COMMUNITY_ITERATOR_ALGORITHMS
-    | _DIJKSTRA_INPUT_ALGORITHMS
+    | _WEIGHTED_PATH_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | _BIPARTITE_MATCHING_ALGORITHMS
@@ -266,6 +276,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "average_shortest_path_length",
         "average_degree_connectivity", "average_neighbor_degree",
+        "group_betweenness_centrality", "group_closeness_centrality",
         "stoer_wagner",
     }
 )
@@ -279,6 +290,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in {"group_betweenness_centrality", "group_closeness_centrality"}:
+        # Resolving groups can mutate the graph before searches begin. The
+        # owned entry points also retain live weights and admit their native
+        # routes themselves. Keep these boundaries even after cached queries.
+        return True
     if name == "stoer_wagner":
         # The algorithm snapshots weights once, then invokes the selected
         # heap. Conversion beforehand can consume a weight provider or read
@@ -312,7 +328,7 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # mutate inputs when iteration advances. Keep those reads on the
         # caller and invalidate conversions around every resume and close.
         return True
-    if name in _DIJKSTRA_INPUT_ALGORITHMS:
+    if name in _WEIGHTED_PATH_INPUT_ALGORITHMS:
         if (
             name in _MULTI_SOURCE_DIJKSTRA_ALGORITHMS
             and fnx._dijkstra_sources_use_live_graph(arguments["sources"])
@@ -1382,6 +1398,8 @@ _SUPPORTED_ALGORITHMS = {
     "local_reaching_centrality": fnx.local_reaching_centrality,
     "global_reaching_centrality": fnx.global_reaching_centrality,
     "group_degree_centrality": fnx.group_degree_centrality,
+    "group_betweenness_centrality": fnx.group_betweenness_centrality,
+    "group_closeness_centrality": fnx.group_closeness_centrality,
     "group_in_degree_centrality": fnx.group_in_degree_centrality,
     "group_out_degree_centrality": fnx.group_out_degree_centrality,
     # Component algorithms
@@ -2120,7 +2138,7 @@ class BackendInterface:
                                 )
                                 for parameter in ("weight", "distance")
                             )
-                            has_callbacks = has_callbacks or uses_live_provider
+                            has_callbacks = has_callbacks or uses_live_provider or uses_live_weight
                             reads_supplied_distances = (
                                 name == "eccentricity"
                                 and bound.arguments.get("sp") is not None

@@ -355,6 +355,127 @@ def _degree_connectivity_backend_graph(cls_name="Graph"):
     return graph
 
 
+def _group_centrality_backend_graph(cls_name):
+    graph = getattr(nx, cls_name)()
+    for u, v, cost in [(0, 1, 2), (1, 2, 3), (2, 3, 1), (3, 4, 4), (4, 0, 5), (0, 2, 8)]:
+        if graph.is_multigraph():
+            key = graph.add_edge(u, v, cost=cost)
+            graph[u][v][key][None] = cost
+        else:
+            graph.add_edge(u, v, cost=cost)
+            graph[u][v][None] = cost
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, key="parallel", cost=7)
+        graph[0][1]["parallel"][None] = 7
+    return graph
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("weight", [None, "cost"])
+@pytest.mark.parametrize("algorithm", ["group_betweenness_centrality", "group_closeness_centrality"])
+def test_backend_group_centrality_reads_original_weights(
+    cached, cls_name, weight, algorithm, monkeypatch
+):
+    graph = _group_centrality_backend_graph(cls_name)
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+    attrs = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+    attrs["cost"] = attrs[None] = 13
+    function = getattr(nx, algorithm)
+    expected = function(graph, [1, 3], weight=weight, backend="networkx")
+    actual = function(graph, [1, 3], weight=weight, backend="franken_networkx")
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("filtered", [False, True])
+@pytest.mark.parametrize("algorithm", ["group_betweenness_centrality", "group_closeness_centrality"])
+def test_backend_group_centrality_keeps_callback_dictionaries(
+    cached, cls_name, filtered, algorithm, monkeypatch
+):
+    def run(backend):
+        graph = _group_centrality_backend_graph(cls_name)
+        work = graph.subgraph(list(graph)) if filtered else graph
+        if cached and backend == "franken_networkx":
+            _warm_live_input_cache(work, monkeypatch)
+        events = []
+
+        def weight(u, v, data):
+            later = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+            later["cost"] = 1
+            attributes = list(data.values()) if graph.is_multigraph() else [data]
+            for attrs in attributes:
+                attrs["reads"] = attrs.get("reads", 0) + 1
+            values = tuple(attrs["cost"] for attrs in attributes)
+            events.append((u, v, values))
+            return min(values)
+
+        value = getattr(nx, algorithm)(work, [1, 3], weight=weight, backend=backend)
+        if backend == "franken_networkx":
+            assert not work.__networkx_cache__.get("backends")
+        if graph.is_multigraph():
+            attrs = [(u, v, k, dict(data)) for u, v, k, data in graph.edges(keys=True, data=True)]
+        else:
+            attrs = [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+        return value, events, attrs
+
+    expected = run("networkx")
+    actual = run("franken_networkx")
+    assert actual[0] == pytest.approx(expected[0], rel=1e-12, abs=1e-12)
+    assert actual[1:] == expected[1:]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["group_betweenness_centrality", "group_closeness_centrality"])
+def test_backend_group_centrality_clears_cache_after_callback_error(
+    cached, algorithm, monkeypatch
+):
+    graph = _group_centrality_backend_graph("Graph")
+    if cached:
+        _warm_live_input_cache(graph, monkeypatch)
+
+    def failing_weight(u, v, data):
+        graph[1][2]["cost"] = 19
+        raise RuntimeError("group weight failed")
+
+    with pytest.raises(RuntimeError, match="group weight failed"):
+        getattr(nx, algorithm)(
+            graph, [1, 3], weight=failing_weight, backend="franken_networkx"
+        )
+    assert graph[1][2]["cost"] == 19
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["group_betweenness_centrality", "group_closeness_centrality"])
+def test_backend_group_centrality_preserves_group_iteration(cached, algorithm, monkeypatch):
+    def run(backend):
+        graph = _group_centrality_backend_graph("Graph")
+        if cached and backend == "franken_networkx":
+            _warm_live_input_cache(graph, monkeypatch)
+        events = []
+
+        class Group:
+            def __iter__(self):
+                events.append("select")
+                graph.add_edge(1, 4, cost=1)
+                yield 1
+                yield 3
+
+        result = getattr(nx, algorithm)(graph, Group(), backend=backend)
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return result, events, list(graph.edges())
+
+    expected = run("networkx")
+    actual = run("franken_networkx")
+    assert actual[0] == pytest.approx(expected[0], rel=1e-12, abs=1e-12)
+    assert actual[1:] == expected[1:]
+
+
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("view_kind", ["undirected", "filtered", "reverse"])
 @pytest.mark.parametrize("algorithm", ["average_degree_connectivity", "average_neighbor_degree"])

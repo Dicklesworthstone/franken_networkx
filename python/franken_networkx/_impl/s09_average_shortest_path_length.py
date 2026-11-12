@@ -889,23 +889,95 @@ def _undirected_view_has_directed_rows(G):
 
 
 def _weighted_query_uses_live_python_rows(G, weight):
-    """Read authoritative edge dictionaries before graph conversion.
+    """Keep observable weight and graph protocols on the caller's rows.
 
-    A weight callback can read or mutate the caller's graph while a search is
-    in progress. Copying a NetworkX graph or a view disconnects those writes
-    from the rows being traversed. The in-process engines preserve that live
-    relationship and avoid holding a native borrow across user Python code.
-
-    An undirected view of a directed graph prefers each node's outgoing arc.
-    Reciprocal arcs may have different weights, which a concrete undirected
-    graph cannot represent. Preserve those per-direction rows through filters
-    and nested views too, including views supplied by NetworkX callers.
+    Providers include selector hashing, numeric arithmetic and attribute
+    readers as well as callable weights. They may change a later edge during
+    traversal. Converting first disconnects those writes, while inspecting a
+    provider to select a route can itself change the order of its operations.
+    Inspect only builtin storage and exact types before looking up a weight.
     """
-    return (
-        callable(weight)
-        or _point_query_uses_private_rows(G)
-        or _undirected_view_has_directed_rows(G)
-    )
+    if type(weight) not in (str, int, float, bool, type(None)):
+        return True
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+        # Native scalar admission already rejects custom arithmetic, and no
+        # graph copy is needed here. Attribute factories can supply their own
+        # read protocol, which a native PyDict lookup would bypass.
+        return _has_networkx_private_storage(G) or G.edge_attr_dict_factory is not dict
+
+    import networkx as nx
+
+    graph_type = type(G)
+    if graph_type not in (nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph):
+        # Subclasses and synthetic views can expose arbitrary live readers.
+        # This also preserves each endpoint's distinct reciprocal attributes
+        # in an undirected view of a directed graph.
+        return True
+    storage = vars(G)
+    if "_graph" in storage or any(
+        name in storage
+        for name in ("is_directed", "is_multigraph", "nbunch_iter", "adjacency")
+    ):
+        return True
+    nodes = storage.get("_node")
+    adjacency = storage.get("_adj")
+    directed = graph_type in (nx.DiGraph, nx.MultiDiGraph)
+    multigraph = graph_type in (nx.MultiGraph, nx.MultiDiGraph)
+    predecessors = storage.get("_pred") if directed else adjacency
+    if (
+        type(nodes) is not dict
+        or type(adjacency) is not dict
+        or type(predecessors) is not dict
+        or type(storage.get("graph")) is not dict
+        or (directed and storage.get("_succ") is not adjacency)
+        or any(type(attrs) is not dict for attrs in nodes.values())
+    ):
+        return True
+    plain_keys = (str, int, float, bool, type(None))
+    if any(type(node) not in plain_keys for node in nodes):
+        return True
+    for rows in (adjacency, predecessors) if directed else (adjacency,):
+        if any(type(node) not in plain_keys for node in rows):
+            return True
+        for row in rows.values():
+            if type(row) is not dict:
+                return True
+            for neighbor, edge_data in row.items():
+                if type(neighbor) not in plain_keys or type(edge_data) is not dict:
+                    return True
+                attributes = edge_data.values() if multigraph else (edge_data,)
+                for attrs in attributes:
+                    if type(attrs) is not dict:
+                        return True
+                    if any(type(key) not in plain_keys for key in attrs):
+                        return True
+                    if type(attrs.get(weight, 1)) not in (int, float, bool):
+                        return True
+
+    # Ordinary cached NetworkX views are safe. Assigned readers are not:
+    # conversion uses public node/edge views, while searches use private rows.
+    coreviews = nx.classes.coreviews
+    reportviews = nx.classes.reportviews
+    adjacency_type = coreviews.MultiAdjacencyView if multigraph else coreviews.AdjacencyView
+    for name, rows in (("adj", adjacency), ("succ", adjacency), ("pred", predecessors)):
+        if name in storage:
+            view = storage[name]
+            if type(view) is not adjacency_type or view._atlas is not rows:
+                return True
+    if "nodes" in storage:
+        view = storage["nodes"]
+        if type(view) is not reportviews.NodeView or view._nodes is not nodes:
+            return True
+    if "edges" in storage:
+        edge_type = (
+            reportviews.OutMultiEdgeView if directed else reportviews.MultiEdgeView
+        ) if multigraph else (
+            reportviews.OutEdgeView if directed else reportviews.EdgeView
+        )
+        view = storage["edges"]
+        if type(view) is not edge_type or view._graph is not G or view._adjdict is not adjacency:
+            return True
+    return False
 
 
 def shortest_path(

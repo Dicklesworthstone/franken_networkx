@@ -965,6 +965,14 @@ callback arguments remain visible in the caller's graph. Native graph borrows
 must not remain active while user callback code runs. Ordinary eligible
 attribute-name weights retain their native routes.
 
+The same live-input boundary applies to selector hashing and equality, numeric
+weight arithmetic, custom attribute readers, and graph or view providers.
+Their callbacks may change weights that later relaxation steps read. Admission
+checks exact storage and value types before looking up a weight, and does not
+invoke custom readers or arithmetic merely to select a route. Ordinary native
+graphs retain their constant-cost admission check; foreign builtin storage
+remains eligible for conversion and native traversal.
+
 Generic all-pairs path and length iterators retain the original graph and
 compute one source when consumed. They do not execute callbacks at iterator
 creation or freeze weights for later sources. Average-distance queries validate
@@ -2040,6 +2048,12 @@ searches. Length-only queries retain their distance-only engine. Conversion
 caches are invalidated after observable source or weight providers run,
 including failures, so later ordinary native queries see their writes.
 
+Dijkstra, Bellman-Ford, A* and generic weighted-path backend calls apply this
+admission before even a cold conversion. Restoring the original graph only
+after conversion is too late for observable attribute providers. Numeric and
+selector providers invalidate conversions just as callable weights do, on
+success and error alike.
+
 ## 66. Incremental Multigraph Spanning Trees
 
 `SpanningTreeIterator` snapshots the input graph at construction and enumerates
@@ -2299,6 +2313,12 @@ contributes its value. Empty source groups raise `ValueError`, including on an
 empty graph. A full group still performs traversal before returning zero, so
 weight callbacks and their errors remain visible. Distance accumulation starts
 from integer zero and preserves the arithmetic of exact numeric weight types.
+
+Explicit backend calls support group betweenness and group closeness. They
+retain the caller's original graph and group providers before conversion and
+clear conversion caches after successful or failing provider execution.
+Custom group iterables bypass speculative native size probes that would
+consume them before the owned algorithm's preprocessing boundary.
 
 ## 78. Live Attribute Protocols During Graph Conversion
 

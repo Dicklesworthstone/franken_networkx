@@ -944,3 +944,166 @@ def test_live_weight_average_distance_graph_errors_precede_callback(method, shap
     ) == _exact_outcome(
         lambda: nx.average_shortest_path_length(graph, weight=unused_weight, method=method)
     )
+
+
+_WEIGHT_PROVIDER_QUERIES = [
+    ("dijkstra_path", {"source": "s", "target": "t"}),
+    ("dijkstra_path_length", {"source": "s", "target": "t"}),
+    ("single_source_dijkstra", {"source": "s"}),
+    ("single_source_dijkstra_path", {"source": "s"}),
+    ("single_source_dijkstra_path_length", {"source": "s"}),
+    ("multi_source_dijkstra", {"sources": ["s"]}),
+    ("multi_source_dijkstra_path", {"sources": ["s"]}),
+    ("multi_source_dijkstra_path_length", {"sources": ["s"]}),
+    ("dijkstra_predecessor_and_distance", {"source": "s"}),
+    ("bidirectional_dijkstra", {"source": "s", "target": "t"}),
+    ("bellman_ford_path", {"source": "s", "target": "t"}),
+    ("bellman_ford_path_length", {"source": "s", "target": "t"}),
+    ("single_source_bellman_ford", {"source": "s"}),
+    ("single_source_bellman_ford_path", {"source": "s"}),
+    ("single_source_bellman_ford_path_length", {"source": "s"}),
+    ("shortest_path", {"source": "s", "target": "t", "weight": "weight"}),
+    ("shortest_path_length", {"source": "s", "target": "t", "weight": "weight"}),
+    ("astar_path", {"source": "s", "target": "t"}),
+    ("astar_path_length", {"source": "s", "target": "t"}),
+]
+
+
+def _run_weight_provider_query(module, input_library, graph_class, provider, name, kwargs):
+    graph = _live_weight_graph(input_library, graph_class, False)
+    events = []
+
+    def update_later_edge():
+        later = graph["a"]["t"]
+        if graph.is_multigraph():
+            later = later[0]
+        later["weight"] = 1
+
+    class UpdatingWeight(int):
+        def __radd__(self, other):
+            events.append("add")
+            update_later_edge()
+            return other + int(self)
+
+    class UpdatingSelector(str):
+        def __hash__(self):
+            events.append("lookup")
+            update_later_edge()
+            return str.__hash__(self)
+
+    weight = "weight"
+    if provider == "arithmetic":
+        first = graph["s"]["a"]
+        if graph.is_multigraph():
+            first = first[0]
+        first["weight"] = UpdatingWeight(1)
+    else:
+        weight = UpdatingSelector("weight")
+    options = dict(kwargs, weight=weight)
+    result = getattr(module, name)(graph, **options)
+    return result, events
+
+
+@pytest.mark.parametrize("name,kwargs", _WEIGHT_PROVIDER_QUERIES)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("provider", ["arithmetic", "selector"])
+def test_weight_protocol_mutations_reach_later_shortest_path_rows(
+    name, kwargs, graph_class, provider
+):
+    # An int subclass or attribute selector is a provider even though weight
+    # is not callable. Its writes must affect the same graph being searched.
+    assert _run_weight_provider_query(fnx, nx, graph_class, provider, name, kwargs) == (
+        _run_weight_provider_query(nx, nx, graph_class, provider, name, kwargs)
+    )
+
+
+@pytest.mark.parametrize("name,kwargs", _WEIGHT_PROVIDER_QUERIES)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_shortest_path_attribute_readers_keep_original_graph(name, kwargs, graph_class):
+    def run(module):
+        graph = _live_weight_graph(nx, graph_class, False)
+        events = []
+
+        class ReadingAttributes(dict):
+            def get(self, key, default=None):
+                events.append(key)
+                later = graph["a"]["t"]
+                if graph.is_multigraph():
+                    later = later[0]
+                later["weight"] = 1
+                return super().get(key, default)
+
+        if graph.is_multigraph():
+            graph._adj["s"]["a"][0] = ReadingAttributes(weight=1)
+        else:
+            attrs = ReadingAttributes(weight=1)
+            graph._adj["s"]["a"] = attrs
+            reverse = graph._pred if graph.is_directed() else graph._adj
+            reverse["a"]["s"] = attrs
+        result = getattr(module, name)(graph, **kwargs)
+        return result, events
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("name,kwargs", _WEIGHT_PROVIDER_QUERIES)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "cached"])
+@pytest.mark.parametrize("raises", [False, True], ids=["returns", "raises"])
+def test_backend_weight_protocol_writes_invalidate_conversions(
+    name, kwargs, graph_class, warm, raises, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = _live_weight_graph(nx, graph_class, False)
+        if warm and backend == "franken_networkx":
+            assert nx.dijkstra_path_length(graph, "s", "t", backend=backend) == 5
+            assert graph.__networkx_cache__["backends"][backend]
+        events = []
+        failure = RuntimeError("weight provider failed after changing an edge")
+
+        class UpdatingWeight(int):
+            def __radd__(self, other):
+                events.append("add")
+                graph["a"]["t"]["weight"] = 1
+                if raises:
+                    raise failure
+                return other + int(self)
+
+        # Direct dictionary writes intentionally retain an earlier conversion.
+        # The provider-aware call must recover the original graph, then make
+        # its writes visible to an ordinary native query even after an error.
+        graph["s"]["a"]["weight"] = UpdatingWeight(1)
+        if raises:
+            with pytest.raises(RuntimeError) as raised:
+                getattr(nx, name)(graph, backend=backend, **kwargs)
+            assert raised.value is failure
+            result = "raised"
+        else:
+            result = getattr(nx, name)(graph, backend=backend, **kwargs)
+        graph["s"]["a"]["weight"] = 1
+        subsequent = nx.dijkstra_path_length(graph, "s", "t", backend=backend)
+        assert subsequent == 2
+        return result, events, subsequent
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("input_library", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_ordinary_weighted_rows_keep_native_shortest_path_route(
+    input_library, graph_class, monkeypatch
+):
+    graph = _live_weight_graph(input_library, graph_class, False)
+    # Cached standard views do not turn an ordinary graph into a provider.
+    graph.adj, graph.nodes, graph.edges
+    if graph.is_directed():
+        graph.succ, graph.pred
+
+    def unexpected_python_traversal(*args, **kwargs):
+        pytest.fail("ordinary numeric storage must retain the native distance query")
+
+    monkeypatch.setattr(fnx, "_dijkstra_multisource_inproc", unexpected_python_traversal)
+    expected = nx.single_source_dijkstra_path_length(_live_weight_graph(nx, graph_class, False), "s")
+    assert fnx.single_source_dijkstra_path_length(graph, "s") == expected

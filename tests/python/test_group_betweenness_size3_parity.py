@@ -78,6 +78,29 @@ def test_group_betweenness_none_cost_keeps_brandes_error(owner, graph_type):
     assert actual.value.args == expected.value.args
 
 
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "fnx"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_group_betweenness_does_not_probe_custom_group_iterators(owner, graph_type):
+    def run(module, graph_owner):
+        graph = _group_query_graph(graph_owner, graph_type, "owned")
+        events = []
+
+        class Group:
+            def __iter__(self):
+                events.append("select")
+                graph.add_edge(1, 5)
+                yield 1
+                yield 3
+
+        value = module.group_betweenness_centrality(graph, Group())
+        return value, events, list(graph.edges())
+
+    expected = run(nx, nx)
+    actual = run(fnx, owner)
+    assert actual[0] == pytest.approx(expected[0], rel=1e-12, abs=1e-12)
+    assert actual[1:] == expected[1:]
+
+
 def _connected(seed, directed=False, p=0.4):
     rng = random.Random(seed)
     n = rng.randint(6, 10)

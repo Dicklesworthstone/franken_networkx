@@ -956,12 +956,16 @@ def group_betweenness_centrality(
         not G.is_directed()
         and weight is None
         and not endpoints
+        and type(C) in (list, tuple)
+        and all(type(group) in (list, tuple, set, frozenset) for group in C)
         and all(len(set(group)) <= 2 for group in C)
         and not _betweenness_uses_live_python_rows(G, weight)
     ):
         # The native extractor accepts fnx storage, while the public API also
         # accepts NetworkX graphs. Admit ordinary storage only after group
         # validation; views and custom providers retain the owned traversal.
+        # Probing custom group iterables for size would consume them ahead of
+        # the owned algorithm and could change the graph before preprocessing.
         native_graph = _coerce_arg_to_fnx_graph(G)
         scores = []
         for group in C:
@@ -1078,16 +1082,21 @@ def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwa
     _validate_backend_dispatch_keywords(
         "group_closeness_centrality", backend, backend_kwargs
     )
-    for s in S:
-        if s not in G:
-            raise NodeNotFound(f"Node {s} not found in graph")
-    if not (set(G) - set(S)):
-        return 0
+    # Directed queries snapshot the reverse graph before consuming the group.
+    # Capture the complement's node domain before a selector can mutate G,
+    # then consume that selector exactly once for every route.
+    directed = G.is_directed()
+    if directed:
+        G = G.reverse()
+    outside = set(G)
+    group = set(S)
+    outside.difference_update(group)
     if (
-        not G.is_directed()
+        not directed
         and weight is None
         and type(S) in (list, tuple, set, frozenset)
-        and S
+        and group
+        and not _dijkstra_sources_use_live_graph(group)
         and not _betweenness_uses_live_python_rows(G, weight)
         and not _graph_has_edge_attribute(G, None)
     ):
@@ -1095,19 +1104,21 @@ def group_closeness_centrality(G, S, weight=None, *, backend=None, **backend_kwa
         # can name an actual edge weight. Only absent-key graphs are BFS
         # queries. Keep callbacks, view rows, and group iterators on G so
         # their later reads and mutations are not disconnected by a copy.
+        for node in group:
+            if node not in G:
+                raise NodeNotFound(f"Node {node} not found in graph")
+        if not outside:
+            return 0
         return _fnx.group_closeness_centrality_rust(
-            _coerce_arg_to_fnx_graph(G), list(S)
+            _coerce_arg_to_fnx_graph(G), list(group)
         )
 
-    if G.is_directed():
-        G = G.reverse()
-    closeness = 0.0
-    V_S = set(G) - set(S)
-    shortest_path_lengths = multi_source_dijkstra_path_length(G, set(S), weight=weight)
-    for v in V_S:
+    closeness = 0
+    shortest_path_lengths = multi_source_dijkstra_path_length(G, group, weight=weight)
+    for v in outside:
         closeness += shortest_path_lengths.get(v, 0)
     try:
-        return len(V_S) / closeness
+        return len(outside) / closeness
     except ZeroDivisionError:
         return 0
 
