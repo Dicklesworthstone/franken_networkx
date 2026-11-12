@@ -1347,6 +1347,17 @@ used only when it does not discard Python object identity or state. Tests use
 the supported pickle protocols and real NetworkX round trips as the oracle,
 alongside existing row-order, frozen-state, and private-storage regressions.
 
+Filtered, reverse, and conversion graph views persist as independent frozen
+concrete snapshots. Their reduction allocates and memoizes the concrete graph
+before serializing the original view's attributes and visible logical stores.
+Do not place a structural copy in reconstruction arguments: attributes can
+refer back to the original view, and dictionaries can also occur outside it
+in the same pickle. Keep those cycles and shared dictionaries intact without
+serializing filter functions or a hidden parent topology. Preserve visible
+node, neighbor, and parallel-key order, reciprocal attribute rows, and node
+and edge-key object identities. Reverse snapshots retain the same output
+class as their existing copy operation without rerunning its initializer.
+
 ## 44. Multigraph Edit Distance and Keyed Edit Scripts
 
 All four graph edit APIs accept `MultiGraph` and `MultiDiGraph`, including

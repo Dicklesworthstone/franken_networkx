@@ -806,7 +806,7 @@ def _graph_pickle_native_class(graph):
     raise TypeError("Expected a FrankenNetworkX graph")
 
 
-def _graph_pickle_stores(graph):
+def _graph_pickle_stores(graph, *, snapshot=False):
     """Expose logical storage without copying user attribute dictionaries.
 
     Native facades need materialization; assigned mappings already are the
@@ -817,7 +817,7 @@ def _graph_pickle_stores(graph):
     materialized = {}
 
     def mapping(source, depth):
-        if isinstance(source, dict):
+        if not snapshot and isinstance(source, dict):
             return source
         previous = materialized.get(id(source))
         if previous is not None:
@@ -828,7 +828,10 @@ def _graph_pickle_stores(graph):
             target[key] = mapping(value, depth - 1) if depth > 1 else value
         return target
 
-    assigned = _captured_private_overrides(graph)
+    # A synthetic view's private overrides are its logical mapping facades,
+    # not user-assigned persistent stores. Snapshot their visible contents so
+    # filter closures and hidden parent rows never enter the pickle.
+    assigned = {} if snapshot else _captured_private_overrides(graph)
     node_source = graph._node
     adj_source = graph._adj
     nodes = node_source if "_node" in assigned else mapping(node_source, 1)
@@ -852,6 +855,26 @@ def _graph_pickle_stores(graph):
                 (_PRIVATE_PRED_OVERRIDE, predecessors),
             )
         )
+    if snapshot and graph.is_multigraph():
+        # Filtered and conversion rows can manufacture a fresh key facade
+        # for each access. Restore the concrete graph's shared key dictionary
+        # at the two ends of the same edge, without merging unrelated pairs
+        # or distinct reciprocal attribute rows of an undirected conversion.
+        counterparts = predecessors if graph.is_directed() else adjacency
+        for node, row in adjacency.items():
+            for neighbor, keys in row.items():
+                opposite_row = counterparts.get(neighbor)
+                if opposite_row is None:
+                    continue
+                opposite = opposite_row.get(node)
+                if opposite is None or len(keys) != len(opposite):
+                    continue
+                if all(
+                    key is other_key and attrs is other_attrs
+                    for (key, attrs), (other_key, other_attrs)
+                    in zip(keys.items(), opposite.items())
+                ):
+                    opposite_row[node] = keys
     return stores
 
 
@@ -871,6 +894,36 @@ def _restore_graph_pickle_state(graph, state):
     vars(graph).update(state["instance"])
     for owner, name, value in state["slots"]:
         vars(owner)[name].__set__(graph, value)
+
+
+def _allocate_graph_pickle_snapshot(graph_class):
+    return graph_class.__new__(graph_class)
+
+
+def _graph_pickle_view_reduce(graph, graph_class):
+    """Persist a view after memoizing its independent concrete snapshot."""
+    # Read the native policy carrier directly. Attribute lookup on a view may
+    # materialize its topology; the base descriptor reads only its own state.
+    native_state = _graph_pickle_native_class(graph).__getstate__(graph)
+    state = {
+        "native": {
+            key: native_state[key]
+            for key in ("mode", "runtime_policy")
+            if key in native_state
+        },
+        "graph": graph.graph,
+        "stores": _graph_pickle_stores(graph, snapshot=True),
+        "instance": {},
+        "slots": [],
+        "frozen": bool(getattr(graph, "frozen", False)),
+    }
+    # The original view, rather than a temporary structural copy, is memoized
+    # before pickle walks this state. Backreferences and outer-container aliases
+    # then resolve to the same restored graph and attribute dictionaries.
+    return (
+        _allocate_graph_pickle_snapshot, (graph_class,), state,
+        None, None, _restore_graph_pickle_state,
+    )
 
 
 def _make_reduce_ex_preserving_frozen(raw_reduce_ex):

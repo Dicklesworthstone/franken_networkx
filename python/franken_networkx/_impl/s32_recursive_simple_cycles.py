@@ -1150,11 +1150,9 @@ class _ReverseDirectedViewBase:
         )
 
     def __reduce__(self):
-        # br-r37-c1-ndro1: pickled as a frozen canonical copy, as the filtered
-        # and conversion views are (networkx's unpickles as a frozen DiGraph
-        # with the reversed edges). The generic reduce rebuilt ``cls()`` over
-        # the view's EMPTY base.
-        return (_reconstruct_filtered_view_as_copy, (self.copy(),))
+        copy_factory = getattr(self._graph, "_copy_type", None)
+        graph_class = copy_factory() if callable(copy_factory) else self._graph.__class__
+        return _graph_pickle_view_reduce(self, graph_class)
 
     # br-r37-c1-rvfrz: same MRO mutability hole as br-r37-c1-6qm6r —
     # _ReverseDirectedView inherits from (_ReverseDirectedViewBase,

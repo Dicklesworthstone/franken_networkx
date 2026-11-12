@@ -823,20 +823,7 @@ class _ConversionGraphViewBase:
         return result
 
     def __reduce__(self):
-        # br-r37-c1-cgv-pkl: same defect class as br-r37-c1-{neb6c, fgv-pkl}.
-        # `_DIRECTED_CONVERSION_VIEW_TYPES` and
-        # `_UNDIRECTED_CONVERSION_VIEW_TYPES` create synthetic classes
-        # named "DiGraph" / "MultiDiGraph" / "Graph" / "MultiGraph"
-        # that share __qualname__ and __module__ with the public
-        # canonical classes but are distinct class objects. Pickle's
-        # qualname-based class lookup finds the canonical class, sees
-        # `lookup is not type(self)`, and crashes with
-        # PicklingError("not the same object as franken_networkx.X").
-        # Snapshot the conversion view as a real (canonical-class)
-        # graph copy at pickle time — restoration goes through the
-        # canonical class so type identity is preserved across the
-        # roundtrip.
-        return (_reconstruct_filtered_view_as_copy, (self.copy(),))
+        return _graph_pickle_view_reduce(self, self._copy_type())
 
     def __deepcopy__(self, memo):
         return _graph_deepcopy(self, memo, snapshot_class=self._copy_type())

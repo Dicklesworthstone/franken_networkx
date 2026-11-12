@@ -290,6 +290,179 @@ def test_pickle_node_and_multiedge_key_object_identity(name, protocol):
             assert next(iter(restored[restored_node][1])) is restored_key
 
 
+_PICKLE_VIEW_CASES = [
+    (name, kind)
+    for name in _CLASSES
+    for kind in ("subgraph", "edge_subgraph", "copy", "directed", "undirected", "nested")
+] + [(name, "reverse") for name in ("DiGraph", "MultiDiGraph")]
+
+
+def _pickle_snapshot_view(graph, kind):
+    if kind == "subgraph":
+        return graph.subgraph(list(graph)[:3])
+    if kind == "edge_subgraph":
+        return graph.edge_subgraph(list(graph.edges)[:2])
+    if kind == "copy":
+        return graph.copy(as_view=True)
+    if kind == "directed":
+        return graph.to_directed(as_view=True)
+    if kind == "undirected":
+        return graph.to_undirected(as_view=True)
+    if kind == "nested":
+        return graph.subgraph(list(graph)[:3]).to_directed(as_view=True).reverse(copy=False)
+    return graph.reverse(copy=False)
+
+
+def _pickle_view_layers(graph):
+    node = next(iter(graph))
+    edge = next(iter(graph.edges))
+    attrs = graph[edge[0]][edge[1]]
+    if graph.is_multigraph():
+        attrs = attrs[edge[2]]
+    return graph.graph, graph.nodes[node], attrs
+
+
+@pytest.mark.parametrize("name,kind", _PICKLE_VIEW_CASES)
+@pytest.mark.parametrize("protocol", _PROTOCOLS)
+def test_pickle_view_snapshot_preserves_recursive_attributes(name, kind, protocol):
+    graph = getattr(fnx, name)([(0, 1), (1, 2), (2, 0), (3, 3)])
+    view = _pickle_snapshot_view(graph, kind)
+    layers = _pickle_view_layers(view)
+    payload = []
+    for attrs in layers:
+        attrs.update(owner=view, payload=payload)
+        attrs["self"] = attrs
+        attrs["graph_data"], attrs["node_data"], attrs["edge_data"] = layers
+    # Read logical iteration order without an edge-count length hint, which
+    # may independently materialize a nested conversion view.
+    nodes, edges = list(view), [edge for edge in view.edges]
+
+    restored = _round_trip(view, protocol)
+    restored_layers = _pickle_view_layers(restored)
+    assert list(restored) == nodes
+    assert list(restored.edges) == edges
+    assert fnx.is_frozen(restored)
+    for attrs in restored_layers:
+        assert attrs["owner"] is restored
+        assert attrs["self"] is attrs
+        assert attrs["payload"] is restored.graph["payload"]
+        for label, expected in zip(("graph_data", "node_data", "edge_data"), restored_layers):
+            assert attrs[label] is expected
+    restored.graph["payload"].append("restored only")
+    assert payload == []
+    graph.add_node(99)
+    assert 99 not in restored
+    with pytest.raises(fnx.NetworkXError, match="Frozen graph"):
+        restored.add_node(100)
+
+
+@pytest.mark.parametrize("name,kind", _PICKLE_VIEW_CASES)
+@pytest.mark.parametrize("protocol", (2, pickle.HIGHEST_PROTOCOL))
+@pytest.mark.parametrize("view_first", (False, True))
+def test_pickle_view_snapshot_keeps_outer_dictionary_aliases(name, kind, protocol, view_first):
+    graph = getattr(fnx, name)([(0, 1), (1, 2), (2, 0)])
+    view = _pickle_snapshot_view(graph, kind)
+    layers = _pickle_view_layers(view)
+    objects = [view, *layers] if view_first else [*layers, view]
+    restored = _round_trip(objects, protocol)
+    copied = restored[0] if view_first else restored[-1]
+    copied_layers = restored[1:] if view_first else restored[:-1]
+    for actual, expected in zip(_pickle_view_layers(copied), copied_layers):
+        assert actual is expected
+    copied_layers[1]["color"] = "green"
+    copied_layers[2]["weight"] = 7
+    assert "color" not in layers[1]
+    assert "weight" not in layers[2]
+
+
+@pytest.mark.parametrize("name,kind", _PICKLE_VIEW_CASES)
+def test_pickle_view_snapshot_remaps_nodes_and_parallel_keys(name, kind):
+    graph = getattr(fnx, name)()
+    node, key = _PickleLabel(), _PickleLabel()
+    if graph.is_multigraph():
+        graph.add_edge(node, "target", key=key, label=key)
+    else:
+        graph.add_edge(node, "target", label=key)
+    view = _pickle_snapshot_view(graph, kind)
+    view.graph.update(owner=view, node=node, key=key)
+    view.nodes[node]["label"] = node
+    restored, copied_node, copied_key = _round_trip(
+        [view, node, key], pickle.HIGHEST_PROTOCOL
+    )
+    assert restored.graph["owner"] is restored
+    assert next(iter(restored)) is copied_node
+    assert restored.graph["node"] is copied_node
+    assert restored.nodes[copied_node]["label"] is copied_node
+    assert restored.graph["key"] is copied_key
+    edge = next(iter(restored.edges))
+    data = restored[edge[0]][edge[1]]
+    if restored.is_multigraph():
+        assert edge[2] is copied_key
+        data = data[copied_key]
+    assert data["label"] is copied_key
+
+
+@pytest.mark.parametrize("name,kind", [
+    (name, kind) for name, kind in _PICKLE_VIEW_CASES
+    if name in ("MultiGraph", "MultiDiGraph")
+])
+def test_pickle_view_snapshot_keeps_shared_parallel_key_dictionaries(name, kind):
+    graph = getattr(fnx, name)()
+    graph.add_edges_from([(0, 1, "first"), (0, 1, "second"), (1, 2, "last")])
+    restored = _round_trip(_pickle_snapshot_view(graph, kind), pickle.HIGHEST_PROTOCOL)
+    opposite = restored._pred if restored.is_directed() else restored._adj
+    for node, row in restored._adj.items():
+        for neighbor, keys in row.items():
+            assert keys is opposite[neighbor][node]
+
+
+@pytest.mark.parametrize("name", _CLASSES)
+def test_pickle_view_snapshot_excludes_hidden_unpicklable_data(name):
+    graph = getattr(fnx, name)([(0, 1), (1, 2)])
+    graph.nodes[2]["hidden"] = _Unpicklable()
+    view = fnx.subgraph_view(graph, filter_node=lambda node: node < 2)
+    restored = _round_trip(view, pickle.HIGHEST_PROTOCOL)
+    assert list(restored) == [0, 1]
+    assert list(restored.edges()) == [(0, 1)]
+    view.nodes[0]["visible"] = _Unpicklable()
+    with pytest.raises(ValueError, match="^cannot serialize payload$"):
+        pickle.dumps(view)
+
+
+@pytest.mark.parametrize("name", ("DiGraph", "MultiDiGraph"))
+def test_pickle_view_snapshot_keeps_distinct_reciprocal_attributes(name):
+    graph = getattr(fnx, name)()
+    graph.add_edge(0, 1, direction="forward", payload=[])
+    graph.add_edge(1, 0, direction="backward", payload=[])
+    view = graph.to_undirected(as_view=True)
+    view.graph["owner"] = view
+    restored = _round_trip(view, pickle.HIGHEST_PROTOCOL)
+    forward, backward = restored[0][1], restored[1][0]
+    if restored.is_multigraph():
+        forward, backward = forward[0], backward[0]
+    assert forward["direction"] == "forward"
+    assert backward["direction"] == "backward"
+    assert forward is not backward
+    assert forward["payload"] is not backward["payload"]
+    assert restored.graph["owner"] is restored
+
+
+@pytest.mark.parametrize("name", ("DiGraph", "MultiDiGraph"))
+def test_pickle_view_snapshot_reverse_preserves_parent_class_without_init(name):
+    cls = _SUBCLASSES[fnx.__name__, name]
+    graph = cls([])
+    graph.add_edge(0, 1)
+    view = graph.reverse(copy=False)
+    view.graph["owner"] = view
+    initializations = cls.initializations
+    restored = _round_trip(view, pickle.HIGHEST_PROTOCOL)
+    assert type(restored) is cls
+    assert cls.initializations == initializations
+    assert restored.graph["owner"] is restored
+    assert list(restored.edges()) == [(1, 0)]
+    assert fnx.is_frozen(restored)
+
+
 def _custom_frozen_override(*args, **kwargs):
     return "custom"
 
