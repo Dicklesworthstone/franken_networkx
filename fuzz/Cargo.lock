@@ -196,7 +196,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fnx-algorithms"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "fnx-cgse",
  "fnx-classes",
@@ -212,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-cgse"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "blake3",
  "hex",
@@ -222,7 +222,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-classes"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "fnx-runtime",
  "indexmap",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-convert"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "fnx-classes",
  "fnx-dispatch",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-dispatch"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "fnx-runtime",
  "serde",
@@ -264,7 +264,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-generators"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "fnx-classes",
  "fnx-runtime",
@@ -274,7 +274,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-python"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "arrayvec",
  "fnx-algorithms",
@@ -296,7 +296,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-readwrite"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "fnx-classes",
  "fnx-dispatch",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-runtime"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "rustc-hash",
  "serde",
@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-views"
-version = "0.2.3"
+version = "0.3.0"
 dependencies = [
  "fnx-classes",
 ]
@@ -516,9 +516,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3"
-version = "0.28.3"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91fd8e38a3b50ed1167fb981cd6fd60147e091784c427b8f7183a7ee32c31c12"
+checksum = "700d18fa267b73b9b521fd7e13580e2f446916f176cacee1ab63fcc8191f1655"
 dependencies = [
  "inventory",
  "libc",
@@ -531,19 +531,18 @@ dependencies = [
 
 [[package]]
 name = "pyo3-build-config"
-version = "0.28.3"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e368e7ddfdeb98c9bca7f8383be1648fd84ab466bf2bc015e94008db6d35611e"
+checksum = "7b3fc0c4d08f6bb10e71fe39dfb9e2f59c6eb6854e22ec8092f50c69a4499adb"
 dependencies = [
- "python3-dll-a",
  "target-lexicon",
 ]
 
 [[package]]
 name = "pyo3-ffi"
-version = "0.28.3"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f29e10af80b1f7ccaf7f69eace800a03ecd13e883acfacc1e5d0988605f651e"
+checksum = "dfc0b8e19df29aad7086cf977bb0c2a2f143e30567eb113e9cf72b62ca698330"
 dependencies = [
  "libc",
  "pyo3-build-config",
@@ -551,9 +550,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-log"
-version = "0.13.3"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26c2ec80932c5c3b2d4fbc578c9b56b2d4502098587edb8bef5b6bfcad43682e"
+checksum = "f64083bd3a16a353d9d62335808e8e13d0552d2a2b83fdb084496192dcfa9fcd"
 dependencies = [
  "arc-swap",
  "log",
@@ -562,9 +561,9 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros"
-version = "0.28.3"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df6e520eff47c45997d2fc7dd8214b25dd1310918bbb2642156ef66a67f29813"
+checksum = "6100e8a4b5eba53afaa5ed078364851a0b2499c553a44c31026b929049b49dc6"
 dependencies = [
  "proc-macro2",
  "pyo3-macros-backend",
@@ -574,31 +573,21 @@ dependencies = [
 
 [[package]]
 name = "pyo3-macros-backend"
-version = "0.28.3"
+version = "0.29.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4cdc218d835738f81c2338f822078af45b4afdf8b2e33cbb5916f108b813acb"
+checksum = "6143877a16e82b5a727b7127ff4cd86858a24a28d745d72f43e6f227c7b1bdb3"
 dependencies = [
  "heck",
  "proc-macro2",
- "pyo3-build-config",
  "quote",
  "syn",
 ]
 
 [[package]]
-name = "python3-dll-a"
-version = "0.2.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d80ba7540edb18890d444c5aa8e1f1f99b1bdf26fb26ae383135325f4a36042b"
-dependencies = [
- "cc",
-]
-
-[[package]]
 name = "quick-xml"
-version = "0.39.2"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958f21e8e7ceb5a1aa7fa87fab28e7c75976e0bfe7e23ff069e0a260f894067d"
+checksum = "e660451e55124f798a69a5af3f49ccfbefbd41910eefd25caf2393e1f3473ec1"
 dependencies = [
  "memchr",
 ]

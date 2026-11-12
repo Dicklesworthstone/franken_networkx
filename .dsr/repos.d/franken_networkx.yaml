@@ -28,59 +28,59 @@ target_triples:
   darwin/amd64: x86_64-apple-darwin
   darwin/arm64: aarch64-apple-darwin
   windows/amd64: x86_64-pc-windows-msvc
-artifact_naming: "franken-networkx-0.2.3-${os}-${arch}"
+artifact_naming: "franken-networkx-0.3.0-${os}-${arch}"
 archive_format:
   linux: tar.gz
   darwin: tar.gz
   windows: zip
 workspace_additional_artifacts:
   linux/amd64:
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl
-    - franken_networkx-0.2.3.tar.gz
-    - franken_networkx-0.2.3-release-evidence.tar.gz
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+    - franken_networkx-0.3.0-cp310-abi3-musllinux_1_2_x86_64.whl
+    - franken_networkx-0.3.0.tar.gz
+    - franken_networkx-0.3.0-release-evidence.tar.gz
   linux/arm64:
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
   darwin/amd64:
-    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl
+    - franken_networkx-0.3.0-cp310-abi3-macosx_10_12_x86_64.whl
   darwin/arm64:
-    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl
+    - franken_networkx-0.3.0-cp310-abi3-macosx_11_0_arm64.whl
   windows/amd64:
-    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl
+    - franken_networkx-0.3.0-cp310-abi3-win_amd64.whl
 release_contract:
   checksum_sidecar: sha256
   minisign_public_key_file: minisign.pub
   exact_primary_assets:
-    linux/amd64: franken-networkx-0.2.3-linux-amd64.tar.gz
-    linux/arm64: franken-networkx-0.2.3-linux-arm64.tar.gz
-    darwin/amd64: franken-networkx-0.2.3-darwin-amd64.tar.gz
-    darwin/arm64: franken-networkx-0.2.3-darwin-arm64.tar.gz
-    windows/amd64: franken-networkx-0.2.3-windows-amd64.zip
+    linux/amd64: franken-networkx-0.3.0-linux-amd64.tar.gz
+    linux/arm64: franken-networkx-0.3.0-linux-arm64.tar.gz
+    darwin/amd64: franken-networkx-0.3.0-darwin-amd64.tar.gz
+    darwin/arm64: franken-networkx-0.3.0-darwin-arm64.tar.gz
+    windows/amd64: franken-networkx-0.3.0-windows-amd64.zip
   exact_additional_assets:
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.sha256
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.minisig
-    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl
-    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl.sha256
-    - franken_networkx-0.2.3-cp310-abi3-musllinux_1_2_x86_64.whl.minisig
-    - franken_networkx-0.2.3.tar.gz
-    - franken_networkx-0.2.3.tar.gz.sha256
-    - franken_networkx-0.2.3.tar.gz.minisig
-    - franken_networkx-0.2.3-release-evidence.tar.gz
-    - franken_networkx-0.2.3-release-evidence.tar.gz.sha256
-    - franken_networkx-0.2.3-release-evidence.tar.gz.minisig
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.sha256
-    - franken_networkx-0.2.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.minisig
-    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl
-    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl.sha256
-    - franken_networkx-0.2.3-cp310-abi3-macosx_10_12_x86_64.whl.minisig
-    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl
-    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl.sha256
-    - franken_networkx-0.2.3-cp310-abi3-macosx_11_0_arm64.whl.minisig
-    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl
-    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl.sha256
-    - franken_networkx-0.2.3-cp310-abi3-win_amd64.whl.minisig
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.sha256
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.minisig
+    - franken_networkx-0.3.0-cp310-abi3-musllinux_1_2_x86_64.whl
+    - franken_networkx-0.3.0-cp310-abi3-musllinux_1_2_x86_64.whl.sha256
+    - franken_networkx-0.3.0-cp310-abi3-musllinux_1_2_x86_64.whl.minisig
+    - franken_networkx-0.3.0.tar.gz
+    - franken_networkx-0.3.0.tar.gz.sha256
+    - franken_networkx-0.3.0.tar.gz.minisig
+    - franken_networkx-0.3.0-release-evidence.tar.gz
+    - franken_networkx-0.3.0-release-evidence.tar.gz.sha256
+    - franken_networkx-0.3.0-release-evidence.tar.gz.minisig
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.sha256
+    - franken_networkx-0.3.0-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl.minisig
+    - franken_networkx-0.3.0-cp310-abi3-macosx_10_12_x86_64.whl
+    - franken_networkx-0.3.0-cp310-abi3-macosx_10_12_x86_64.whl.sha256
+    - franken_networkx-0.3.0-cp310-abi3-macosx_10_12_x86_64.whl.minisig
+    - franken_networkx-0.3.0-cp310-abi3-macosx_11_0_arm64.whl
+    - franken_networkx-0.3.0-cp310-abi3-macosx_11_0_arm64.whl.sha256
+    - franken_networkx-0.3.0-cp310-abi3-macosx_11_0_arm64.whl.minisig
+    - franken_networkx-0.3.0-cp310-abi3-win_amd64.whl
+    - franken_networkx-0.3.0-cp310-abi3-win_amd64.whl.sha256
+    - franken_networkx-0.3.0-cp310-abi3-win_amd64.whl.minisig
     - SHA256SUMS
     - SHA256SUMS.minisig
 host_paths:

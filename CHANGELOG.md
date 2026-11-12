@@ -8,6 +8,7 @@ Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
 
 | Version | Kind | Date | Summary |
 |---------|------|------|---------|
+| [`v0.3.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.3.0) | Release | 2026-11-12 | In-process flow, connectivity, centrality and community kernels with backend dispatch; CGSE witness coverage and node-key fixes; security updates for quick-xml, pyo3, tokio, ctutils and rustix |
 | [`v0.2.3`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.3) | Release | 2026-10-02 | Native fast paths across views, batches and shortest paths; review fixes for store-only node attrs and `read_gml`; first PyPI-bound build since 0.2.1 |
 | [`v0.2.2`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.2) | Release | 2026-09-11 | DSR authority release; dependency updates, security advisory resolutions, giant-component mean geodesic parity tests |
 | [`v0.2.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.1) | Release | 2026-09-08 | First PyPI publication release; 8-way CI parity matrix, multi-OS wheels, runtime numpy dependency |
@@ -224,6 +225,231 @@ MultiDiGraph `add_edge` auto-key `O(N²) → O(N)`, cached MultiGraph
   the Rust API and the Python binding run identical code and produce byte-identical numeric results.
   Determinism (block/Dantzig+Bland entering-edge search, first-minimiser leaving-edge tie-break matching
   Python's `min`) is preserved and covered by `fnx-algorithms` unit tests.
+
+---
+
+## 0.3.0 - 2026-11-12
+
+Workspace version: **0.3.0** (`Cargo.toml`); Python package `franken-networkx` **0.3.0**.
+Release and Quality Authority: DSR (Doodlestein Self-Releaser).
+
+Changes since `v0.2.3` include in-process implementations of maximum flow and cuts, simplex and capacity-scaling
+minimum-cost flow, connectivity and disjoint paths, PageRank, node and edge Brandes centrality, Louvain and greedy
+modularity communities, greedy coloring, structural-hole centrality, minimum cycle bases without SciPy, and the
+GraphML, GEXF and GML readers; streaming spanning trees and arborescences, cliques, shortest paths, BFS and DFS,
+VF2++ mappings, graph edit search and component decompositions; NetworkX backend dispatch for flow and
+connectivity, disjoint paths, minimum-cost solvers, community detection and Gomory-Hu; CGSE observation of the
+public path, SCC, BFS, bidirectional Dijkstra and multigraph shortest-path routes; and O(1) shared-storage
+`copy.copy(G)` and interned attribute keys; plus fixes that preserve live graph inputs and callbacks across
+shortest paths, flow, centrality, community detection and views, results when weights or path counts overflow,
+and object identity in `deepcopy` and `pickle`.
+
+Security advisories resolved (dependency bumps; each lockfile change is limited to that crate's entries):
+
+- **quick-xml 0.39.4 → 0.41.0** in `fnx-readwrite`, the only crate that depends on it. 0.41.0 is the first release
+  that fixes both
+  [RUSTSEC-2026-0194](https://rustsec.org/advisories/RUSTSEC-2026-0194.html) (quadratic run time when checking a
+  start tag for duplicate attribute names) and
+  [RUSTSEC-2026-0195](https://rustsec.org/advisories/RUSTSEC-2026-0195.html) (unbounded namespace-declaration
+  allocation in `NsReader`, a memory-exhaustion denial of service).
+  Commit: `fix(deps): bump quick-xml to 0.41.0 for RUSTSEC-2026-0194/0195`.
+- **tokio 1.53.1 → 1.53.3** for
+  [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html) (informational, unsound: `AsyncFd::new`
+  and related constructors violate I/O safety). 1.53.3 is the first fixed release in the 1.53 series. No fnx build
+  target compiles tokio: it is reachable only through `wasm-bindgen-futures` on emscripten with an unstable cfg,
+  under `fnx-runtime`'s optional `asupersync-integration` feature. The bump keeps the lockfile clear of the advisory.
+  Commit: `fix(deps): bump tokio to 1.53.3 for RUSTSEC-2026-0386`.
+- **ctutils 0.4.2 → 0.4.4** for
+  [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385.html) (non-constant-time mask generation and
+  `u128` comparisons). ctutils is compiled only with `fnx-runtime`'s optional `asupersync-integration` feature,
+  through the RustCrypto crates that asupersync uses. Default builds and the Python wheel do not include it.
+  Commit: `fix(deps): bump ctutils to 0.4.4 for RUSTSEC-2026-0385`.
+- **pyo3 0.28.3 → 0.29.3** in `fnx-python` and `fnx-conformance` for
+  [RUSTSEC-2026-0176](https://rustsec.org/advisories/RUSTSEC-2026-0176.html) (out-of-bounds read in `nth` /
+  `nth_back` for `PyList` and `PyTuple` iterators) and
+  [RUSTSEC-2026-0177](https://rustsec.org/advisories/RUSTSEC-2026-0177.html) (missing `Sync` bound on
+  `PyCFunction::new_closure` closures). 0.29.0 is the first release that fixes both. The lockfile change is limited
+  to the five pyo3 crates, and python3-dll-a drops out because pyo3 0.29 links Windows builds with raw-dylib.
+  pyo3-log stays at 0.13.4. Commit: `fix(deps): bump pyo3 to 0.29.3 (RUSTSEC-2026-0176, RUSTSEC-2026-0177)`.
+  - It needs one preparatory commit, `refactor(python): move downcast* calls to pyo3's cast* API`. pyo3 0.29.0
+    removed everything deprecated in 0.27 (PyO3/pyo3#6068), including the `PyAnyMethods::downcast` family
+    (deprecated in 0.27.0, PyO3/pyo3#5472). fnx-python's 333 `downcast`, `downcast_into` and `downcast_exact` calls
+    move to `cast`, `cast_into` and `cast_exact` (the `Bound::cast` family, added in 0.26.0, PyO3/pyo3#5289) with
+    the same arguments. That commit builds on pyo3 0.28.3 by itself.
+  - The same commit changes how fnx-python reports an instance dictionary to Python's garbage collector. Since
+    0.29.1, pyo3 traverses the instance dictionary of a `#[pyclass(dict)]` type itself (PyO3/pyo3#6206).
+    `InstanceDictGc::traverse` already reported that dictionary for both of its references, so with pyo3 0.29.3 it
+    would be visited three times for two references, and `graph -> view -> graph` reference cycles would never be
+    collected. `traverse` now reports only the reference it holds. No released version is affected: 0.2.3 uses
+    pyo3 0.28.3, which does not traverse that dictionary itself.
+- **rustix 1.1.5 → 1.1.6** for
+  [RUSTSEC-2026-0486](https://rustsec.org/advisories/RUSTSEC-2026-0486.html) (informational, unsound: given a
+  zero-length buffer, the xattr functions in `rustix::fs` mark bytes as initialized that the system call never
+  wrote). 1.1.6 is the first fixed release. No fnx default build or Python wheel compiles rustix: it is reached only
+  through dev-dependencies (`tempfile`, `proptest`), `fnx-algorithms`' optional `profile-pprof` feature and
+  `fnx-runtime`'s optional `asupersync-integration` feature. The lockfile change is limited to rustix's version and
+  checksum. Commit: `fix(deps): bump rustix to 1.1.6 (RUSTSEC-2026-0486)`.
+
+Added:
+- **Core decomposition through NetworkX backend dispatch.** `k_core`, `k_shell`, `k_crust`, `k_corona`, `k_truss` and
+  `onion_layers` now run in franken_networkx with `backend="franken_networkx"`, using its existing implementations.
+  For these and `core_number`, the backend raises NetworkX's own `NetworkXNotImplemented` errors for the graph types
+  NetworkX rejects. Commit: `feat: expose core decomposition through NetworkX backend dispatch`.
+- **Bipartite matching through NetworkX backend dispatch.** `hopcroft_karp_matching`, `eppstein_matching`,
+  `minimum_weight_full_matching` and `to_vertex_cover` now run in franken_networkx with
+  `backend="franken_networkx"`, and NetworkX's `maximum_matching` alias dispatches as `hopcroft_karp_matching`.
+  Partitions, matchings, weights and views are read from the original graph, also with a warm conversion cache.
+  Plain graphs with valid partitions keep the native Hopcroft-Karp kernel.
+  Commit: `feat: enable bipartite matching through NetworkX backend dispatch`.
+- **Global minimum cut through NetworkX backend dispatch.** `stoer_wagner` now runs in franken_networkx with
+  `backend="franken_networkx"`. It reads the original graph and copies each edge weight once, before validation and
+  heap construction. Cut values keep their exact numeric types and NetworkX's partition order, and directed graphs
+  and multigraphs raise NetworkX's own `NetworkXNotImplemented`. In all four graph classes, edge views over assigned
+  private adjacency now iterate its items directly when no nodes are given.
+  Commit: `feat: expose global minimum cut backend with live provider parity`.
+
+Fixed:
+- **The warm-cache cases of `test_distance_backend_recovers_asymmetric_source`.** Its 20 warm-conversion cases
+  primed the backend conversion cache with a weighted `average_shortest_path_length` call. That call reads the
+  original graph live since fe3f2e304, and under the rule from 0229f22c9 such live calls also discard cached
+  backend conversions, so the primer left the cache empty and all 20 failed at their precondition assert. The
+  primer is now a weighted `dijkstra_path_length`; the assertions and the cold cases are unchanged.
+  Commit: `test(python): prime the warm distance cache with dijkstra_path_length`.
+- **Exact floats key by value again.** A merge reconciliation after 0.2.3 (ab5c56996) dropped the
+  exact-float branch of the float key canonicalization, so an exact non-integral float and an equal `Decimal`,
+  `Fraction` or numpy key became two nodes (for example `1.5` and `Decimal('1.5')`). Exact non-NaN
+  floats key by their value again, like the `Decimal`, `Fraction` and numpy branch. NaN keeps object identity,
+  so distinct NaN objects stay distinct keys, as in a Python dict. 0.2.3 is not affected.
+  Commit: `fix(keys): exact floats canonicalize by value repr, NaN by identity (regressor ab5c56996)`.
+- **A complex with a zero imaginary part and a non-NaN real is the same key as that real** (node and edge keys),
+  as in Python and NetworkX 3.6.1. Before, `complex(1.5, 0)` and `1.5` were two
+  nodes. A non-zero imaginary part or a NaN real keeps object identity.
+  Commit: `fix(keys): a zero-imag non-NaN-real complex aliases its real (node + edge keys)`.
+- **A NaN float subclass keys by identity, not by its repr.** Every NaN value of a `float` subclass, including
+  `numpy.float64`, became the same key, so two distinct `np.float64('nan')` objects were one node. They are now
+  two nodes, as in NetworkX 3.6.1, because NaN hashes by identity. A non-NaN subclass value still keys by value.
+  Commit: `fix(keys): a NaN float subclass follows dict identity, not its repr`.
+- **CGSE witness collection covers more of the public traversal API.**
+  - `franken_networkx._fnx.cgse.witness_collection_enabled()` reports whether witness collection is armed on the
+    current thread. Commit: `fix(cgse): expose witness_collection_enabled to Python`.
+  - Whole-graph `dfs_edges(G)` (`source=None`) now emits a DFS witness, recording each tree edge as the
+    single-source kernel does. Before, it emitted none.
+    Commit: `fix(cgse): emit a witness for whole-graph dfs_edges (source=None)`.
+  - While collection is armed, unweighted `dijkstra_path` on a `MultiDiGraph`, and `bfs_edges`, `dfs_edges`,
+    `connected_components` and `strongly_connected_components`, run through the instrumented native kernels
+    wherever those give the same result, so they emit witnesses. They return the same results in the same order
+    as without collection, and the generators stay lazy: the kernel runs at the first `next()`. Calls without
+    collection take the same paths as before. Commits: `fix(cgse): route armed unweighted
+    dijkstra_path(MultiDiGraph) through the instrumented native kernel`, `fix(cgse): route armed bfs/dfs/cc/scc
+    through the instrumented native kernel when equivalent`.
+- **Structural generators keep reading the live graph, and local-bridge spans are exact.** `bridges` and
+  `local_bridges` start their work at the first `next()`, as in NetworkX 3.6.1, and `local_bridges` computes
+  spans with the shared weighted shortest-path search (exact number types, live weight callbacks). Through the
+  backend, `all_simple_edge_paths` is now supported, and it and the clique, triangle, cycle, antichain and bridge
+  generators read the original graph live, also with a warm conversion cache.
+  Commit: `fix: preserve live structural iterators and exact bridge spans`.
+- **Node-link data and graph metadata survive copies and exports.** The node-link readers and writers accept every
+  valid field scope and metadata alias and decode observable inputs incrementally, and graph metadata is carried
+  through every graph-constructor pair, shallow copies, multigraph minimum spanning trees and GML reading.
+  Commit: `fix: preserve node-link data through graph copies and exports`.
+- **`average_degree_connectivity` keeps exact weighted results and reads views live.** `Decimal`, `Fraction` and
+  large-integer weights, compensated sums, self-loops and directed predecessors follow NetworkX 3.6.1, scalar and
+  iterable `nodes` selectors are honoured, and graph views are read without being materialized. Through the
+  backend, custom numeric, graph and selector inputs stay live even with a warm conversion cache.
+  Commit: `fix: preserve exact weighted degree connectivity and live views`.
+- **`negative_edge_cycle` sees graph changes made by weight callbacks.** It now inserts its temporary source into
+  the caller's graph and runs the shared Bellman-Ford search over the live adjacency, so it finds a negative cycle
+  that a weight callback adds during the search. Before, it searched a detached copy of the adjacency and could miss
+  such a cycle. Only the temporary source is removed afterwards, also after an error, and frozen graphs and views
+  reject the insertion with NetworkX's exception.
+  Commit: `fix: detect negative cycles introduced by live weight callbacks`.
+
+Maintenance (no behaviour change):
+- `cargo fmt --all` and one clippy fix (a needless borrow in a test) in `fnx-algorithms`.
+  Commits: `style: cargo fmt --all`, `fix(clippy): drop needless borrow`.
+- The doc_pass00 gap matrix (`artifacts/docs/v1/doc_pass00_gap_matrix_v1.json` and `.md`) is regenerated for the
+  current planning docs. It still mapped an older `EXISTING_NETWORKX_STRUCTURE.md` (47 rows); that file now has
+  117 headings. Commit: `chore(docs): regenerate doc_pass00 gap matrix for the current planning docs`.
+
+Behaviour notes:
+- **GEXF attribute values follow XML attribute-value normalization** (quick-xml ≥ 0.40): a literal tab, LF or
+  CR LF inside an attribute value is read as one space, while character references such as `&#10;` are kept.
+  NetworkX gets the same values from `xml.etree.ElementTree`. The reader now calls
+  `decoded_and_normalized_value(XmlVersion::Implicit1_0, ...)`, which is what the deprecated
+  `decode_and_unescape_value` does in 0.41.0, and a new unit test pins the behaviour.
+- **Argument errors from the compiled module change shape** (pyo3 0.29): a wrong-type argument now raises the
+  underlying `TypeError`, and on Python 3.11 and newer the argument name is attached as an exception note. Before,
+  the `TypeError` message started with the argument name.
+- **Open question (issue `br-r37-c1-ilxjp` in `.beads/issues.jsonl`):** a weighted
+  `average_shortest_path_length(..., backend="franken_networkx")` on a filtered view reads the original graph live
+  and leaves no `franken_networkx` entry in `graph.__networkx_cache__["backends"]`. Whether it should still populate
+  the backend cache is left to the owner. The test fixed above no longer depends on it.
+- **`tests/python/test_import.py::test_import_version`** accepts only `0.2.0`, `0.2.1` and `0.2.2`, so it fails on
+  `0.3.0`. It already failed on 0.2.3 and is not changed in this release.
+- **`stoer_wagner` fails with an explicit `heap=None`:** `stoer_wagner(G, heap=None)` raises
+  `TypeError: 'NoneType' object is not callable`, so
+  `test_default_arg_sentinel_parity.py::test_stoer_wagner_explicit_none_heap_still_works` fails. It already fails
+  on the previous main, is counted in the list below and is not changed in this release.
+- **README.md's backend algorithm count is stale:** it says 315 backend algorithms at line 2403 and again at line
+  2760, while `len(_SUPPORTED_ALGORITHMS)` in `backend.py` is 362, so the README check in `scripts/verify_docs.py`
+  reports drift and `test_delegation_ledger.py::test_verify_docs_rejects_planted_readme_numeric_drift` fails. It
+  already fails on the previous main, is counted in the list below and is not changed in this release.
+- **Rust API changes** (why the crates take minor versions; see the Crates line): in `fnx-algorithms`,
+  `group_betweenness_centrality` returns `Option<f64>`; `shortest_path_length_matrix_indexed` and
+  `shortest_path_length_matrix_directed_indexed` return `Result<Vec<i32>, std::collections::TryReserveError>`; and
+  `betweenness_centrality_sampled_with_params`, `betweenness_centrality_sampled_directed_with_params`,
+  `betweenness_centrality_weighted_sampled`, `betweenness_centrality_weighted_sampled_directed`,
+  `edge_betweenness_centrality_with_params` and `edge_betweenness_centrality_directed_with_params` take a new
+  `rescale: BetweennessRescalePolicy` argument. In `fnx-durability`, `DecodeProof` has two more public fields
+  (`dropped_source_packets`, `loss_selection`) and `DurabilityError` two more variants (`InvalidMtu`,
+  `InvalidEncodingParameters`). `fnx-runtime`'s optional `asupersync-integration` feature accepts asupersync 0.6,
+  and its `asupersync_bridge::ArtifactSyncAdapter` takes an `asupersync::Cx`.
+- The broad Python parity run is not a clean full-suite result: the 207 tests listed below and test_import_version fail on this release.
+- **207 Python tests fail on this release and on the previous main** (tracked in `br-r37-c1-ra7sv` in
+  `.beads/issues.jsonl`, with the full list). They are in these files under `tests/python/`, with the number
+  of failing tests in each:
+  - `test_betweenness_k_sampled_conformance_guard.py` (72)
+  - `test_multisource_dijkstra_multidigraph_native.py` (27)
+  - `test_centrality_optional_dependencies.py` (12)
+  - `test_centrality.py` (9)
+  - `test_installed_package_matches_repo_shim.py` (9)
+  - `test_deepcopy_conformance_guard.py` (8)
+  - `test_live_view_filter_dispatch.py` (8)
+  - `test_gml_graphml_attribute_roundtrip.py` (6)
+  - `test_coverage_gaps.py` (5)
+  - `test_sbm_generators.py` (4)
+  - `test_simple_cycles_undirected_multigraph_parity.py` (4)
+  - `test_view_descriptor_parity.py` (4)
+  - `test_view_input_native_dispatch_parity.py` (4)
+  - `test_dijkstra_exact_weight_domain.py` (3)
+  - `test_edge_attr_dirty_sync.py` (3)
+  - `test_attribute_access_parity.py` (2)
+  - `test_backend_convert_from_nx_hints.py` (2)
+  - `test_backend_whole_job_benchmark_e2e.py` (2)
+  - `test_bounded_bfs_scales_with_reach.py` (2)
+  - `test_init_decomposition_e2e.py` (2)
+  - `test_review_mode_regression_lock.py` (2)
+  - `test_seeded_generator_rng_parity.py` (2)
+  - `test_set_result_iteration_order_parity.py` (2)
+  - `test_unused_raw_exposures.py` (2)
+  - `test_backend_dispatch_cycles.py` (1)
+  - `test_centrality_algorithms.py` (1)
+  - `test_constructor_absorb_conformance_guard.py` (1)
+  - `test_default_arg_sentinel_parity.py` (1)
+  - `test_delegation_ledger.py` (1)
+  - `test_has_cycle_native.py` (1)
+  - `test_io.py` (1)
+  - `test_lazy_attr_mirror_provenance_parity.py` (1)
+  - `test_measures.py` (1)
+  - `test_private_store_copy_parity.py` (1)
+  - `test_tail_closure_ranking_e2e.py` (1)
+
+Crates: `fnx-algorithms`, `fnx-classes`, `fnx-runtime` 0.4.0; `fnx-conformance`, `fnx-convert`, `fnx-dispatch`,
+`fnx-durability`, `fnx-generators`, `fnx-python`, `fnx-readwrite`, `fnx-views` 0.3.0; `fnx-cgse` 0.3.0 with no
+changes (it takes the workspace version). Each of the others takes a new minor version: `fnx-algorithms` and
+`fnx-durability` change public signatures, `fnx-runtime`'s optional `asupersync-integration` API uses asupersync
+types and now accepts asupersync 0.6, `fnx-python`'s public Rust API uses pyo3 0.29 types, and the rest expose
+types from crates that take a new minor version.
 
 ---
 
