@@ -127,6 +127,7 @@ _SEED_KIND_GENERATORS = [
     ("partial_duplication_graph", lambda lib, s: lib.partial_duplication_graph(10, 3, 0.5, 0.3, seed=s)),
     ("random_partition_graph", lambda lib, s: lib.random_partition_graph([4, 5], 0.5, 0.1, seed=s)),
     ("planted_partition_graph", lambda lib, s: lib.planted_partition_graph(2, 4, 0.5, 0.1, seed=s)),
+    ("gaussian_random_partition_graph", lambda lib, s: lib.gaussian_random_partition_graph(18, 4, 2, 0.5, 0.1, seed=s)),
     ("gnm_random_graph", lambda lib, s: lib.gnm_random_graph(8, 10, seed=s)),
 ]
 

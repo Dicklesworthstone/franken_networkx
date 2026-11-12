@@ -276,6 +276,12 @@ Operational invariants:
 - Dispatch backend resolution is driven by global backend registries and backend-priority policy (`legacy_networkx_code/networkx/networkx/utils/backends.py`), making route choice deterministic only when config and backend availability are held constant.
 - Traversal output order in shortest-path routines inherits adjacency iteration order (`legacy_networkx_code/networkx/networkx/algorithms/shortest_paths/unweighted.py`).
 - Random generator reproducibility depends on explicit seed handling via `@py_random_state` (`legacy_networkx_code/networkx/networkx/generators/random_graphs.py`).
+- Composite partition generators share the same advancing random stream across
+  normalization boundaries. Resolving an already resolved Python or NumPy seed
+  preserves its identity and consumes no draws. Legacy `RandomState` instances
+  retain their own draw algorithms; the NumPy global state and `Generator`
+  retain their established bit adapters. Successive stochastic-block, random,
+  planted, and Gaussian partition calls preserve graph order and full RNG state.
 - Read/write parsing is sequential and line-ordered (`legacy_networkx_code/networkx/networkx/readwrite/edgelist.py`, `adjlist.py`), so warning/failure order is part of observable behavior.
 
 ### 17.2 Rust-port hazard matrix and containment

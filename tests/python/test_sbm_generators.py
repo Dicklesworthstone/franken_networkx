@@ -101,10 +101,21 @@ def _sbm_seed(kind):
         return np.random.RandomState(4)
     if kind == "Generator":
         return np.random.default_rng(4)
+    if kind in ("RandomState adapter", "Generator adapter"):
+        from networkx.utils import create_py_random_state
+
+        raw = np.random.RandomState(4) if kind == "RandomState adapter" else np.random.default_rng(4)
+        return create_py_random_state(raw)
     if kind in ("float", "str"):
         return 1.5 if kind == "float" else "x"
     random.seed(7)
     np.random.seed(7)
+    if kind == "random module":
+        return random
+    if kind == "numpy.random module":
+        return np.random
+    if kind == "numpy global RandomState":
+        return np.random.mtrand._rand
     return None
 
 
@@ -145,3 +156,68 @@ def test_stochastic_block_model_takes_networkx_seeds(sizes, p, kwargs, kind):
         )
 
     assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "random.Random", "RandomState", "Generator", "global None", "random module",
+        "numpy.random module", "numpy global RandomState", "RandomState adapter",
+        "Generator adapter",
+    ],
+)
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("sparse", [False, True])
+def test_partition_pipeline_preserves_shared_rng_state(kind, directed, sparse):
+    """Composite generators reuse one stream across their normalization boundaries."""
+    import random
+
+    import networkx as nx
+    import numpy as np
+
+    def outcome(lib):
+        random.seed(7)
+        np.random.seed(7)
+        seed = _sbm_seed(kind)
+        graphs = []
+        for _ in range(2):
+            graphs.extend([
+                lib.stochastic_block_model(
+                    [3, 4], [[0.55, 0.2], [0.2, 0.7]], seed=seed,
+                    directed=directed, selfloops=True, sparse=sparse,
+                ),
+                lib.random_partition_graph([4, 5], 0.6, 0.2, seed=seed, directed=directed),
+                lib.planted_partition_graph(3, 4, 0.55, 0.15, seed=seed, directed=directed),
+                lib.gaussian_random_partition_graph(
+                    18, 4, 2, 0.55, 0.15, directed=directed, seed=seed,
+                ),
+            ])
+        fingerprints = [
+            (
+                graph.is_directed(), graph.is_multigraph(),
+                list(graph.nodes(data=True)), list(graph.edges(data=True)),
+                dict(graph.graph), [list(graph.adj[node]) for node in graph],
+            )
+            for graph in graphs
+        ]
+        raw = getattr(seed, "_rng", seed)
+        if isinstance(raw, random.Random):
+            instance_state = raw.getstate()
+        elif isinstance(raw, np.random.RandomState):
+            instance_state = raw.get_state()
+        elif isinstance(raw, np.random.Generator):
+            instance_state = raw.bit_generator.state
+        else:
+            instance_state = None
+        return fingerprints, instance_state, random.getstate(), np.random.get_state()
+
+    saved_python = random.getstate()
+    saved_numpy = np.random.get_state()
+    try:
+        actual = outcome(fnx)
+        expected = outcome(nx)
+    finally:
+        random.setstate(saved_python)
+        np.random.set_state(saved_numpy)
+    assert actual[0] == expected[0]
+    np.testing.assert_equal(actual[1:], expected[1:])
