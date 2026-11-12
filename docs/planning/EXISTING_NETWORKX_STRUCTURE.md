@@ -856,6 +856,20 @@ cancellation in the reference per-edge update order, so they retain owned
 iteration instead of being silently reassociated. Admission inspects plain
 values without calling user numeric conversion methods.
 
+Batched `katz_centrality_many` retains the ordered contract of repeated single
+queries. Consume query iterators between completed solves, stop at the first
+failure, and keep beta mappings, iteration parameters, exact arithmetic, and
+live graph providers on the original graph. A later invalid beta must not
+replace an earlier convergence failure. Literal weight keys, including `None`,
+follow the single-query lookup rule.
+
+Plain numeric lists or tuples on concrete graphs without observable reader or
+key protocols can share one sparse matrix and the existing block worker pool.
+NumPy and SciPy remain optional; unavailable matrix accelerators fall back to
+the ordered solver. `tests/python/test_centrality.py` covers both execution
+paths, query/provider mutation timing, exact results, optional dependencies,
+and shared matrix construction.
+
 
 ## 29. Lazy Shortest-Simple-Path Input Lifetime
 

@@ -443,3 +443,372 @@ def test_iterative_centrality_vectors_mutate_the_live_graph(fnx, nx, algorithm, 
     actual, actual_edges = run(fnx)
     assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
     assert actual_edges == expected_edges
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("number", [Decimal, Fraction])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_retains_exact_python_arithmetic(fnx, nx, graph_type, number, workers):
+    graphs = [getattr(module, graph_type)() for module in (fnx, nx)]
+    for graph in graphs:
+        for u, v in [(0, 1), (1, 2), (2, 0)]:
+            graph.add_edge(u, v)
+            graph[u][v]["weight"] = number("0.5")
+    betas = [{node: number(node + offset) for node in range(3)} for offset in (1, 2)]
+    kwargs = {"alpha": number("0.1"), "normalized": False, "weight": "weight"}
+    expected = [nx.katz_centrality(graphs[1], beta=beta, **kwargs) for beta in betas]
+    actual = fnx.katz_centrality_many(graphs[0], betas, workers=workers, **kwargs)
+    assert actual == expected
+    assert all(type(value) is number for vector in actual for value in vector.values())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_can_return_integral_scores(fnx, nx, graph_type, workers):
+    betas = [{0: 2, 1: 3}, {0: 4, 1: 5}]
+    kwargs = {"alpha": 0, "normalized": False}
+    expected = [
+        nx.katz_centrality(getattr(nx, graph_type)([(0, 1)]), beta=beta, **kwargs)
+        for beta in betas
+    ]
+    actual = fnx.katz_centrality_many(
+        getattr(fnx, graph_type)([(0, 1)]), betas, workers=workers, **kwargs
+    )
+    assert actual == expected
+    assert all(type(value) is int for vector in actual for value in vector.values())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, 0, ""])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_preserves_literal_weight_keys(fnx, nx, graph_type, weight, workers):
+    graphs = [getattr(module, graph_type)([(0, 1), (1, 2), (2, 0)]) for module in (fnx, nx)]
+    for graph in graphs:
+        for u, v in graph.edges():
+            graph[u][v][weight] = 3.0
+    betas = [1.0, {0: 1.0, 1: 2.0, 2: 3.0}]
+    kwargs = {"alpha": 0.05, "weight": weight, "tol": 1e-10}
+    expected = [nx.katz_centrality(graphs[1], beta=beta, **kwargs) for beta in betas]
+    actual = fnx.katz_centrality_many(graphs[0], betas, workers=workers, **kwargs)
+    for got, want in zip(actual, expected):
+        assert list(got) == list(want)
+        assert got == pytest.approx(want, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("provider", ["native", "networkx", "filtered", "reverse"])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_reads_beta_providers_in_query_order(fnx, nx, provider, workers):
+    def outcome(module, batched):
+        root = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        graph = root
+        if provider == "networkx":
+            root = graph = nx.DiGraph(root.edges())
+        elif provider == "filtered":
+            graph = module.subgraph_view(root, filter_node=lambda node: True)
+        elif provider == "reverse":
+            graph = root.reverse(copy=False)
+        events = []
+
+        class Beta(dict):
+            def __iter__(self):
+                events.append("beta")
+                root.add_edge(0, 2)
+                return super().__iter__()
+
+        betas = [1.0, Beta({0: 1.0, 1: 2.0, 2: 3.0}), 2.0]
+        kwargs = {"alpha": 0.05, "normalized": False, "tol": 1e-10}
+        if batched:
+            vectors = module.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+        else:
+            vectors = [module.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+        return vectors, list(graph.edges()), events
+
+    actual = outcome(fnx, True)
+    expected = outcome(nx, False)
+    assert actual[1:] == expected[1:]
+    for got, want in zip(actual[0], expected[0]):
+        assert got == pytest.approx(want, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("provider", ["native", "networkx", "filtered"])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_advances_beta_iterators_between_queries(fnx, nx, provider, workers):
+    def outcome(module, batched):
+        root = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        graph = root
+        if provider == "networkx":
+            root = graph = nx.DiGraph(root.edges())
+        elif provider == "filtered":
+            graph = module.subgraph_view(root, filter_node=lambda node: True)
+
+        def betas():
+            yield 1.0
+            root.add_edge(2, 3)
+            yield 2.0
+
+        kwargs = {"alpha": 0.05, "normalized": False, "tol": 1e-10}
+        if batched:
+            return module.katz_centrality_many(graph, betas(), workers=workers, **kwargs)
+        return [module.katz_centrality(graph, beta=beta, **kwargs) for beta in betas()]
+
+    actual = outcome(fnx, True)
+    expected = outcome(nx, False)
+    assert list(actual[0]) == list(expected[0]) == [0, 1, 2]
+    assert list(actual[1]) == list(expected[1]) == [0, 1, 2, 3]
+    for got, want in zip(actual, expected):
+        assert got == pytest.approx(want, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("max_iter", [0, 1])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_stops_consuming_queries_on_failure(fnx, nx, max_iter, workers):
+    def outcome(module, batched):
+        graph = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        events = []
+
+        def betas():
+            events.append("first")
+            yield 1.0
+            events.append("second")
+            yield 2.0
+
+        with pytest.raises(module.PowerIterationFailedConvergence) as error:
+            if batched:
+                module.katz_centrality_many(
+                    graph, betas(), workers=workers, max_iter=max_iter, tol=1e-30
+                )
+            else:
+                [module.katz_centrality(graph, beta=beta, max_iter=max_iter, tol=1e-30)
+                 for beta in betas()]
+        return events, str(error.value)
+
+    assert outcome(fnx, True) == outcome(nx, False)
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_preserves_first_query_failure(fnx, nx, workers):
+    graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+    with pytest.raises(nx.PowerIterationFailedConvergence):
+        fnx.katz_centrality_many(
+            graph, [1.0, {0: 1.0}], workers=workers, max_iter=1, tol=1e-30
+        )
+
+
+@pytest.mark.parametrize("missing", ["numpy", "scipy"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_katz_many_works_without_matrix_accelerators(fnx, nx, monkeypatch, missing, graph_type):
+    import builtins
+
+    graphs = [getattr(module, graph_type)([(0, 1), (1, 2), (2, 0)]) for module in (fnx, nx)]
+    betas = [1.0, {0: 1.0, 1: 2.0, 2: 3.0}]
+    kwargs = {"alpha": 0.05, "tol": 1e-10, "normalized": False}
+    expected = [nx.katz_centrality(graphs[1], beta=beta, **kwargs) for beta in betas]
+    original_import = builtins.__import__
+
+    def limited_import(name, *args, **kwargs):
+        if name == missing or name.startswith(missing + "."):
+            raise ModuleNotFoundError(f"No module named '{missing}'", name=missing)
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", limited_import)
+    actual = fnx.katz_centrality_many(graphs[0], betas, workers=2, **kwargs)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_plain_batches_share_one_matrix(fnx, nx, monkeypatch, workers):
+    edges = [(0, 1), (1, 2), (2, 0), (0, 2)]
+    betas = [1.0, {0: 1.0, 1: 2.0, 2: 3.0}]
+    kwargs = {"alpha": 0.05, "tol": 1e-10, "normalized": False}
+    expected = [nx.katz_centrality(nx.DiGraph(edges), beta=beta, **kwargs) for beta in betas]
+    original = fnx.to_scipy_sparse_array
+    calls = []
+
+    def matrix(*args, **kwargs):
+        calls.append(None)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, "to_scipy_sparse_array", matrix)
+    actual = fnx.katz_centrality_many(fnx.DiGraph(edges), betas, workers=workers, **kwargs)
+    assert len(calls) == 1
+    for got, want in zip(actual, expected):
+        assert got == pytest.approx(want, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_resolves_iteration_limits_per_query(fnx, nx, workers):
+    def outcome(module, batched):
+        graph = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        events = []
+
+        class Iterations:
+            calls = 0
+
+            def __index__(self):
+                self.calls += 1
+                events.append("index")
+                if self.calls == 1:
+                    graph.add_edge(0, 2)
+                else:
+                    graph.remove_edge(0, 2)
+                return 1000
+
+        class Beta(dict):
+            def __iter__(self):
+                events.append("beta")
+                return super().__iter__()
+
+        betas = [Beta({0: 1.0, 1: 2.0, 2: 3.0}) for _ in range(2)]
+        kwargs = {"max_iter": Iterations(), "alpha": 0.05, "normalized": False}
+        if batched:
+            result = module.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+        else:
+            result = [module.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+        return result, events, list(graph.edges())
+
+    assert outcome(fnx, True) == outcome(nx, False)
+
+
+@pytest.mark.parametrize("iterator", [False, True])
+def test_katz_many_empty_batch_does_not_resolve_iteration_limit(fnx, iterator):
+    class Iterations:
+        def __index__(self):
+            raise AssertionError("an empty batch has no iteration limit to consume")
+
+    betas = iter(()) if iterator else []
+    assert fnx.katz_centrality_many(fnx.Graph(), betas, max_iter=Iterations()) == []
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_does_not_reenter_query_iterator(fnx, nx, workers):
+    def outcome(module, batched):
+        graph = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        events = []
+
+        class Betas:
+            entered = False
+            position = 0
+
+            def __iter__(self):
+                assert not self.entered, "query iterator must not be entered twice"
+                self.entered = True
+                events.append("iter")
+                graph.add_edge(0, 2)
+                return self
+
+            def __next__(self):
+                events.append(self.position)
+                if self.position == 2:
+                    raise StopIteration
+                self.position += 1
+                return float(self.position)
+
+        kwargs = {"alpha": 0.05, "normalized": False}
+        if batched:
+            vectors = module.katz_centrality_many(graph, Betas(), workers=workers, **kwargs)
+        else:
+            vectors = [module.katz_centrality(graph, beta=beta, **kwargs) for beta in Betas()]
+        return vectors, events
+
+    actual, actual_events = outcome(fnx, True)
+    expected, expected_events = outcome(nx, False)
+    assert actual_events == expected_events
+    for got, want in zip(actual, expected):
+        assert got == pytest.approx(want, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_does_not_probe_assigned_edge_provider(fnx, workers):
+    def outcome(batched):
+        graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+        edges = graph.edges
+        events = []
+
+        def provider(*args, **kwargs):
+            events.append("edges")
+            graph[0][1]["weight"] = 1.0 + len(events) / 10
+            return edges(*args, **kwargs)
+
+        graph.edges = provider
+        betas = [1.0, {0: 1.0, 1: 2.0, 2: 3.0}]
+        kwargs = {"alpha": 0.05, "weight": "weight", "normalized": False}
+        if batched:
+            result = fnx.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+        else:
+            result = [fnx.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+        return result, events[:]
+
+    expected = outcome(False)
+    assert expected[1]
+    assert outcome(True) == expected
+
+
+@pytest.mark.parametrize("key_location", ["nodes", "beta"])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_does_not_probe_custom_keys(fnx, key_location, workers):
+    def outcome(batched):
+        events = []
+        armed = False
+
+        class Label(int):
+            def __new__(cls, value, tag):
+                result = int.__new__(cls, value)
+                result.tag = tag
+                return result
+
+            def __hash__(self):
+                if armed:
+                    events.append(("hash", self.tag, int(self)))
+                return int.__hash__(self)
+
+            def __eq__(self, other):
+                if armed:
+                    events.append(("eq", self.tag, int(self)))
+                return int.__eq__(self, other)
+
+        nodes = [Label(node, "node") for node in range(3)] if key_location == "nodes" else list(range(3))
+        graph = fnx.DiGraph([(nodes[0], nodes[1]), (nodes[1], nodes[2]), (nodes[2], nodes[0])])
+        betas = [1.0, 2.0] if key_location == "nodes" else [
+            {Label(node, f"beta{offset}"): float(node + offset) for node in range(3)}
+            for offset in (1, 2)
+        ]
+        armed = True
+        kwargs = {"alpha": 0.05, "normalized": False}
+        if batched:
+            result = fnx.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+        else:
+            result = [fnx.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+        return result, events[:]
+
+    expected = outcome(False)
+    assert expected[1]
+    assert outcome(True) == expected
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_katz_many_does_not_probe_observable_edge_keys(fnx, workers):
+    def outcome(batched):
+        graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+        events = []
+
+        class Key:
+            def __hash__(self):
+                return hash(None)
+
+            def __eq__(self, other):
+                events.append(other is None)
+                return self is other
+
+        graph[0][1][Key()] = 7
+        events.clear()
+        betas = [1.0, {0: 1.0, 1: 2.0, 2: 3.0}]
+        kwargs = {"alpha": 0.05, "normalized": False}
+        if batched:
+            result = fnx.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+        else:
+            result = [fnx.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+        return result, events[:]
+
+    expected = outcome(False)
+    assert expected[1]
+    assert outcome(True) == expected

@@ -305,6 +305,26 @@ def _katz_centrality_scipy(G, alpha, beta, max_iter, tol, nstart, normalized, we
     raise PowerIterationFailedConvergence(max_iter)
 
 
+def _katz_centrality_plain_parameters(alpha, beta, max_iter, tol, normalized):
+    """Whether Katz iteration can use reordered floating-point reductions."""
+    return (
+        type(max_iter) in (int, bool)
+        and max_iter > 0
+        and type(normalized) is bool
+        and _spectral_centrality_plain_value(alpha)
+        and _spectral_centrality_plain_value(tol)
+        # Mapping beta with integral alpha can keep every result integral.
+        and (type(alpha) is float or type(beta) is not dict)
+        and (
+            _spectral_centrality_plain_value(beta)
+            or (
+                type(beta) is dict
+                and all(_spectral_centrality_plain_value(v) for v in beta.values())
+            )
+        )
+    )
+
+
 def katz_centrality_many(
     G,
     betas,
@@ -322,10 +342,13 @@ def katz_centrality_many(
 
         [katz_centrality(G, beta=beta, ...) for beta in betas]
 
-    The graph is materialized as sparse adjacency once. Beta vectors are packed
-    into dense blocks, so each sparse traversal advances many independent power
-    iterations. Blocks share the immutable sparse representation and run on a
+    Ordinary concrete graphs and plain numeric beta lists share one sparse
+    adjacency matrix. Dense blocks advance independent power iterations on a
     persistent worker pool. Results retain the input order of ``betas``.
+    Graph views, exact numeric types, and callback-sensitive inputs use ordered
+    single-query execution. Query iterators advance between completed queries,
+    so their graph mutations and exceptions retain that sequential contract.
+    NumPy and SciPy accelerate eligible batches but remain optional.
 
     ``workers=None`` uses four workers when the batch has at least four queries.
     Sparse matrix multiplication is memory-bandwidth-bound, so callers can use
@@ -333,39 +356,104 @@ def katz_centrality_many(
     ``workers=1`` keeps block execution serial while still eliminating repeated
     graph materialization and per-query sparse scans.
     """
-    import concurrent.futures as _concurrent_futures
-
-    import numpy as _np
-
-    G = _coerce_arg_to_fnx_graph(G)
-    max_iter = _coerce_index_arg(max_iter, "max_iter")
-    queries = list(betas)
-    if not queries:
-        return []
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
-
-    if workers is None:
-        # Four workers were the wall-time optimum for this matvec family on the
-        # 64-core benchmark host. More workers competed for the same sparse
-        # arrays and slowed the complete batch despite higher CPU consumption.
-        worker_count = min(4, len(queries))
+    plain_queries = type(betas) in (list, tuple)
+    if plain_queries:
+        queries = betas
+        if not queries:
+            return []
     else:
-        worker_count = _coerce_index_arg(workers, "workers")
-        if worker_count < 1:
-            raise ValueError("workers must be greater than 0")
-        worker_count = min(worker_count, len(queries))
+        iterator = iter(betas)
+        try:
+            first = next(iterator)
+        except StopIteration:
+            return []
+
+        def _remaining_queries():
+            yield first
+            while True:
+                try:
+                    beta = next(iterator)
+                except StopIteration:
+                    return
+                yield beta
+
+        queries = _remaining_queries()
+
+    worker_limit = 4 if workers is None else _coerce_index_arg(workers, "workers")
+    if worker_limit < 1:
+        raise ValueError("workers must be greater than 0")
+
+    def _solve_queries():
+        return [
+            katz_centrality(
+                G, alpha=alpha, beta=beta, max_iter=max_iter, tol=tol,
+                normalized=normalized, weight=weight,
+            )
+            for beta in queries
+        ]
+
+    # Use static reader admission before any node/key set or edge-provider
+    # probes. Custom labels and beta keys can mutate the graph while hashed.
+    plain_keys = (str, int, float, bool, bytes, type(None))
+    if (
+        not plain_queries
+        or not _greedy_color_native_graph(G)
+        or any(type(node) not in plain_keys for node in G)
+        or any(
+            type(beta) is dict and any(type(node) not in plain_keys for node in beta)
+            for beta in queries
+        )
+    ):
+        return _solve_queries()
+
+    # Beta protocols and iterator callbacks must run between queries, on the
+    # caller's graph, rather than after one frozen matrix.
+    can_snapshot = all(
+        _katz_centrality_plain_parameters(alpha, beta, max_iter, tol, normalized)
+        for beta in queries
+    ) and _spectral_centrality_can_snapshot(G, None, weight)
+    if can_snapshot and weight is None:
+        # A non-builtin key may compare itself with None during the native
+        # presence probe. Inspect keys without hashing before sharing a graph
+        # snapshot across queries that can otherwise observe those callbacks.
+        for _, _, attrs in G.edges(data=True):
+            if not _attr_dict_has_plain_reads(attrs) or any(
+                type(key) not in plain_keys for key in attrs
+            ):
+                return _solve_queries()
+        has_none_key = (
+            _native_has_none_edge_attr_key(G)
+            if _native_has_none_edge_attr_key is not None else None
+        )
+        if has_none_key is None:
+            has_none_key = _graph_has_edge_attribute(G, None)
+        can_snapshot = not has_none_key
+    if not can_snapshot:
+        return _solve_queries()
 
     nodelist = list(G)
     N = len(nodelist)
     if N == 0:
         return [{} for _ in queries]
-    if isinstance(weight, str):
-        _sync_rust_edge_attrs(G, edge_only=True)
-
-    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
-    a_t = A.T.tocsr()
     node_set = set(nodelist)
+    if any(type(beta) is dict and set(beta) != node_set for beta in queries):
+        # A later invalid beta must not preempt an earlier query's failure.
+        return _solve_queries()
+
+    try:
+        import numpy as _np
+
+        if isinstance(weight, str):
+            _sync_rust_edge_attrs(G, edge_only=True)
+        A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
+        a_t = A.T.tocsr()
+    except (ImportError, ValueError, ZeroDivisionError, FloatingPointError, NetworkXError):
+        return _solve_queries()
+
+    import concurrent.futures as _concurrent_futures
+
+    # Four workers are the existing default for admitted numeric batches.
+    worker_count = min(worker_limit, len(queries))
 
     # Balance one block per worker for ordinary batches. Very large batches are
     # capped at 32 columns per block so temporary dense storage stays bounded;
@@ -522,21 +610,7 @@ def katz_centrality(
     # methods and arithmetic can mutate the same rows this iteration reads.
     # The sparse solver is reserved for complete plain nonnegative vectors.
     can_snapshot = (
-        type(max_iter) in (int, bool)
-        and max_iter > 0
-        and type(normalized) is bool
-        and _spectral_centrality_plain_value(alpha)
-        and _spectral_centrality_plain_value(tol)
-        # Integer alpha with a beta mapping can keep the entire iteration
-        # integral. A scalar beta is explicitly converted to float by Katz.
-        and (type(alpha) is float or type(beta) is not dict)
-        and (
-            _spectral_centrality_plain_value(beta)
-            or (
-                type(beta) is dict
-                and all(_spectral_centrality_plain_value(v) for v in beta.values())
-            )
-        )
+        _katz_centrality_plain_parameters(alpha, beta, max_iter, tol, normalized)
         and _spectral_centrality_can_snapshot(G, nstart, weight)
     )
     if can_snapshot and weight is None:
