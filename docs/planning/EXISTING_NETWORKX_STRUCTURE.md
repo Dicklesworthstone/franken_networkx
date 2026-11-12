@@ -1361,6 +1361,20 @@ row-object aliasing or inconsistent half-edge storage parity.
 
 ## 43. Graph Pickle Persistence and Object Identity
 
+Shallow copying a graph view creates a distinct live wrapper of the same
+view class. It shares the source view's graph, node, adjacency, edge-key and
+attribute mappings, filter predicates, cached public views, and user attribute
+values. Parent topology changes and mutable filter state remain visible through
+both wrappers. The instance dictionary itself and native dispatch bookkeeping
+belong to the new wrapper; replacing an instance attribute must not replace it
+on the original view. Preserve subclass slots and frozen state without rerunning
+initialization, visiting graph rows, or invoking filter predicates. This applies
+to filtered, reverse and conversion views, including nested combinations.
+Inherited edge-data lookup reads the view's logical adjacency: filtering a
+reverse view does not reverse endpoints a second time or reveal hidden edges.
+`view.copy()` and deep-copy/pickle snapshots retain their separate independent
+graph contracts.
+
 A pickle round trip allocates and memoizes each graph before restoring its
 contents. Graph, node, edge, and instance attributes may refer back to that
 graph, to their own dictionaries, or to other attribute layers. Those cycles

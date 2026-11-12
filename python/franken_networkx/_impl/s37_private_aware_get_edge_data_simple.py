@@ -703,19 +703,73 @@ _RAW_GRAPH_SHALLOWCOPY = {
 }
 
 
+def _graph_view_shallowcopy(self):
+    """Copy a view's wrapper while retaining its live, shared Python stores."""
+    native_class = _graph_pickle_native_class(self)
+    # A view's no-argument __new__ deliberately returns an empty concrete
+    # graph. Allocate through its native base to retain the synthetic class
+    # without rerunning a view or user-subclass initializer.
+    result = native_class.__new__(type(self))
+    native_state = native_class.__getstate__(self)
+    native_class.__setstate__(
+        result,
+        {
+            key: native_state[key]
+            for key in ("mode", "runtime_policy")
+            if key in native_state
+        },
+    )
+    storage = vars(result)
+    result._fnx_register_gc_dict(storage)
+    storage.update(vars(self))
+
+    # Public cached views and user values are shared, as in Python's default
+    # shallow copy. Internal registries and installed method bindings belong
+    # to this instance, so later descriptor resets cannot affect the source.
+    cached = storage.get(_DESCRIPTOR_CACHED_VIEWS)
+    if cached is not None:
+        storage[_DESCRIPTOR_CACHED_VIEWS] = set(cached)
+    shadows = storage.pop(_PRIVATE_NODE_METHOD_SHADOWS, {})
+    storage.pop(_PRIVATE_SHADOW_STATE, None)
+    for name, bound in shadows.items():
+        if storage.get(name) is bound:
+            storage.pop(name)
+    for name, marker in (
+        (_PRIVATE_NODE_OVERRIDE, "_fnx_set_private_node_override"),
+        (_PRIVATE_ADJ_OVERRIDE, "_fnx_set_private_adj_override"),
+        (_PRIVATE_SUCC_OVERRIDE, "_fnx_set_private_dir_override"),
+        (_PRIVATE_PRED_OVERRIDE, "_fnx_set_private_dir_override"),
+    ):
+        if name in storage:
+            getattr(result, marker)()
+    _install_private_method_shadows(result, storage)
+
+    for cls in type(self).__mro__:
+        slots = vars(cls).get("__slots__", ())
+        if isinstance(slots, str):
+            slots = (slots,)
+        for name in slots:
+            if name in ("__dict__", "__weakref__"):
+                continue
+            class_name = cls.__name__.lstrip("_")
+            if class_name and name.startswith("__") and not name.endswith("__"):
+                name = f"_{class_name}{name}"
+            descriptor = vars(cls)[name]
+            try:
+                value = descriptor.__get__(self, type(self))
+            except AttributeError:
+                continue
+            descriptor.__set__(result, value)
+    return result
+
+
 def _graph_shallowcopy(self):
     # br-r37-c1-epic-storage-architecture-yr2oc.3: copy.copy(G) is O(1) and shares
     # underlying storage with G, matching NetworkX's copy.copy(G) semantics.
     if isinstance(
         self, (_FilteredGraphView, _ConversionGraphViewBase, _ReverseDirectedViewBase)
     ):
-        result = self.copy()
-        vars(result)[_GRAPH_ATTR_OVERRIDE] = self.graph
-        result._fnx_register_gc_dict(vars(result))
-        _reapply_private_overrides(result, _captured_private_overrides(self))
-        if getattr(self, "frozen", False):
-            freeze(result)
-        return result
+        return _graph_view_shallowcopy(self)
 
     cls = type(self)
     result = cls.__new__(cls)

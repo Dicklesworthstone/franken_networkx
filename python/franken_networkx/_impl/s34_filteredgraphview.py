@@ -1163,18 +1163,7 @@ class _FilteredGraphView:
         return _graph_pickle_view_reduce(self, self._copy_type())
 
     def __copy__(self):
-        # br-r37-c1-fgvcopy: nx's ``copy.copy(G.subgraph(...))``
-        # returns a frozen Graph with the same content. fnx
-        # inherited ``Graph.__copy__`` (= ``_graph_shallowcopy``)
-        # which does ``type(self)()`` — fails for filtered-view
-        # synthetics that require a graph argument.  Materialise via
-        # ``self.copy()`` (canonical Graph) and freeze for nx parity.
-        result = self.copy()
-        try:
-            from networkx import freeze as _nx_freeze
-            return _nx_freeze(result)
-        except Exception:
-            return result
+        return _graph_view_shallowcopy(self)
 
     def __deepcopy__(self, memo):
         return _graph_deepcopy(self, memo, snapshot_class=self._copy_type())

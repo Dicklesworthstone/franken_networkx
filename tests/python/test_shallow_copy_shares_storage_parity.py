@@ -124,3 +124,229 @@ def test_shallow_copy_bidirectional_mutations_and_private_dict_identity(cls_name
     assert fg.has_edge("b", "from_copy") == ng.has_edge("b", "from_copy") is True
     assert dict(fg.degree()) == dict(ng.degree())
 
+
+VIEW_CASES = [
+    (cls_name, kind)
+    for cls_name in CLASSES
+    for kind in (
+        "filtered", "subgraph", "edge_subgraph", "generic", "directed",
+        "undirected", "nested", "reverse",
+    )
+    if kind != "reverse" or cls_name in ("DiGraph", "MultiDiGraph")
+]
+
+
+def _live_view(module, cls_name, kind):
+    graph = getattr(module, cls_name)()
+    graph.graph["label"] = "original"
+    graph.add_nodes_from((node, {"value": node}) for node in range(5))
+    if graph.is_multigraph():
+        graph.add_edges_from([
+            (0, 1, "first", {"weight": 2}),
+            (0, 1, "second", {"weight": 3}),
+            (1, 2, "first", {"weight": 4}),
+            (2, 3, "first", {"weight": 5}),
+        ])
+    else:
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 4), (2, 3, 5)])
+    visible = set(range(7))
+    blocked = set()
+    calls = []
+
+    def node_ok(node):
+        calls.append(("node", node))
+        return node in visible
+
+    def edge_ok(u, v, *key):
+        calls.append(("edge", u, v, *key))
+        return (u, v) not in blocked
+
+    if kind == "filtered":
+        view = module.subgraph_view(graph, filter_node=node_ok, filter_edge=edge_ok)
+    elif kind == "subgraph":
+        view = graph.subgraph(range(5))
+    elif kind == "edge_subgraph":
+        edges = [(0, 1, "first"), (1, 2, "first")] if graph.is_multigraph() else [(0, 1), (1, 2)]
+        view = graph.edge_subgraph(edges)
+    elif kind == "generic":
+        view = graph.copy(as_view=True)
+    elif kind == "directed":
+        view = graph.to_directed(as_view=True)
+    elif kind == "undirected":
+        view = graph.to_undirected(as_view=True)
+    elif kind == "nested":
+        parent = graph.to_directed(as_view=True).reverse(copy=False)
+        view = module.subgraph_view(parent, filter_node=node_ok, filter_edge=edge_ok)
+    else:
+        view = graph.reverse(copy=False)
+    return graph, view, visible, blocked, calls
+
+
+def _view_state(graph):
+    options = {"keys": True} if graph.is_multigraph() else {}
+    return (
+        dict(graph.graph), list(graph.nodes(data=True)),
+        list(graph.edges(data=True, **options)),
+        [(node, list(graph.adj[node])) for node in graph],
+        list(graph.degree()),
+    )
+
+
+@pytest.mark.parametrize("cls_name,kind", VIEW_CASES)
+def test_shallow_view_copy_keeps_live_topology_and_attribute_identity(cls_name, kind):
+    def observe(module):
+        graph, view, visible, blocked, _ = _live_view(module, cls_name, kind)
+        # Warm public caches before copying: a shallow copy shares their values.
+        _view_state(view)
+        duplicate = copymod.copy(view)
+        assert duplicate is not view
+        assert type(duplicate) is type(view)
+        assert vars(duplicate) is not vars(view)
+        assert duplicate.graph is view.graph
+        assert duplicate.nodes[1] is view.nodes[1]
+        assert module.is_frozen(duplicate)
+        with pytest.raises(module.NetworkXError):
+            duplicate.add_node("forbidden")
+
+        snapshots = []
+        for phase in range(4):
+            if phase == 0:
+                graph.graph["label"] = "changed"
+                graph.nodes[1]["value"] = 100
+                edge = next(iter(view.edges))
+                attrs = view.get_edge_data(*edge)
+                assert duplicate.get_edge_data(*edge) is attrs
+                attrs["through_view"] = True
+            elif phase == 1:
+                graph.add_edge(0, 2, weight=8)
+                graph.add_edge(2, 6, weight=9)
+                if graph.is_multigraph():
+                    graph.remove_edge(0, 1, "first")
+                else:
+                    graph.remove_edge(0, 1)
+            elif phase == 2:
+                visible.remove(2)
+                blocked.add((0, 1))
+            else:
+                graph.clear_edges()
+                graph.add_edge(1, 2, weight=11)
+                visible.add(2)
+                blocked.clear()
+            assert _view_state(duplicate) == _view_state(view)
+            snapshots.append(_view_state(duplicate))
+        return snapshots
+
+    assert observe(fnx) == observe(nx)
+
+
+@pytest.mark.parametrize("cls_name,kind", VIEW_CASES)
+def test_shallow_view_copy_does_not_read_filters_or_copy_user_state(cls_name, kind):
+    def observe(module):
+        _, view, _, _, calls = _live_view(module, cls_name, kind)
+        shared = []
+        view.extra = shared
+        view.self_reference = view
+        calls.clear()
+        duplicate = copymod.copy(view)
+        assert calls == []
+        assert duplicate.extra is shared
+        assert duplicate.self_reference is view
+        duplicate.extra.append("shared")
+        duplicate.extra = ["replacement"]
+        duplicate.only_on_copy = True
+        assert view.extra is shared
+        assert not hasattr(view, "only_on_copy")
+        return shared, duplicate.extra
+
+    assert observe(fnx) == observe(nx)
+
+
+@pytest.mark.parametrize("cls_name,kind", VIEW_CASES)
+def test_shallow_view_copy_remains_live_when_initially_empty(cls_name, kind):
+    def observe(module):
+        graph, view, _, _, _ = _live_view(module, cls_name, kind)
+        graph.remove_nodes_from(list(graph))
+        duplicate = copymod.copy(view)
+        assert not duplicate
+        assert type(duplicate) is type(view)
+        graph.add_edge(0, 1, weight=3)
+        assert _view_state(duplicate) == _view_state(view)
+        return _view_state(duplicate)
+
+    assert observe(fnx) == observe(nx)
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_shallow_view_copy_preserves_subclass_slots_without_initialization(cls_name):
+    def observe(module):
+        calls = []
+
+        class CustomGraph(getattr(module, cls_name)):
+            __slots__ = ("shared_slot", "__private_slot", "unset_slot")
+
+            def __init__(self, required="default"):
+                calls.append(required)
+                super().__init__()
+
+            def set_private(self, value):
+                self.__private_slot = value
+
+            def get_private(self):
+                return self.__private_slot
+
+        graph = CustomGraph()
+        graph.add_edge(0, 1)
+        view = graph.subgraph([0, 1])
+        shared = []
+        view.shared_slot = shared
+        view.set_private(shared)
+
+        def no_init(self, *args, **kwargs):
+            raise AssertionError("shallow copying reran subclass initialization")
+
+        CustomGraph.__init__ = no_init
+        duplicate = copymod.copy(view)
+        assert type(duplicate) is type(view)
+        assert duplicate.shared_slot is shared
+        assert duplicate.get_private() is shared
+        with pytest.raises(AttributeError):
+            vars(CustomGraph)["unset_slot"].__get__(duplicate, type(duplicate))
+        duplicate.shared_slot = ["replacement"]
+        assert view.shared_slot is shared
+        graph.add_edge(0, 0)
+        assert _view_state(duplicate) == _view_state(view)
+        return list(duplicate.edges)
+
+    assert observe(fnx) == observe(nx)
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copied", [False, True])
+def test_filtered_reverse_edge_lookup_keeps_orientation_and_filters(cls_name, copied):
+    def observe(module):
+        graph = getattr(module, cls_name)()
+        graph.add_edges_from([
+            (0, 1, {"weight": 2}), (1, 0, {"weight": 7}), (1, 2, {"weight": 11}),
+        ])
+        hidden = set()
+        view = module.subgraph_view(
+            graph.reverse(copy=False),
+            filter_edge=lambda u, v, *key: (u, v) not in hidden,
+        )
+        if copied:
+            view = copymod.copy(view)
+        results = []
+        for blocked in ((), ((1, 0),), ((1, 0), (2, 1))):
+            hidden.update(blocked)
+            for u, v in ((0, 1), (1, 0), (2, 1), (1, 2), (9, 0)):
+                if graph.is_multigraph():
+                    for key in (None, 0, "absent"):
+                        value = view.get_edge_data(u, v, key, "missing")
+                        results.append(dict(value) if value != "missing" else value)
+                else:
+                    value = view.get_edge_data(u, v, "missing")
+                    results.append(dict(value) if value != "missing" else value)
+        return results
+
+    assert observe(fnx) == observe(nx)
+

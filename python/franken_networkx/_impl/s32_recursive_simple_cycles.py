@@ -1051,20 +1051,7 @@ class _ReverseDirectedViewBase:
         return ((node, _ReverseNeighborMap(self, node)) for node in self._graph)
 
     def __copy__(self):
-        # br-r37-c1-revvcopy-outer: nx's ``copy.copy(DG.reverse(copy=
-        # False))`` returns a frozen DiGraph with the reversed edges.
-        # fnx inherited Graph.__copy__ (= ``_graph_shallowcopy``)
-        # which does ``type(self)()`` — fails for the
-        # ``_ReverseDirectedView``/``_ReverseMultiDirectedView``
-        # bases that require a graph argument.  Materialise via the
-        # existing ``copy()`` method (canonical DiGraph with reversed
-        # edges) and freeze for nx parity.
-        result = self.copy()
-        try:
-            from networkx import freeze as _nx_freeze
-            return _nx_freeze(result)
-        except Exception:
-            return result
+        return _graph_view_shallowcopy(self)
 
     def __deepcopy__(self, memo):
         copy_factory = getattr(self._graph, "_copy_type", None)
@@ -1113,7 +1100,11 @@ class _ReverseDirectedViewBase:
                 key = args[0]
             if len(args) == 2:
                 default = args[1]
-            return self._graph.get_edge_data(v, u, key, default)
+            try:
+                keys = self._adj[u][v]
+                return keys if key is None else keys[key]
+            except KeyError:
+                return default
 
         if "key" in kwargs:
             raise TypeError("get_edge_data() got an unexpected keyword argument 'key'")
@@ -1127,7 +1118,13 @@ class _ReverseDirectedViewBase:
             )
         if args:
             default = args[0]
-        return self._graph.get_edge_data(v, u, default)
+        # A filtered view can inherit this method from its reversed parent.
+        # Its logical adjacency already has the right orientation and filters;
+        # reversing parent endpoints again reads a different (or hidden) edge.
+        try:
+            return self._adj[u][v]
+        except KeyError:
+            return default
 
     def neighbors(self, node):
         return self._graph.predecessors(node)
