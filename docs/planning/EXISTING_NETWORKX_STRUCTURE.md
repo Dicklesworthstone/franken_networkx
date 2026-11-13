@@ -1485,9 +1485,14 @@ that component is complete. Requesting a prefix does not enumerate all later
 components or prepare their edges. Connected and weak components are emitted
 in graph node order; weak connectivity follows both directed adjacency rows.
 Strong components follow ordered depth-first search and emit a completed
-strong component before returning to its predecessors. An iterative low-link
-search supports long chains without Python recursion. No iterator wraps an
-eager native list of every component.
+strong component before returning to its predecessors. Each member set starts
+with its DFS root and inserts the other members in reverse DFS completion
+order. Reverse discovery order is not equivalent: colliding node hashes can
+change set iteration, subsequent cycle pivots and attracting-component output.
+A separate pending-completion stack preserves this contract in linear space
+and O(V + E) traversal time. An iterative low-link search supports long chains
+without Python recursion. No iterator wraps an eager native list of every
+component.
 
 Undirected biconnected decomposition follows depth-first discovery and returns
 edge pairs in traversal orientation and order. A bridge forms a two-node

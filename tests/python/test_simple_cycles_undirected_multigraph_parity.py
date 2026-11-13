@@ -152,6 +152,32 @@ def _cycles_for_input_route(graph, route, length_bound=None):
     return fnx.simple_cycles(graph, length_bound=length_bound)
 
 
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["networkx-input", "native-input", "backend"])
+@pytest.mark.parametrize("length_bound", [None, 3])
+@pytest.mark.parametrize("view_kind", ["graph", "subgraph"])
+def test_directed_cycles_keep_reference_component_pivots(
+    cls_name, route, length_bound, view_kind
+):
+    # The seed-26 regression in br-r37-c1-ra7sv: {0, 8} compares equal in
+    # either construction order, but its first member selects [0, 8] or [8, 0].
+    # Keep the other SCC and self-loop so emission order is checked as well.
+    actual_lib = fnx if route == "native-input" else nx
+    actual, expected = getattr(actual_lib, cls_name)(), getattr(nx, cls_name)()
+    for graph in (actual, expected):
+        graph.add_nodes_from(range(9))
+        graph.add_edges_from([
+            (0, 8), (0, 0), (2, 7), (2, 6), (2, 3),
+            (3, 6), (3, 0), (3, 2), (5, 3), (7, 6), (8, 0),
+        ])
+    if view_kind == "subgraph":
+        actual = actual.subgraph(list(actual))
+        expected = expected.subgraph(list(expected))
+    want = list(nx.simple_cycles(expected, length_bound=length_bound))
+    assert [0, 8] in want
+    assert list(_cycles_for_input_route(actual, route, length_bound)) == want
+
+
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("route", ["networkx-input", "native-input", "backend"])
 @pytest.mark.parametrize("length_bound", [None, 3])

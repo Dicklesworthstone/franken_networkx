@@ -6,11 +6,14 @@ That heuristic only matched nx for small symmetric inputs; on multi-
 component DiGraphs where Rust's DFS start node differs from nx's, the
 flipped order disagreed with nx's Tarjan-discovery contract.
 
-Drop-in code that iterates SCCs in nx's order broke. Fix delegates
-``strongly_connected_components`` to nx for parity.
+The owned iterative search must preserve both component emission order and
+the iteration order of each member set. The latter also selects cycle pivots
+and remains observable when integer node hashes collide (br-r37-c1-ra7sv).
 """
 
 from __future__ import annotations
+
+import random
 
 import pytest
 
@@ -123,3 +126,85 @@ def test_isolated_nodes_each_their_own_component():
     f = list(fnx.strongly_connected_components(g))
     n_ = list(nx.strongly_connected_components(gx))
     assert f == n_
+
+
+def _scc_for_input_route(graph, route):
+    if route == "backend":
+        return nx.strongly_connected_components(graph, backend="franken_networkx")
+    return fnx.strongly_connected_components(graph)
+
+
+@needs_nx
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input", "backend"])
+@pytest.mark.parametrize("view_kind", ["graph", "subgraph", "filter"])
+def test_member_sets_follow_root_then_completed_branch_order(cls_name, route, view_kind):
+    actual_lib = fnx if route == "native-input" else nx
+    actual, expected = getattr(actual_lib, cls_name)(), getattr(nx, cls_name)()
+    for graph in (actual, expected):
+        graph.add_nodes_from([0, 1024, 2048, 3072, 8192, 8200, 9999])
+        graph.add_edges_from([
+            (0, 1024), (1024, 2048), (2048, 0),
+            (1024, 3072), (3072, 0),
+            (0, 8192), (8192, 8200), (8200, 8192),
+        ])
+
+    def view(lib, graph):
+        if view_kind == "subgraph":
+            return graph.subgraph(list(graph))
+        if view_kind == "filter":
+            return lib.subgraph_view(graph, filter_node=lambda node: True)
+        return graph
+
+    want = [list(component) for component in nx.strongly_connected_components(
+        view(nx, expected)
+    )]
+    got = [list(component) for component in _scc_for_input_route(
+        view(actual_lib, actual), route
+    )]
+    assert got == want
+
+
+@needs_nx
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input", "backend"])
+def test_random_component_member_order_with_colliding_hashes(cls_name, route):
+    actual_lib = fnx if route == "native-input" else nx
+    for seed in range(24):
+        rng = random.Random(seed)
+        nodes = [1024 * node for node in rng.sample(range(32), 32)]
+        edges = [(u, v) for u in nodes for v in nodes if rng.random() < 0.09]
+        actual, expected = getattr(actual_lib, cls_name)(), getattr(nx, cls_name)()
+        for graph in (actual, expected):
+            graph.add_nodes_from(nodes)
+            graph.add_edges_from(edges)
+        want = [list(component) for component in nx.strongly_connected_components(expected)]
+        got = [list(component) for component in _scc_for_input_route(actual, route)]
+        assert got == want, (cls_name, route, seed)
+
+
+@needs_nx
+@pytest.mark.parametrize("route", ["networkx-input", "backend"])
+def test_member_order_preserves_lazy_prefix_and_yielded_set_independence(route):
+    graph = nx.DiGraph()
+    graph.add_nodes_from([0, 8, 1024, 1032, 9999])
+    graph.add_edges_from([(0, 8), (8, 0), (1024, 1032), (1032, 1024)])
+    expected = [list(component) for component in nx.strongly_connected_components(graph)]
+    reads = []
+    allowed = {0, 8}
+
+    class PrefixRows(dict):
+        def __getitem__(self, node):
+            reads.append(node)
+            assert node in allowed, "SCC prefix read an unrequested component"
+            return super().__getitem__(node)
+
+    graph._adj = PrefixRows(graph._adj)
+    iterator = _scc_for_input_route(graph, route)
+    assert reads == []
+    first = next(iterator)
+    assert list(first) == expected[0]
+    assert set(reads) == {0, 8}
+    first.clear()
+    allowed.update(graph)
+    assert [list(component) for component in iterator] == expected[1:]

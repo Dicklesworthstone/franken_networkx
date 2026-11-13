@@ -771,17 +771,16 @@ def is_strongly_connected(G):
 
 
 def _strong_component_sets(G):
-    """Iterative Tarjan search with a suspended DFS and active-node stack."""
+    """Iterative low-link search preserving component and member-set order."""
     adjacency = G._adj
     discovery = {}
     low = {}
-    active = []
+    pending = []
     on_stack = set()
     for root in G:
         if root in discovery:
             continue
         discovery[root] = low[root] = len(discovery)
-        active.append(root)
         on_stack.add(root)
         frames = [(root, iter(adjacency[root]))]
         while frames:
@@ -791,21 +790,29 @@ def _strong_component_sets(G):
             except StopIteration:
                 frames.pop()
                 if low[node] == discovery[node]:
-                    component = set()
-                    while True:
-                        member = active.pop()
+                    # Set insertion order is observable when node hashes
+                    # collide. The reference inserts the component root
+                    # first, then its other members in reverse DFS completion
+                    # order. Popping a discovery stack gives a different order
+                    # on branched searches and can change simple_cycles' pivot.
+                    component = {node}
+                    on_stack.remove(node)
+                    while pending and discovery[pending[-1]] > discovery[node]:
+                        member = pending.pop()
                         on_stack.remove(member)
                         component.add(member)
-                        if discovery[member] == discovery[node]:
-                            break
                     yield component
+                else:
+                    # Only completed nodes awaiting an ancestor's component
+                    # belong here. DFS frames retain the unfinished nodes;
+                    # neither stack depends on a set already handed to users.
+                    pending.append(node)
                 if frames:
                     parent = frames[-1][0]
                     low[parent] = min(low[parent], low[node])
                 continue
             if neighbor not in discovery:
                 discovery[neighbor] = low[neighbor] = len(discovery)
-                active.append(neighbor)
                 on_stack.add(neighbor)
                 frames.append((neighbor, iter(adjacency[neighbor])))
             elif neighbor in on_stack:
