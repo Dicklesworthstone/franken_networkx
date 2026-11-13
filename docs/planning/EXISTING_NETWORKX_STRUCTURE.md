@@ -1927,6 +1927,15 @@ caller's dictionaries, and later Prim/Boruvka reads observe subsequent
 mutations. Kruskal reads and sorts its edge records before its first yield.
 Ordinary concrete native storage retains its existing selector routes.
 
+Minimum and maximum spanning-tree wrappers preserve those original rows
+before conversion, including backend calls with an existing conversion
+cache. Minimum trees copy graph metadata and `nodes.items()` before consuming
+the edge selector; maximum trees finish edge selection first. Both preserve
+shallow attribute values and validate directed inputs, unknown algorithms
+and Boruvka's multigraph restriction before reading metadata. Assigned node,
+edge and adjacency providers also prevent a nested edge query from re-entering
+a native selector that would ignore those providers.
+
 ## 58. Constructor Copies of Authoritative Graph Storage
 
 All graph-to-graph constructors use the source's active logical storage.
@@ -2469,8 +2478,9 @@ node-link payload, including after a graph copy.
 All four graph constructors read the logical metadata when converting an
 imported graph, preserve shallow values and apply explicit constructor
 attributes afterward. Metadata providers run before the topology is copied.
-Minimum and maximum spanning trees retain that metadata; custom metadata
-providers are read before edge selection. Native GML admission rejects logical
+Minimum and maximum spanning trees retain that metadata. Minimum trees read
+custom metadata providers before edge selection; maximum trees read them
+after selection, matching the distinct reference boundaries. Native GML admission rejects logical
 metadata aliases so plain integer-node graphs cannot silently lose metadata.
 
 ## 81. Weighted Degree Connectivity and Backend Inputs

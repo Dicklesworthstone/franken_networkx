@@ -166,6 +166,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "number_of_spanning_trees",
         "quotient_graph",
         "greedy_modularity_communities",
+        "minimum_spanning_tree",
+        "maximum_spanning_tree",
         "greedy_color",
         "eccentricity",
         "diameter",
@@ -283,6 +285,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "harmonic_centrality", "average_shortest_path_length",
         "average_degree_connectivity", "average_neighbor_degree",
         "group_betweenness_centrality", "group_closeness_centrality",
+        "minimum_spanning_tree", "maximum_spanning_tree",
         "stoer_wagner", "transitive_closure_dag", "number_of_spanning_trees",
     }
 )
@@ -309,6 +312,12 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # owned entry points also retain live weights and admit their native
         # routes themselves. Keep these boundaries even after cached queries.
         return True
+    if name in {"minimum_spanning_tree", "maximum_spanning_tree"}:
+        # Eager tree wrappers must still inspect the caller's rows and
+        # metadata, including when a prior algorithm cached a conversion.
+        return fnx._spanning_uses_live_python_rows(
+            graph, arguments.get("weight", "weight"), copy_attributes=True
+        )
     if name == "stoer_wagner":
         # The algorithm snapshots weights once, then invokes the selected
         # heap. Conversion beforehand can consume a weight provider or read
@@ -2188,7 +2197,9 @@ class BackendInterface:
                         return _iterate_callback_result(result, source)
                     return result
                 except fnx.NetworkXNotImplemented as e:
-                    if name in _CORE_DECOMPOSITION_ALGORITHMS or name == "stoer_wagner":
+                    if name in _CORE_DECOMPOSITION_ALGORITHMS or name in {
+                        "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree"
+                    }:
                         # Keep documented self-loop and graph-type errors intact.
                         raise
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError

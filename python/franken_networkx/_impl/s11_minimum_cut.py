@@ -1145,7 +1145,9 @@ def minimum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
         # Recheck storage at first advancement: callers can assign private
         # rows after creating the iterator. Native selectors must never read
         # a view's parent or bypass a subclass's public graph protocol.
-        native_storage = type(G) is Graph and not _has_networkx_private_storage(G)
+        native_storage = type(G) is Graph and not _spanning_uses_live_python_rows(
+            G, weight
+        )
         # br-r37-c1-mstcsr: the native kruskal kernel now reproduces nx's exact
         # MST — edge set, yield order AND (u, v) orientation — via node-index
         # edge orientation + a weight-only stable sort (the old kernel
@@ -1262,7 +1264,9 @@ def maximum_spanning_edges(G, algorithm="kruskal", weight="weight", keys=True, d
     from franken_networkx._fnx import maximum_spanning_edges as _raw_mse
 
     def _gen():
-        native_storage = type(G) is Graph and not _has_networkx_private_storage(G)
+        native_storage = type(G) is Graph and not _spanning_uses_live_python_rows(
+            G, weight
+        )
         # br-mstcallable / br-mstweightwrong: see minimum_spanning_edges.
         # br-r37-c1-msemaxweighted (cc): maximum kruskal used to gate the native
         # kernel on ``not _mst_has_weight_edge_attr`` (unweighted only) -> WEIGHTED

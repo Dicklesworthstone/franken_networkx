@@ -456,3 +456,225 @@ def test_spanning_storage_admission_occurs_when_iteration_starts(name, algorithm
     rows = list(actual)
     assert rows == list(expected)
     assert all(edge[-1] is graph[edge[0]][edge[1]] for edge in rows)
+
+
+def _asymmetric_spanning_view(library, multigraph):
+    graph = library.MultiDiGraph() if multigraph else library.DiGraph()
+    graph.add_weighted_edges_from([
+        (0, 1, 1), (1, 0, 9), (1, 2, 2),
+        (2, 1, 8), (0, 2, 4), (2, 0, 7),
+    ])
+    graph.graph["payload"] = ["shared graph data"]
+    graph.nodes[1]["payload"] = ["shared node data"]
+    return graph.to_undirected(as_view=True)
+
+
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("route", ["networkx-input", "native-input", "backend", "warm-backend"])
+def test_spanning_trees_preserve_reciprocal_view_weights(
+    minimum, algorithm, multigraph, route
+):
+    if multigraph and algorithm == "boruvka":
+        pytest.skip("Boruvka does not accept multigraphs")
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_tree"
+    graph = _asymmetric_spanning_view(fnx if route == "native-input" else nx, multigraph)
+    reference = _asymmetric_spanning_view(nx, multigraph)
+    expected = getattr(nx, name)(reference, algorithm=algorithm, backend="networkx")
+    if route == "warm-backend":
+        # An earlier eager algorithm may have cached a complete conversion.
+        # Seed that cache through the backend's real conversion interface;
+        # the tree must recover the original view from the converted graph.
+        from franken_networkx.backend import BackendInterface
+        from networkx.utils.backends import _get_cache_key, _set_to_cache
+
+        converted = BackendInterface.convert_from_nx(
+            graph, preserve_all_attrs=True, name=name
+        )
+        assert converted is not graph
+        cache = graph.__networkx_cache__.setdefault("backends", {}).setdefault(
+            "franken_networkx", {}
+        )
+        key = _get_cache_key(
+            edge_attrs=None, node_attrs=None, preserve_edge_attrs=True,
+            preserve_node_attrs=True, preserve_graph_attrs=True,
+        )
+        _set_to_cache(cache, key, converted)
+    if route in ("backend", "warm-backend"):
+        actual = getattr(nx, name)(graph, algorithm=algorithm, backend="franken_networkx")
+    else:
+        actual = getattr(fnx, name)(graph, algorithm=algorithm)
+    assert _rows(actual) == _rows(expected)
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert dict(actual.graph) == dict(expected.graph)
+    assert actual.graph["payload"] is graph.graph["payload"]
+    assert actual.nodes[1]["payload"] is graph.nodes[1]["payload"]
+    assert actual.graph is not graph.graph
+
+
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("algorithm", ["kruskal", "prim", "boruvka"])
+@pytest.mark.parametrize("route", ["networkx-input", "backend"])
+def test_spanning_tree_preserves_metadata_and_selection_order(minimum, algorithm, route):
+    from collections.abc import Mapping
+
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_tree"
+    results = []
+    for implementation in ("networkx", route):
+        graph = nx.Graph()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 4)])
+        reads = []
+
+        class Metadata(Mapping):
+            def __iter__(self):
+                reads.append("keys")
+                # Metadata precedes node copying; minimum also defers selection.
+                graph[0][2]["weight"] = -3
+                graph.add_node("new", created="metadata")
+                return iter(("label",))
+
+            def __getitem__(self, key):
+                reads.append(key)
+                if key != "label":
+                    raise KeyError(key)
+                return "tree"
+
+            def __len__(self):
+                reads.append("length")
+                return 1
+
+        graph.graph = Metadata()
+        if implementation == "networkx-input":
+            tree = getattr(fnx, name)(graph, algorithm=algorithm)
+        else:
+            backend = "franken_networkx" if implementation == "backend" else "networkx"
+            tree = getattr(nx, name)(graph, algorithm=algorithm, backend=backend)
+        results.append((_rows(tree), list(tree.nodes(data=True)), dict(tree.graph), reads))
+    assert results[0] == results[1]
+    assert "new" in dict(results[1][1])
+
+
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("graph_class,algorithm", [
+    ("DiGraph", "kruskal"), ("Graph", "invalid"), ("MultiGraph", "boruvka"),
+])
+@pytest.mark.parametrize("route", ["networkx-input", "backend"])
+def test_spanning_tree_rejects_options_before_reading_metadata(
+    minimum, graph_class, algorithm, route
+):
+    from collections.abc import Mapping
+
+    class UnreadMetadata(Mapping):
+        def __iter__(self):
+            raise AssertionError("invalid tree request read graph metadata")
+
+        def __getitem__(self, key):
+            raise AssertionError("invalid tree request read graph metadata")
+
+        def __len__(self):
+            raise AssertionError("invalid tree request read graph metadata")
+
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_tree"
+    errors = []
+    for implementation in ("networkx", route):
+        graph = getattr(nx, graph_class)([(0, 1)])
+        graph.graph = UnreadMetadata()
+        try:
+            if implementation == "networkx-input":
+                getattr(fnx, name)(graph, algorithm=algorithm)
+            else:
+                backend = "franken_networkx" if implementation == "backend" else "networkx"
+                getattr(nx, name)(graph, algorithm=algorithm, backend=backend)
+        except Exception as error:
+            errors.append((type(error), error.args))
+        else:
+            pytest.fail("invalid spanning tree request succeeded")
+    assert errors[0] == errors[1]
+    assert errors[0][0] is not AssertionError
+
+
+@pytest.mark.parametrize("minimum", [True, False])
+def test_plain_spanning_tree_keeps_native_selection(minimum, monkeypatch):
+    graph = fnx.Graph()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 4)])
+    reference = nx.Graph()
+    reference.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 4)])
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_tree"
+    calls = []
+    native = getattr(fnx, "_raw_" + name)
+
+    def recorded(*args, **kwargs):
+        calls.append(True)
+        return native(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, "_raw_" + name, recorded)
+    result = getattr(fnx, name)(graph)
+    expected = getattr(nx, name)(reference)
+    assert _rows(result) == _rows(expected)
+    assert calls == [True]
+
+
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("route", ["networkx-input", "native-input", "backend"])
+def test_spanning_tree_consumes_items_only_node_provider(minimum, graph_class, route):
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_tree"
+
+    def run(library, implementation):
+        graph = getattr(library, graph_class)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 4)])
+        rows = list(graph.nodes(data=True))[::-1]
+        calls = []
+
+        class NodeRows:
+            def items(self):
+                calls.append("items")
+                return iter(rows)
+
+        graph.nodes = NodeRows()
+        if implementation == "standalone":
+            tree = getattr(fnx, name)(graph)
+        else:
+            tree = getattr(nx, name)(graph, backend=implementation)
+        return _rows(tree), list(tree.nodes(data=True)), calls
+
+    expected = run(nx, "networkx")
+    actual = run(
+        fnx if route == "native-input" else nx,
+        "franken_networkx" if route == "backend" else "standalone",
+    )
+    assert actual == expected
+    assert actual[2] == ["items"]
+
+
+@pytest.mark.parametrize("minimum", [True, False])
+@pytest.mark.parametrize("route", ["networkx-input", "native-input", "backend"])
+def test_spanning_tree_does_not_reenter_native_over_assigned_edge_provider(minimum, route):
+    name = f"{'minimum' if minimum else 'maximum'}_spanning_tree"
+
+    def run(library, implementation):
+        graph = library.Graph()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (0, 2, 4)])
+        rows = [edge for edge in graph.edges(data=True) if set(edge[:2]) != {0, 1}]
+        calls = []
+
+        def edges(*, data=False):
+            assert data is True
+            calls.append("edges")
+            return iter(rows)
+
+        graph.edges = edges
+        if implementation == "standalone":
+            tree = getattr(fnx, name)(graph)
+        else:
+            tree = getattr(nx, name)(graph, backend=implementation)
+        return _rows(tree), calls
+
+    expected = run(nx, "networkx")
+    actual = run(
+        fnx if route == "native-input" else nx,
+        "franken_networkx" if route == "backend" else "standalone",
+    )
+    assert actual == expected
+    assert actual[1] == ["edges"]

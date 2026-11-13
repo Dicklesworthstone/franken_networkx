@@ -239,6 +239,30 @@ from franken_networkx._fnx import (
 # (maximum_spanning_edges wrapper defined earlier at the tree import site)
 
 
+def _spanning_uses_live_python_rows(G, weight, *, copy_attributes=False):
+    """Preserve graph readers before copying metadata or selecting edges."""
+    if type(weight) is not str or _weighted_query_uses_live_python_rows(G, weight):
+        return True
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES:
+        return False
+    storage = vars(G)
+    if copy_attributes and (
+        _GRAPH_ATTR_OVERRIDE in storage
+        or G.graph_attr_dict_factory is not dict
+        or G.node_attr_dict_factory is not dict
+    ):
+        return True
+    if any(name in storage for name in (
+        "is_directed", "is_multigraph", "nbunch_iter", "adjacency",
+        "number_of_nodes", "number_of_edges", "neighbors",
+    )):
+        return True
+    return any(
+        name in storage and storage[name] is not storage.get("_fnx_view_" + name)
+        for name in ("nodes", "edges", "adj")
+    )
+
+
 def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=False):
     """Return a minimum spanning tree or forest of an undirected weighted graph.
 
@@ -258,6 +282,11 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A minimum spanning tree or forest.
     """
+    # Views and providers retain their caller's rows. In particular, an
+    # undirected view of directed edges may expose a different weight at each
+    # endpoint; converting it first changes the tree selected by Prim/Kruskal.
+    if _spanning_uses_live_python_rows(G, weight, copy_attributes=True):
+        return _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ow5fy: nx's @not_implemented_for('directed') raises
@@ -266,19 +295,6 @@ def minimum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     # minimum_spanning_arborescence). Surface the standard error.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if (
-        _GRAPH_ATTR_OVERRIDE in vars(G)
-        and type(vars(G)[_GRAPH_ATTR_OVERRIDE]) is not dict
-    ):
-        # Read custom metadata before copying nodes or selecting spanning edges.
-        # A provider may change either while its mapping is consumed.
-        return _spanning_tree_from_edges(
-            G,
-            minimum_spanning_edges(
-                G, algorithm=algorithm, weight=weight,
-                keys=True, data=True, ignore_nan=ignore_nan,
-            ),
-        )
     # br-mstcallable: the Rust _raw_minimum_spanning_tree requires
     # ``weight`` to be a str; nx accepts a callable
     # ``weight(u, v, d) -> float``.  Route non-str weight values
@@ -385,9 +401,11 @@ def _spanning_tree_from_edges(G, edges):
         else _concrete_class_for(G)
     )
     T = cls()
-    if G.graph:
-        T.graph.update(dict(G.graph))
-    T.add_nodes_from((n, dict(d)) for n, d in G.nodes(data=True))
+    # Minimum trees pass a lazy selector; maximum trees pass selected rows.
+    # Retain that boundary while copying metadata and nodes. Providers may
+    # change the graph, so do not add a truth test or an eager mapping copy.
+    T.graph.update(G.graph)
+    T.add_nodes_from((n, dict(d)) for n, d in G.nodes.items())
     if T.is_multigraph():
         T.add_edges_from((u, v, k, dict(d)) for u, v, k, d in edges)
     else:
@@ -397,7 +415,8 @@ def _spanning_tree_from_edges(G, edges):
 
 def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
     """Build the minimum spanning tree in-process from minimum_spanning_edges."""
-    edges = list(
+    return _spanning_tree_from_edges(
+        G,
         minimum_spanning_edges(
             G,
             algorithm=algorithm,
@@ -405,9 +424,8 @@ def _minimum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
             keys=True,
             data=True,
             ignore_nan=ignore_nan,
-        )
+        ),
     )
-    return _spanning_tree_from_edges(G, edges)
 
 
 def _mst_has_weight_edge_attr(G, weight):
@@ -443,6 +461,8 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
     Graph
         A maximum spanning tree or forest.
     """
+    if _spanning_uses_live_python_rows(G, weight, copy_attributes=True):
+        return _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan)
     # br-r37-c1-nwkg0: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-ow5fy: same directed-rejection guard as
@@ -514,6 +534,8 @@ def maximum_spanning_tree(G, weight="weight", algorithm="kruskal", ignore_nan=Fa
 
 def _maximum_spanning_tree_via_parity(G, weight, algorithm, ignore_nan):
     """Build the maximum spanning tree in-process from maximum_spanning_edges."""
+    # Unlike minimum_spanning_tree, NetworkX finishes maximum edge selection
+    # before constructing the result or reading its metadata and node data.
     edges = list(
         maximum_spanning_edges(
             G,
