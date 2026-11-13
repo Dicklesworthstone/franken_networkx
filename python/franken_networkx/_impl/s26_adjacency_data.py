@@ -639,8 +639,8 @@ def _accumulate_percolation_local(
 
 
 def _edge_load_from_source_local(G, source, cutoff=None):
-    _, predecessors, _, distances = _single_source_shortest_path_basic_local(
-        G, source, cutoff=cutoff
+    predecessors, distances = predecessor(
+        G, source, cutoff=cutoff, return_seen=True
     )
     ordered_nodes = [
         node for node, _ in sorted(distances.items(), key=lambda item: item[1])

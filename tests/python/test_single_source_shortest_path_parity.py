@@ -160,3 +160,101 @@ def test_directed_single_source_shortest_path_costs_what_the_undirected_one_does
         lambda: fnx.single_source_shortest_path(undirected, 0)
     )
     assert ratio < 2.0, ratio
+
+
+def _asymmetric_source_view(owner, graph_type):
+    graph = getattr(owner, graph_type)()
+    graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 3)])
+    if graph.is_multigraph():
+        predicate = lambda u, v, key: u < v
+    else:
+        predicate = lambda u, v: u < v
+    return owner.subgraph_view(graph, filter_edge=predicate)
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("name", ["single_source_shortest_path_length", "predecessor"])
+@pytest.mark.parametrize("source", [0, 2])
+@pytest.mark.parametrize("cutoff", [None, 0, 1.5])
+def test_public_source_search_preserves_asymmetric_rows(owner, graph_type, name, source, cutoff):
+    reference = _asymmetric_source_view(nx, graph_type)
+    graph = _asymmetric_source_view(owner, graph_type)
+    options = {"cutoff": cutoff}
+    if name == "predecessor":
+        options["return_seen"] = True
+    expected = getattr(nx, name)(reference, source, **options)
+    actual = getattr(fnx, name)(graph, source, **options)
+    if name == "predecessor":
+        assert [list(part.items()) for part in actual] == [list(part.items()) for part in expected]
+    else:
+        assert list(actual.items()) == list(expected.items())
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("name", ["single_source_shortest_path_length", "predecessor"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_public_source_backend_recovers_rows(graph_type, name, warm_cache):
+    graph = _asymmetric_source_view(nx, graph_type)
+    if warm_cache:
+        nx.degree_centrality(graph, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    expected = getattr(nx, name)(graph, 2)
+    actual = getattr(nx, name)(graph, 2, backend="franken_networkx")
+    assert list(actual.items()) == list(expected.items())
+    assert set(actual) == {2, 3}
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("name", ["single_source_shortest_path_length", "predecessor"])
+def test_public_source_validation_does_not_read_rows(owner, name):
+    class UnreadableRow(dict):
+        def __iter__(self):
+            raise AssertionError("a missing source must not visit adjacency")
+
+    graph = owner.Graph()
+    graph.add_nodes_from([0, 1])
+    graph._adj = {0: UnreadableRow({1: {}}), 1: {0: {}}}
+    with pytest.raises(fnx.NodeNotFound, match="Source missing"):
+        getattr(fnx, name)(graph, "missing")
+
+
+def _predecessor_cutoff_protocol_result(algorithm, owner, graph_type):
+    graph = getattr(owner, graph_type)()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 3)])
+    trace = []
+
+    class Cutoff:
+        def __int__(self):
+            raise AssertionError("a cutoff provider must not be converted")
+
+        def __bool__(self):
+            trace.append("truth")
+            return True
+
+        def __le__(self, level):
+            trace.append(("compare", level))
+            return level >= 2
+
+    result = algorithm(graph, 0, cutoff=Cutoff(), return_seen=True)
+    return [list(part.items()) for part in result], trace
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_public_predecessor_cutoff_runs_after_each_level(owner, graph_type):
+    expected = _predecessor_cutoff_protocol_result(nx.predecessor, nx, graph_type)
+    actual = _predecessor_cutoff_protocol_result(fnx.predecessor, owner, graph_type)
+    assert actual == expected
+    assert actual[1] == ["truth", ("compare", 1), "truth", ("compare", 2)]
+
+
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("target", [2, 3, "missing"])
+@pytest.mark.parametrize("return_seen", [False, True])
+def test_public_predecessor_target_forms_keep_live_rows(owner, target, return_seen):
+    reference = _asymmetric_source_view(nx, "Graph")
+    graph = _asymmetric_source_view(owner, "Graph")
+    expected = nx.predecessor(reference, 2, target=target, return_seen=return_seen)
+    actual = fnx.predecessor(graph, 2, target=target, return_seen=return_seen)
+    assert actual == expected

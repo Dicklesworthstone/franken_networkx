@@ -6,16 +6,10 @@ def single_source_shortest_path_length(G, source, cutoff=None):
     NodeNotFound('Source {src} is not in G') when the source isn't in
     the graph.
 
-    br-r37-c1-ssspview: ``_coerce_arg_to_fnx_graph`` materializes native-root
-    SubgraphView / restricted_view / EdgeSubgraphView
-    inputs to a concrete fnx graph before the Rust kernel runs.  The
-    Rust binding reads the parent's adjacency directly and silently
-    ignores the view filter without this materialization — sister
-    bug to the ``shortest_path`` / ``shortest_path_length`` view
-    handling.
     An exact reverse view over a concrete root uses native predecessor BFS
-    without copying. Other native-root reverse-view chains still materialize
-    safely. Private-root views walk current Python rows without a native copy.
+    without copying. Other views, foreign graphs and assigned mappings retain
+    their public rows: an undirected view may intentionally filter each edge
+    direction differently, which a materialized graph cannot represent.
     """
     root = _reverse_view_root(G)
     if root is not None and (
@@ -27,13 +21,11 @@ def single_source_shortest_path_length(G, source, cutoff=None):
         for parent, node in _bfs_edges_raw(root, source, reverse=True, depth_limit=cutoff):
             lengths[node] = lengths[parent] + 1
         return lengths
-    if not _point_query_uses_private_rows(G):
-        G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
-    if _has_networkx_private_storage(G):
-        # br-r37-c1-mub4s: assigned Python adjacency is authoritative. Native
-        # storage can still contain hidden edges, even on an exact graph class.
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES or _has_networkx_private_storage(G):
+        # Public Python adjacency is authoritative. A conversion can add
+        # reciprocal reachability or consume a row provider before the search.
         # Match the oracle's level order and len(adj) early exit, not len(G).
         adj = G._adj
         count = len(adj)

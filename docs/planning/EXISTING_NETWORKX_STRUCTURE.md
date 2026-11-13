@@ -2763,6 +2763,58 @@ levels and must be positive or None, with the established islice validation.
 Resolve the RNG at API invocation, snapshot the graph only on first iterator
 advancement, and isolate later graph mutations and edits to yielded sets.
 
+## 90. Public-Row Source Distances and Distance Centrality
+
+`single_source_shortest_path_length` traverses the supplied graph's current
+successor/adjacency rows in BFS discovery order. Graph subclasses, filtered
+views and assigned mappings may expose asymmetric rows even when the graph
+reports itself undirected. Reconstructing edges into a simple undirected graph
+would add reverse reachability that is not present in those rows. Foreign
+graphs and nonconcrete/private native graphs therefore use owned row traversal;
+ordinary concrete native graphs and eligible native reverse views retain their
+existing native routes. Missing-source validation precedes adjacency access.
+The traversal reads `len(G._adj)` once and retains its established per-level
+cutoff and all-nodes-discovered early termination boundaries.
+
+`predecessor` retains the same original row traversal and appends every parent
+that reaches a node at its shortest BFS level. Native indexing is reserved for
+ordinary concrete storage and built-in cutoff values. Custom cutoff objects
+are neither converted to integers nor evaluated before traversal: each complete
+level evaluates the option's truthiness and then its `cutoff <= level`
+comparison. A falsy zero cutoff is unbounded; a negative cutoff still permits
+the first BFS level. Target-specific return forms and unreachable-target
+sentinels follow the same completed traversal.
+
+`closeness_centrality` preserves the same rows for unweighted as well as
+weighted searches. For directed inputs it calls the original `G.reverse()`
+without explicit arguments before source validation, retaining that public
+copy boundary, provider side effects and exceptions. The result of `reverse`
+is the graph used for every subsequent operation. For an all-node query it
+captures `G.nodes` as an iterable rather than a node snapshot; a point query
+uses only the requested node. Each source search completes before summing its
+distances and reading `len(G)` anew. A source with positive total distance in
+a graph of at least two nodes has score `(reachable - 1) / total`; only that
+branch evaluates `wf_improved`, whose truthy value applies the additional
+`(reachable - 1) / (len(G) - 1)` factor. Other sources have score `0.0` without
+touching that option's truth protocol. Search errors retain their original
+order and wording.
+
+Native closeness admission must exclude live topology, reverse-copy and
+option providers before any conversion snapshot. Backend dispatch recovers
+the original input for source-length and closeness queries that require those
+public protocols, including after another query warmed the conversion cache.
+No source-length or closeness fallback delegates its algorithm to NetworkX.
+
+`harmonic_centrality` also retains authoritative unweighted rows. It selects
+targets first, then sources, initializes targets to integer zero, and transposes
+only when there are fewer targets than sources. Directed transposition invokes
+the original `G.reverse(copy=False)` provider. It adds `1 / distance` for each
+nonzero distance to a selected target in the established source and search
+order. Selector callbacks can change topology before traversal; rechecking
+native admission must retain the already-selected sets rather than select
+again or discard a removed source. Cached backend conversions must not replace
+these original inputs.
+
 ## 91. Matrix Import Storage and Construction Contract
 
 `from_numpy_array` and `from_scipy_sparse_array` populate the graph supplied
@@ -2797,3 +2849,37 @@ node ordering, attributes, and errors.
 Custom node/edge factory support is a separate, still-incomplete core graph
 mutation contract. Such factories disqualify the native matrix fill, but this
 packet does not claim to complete those public mutation implementations.
+
+## 92. Load and Percolation Centrality Input Contracts
+
+NetworkX 3.6.1 dispatches node load under `newman_betweenness_centrality`,
+edge load under `edge_load_centrality`, and percolation under
+`percolation_centrality`. The backend must retain the original graph across
+cached conversions: state mappings, weight callbacks, and public graph rows
+can affect later source traversals. Each owned implementation admits its own
+native route after these input protocols have run.
+
+Node load uses the shared shortest-path predecessor relation. Edge load emits
+both orientations of each edge and accumulates each source's contribution in
+source order. Its zero/False cutoff is unbounded, as in the predecessor
+contract. A live row or cutoff provider requires a fresh predecessor traversal
+for each source; ordinary rows and built-in cutoff values retain the indexed
+snapshot path.
+
+Percolation state defaults are one for nodes missing the selected attribute.
+An explicit mapping is authoritative. Fold all its values sequentially from
+`0.0`, in mapping order, including entries outside the graph. During each
+source's dependency accumulation, read `states[source]` and `states[node]`
+from that mapping. Preserve Python arithmetic and exceptions; for example,
+all-zero states on a connected graph raise `ZeroDivisionError`, while three
+isolated nodes yield zero scores without dividing by a state denominator.
+Decimal states fail during the initial float fold, and missing state keys
+fail only when the traversal actually reads them.
+
+The native percolation vector is valid only when its values, graph order,
+coverage, and float arithmetic reproduce that contract. Extra keys, reordered
+keys, custom mappings or numerics, and zero denominators retain the owned
+Python traversal. Ordinary NetworkX simple graphs must be converted before a
+native call. Unweighted queries ignore every edge attribute, including a
+user attribute that collides with an internal unit-weight sentinel. Live
+graph and state providers must not be frozen by the indexed Python path.

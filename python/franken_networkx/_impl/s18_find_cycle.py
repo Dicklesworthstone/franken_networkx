@@ -963,29 +963,23 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
     ``return_seen=True``, also returns the per-node BFS depth dict. Mirrors
     ``networkx.predecessor``.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     if source not in G:
         raise NodeNotFound(f"Source {source} not in G")
-    # br-r37-c1-7jysw: networkx's level BFS in index space, emitted in its
-    # discovery order with its key objects (a cutoff other than none or a
-    # positive int keeps the routes below).
-    native_cutoff = _normalize_predecessor_cutoff(cutoff)
-    if native_cutoff is None or (type(native_cutoff) is int and 0 < native_cutoff < 2**63):
-        built = _raw_predecessor_indexed(G, source, native_cutoff)
-        if built is not None:
-            pred, seen = built
-            if target is not None:
-                if return_seen:
-                    if target not in pred:
-                        return ([], -1)
-                    return (pred[target], seen[target])
-                if target not in pred:
-                    return []
-                return pred[target]
-            if return_seen:
-                return (pred, seen)
-            return pred
-    if G.is_directed():
+    # A public row provider may expose asymmetric undirected adjacency or
+    # mutate later levels. Only ordinary concrete storage can be indexed.
+    # Keep custom cutoff truth/comparison protocols inside the level loop.
+    built = None
+    if (
+        type(G) in _CONCRETE_FNX_GRAPH_TYPES
+        and not _has_networkx_private_storage(G)
+        and type(cutoff) in (type(None), int, float, bool)
+    ):
+        native_cutoff = _normalize_predecessor_cutoff(cutoff)
+        if native_cutoff is None or (
+            type(native_cutoff) is int and 0 < native_cutoff < 2**63
+        ):
+            built = _raw_predecessor_indexed(G, source, native_cutoff)
+    if built is None:
         level = 0
         nextlevel = [source]
         seen = {source: level}
@@ -1004,42 +998,17 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
                         pred[w].append(v)
             if cutoff and cutoff <= level:
                 break
-        if target is not None:
-            if return_seen:
-                if target not in pred:
-                    return ([], -1)
-                return (pred[target], seen[target])
-            if target not in pred:
-                return []
-            return pred[target]
-        if return_seen:
-            return (pred, seen)
-        return pred
-    # br-r37-c1-pred-cutfloat: nx's predecessor uses
-    # ``if cutoff and cutoff <= level: break`` (truthy-aware).
-    # For NaN / +inf, comparison returns False so the search runs
-    # to completion — both treated as unbounded.  For -inf and
-    # negative finite, comparison is True at level 0 → breaks
-    # immediately (returns just source).  Finite floats round up
-    # via ceil (last level admitted is ceil(cutoff)).  The Rust
-    # binding requires int and raises TypeError/OverflowError on
-    # the floats — normalise here.
-    cutoff = _normalize_predecessor_cutoff(cutoff)
-    predecessor_map = _raw_predecessor(G, source, cutoff=cutoff)
-    ordered_nodes, seen_levels = _ordered_predecessor_nodes_and_levels(
-        G, source, predecessor_map
-    )
+    else:
+        pred, seen = built
     if target is not None:
         if return_seen:
-            if target not in predecessor_map:
+            if target not in pred:
                 return ([], -1)
-            return (predecessor_map[target], seen_levels[target])
-        return predecessor_map.get(target, [])
-    ordered_predecessor_map = {node: predecessor_map[node] for node in ordered_nodes}
+            return (pred[target], seen[target])
+        return pred.get(target, [])
     if return_seen:
-        ordered_seen_levels = {node: seen_levels[node] for node in ordered_nodes}
-        return ordered_predecessor_map, ordered_seen_levels
-    return ordered_predecessor_map
+        return (pred, seen)
+    return pred
 
 
 def dijkstra_path_length(G, source, target, weight="weight"):

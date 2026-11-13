@@ -283,7 +283,23 @@ def edge_load_centrality(G, cutoff=False, *, backend=None, **backend_kwargs):
     """Load centrality for edges."""
     _validate_backend_dispatch_keywords("edge_load_centrality", backend, backend_kwargs)
 
-    if cutoff is False:
+    if (
+        type(cutoff) not in (type(None), int, float, bool)
+        or _weighted_query_uses_live_python_rows(G, None)
+    ):
+        # Each source traverses the caller's current rows. A provider can
+        # change a later source's graph, and predecessor owns cutoff truth
+        # and comparison semantics.
+        aggregate = {}
+        for u, v in G.edges():
+            aggregate[(u, v)] = 0.0
+            aggregate[(v, u)] = 0.0
+        for source in G:
+            for edge, value in _edge_load_from_source_local(G, source, cutoff).items():
+                aggregate[edge] += value
+        return aggregate
+
+    if not cutoff:
         cutoff = None
 
     # br-elccsr: integer-CSR BFS fast path. The per-source pure-Python BFS
@@ -417,6 +433,38 @@ def laplacian_centrality(
     return laplace_centralities_dict
 
 
+def _percolation_state_snapshot(nodes, states, state_sum):
+    """Admit a state vector whose snapshot preserves Python arithmetic.
+
+    The native kernel sums in graph order and reads only graph members.
+    Other mappings retain their iteration, lookup and numeric protocols,
+    including entries for nodes outside the graph.
+    """
+    if type(states) is not dict or type(state_sum) is not float:
+        return None
+    if not _math.isfinite(state_sum):
+        return None
+    if any(type(node) not in (str, int, float, bool) for node in nodes):
+        return None
+    if any(type(node) not in (str, int, float, bool) for node in states):
+        return None
+    if list(states) != list(nodes):
+        return None
+    values = []
+    for state in states.values():
+        if type(state) not in (int, float, bool):
+            return None
+        if not 0 <= state <= 2**53 or not _math.isfinite(state):
+            return None
+        value = float(state)
+        # Python raises only if a reached dependency actually divides by
+        # zero. A native NaN or an eager error would change that behavior.
+        if state_sum - value == 0:
+            return None
+        values.append(value)
+    return values
+
+
 def percolation_centrality(
     G,
     attribute="percolation",
@@ -438,71 +486,47 @@ def percolation_centrality(
             for node in G
         }
 
-    state_sum = sum(states.values())
+    # A sequential float fold preserves mapping order and numeric errors.
+    # Builtin sum can use compensated summation or retain a different type.
+    state_sum = 0.0
+    for state in states.values():
+        state_sum += state
 
     live_rows = _weighted_query_uses_live_python_rows(G, weight)
-    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
-        G = _coerce_arg_to_fnx_graph(G)
+    state_vector = (
+        None if live_rows else _percolation_state_snapshot(percolation, states, state_sum)
+    )
 
-    # br-r37-c1-percw: weighted percolation centrality previously ran a
-    # pure-Python per-source Dijkstra + accumulation loop (~1.8s n=400, 3.2x
-    # SLOWER than nx). Route to the native weighted percolation kernel (Dijkstra
-    # SSSP, parallel, byte-exact) — the same Brandes recurrence as the native
-    # weighted betweenness, with each w!=s weighted by
-    # states[s]/(state_sum - states[w]) and a final 1/(n-2) scale. Pass the
-    # per-node states aligned to G's node-iteration order. Mirror the
-    # dijkstra/astar weight contract; callable/non-string weight, multigraph,
-    # negative/+inf/non-numeric weight, n<=2, or non-float states fall through
-    # to the parity path / nx.
+    # Keep the native route for ordinary simple graphs and exact state
+    # vectors. State providers run before conversion, so their mutations
+    # remain visible when the algorithm captures the graph.
     if (
-        not live_rows
-        and weight is not None
-        and isinstance(weight, str)
+        state_vector is not None
         and len(G) > 2
         and not G.is_multigraph()
+        and (weight is None or type(weight) is str)
     ):
-        if not _should_delegate_dijkstra_to_networkx(G, weight):
-            _sync_rust_edge_attrs(G)
-            try:
-                states_list = [float(states[node]) for node in G]
-            except (TypeError, ValueError, KeyError):
-                states_list = None
-            if states_list is not None:
-                return _raw_percolation_centrality_weighted(G, weight, states_list)
-
-    # br-perccsr: integer-CSR BFS fast-path for the unweighted case. The
-    # per-source pure-Python Brandes BFS (_single_source_shortest_path_basic_
-    # local) walks string-keyed dicts over fnx adjacency once per node — the
-    # "BFS-from-every-source string tax", ~3x slower than nx. Relabel nodes to
-    # dense indices once and run all N BFS on flat integer arrays + a local
-    # adjacency list. Brandes accumulation is order-independent and neighbor
-    # order is preserved from G[node], so the result is BIT-identical to the
-    # dict version (and to nx). 173ms -> 30ms (faster than nx). Tiny graphs
-    # (<=2 nodes) keep the original path so the 1/(n-2) edge behavior is
-    # untouched.
-    if weight is None and len(G) > 2:
-        # br-r37-c1-percunit (cc): the unweighted percolation Brandes loop below
-        # runs SERIALLY in Python over all N sources (2.18s at n=1500). The native
-        # weighted percolation kernel (parallel Dijkstra SSSP) defaults a missing
-        # edge-weight attribute to 1.0 — unit weights, whose shortest-path counts
-        # are identical to BFS — so routing through it with a sentinel (absent)
-        # weight name is BYTE-IDENTICAL (verified undirected/directed/disconnected/
-        # non-uniform-states, 0..7e-18 vs nx) and parallel-native: 123ms -> 3.5ms
-        # (n=400), ~35x. Multigraph keeps the Python loop (the native kernel guards
-        # !multigraph, matching the weighted path above).
-        if not live_rows and not G.is_multigraph():
-            try:
-                states_list = [float(states[node]) for node in G]
-            except (TypeError, ValueError, KeyError):
-                states_list = None
-            if states_list is not None:
+        native_weight = weight
+        if weight is None:
+            native_weight = "\x00__fnx_unit_weight_sentinel__"
+            # A user can set any string attribute, including this sentinel.
+            if any(native_weight in attrs for _, _, attrs in G.edges(data=True)):
+                native_weight = None
+        if native_weight is not None:
+            native_graph = _coerce_arg_to_fnx_graph(G)
+            if weight is None or not _should_delegate_dijkstra_to_networkx(native_graph, weight):
+                _sync_rust_edge_attrs(native_graph, edge_only=True)
                 return _raw_percolation_centrality_weighted(
-                    G, "\x00__fnx_unit_weight_sentinel__", states_list
+                    native_graph, native_weight, state_vector
                 )
+
+    # Snapshot only ordinary unweighted rows and state vectors. Live rows
+    # and state mappings use the source-by-source traversal below.
+    if weight is None and len(G) > 2 and state_vector is not None:
         nodes = list(G)
         n = len(nodes)
         index = {node: i for i, node in enumerate(nodes)}
-        st = [states[node] for node in nodes]
+        st = state_vector
         adj = [[index[nbr] for nbr in G[node]] for node in nodes]
         perc = [0.0] * n
         for s in range(n):
@@ -549,8 +573,9 @@ def percolation_centrality(
             percolation, stack, predecessors, sigma, source, states, state_sum
         )
 
+    n = len(G)
     for node in percolation:
-        percolation[node] *= 1 / (len(G) - 2)
+        percolation[node] *= 1 / (n - 2)
     return percolation
 
 

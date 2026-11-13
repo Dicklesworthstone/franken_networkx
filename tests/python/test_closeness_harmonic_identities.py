@@ -959,6 +959,110 @@ def test_harmonic_selection_precedes_graph_snapshot(
         assert actual["isolated"] == 0 and type(actual["isolated"]) is int
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize(
+    "selection",
+    [{}, {"sources": [0]}, {"nbunch": [2]}, {"nbunch": [2], "sources": [0, 1]}],
+    ids=["all", "sources", "targets", "both"],
+)
+def test_harmonic_filtered_rows_preserve_reachable_direction(graph_type, owner, selection):
+    """An undirected filter may expose only one orientation of each edge."""
+    reference = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    candidate = getattr(owner, graph_type)([(0, 1), (1, 2)])
+    edge_filter = (
+        (lambda u, v: u < v)
+        if graph_type == "Graph" else (lambda u, v, key: u < v)
+    )
+    reference = nx.subgraph_view(reference, filter_edge=edge_filter)
+    candidate = owner.subgraph_view(candidate, filter_edge=edge_filter)
+    expected = nx.harmonic_centrality(reference, **selection)
+    actual = fnx.harmonic_centrality(candidate, **selection)
+    assert _centrality_items_exact(actual) == _centrality_items_exact(expected)
+    if not selection:
+        assert actual == {0: 0, 1: 1.0, 2: 1.5}
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("warm_cache", [False, True], ids=["cold", "cached"])
+@pytest.mark.parametrize(
+    "selection", [{}, {"sources": [0]}, {"nbunch": [2]}],
+    ids=["all", "sources", "targets"],
+)
+def test_harmonic_filtered_rows_backend_keeps_source(graph_type, warm_cache, selection):
+    graph = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    edge_filter = (
+        (lambda u, v: u < v)
+        if graph_type == "Graph" else (lambda u, v, key: u < v)
+    )
+    graph = nx.subgraph_view(graph, filter_edge=edge_filter)
+    if warm_cache:
+        nx.degree_centrality(graph, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    expected = nx.harmonic_centrality(graph, **selection, backend="networkx")
+    actual = nx.harmonic_centrality(graph, **selection, backend="franken_networkx")
+    assert _centrality_items_exact(actual) == _centrality_items_exact(expected)
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("distance", [None, "distance"], ids=["unweighted", "weighted"])
+@pytest.mark.parametrize("route", ["direct", "cold", "cached"])
+def test_harmonic_transpose_uses_public_reverse(graph_type, distance, route):
+    outcomes = []
+    for reference in (False, True):
+        calls = []
+
+        class PublicReverse(getattr(nx, graph_type)):
+            def reverse(self, copy=True):
+                calls.append(copy)
+                result = getattr(nx, graph_type)()
+                result.add_nodes_from(self)
+                result.add_edge(2, 0, distance=2)
+                return result
+
+        graph = PublicReverse([(0, 1), (1, 2)])
+        if route == "cached" and not reference:
+            nx.degree_centrality(graph, backend="franken_networkx")
+        if reference:
+            result = nx.harmonic_centrality(
+                graph, nbunch=[2], distance=distance, backend="networkx"
+            )
+        elif route == "direct":
+            result = fnx.harmonic_centrality(graph, nbunch=[2], distance=distance)
+        else:
+            result = nx.harmonic_centrality(
+                graph, nbunch=[2], distance=distance, backend="franken_networkx"
+            )
+        outcomes.append((_centrality_items_exact(result), calls))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0][1] == [False]
+
+
+@pytest.mark.parametrize("route", ["direct", "cold", "cached"])
+def test_harmonic_source_callback_can_replace_public_rows(route):
+    outcomes = []
+    for reference in (False, True):
+        graph = nx.Graph([(0, 1), (1, 2)])
+        if route == "cached" and not reference:
+            nx.degree_centrality(graph, backend="franken_networkx")
+
+        def sources():
+            graph._adj = {0: {1: {}}, 1: {2: {}}, 2: {}}
+            yield 2
+
+        if reference:
+            result = nx.harmonic_centrality(graph, sources=sources(), backend="networkx")
+        elif route == "direct":
+            result = fnx.harmonic_centrality(graph, sources=sources())
+        else:
+            result = nx.harmonic_centrality(
+                graph, sources=sources(), backend="franken_networkx"
+            )
+        outcomes.append(_centrality_items_exact(result))
+    assert outcomes[0] == outcomes[1]
+    assert all(value_type is int and value == 0 for _, value_type, value in outcomes[0])
+
+
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
 def test_harmonic_networkx_lazy_nbunch_with_default_sources(graph_type):
     """The target-only shortcut must also wait for its selector's edits."""

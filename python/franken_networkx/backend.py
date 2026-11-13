@@ -103,6 +103,9 @@ _RESILIENCE_ALGORITHMS = frozenset(
     }
 )
 _LEIDEN_ALGORITHMS = frozenset({"leiden_communities", "leiden_partitions"})
+_LOAD_PERCOLATION_ALGORITHMS = frozenset(
+    {"newman_betweenness_centrality", "edge_load_centrality", "percolation_centrality"}
+)
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
@@ -185,6 +188,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "shortest_path_length",
         "all_shortest_paths",
         "average_shortest_path_length",
+        "single_source_shortest_path_length",
+        "predecessor",
         "average_degree_connectivity",
         "average_neighbor_degree",
         "transitive_closure_dag",
@@ -265,6 +270,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _RESIDUAL_FLOW_ALGORITHMS
     | _RESILIENCE_ALGORITHMS
     | _LEIDEN_ALGORITHMS
+    | _LOAD_PERCOLATION_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -313,12 +319,14 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _BIPARTITE_PROJECTION_ALGORITHMS
     | _RESILIENCE_ALGORITHMS
     | _LEIDEN_ALGORITHMS
+    | _LOAD_PERCOLATION_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
         "floyd_warshall", "floyd_warshall_predecessor_and_distance",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
-        "harmonic_centrality", "average_shortest_path_length",
+        "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
+        "single_source_shortest_path_length", "predecessor",
         "average_degree_connectivity", "average_neighbor_degree",
         "group_betweenness_centrality", "group_closeness_centrality",
         "minimum_spanning_tree", "maximum_spanning_tree",
@@ -337,6 +345,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _LOAD_PERCOLATION_ALGORITHMS:
+        # State mappings and public rows remain live between source searches.
+        # Each owned algorithm admits its native snapshot after these reads.
+        return True
     if name in _LEIDEN_ALGORITHMS:
         # Seed resolution belongs to the public call; graph and weight reads
         # belong to the owned iterator's first advancement. Recover G even
@@ -390,10 +402,24 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # evaluates the heuristic protocol during relaxation. Preserve those
         # inputs before conversion, including when another query cached one.
         return True
+    if name == "closeness_centrality":
+        return fnx._closeness_uses_live_python_rows(
+            graph, arguments.get("distance"), arguments.get("wf_improved", True)
+        )
+    if name in {"single_source_shortest_path_length", "predecessor"}:
+        return (
+            type(arguments.get("cutoff")) not in (type(None), int, float, bool)
+            or type(arguments.get("source")) not in (str, int, float, bool)
+            or fnx._weighted_query_uses_live_python_rows(graph, None)
+        )
     if name == "harmonic_centrality":
         # Resolving node selectors can mutate the graph. Inspect presence only;
         # the algorithm owns their truth, membership, and iteration protocols.
-        return arguments.get("nbunch") is not None or arguments.get("sources") is not None
+        return (
+            arguments.get("nbunch") is not None
+            or arguments.get("sources") is not None
+            or fnx._harmonic_uses_live_python_rows(graph, arguments.get("distance"))
+        )
     if name in _BETWEENNESS_INPUT_ALGORITHMS:
         return fnx._betweenness_uses_live_python_rows(
             graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k")
@@ -1074,6 +1100,10 @@ _SUPPORTED_ALGORITHMS = {
     "degree_centrality": fnx.degree_centrality,
     "closeness_centrality": fnx.closeness_centrality,
     "harmonic_centrality": fnx.harmonic_centrality,
+    # NetworkX's load_centrality alias uses the Newman dispatch name.
+    "newman_betweenness_centrality": fnx.load_centrality,
+    "edge_load_centrality": fnx.edge_load_centrality,
+    "percolation_centrality": fnx.percolation_centrality,
     "constraint": fnx.constraint,
     "local_constraint": fnx.local_constraint,
     "effective_size": fnx.effective_size,

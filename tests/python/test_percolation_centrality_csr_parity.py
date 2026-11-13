@@ -9,8 +9,11 @@ networkx within float tolerance. 173ms -> 33ms (faster than nx).
 """
 
 import random
+from decimal import Decimal
+from fractions import Fraction
 
 import networkx as nx
+import pytest
 
 import franken_networkx as fnx
 
@@ -92,3 +95,107 @@ def test_weighted_path_still_supported():
         nx.percolation_centrality(base, weight="weight"),
         fnx.percolation_centrality(Gf, weight="weight"),
     )
+
+
+def _state_graph(library, cls_name):
+    graph = getattr(library, cls_name)()
+    graph.add_nodes_from(range(4))
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 2), (2, 3, 1), (0, 3, 7)])
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, weight=3)
+    return graph
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("library", [nx, fnx], ids=["networkx-input", "native-input"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_percolation_accepts_ordinary_graph_inputs(cls_name, library, weight):
+    graph = _state_graph(library, cls_name)
+    expected = nx.percolation_centrality(_state_graph(nx, cls_name), weight=weight)
+    assert fnx.percolation_centrality(graph, weight=weight) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("library", [nx, fnx], ids=["networkx-input", "native-input"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("state_kind", ["outside", "reordered", "fraction"])
+def test_percolation_preserves_supplied_state_domain(cls_name, library, weight, state_kind):
+    if state_kind == "outside":
+        states = {0: 0.25, 1: 0.5, 2: 0.75, 3: 1.0, "outside": 5.0}
+    elif state_kind == "reordered":
+        # The mapping fold is 3.0, while a graph-ordered fold is 2.0.
+        states = {0: 1e16, 2: -1e16, 1: 1.0, 3: 2.0}
+    else:
+        states = {node: Fraction(1, node + 3) for node in range(4)}
+    expected = nx.percolation_centrality(
+        _state_graph(nx, cls_name), states=states, weight=weight
+    )
+    actual = fnx.percolation_centrality(
+        _state_graph(library, cls_name), states=states, weight=weight
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("library", [nx, fnx], ids=["networkx-input", "native-input"])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("kind", ["zero", "decimal", "missing"])
+def test_percolation_keeps_state_errors(library, cls_name, weight, kind):
+    states = {
+        "zero": dict.fromkeys(range(4), 0.0),
+        "decimal": dict.fromkeys(range(4), Decimal("0.5")),
+        "missing": {0: 0.5, 1: 0.5, 3: 0.5},
+    }[kind]
+    with pytest.raises((ZeroDivisionError, TypeError, KeyError)) as oracle:
+        nx.percolation_centrality(_state_graph(nx, cls_name), states=states, weight=weight)
+    with pytest.raises(type(oracle.value)) as actual:
+        fnx.percolation_centrality(_state_graph(library, cls_name), states=states, weight=weight)
+    assert str(actual.value) == str(oracle.value)
+
+
+@pytest.mark.parametrize("library", [nx, fnx], ids=["networkx-input", "native-input"])
+def test_percolation_zero_states_on_isolates_do_not_divide(library):
+    graph = library.Graph()
+    graph.add_nodes_from(range(3))
+    assert fnx.percolation_centrality(graph, states=dict.fromkeys(graph, 0.0)) == {
+        0: 0.0, 1: 0.0, 2: 0.0
+    }
+
+
+@pytest.mark.parametrize("library", [nx, fnx], ids=["networkx-input", "native-input"])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+def test_unweighted_percolation_ignores_internal_name_collision(library, cls_name):
+    graph = getattr(library, cls_name)()
+    graph.add_edges_from([(0, 1), (1, 2), (0, 2)])
+    graph[0][2]["\x00__fnx_unit_weight_sentinel__"] = 20
+    expected = nx.percolation_centrality(nx.DiGraph(graph) if graph.is_directed() else nx.Graph(graph))
+    assert fnx.percolation_centrality(graph) == expected
+
+
+class _ChangingStates(dict):
+    def __init__(self, graph):
+        super().__init__(dict.fromkeys(graph, 0.5))
+        self.graph = graph
+        self.reads = []
+
+    def values(self):
+        self.reads.append("values")
+        return super().values()
+
+    def __getitem__(self, node):
+        self.reads.append(node)
+        if len(self.reads) == 2:
+            self.graph.add_edge(1, 3, weight=1)
+        return super().__getitem__(node)
+
+
+@pytest.mark.parametrize("library", [nx, fnx], ids=["networkx-input", "native-input"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_percolation_state_reads_can_change_later_sources(library, weight):
+    graph = _state_graph(library, "DiGraph")
+    reference = _state_graph(nx, "DiGraph")
+    states, oracle_states = _ChangingStates(graph), _ChangingStates(reference)
+    expected = nx.percolation_centrality(reference, states=oracle_states, weight=weight)
+    assert fnx.percolation_centrality(graph, states=states, weight=weight) == expected
+    assert states.reads == oracle_states.reads
+    assert graph.has_edge(1, 3)

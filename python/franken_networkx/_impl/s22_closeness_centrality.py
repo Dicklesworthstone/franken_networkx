@@ -1,3 +1,63 @@
+def _closeness_uses_live_python_rows(G, distance=None, wf_improved=True):
+    """Keep topology, reverse-copy and option providers on the caller's graph."""
+    if type(wf_improved) is not bool:
+        return True
+    if _weighted_query_uses_live_python_rows(G, distance):
+        return True
+    storage = vars(G)
+    if any(name in storage for name in ("reverse", "is_directed", "is_multigraph")):
+        return True
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+        if "nodes" in storage and (
+            "_fnx_view_nodes_assigned" in storage
+            or storage["nodes"] is not storage.get("_fnx_view_nodes")
+        ):
+            return True
+        if G.node_attr_dict_factory is not dict or G.graph_attr_dict_factory is not dict:
+            return True
+        if type(G) in (DiGraph, MultiDiGraph):
+            # The native incoming-distance kernel can elide an ordinary
+            # reversed copy only when deepcopy cannot call back into Python.
+            return not _conversion_native_deepcopy_safe(
+                G, multigraph=type(G) is MultiDiGraph
+            )
+        return False
+    # A foreign directed graph owns its reverse() result and copy boundary.
+    # Ordinary undirected foreign storage has already passed row admission.
+    if "nodes" in storage:
+        import networkx as nx
+
+        nodes = storage["nodes"]
+        if type(nodes) is not nx.classes.reportviews.NodeView or nodes._nodes is not G._node:
+            return True
+    return G.is_directed()
+
+
+def _closeness_centrality_inproc(G, u=None, distance=None, wf_improved=True):
+    """Compute closeness from live source rows without a conversion snapshot."""
+    if G.is_directed():
+        G = G.reverse()
+    nodes = G.nodes if u is None else [u]
+    scores = {}
+    for source in nodes:
+        if distance is None:
+            distances = single_source_shortest_path_length(G, source)
+        else:
+            sources = {source}
+            if source not in G:
+                raise NodeNotFound(f"Node {source} not found in graph")
+            distances = _dijkstra_multisource_inproc(
+                G, sources, _weight_function(G, distance)
+            )
+        total = sum(distances.values())
+        size = len(G)
+        score = 0.0
+        if total > 0.0 and size > 1:
+            score = (len(distances) - 1.0) / total
+            if wf_improved:
+                score *= (len(distances) - 1.0) / (size - 1)
+        scores[source] = score
+    return scores if u is None else scores[u]
 
 
 def closeness_centrality(
@@ -29,11 +89,9 @@ def closeness_centrality(
         float if u is specified.
     """
     _validate_backend_dispatch_keywords("closeness_centrality", backend, backend_kwargs)
-    # Preserve the same weighted rows as Dijkstra before conversion can copy
-    # callback attributes or collapse an asymmetric undirected view. Directed
-    # closeness still applies its public reverse(copy=True) boundary below.
-    if distance is None or not _weighted_query_uses_live_python_rows(G, distance):
-        G = _coerce_arg_to_fnx_graph(G)
+    if _closeness_uses_live_python_rows(G, distance, wf_improved):
+        return _closeness_centrality_inproc(G, u, distance, wf_improved)
+    G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-clsingle: a single-node request (u=...) on the standard
     # unweighted, wf_improved, undirected path previously delegated to networkx,

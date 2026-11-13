@@ -754,6 +754,56 @@ def eigenvector_centrality(
     )
 
 
+def _harmonic_uses_live_python_rows(G, distance=None):
+    """Preserve graph readers used by source selection and reverse searches."""
+    if _weighted_query_uses_live_python_rows(G, distance):
+        return True
+    storage = vars(G)
+    if any(
+        name in storage
+        for name in ("reverse", "is_directed", "is_multigraph", "nbunch_iter")
+    ):
+        return True
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES and "nodes" in storage:
+        return (
+            "nodes" not in storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
+            or storage["nodes"] is not storage.get("_fnx_view_nodes")
+        )
+    return False
+
+
+def _harmonic_centrality_inproc(G, nbunch, distance, sources):
+    """Accumulate reciprocal distances on the caller's public graph rows.
+
+    Targets are selected before sources. A source iterator can change later
+    graph traversal, and the optional transpose is a live reverse view. Neither
+    boundary permits an undirected materialization of asymmetric view rows.
+    """
+    targets = set(G.nodes if nbunch is None else G.nbunch_iter(nbunch))
+    origins = set(G.nodes if sources is None else G.nbunch_iter(sources))
+    return _harmonic_centrality_from_sets(G, targets, distance, origins)
+
+
+def _harmonic_centrality_from_sets(G, targets, distance, origins):
+    """Search after selector callbacks, without selecting those nodes again."""
+    scores = dict.fromkeys(targets, 0)
+    score_origin = len(targets) < len(origins)
+    if score_origin:
+        origins, targets = targets, origins
+        if G.is_directed():
+            G = G.reverse(copy=False)
+    for origin in origins:
+        if distance is None:
+            distances = single_source_shortest_path_length(G, origin)
+        else:
+            distances = single_source_dijkstra_path_length(G, origin, weight=distance)
+        for destination, length in distances.items():
+            if length != 0 and destination in targets:
+                score_node = origin if score_origin else destination
+                scores[score_node] += 1 / length
+    return scores
+
+
 def harmonic_centrality(
     G,
     nbunch=None,
@@ -782,6 +832,8 @@ def harmonic_centrality(
         Dictionary of nodes with harmonic centrality as value.
     """
     _validate_backend_dispatch_keywords("harmonic_centrality", backend, backend_kwargs)
+    if _harmonic_uses_live_python_rows(G, distance):
+        return _harmonic_centrality_inproc(G, nbunch, distance, sources)
     # Selection iterables can change the caller's graph before the first
     # search. Native owned graphs already observe those changes, but copying
     # a NetworkX graph, view, or shared shallow copy here would freeze its old
@@ -862,6 +914,8 @@ def harmonic_centrality(
         nb = set(G.nbunch_iter(nbunch) if nbunch is not None else G.nodes)
         sources_set = set(G.nbunch_iter(sources) if sources is not None else G.nodes)
         centrality = {u: 0 for u in nb}
+        if select_before_coercion and _harmonic_uses_live_python_rows(G, distance):
+            return _harmonic_centrality_from_sets(G, nb, distance, sources_set)
         if select_before_coercion and not _point_query_uses_private_rows(G) and (
             distance is None or not _weighted_query_uses_live_python_rows(G, distance)
         ):
