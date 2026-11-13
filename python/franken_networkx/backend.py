@@ -162,6 +162,8 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "average_shortest_path_length",
         "average_degree_connectivity",
         "average_neighbor_degree",
+        "transitive_closure_dag",
+        "number_of_spanning_trees",
         "quotient_graph",
         "greedy_modularity_communities",
         "greedy_color",
@@ -281,7 +283,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "harmonic_centrality", "average_shortest_path_length",
         "average_degree_connectivity", "average_neighbor_degree",
         "group_betweenness_centrality", "group_closeness_centrality",
-        "stoer_wagner",
+        "stoer_wagner", "transitive_closure_dag", "number_of_spanning_trees",
     }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -294,6 +296,14 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "transitive_closure_dag":
+        # Ordering and copy providers own the closure's snapshot boundary.
+        # A cached conversion loses copy hooks and changes later graph reads.
+        return True
+    if name == "number_of_spanning_trees":
+        # Matrix construction reads the caller's edge providers and literal
+        # attribute keys, including None. Conversion can discard that state.
+        return True
     if name in {"group_betweenness_centrality", "group_closeness_centrality"}:
         # Resolving groups can mutate the graph before searches begin. The
         # owned entry points also retain live weights and admit their native
@@ -1173,6 +1183,7 @@ _SUPPORTED_ALGORITHMS = {
     "is_weakly_connected": fnx.is_weakly_connected,
     # Transitive closure/reduction
     "transitive_closure": fnx.transitive_closure,
+    "transitive_closure_dag": fnx.transitive_closure_dag,
     "transitive_reduction": fnx.transitive_reduction,
     # Maximum spanning tree
     "maximum_spanning_edges": fnx.maximum_spanning_edges,

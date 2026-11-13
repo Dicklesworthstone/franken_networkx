@@ -2596,3 +2596,24 @@ predecessor provider and logical storage remain unchanged. At the next node
 after invalidation, traversal continues over public predecessor rows. Views,
 assigned storage and custom graph or node providers use that live traversal
 from the start, without materializing a graph snapshot.
+
+## 86. DAG Transitive Closure Copy and Ordering
+
+`transitive_closure_dag` validates directedness first. Without a supplied
+topological order, it resolves that order against the original graph before
+calling its `copy()` method. The returned copy retains the provider's class,
+visible graph state and shallow attribute identities.
+
+Supplied orders are reversed after copying, without first consuming their
+forward iterator. A one-shot iterator therefore raises its reversibility error
+after the copy exists. Each reversed node reads distance-two descendants from
+the current working copy and immediately inserts the resulting edges. Changes
+made by ordering, adjacency or mutation providers remain visible to later
+nodes. An invalid later node leaves already completed closure additions in a
+copy retained by its provider.
+
+Ordinary concrete DiGraph copies with passive orders, plain node labels and
+unmodified graph protocols retain bulk native adjacency reads and one final
+edge batch. Other inputs use the owned live traversal. Explicit backend
+dispatch preserves the original input and its copy protocol even after an
+earlier algorithm populated the conversion cache.

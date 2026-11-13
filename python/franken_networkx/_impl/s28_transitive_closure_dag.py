@@ -1,3 +1,7 @@
+_DAG_CLOSURE_NATIVE_METHODS = {
+    name: getattr(DiGraph, name)
+    for name in ("__iter__", "__contains__", "__getitem__", "add_edges_from")
+}
 
 
 def transitive_closure_dag(G, topo_order=None):
@@ -17,49 +21,65 @@ def transitive_closure_dag(G, topo_order=None):
     -------
     DiGraph
 
-    br-r37-c1-utmy6: the previous transitive_closure (Rust) shortcut
-    produced a graph whose adj[node] iteration order drifted from nx
-    (nx appends new transitive edges in its BFS-from-each-source
-    discovery order, e.g. adj[a] = [b,c,e,d] when 'd' is reached
-    last via the longer (a→c→d) chain). Delegate to nx so the
-    output graph's adj iteration matches nx's contract.
+    The result follows the input's copy protocol. A supplied order is
+    traversed in reverse only after copying, and each node reads the
+    partially completed closure before adding its new edges.
     """
     if not G.is_directed():
         # br-r37-c1-1ewpw: nx's @not_implemented_for('undirected')
         # raises NetworkXNotImplemented; fnx silently ran. Surface the
         # standard message for drop-in parity.
         raise NetworkXNotImplemented("not implemented for undirected type")
-    # br-r37-c1-tcddedeleg: run nx's exact algorithm IN-PROCESS on the fnx
-    # graph for a plain DiGraph, instead of round-tripping through nx
-    # (_networkx_graph_for_parity built a full nx copy AND _from_nx_graph
-    # rebuilt the larger closure graph — ~59% of the time was these two
-    # O(V+E) conversions). nx appends each adj[v]'s transitive edges in
-    # CPython set-iteration order; we reproduce that natively by using real
-    # Python sets with identical insertion order, so the output graph's
-    # adj iteration is byte-identical (ordered edges == nx). Multigraph /
-    # views / nx-private-storage graphs keep the proven delegation path.
-    if type(G) is DiGraph:
-        result = _transitive_closure_dag_inproc(G, topo_order)
-        if result is not None:
-            return result
-    return _transitive_closure_dag_via_parity(G, topo_order)
-
-
-def _transitive_closure_dag_inproc(G, topo_order):
-    """In-process nx-exact transitive_closure_dag for a plain DiGraph.
-
-    Mirrors networkx.algorithms.dag.transitive_closure_dag verbatim:
-    ``TC = G.copy(); for v in reversed(topo_order): TC.add_edges_from(
-    (v, u) for u in descendants_at_distance(TC, v, 2))``. The distance-2
-    BFS is inlined with the raw Rust successor accessor (skipping the
-    AtlasView per-access tax) but builds the SAME Python sets in the SAME
-    insertion order, so CPython set-iteration order — and thus the appended
-    transitive-edge order in every adj[v] — matches nx exactly. Returns
-    ``None`` to signal the caller to fall back (raw accessor unavailable).
-    """
     if topo_order is None:
-        topo_order = list(topological_sort(G))
+        # Resolve the order on the original graph. Its degree/neighbor
+        # providers may change what copy() subsequently sees; neither a
+        # preliminary conversion nor a native topology snapshot owns them.
+        if not G.is_directed():
+            raise NetworkXError("Topological sort not defined on undirected graphs.")
+        multigraph = G.is_multigraph()
+        indegree_map = {node: degree for node, degree in G.in_degree() if degree > 0}
+        zero_indegree = [node for node, degree in G.in_degree() if degree == 0]
+        topo_order = [
+            node
+            for generation in _topological_generations_live(
+                G, zero_indegree, indegree_map, multigraph
+            )
+            for node in generation
+        ]
     TC = G.copy()
+    if _transitive_closure_dag_can_snapshot(TC, topo_order):
+        return _transitive_closure_dag_inproc(TC, topo_order)
+    return _transitive_closure_dag_live(TC, topo_order)
+
+
+def _transitive_closure_dag_can_snapshot(TC, topo_order):
+    """Admit batching only when later reads cannot invoke user providers."""
+    if (
+        type(TC) is not DiGraph
+        or type(topo_order) not in (list, tuple, range)
+        or _has_networkx_private_storage(TC)
+        or any(
+            getattr(DiGraph, name) is not method
+            for name, method in _DAG_CLOSURE_NATIVE_METHODS.items()
+        )
+        or not TC.__dict__.keys().isdisjoint(
+            ("adj", "__iter__", "__contains__", "__getitem__", "add_edges_from")
+        )
+    ):
+        return False
+    plain_types = (str, int, float, bool, bytes)
+    if any(type(node) not in plain_types for node in TC):
+        return False
+    if any(type(node) not in plain_types for node in topo_order):
+        return False
+    # An invalid supplied order can fail after earlier closure edges have
+    # been added to a copy retained by the caller. Preserve that partial work
+    # in the live path instead of collecting an uncommitted batch.
+    return all(node in TC for node in topo_order)
+
+
+def _transitive_closure_dag_inproc(TC, topo_order):
+    """Batch the closure of an already copied, passive native DiGraph."""
     # br-r37-c1-ey5n2: the successor snapshot comes from one native call. Read
     # row by row through the raw neighbors accessor, every row got a live row
     # mirror, and a graph with row mirrors turns the final add_edges_from away
@@ -67,7 +87,7 @@ def _transitive_closure_dag_inproc(G, topo_order):
     adj = _fnx.to_dict_of_lists_undirected(TC)
     succ = _raw_neighbors_dispatch(TC) if adj is None else None
     if adj is None and succ is None:
-        return None
+        return _transitive_closure_dag_live(TC, topo_order)
     # br-cc-tcdsnap: the distance-2 BFS below previously called ``succ(TC, node)``
     # (a PyO3 successor lookup) per node on the MUTATING TC — O(closure-edges)
     # round-trips, ~0.67x vs nx (which walks native dicts). Snapshot TC's
@@ -110,16 +130,21 @@ def _transitive_closure_dag_inproc(G, topo_order):
     return TC
 
 
-def _transitive_closure_dag_via_parity(G, topo_order):
-    """In-process transitive_closure_dag for multigraphs, views, and subclasses."""
-    G = _coerce_arg_to_fnx_graph(G)
-    if topo_order is None:
-        topo_order = list(topological_sort(G))
-    else:
-        topo_order = list(topo_order)
-    TC = G.copy()
+def _transitive_closure_dag_live(TC, topo_order):
+    """Read and mutate the working copy at each reverse-order boundary."""
     for v in reversed(topo_order):
-        TC.add_edges_from((v, u) for u in descendants_at_distance(TC, v, 2))
+        add_edges_from = TC.add_edges_from
+        if v not in TC:
+            raise NetworkXError(f"The node {v} is not in the graph.")
+        # The public descendants helper can materialize graph providers for
+        # its native route. Walk the two live layers here so copy subclasses,
+        # assigned adjacency and callbacks keep their observable read order.
+        descendants = set()
+        for distance, layer in enumerate(bfs_layers(TC, v)):
+            if distance == 2:
+                descendants = set(layer)
+                break
+        add_edges_from((v, u) for u in descendants)
     return TC
 
 
