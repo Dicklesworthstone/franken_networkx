@@ -2700,3 +2700,65 @@ candidates observe the original graph state and invalidate affected conversion
 caches. Node-cut verification must retain the input graph's implementation
 family when constructing a graph with the cut vertices removed.
 
+## 89. Owned Leiden Community Detection Contract
+
+This implementation contract derives from Traag, Waltman and van Eck,
+"From Louvain to Leiden: guaranteeing well-connected communities" (2019),
+Appendix A, algorithm A.2: https://arxiv.org/abs/1810.08473.
+The existing public signatures retain the NetworkX 3.6.1 modularity contract;
+the later NetworkX 3.7 CPM default is not adopted. Implement the algorithm in
+an owned Python helper behind `community.py`, without a new runtime dependency
+or delegation to another community detector.
+
+Accept undirected Graph/MultiGraph inputs with finite nonnegative edge weights
+and finite positive resolution, interpreted with checked floating-point
+arithmetic. A missing weight attribute defaults to one;
+`weight=None` counts every edge once. Sum parallel edges and retain self-loops.
+Reject directed inputs before resolving the RNG, matching the existing wrapper
+order. Empty or zero-total-weight inputs yield one singleton partition (an empty
+list for an empty graph); the zero-total rule is an explicit defined extension.
+Reject nonfinite accumulated arithmetic instead of optimizing an invalid score.
+
+Let m count each weighted edge once, including loops; k(u) counts loop weight
+twice. For disjoint sets A and B, define D(A,B) = w(A,B) - resolution *
+K(A)*K(B)/(2m), where K sums original weighted degrees. Merging changes
+modularity by D(A,B)/m. Moving u from A to B changes it by
+[D({u},B)-D({u},A-{u})]/m. Aggregation must preserve m, all degree sums and
+internal edge mass in aggregate self-loops.
+
+The fast local move phase starts with a randomized queue. Consider adjacent
+communities and a new singleton destination, move only for a strictly positive
+best gain, and prefer staying on ties. Requeue unqueued neighbors outside the
+destination after a move. A new singleton destination is essential for splitting
+coarse communities inherited from an earlier aggregation.
+
+Refinement restarts with singleton current nodes inside each coarse community
+S. Only still-singleton u with D({u},S-{u}) >= 0 is eligible. Candidate refined
+blocks C remain inside S, share an edge with u, satisfy D(C,S-C) >= 0 and admit
+D({u},C) >= 0; staying is a zero-gain candidate. Choose randomly with probabilities proportional to
+exp(D/0.01), using subtract-max normalization. Re-evaluate a block's eligibility
+after it grows. This phase must remain randomized rather than choosing only
+the best merge.
+
+Build the next graph from REFINED blocks, and initialize its communities from
+the COARSE partition that contains those blocks. Keep each aggregate node's
+original-node membership. Stop when local moving leaves singleton communities
+on the current aggregate graph; a stalled coarse score alone is insufficient.
+If randomized refinement makes no contraction, retry the local/refinement
+step rather than falsely reporting convergence. After 64 consecutive passes
+without contraction, raise `NetworkXError("Leiden refinement made no progress
+after 64 attempts")`; reset the counter after a real contraction. This is an
+explicit failure, never a convergence result or a forced greedy repair. It
+bounds pathological random providers, including a constant draw that always
+selects staying. When each pass has an admissible merge and draws are uniform,
+the probability of 64 all-stay passes is at most 2**-64.
+
+Public partition levels are copied original-node sets after successful refined
+contractions. This explicit projection of the internal algorithm makes levels
+nested, connected and nondecreasing in modularity relative to the preceding
+refined level; it does not promise the same random partition as another Leiden
+implementation. Yield the singleton partition once when no contraction occurs,
+and do not duplicate the terminal level. `max_level` limits consumed public
+levels and must be positive or None, with the established islice validation.
+Resolve the RNG at API invocation, snapshot the graph only on first iterator
+advancement, and isolate later graph mutations and edits to yielded sets.

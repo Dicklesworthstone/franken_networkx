@@ -1838,17 +1838,29 @@ def leiden_communities(
     backend=None,
     **backend_kwargs,
 ):
-    """Find a best partition of `G` using Leiden Community Detection (backend required)."""
+    """Find a modularity partition using owned Leiden refinement.
+
+    ``max_level`` limits successful refined contractions. These partitions
+    retain connected communities even when iteration is stopped early.
+    """
     _fnx._validate_backend_dispatch_keywords(
         "leiden_communities", backend, backend_kwargs
     )
     if G.is_directed():
         raise _fnx.NetworkXNotImplemented("not implemented for directed type")
-    _fnx._generator_random_state(seed)
-    raise NotImplementedError(
-        "'leiden_communities' is not implemented by networkx. "
-        "Please try a different backend."
-    )
+    rng = _fnx._generator_random_state(seed)
+    from itertools import islice
+    from franken_networkx._leiden import leiden_partitions as _owned_partitions
+
+    levels = _owned_partitions(G, weight, resolution, rng)
+    if max_level is not None:
+        if max_level <= 0:
+            raise ValueError("max_level argument must be a positive integer or None")
+        levels = islice(levels, max_level)
+    result = next(levels)
+    for partition in levels:
+        result = partition
+    return result
 
 
 def leiden_partitions(
@@ -1860,17 +1872,21 @@ def leiden_partitions(
     backend=None,
     **backend_kwargs,
 ):
-    """Yield partitions for each level of Leiden Community Detection (backend required)."""
+    """Yield copied, connected partitions after Leiden refined contractions.
+
+    The input is snapshotted at first advancement. Later source mutations and
+    changes to yielded sets do not affect the remaining levels. Empty or
+    zero-total-weight graphs yield their singleton partition once.
+    """
     _fnx._validate_backend_dispatch_keywords(
         "leiden_partitions", backend, backend_kwargs
     )
     if G.is_directed():
         raise _fnx.NetworkXNotImplemented("not implemented for directed type")
-    _fnx._generator_random_state(seed)
-    raise NotImplementedError(
-        "'leiden_partitions' is not implemented by networkx. "
-        "Please try a different backend."
-    )
+    rng = _fnx._generator_random_state(seed)
+    from franken_networkx._leiden import leiden_partitions as _owned_partitions
+
+    return _owned_partitions(G, weight, resolution, rng)
 
 
 _UPSTREAM_PUBLIC = getattr(

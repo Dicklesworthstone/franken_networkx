@@ -84,6 +84,7 @@ _COMMUNITY_ITERATOR_ALGORITHMS = frozenset(
         "fast_label_propagation_communities",
         "girvan_newman",
         "k_clique_communities",
+        "leiden_partitions",
     }
 )
 _BETWEENNESS_INPUT_ALGORITHMS = frozenset(
@@ -101,6 +102,7 @@ _RESILIENCE_ALGORITHMS = frozenset(
         "k_edge_augmentation", "k_components", "all_node_cuts",
     }
 )
+_LEIDEN_ALGORITHMS = frozenset({"leiden_communities", "leiden_partitions"})
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
@@ -262,6 +264,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
     | _RESIDUAL_FLOW_ALGORITHMS
     | _RESILIENCE_ALGORITHMS
+    | _LEIDEN_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -309,6 +312,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _BIPARTITE_MATCHING_ALGORITHMS
     | _BIPARTITE_PROJECTION_ALGORITHMS
     | _RESILIENCE_ALGORITHMS
+    | _LEIDEN_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -333,6 +337,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _LEIDEN_ALGORITHMS:
+        # Seed resolution belongs to the public call; graph and weight reads
+        # belong to the owned iterator's first advancement. Recover G even
+        # when an earlier eager algorithm cached a native conversion.
+        return True
     if name in _RESILIENCE_ALGORITHMS:
         # Decompositions choose their own eager or lazy snapshot boundary.
         # Flow solvers and available-edge providers may also change G, so a
@@ -1369,6 +1378,8 @@ _SUPPORTED_ALGORITHMS = {
     "louvain_communities": fnx.community.louvain_communities,
     # br-r37-c1-81vo1: the native levels; the fallback is pinned to networkx.
     "louvain_partitions": fnx.community.louvain_partitions,
+    "leiden_communities": fnx.community.leiden_communities,
+    "leiden_partitions": fnx.community.leiden_partitions,
     # br-r37-c1-epic-native-algorithms-1g0lj.3: networkx's CNM loop natively. Its
     # fallback calls networkx with backend="networkx", so this cannot ping-pong.
     "greedy_modularity_communities": fnx.community.greedy_modularity_communities,

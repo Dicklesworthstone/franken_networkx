@@ -228,6 +228,14 @@ Backend routing preserves those inputs before conversion; ordinary primitive
 inputs retain the existing native kernel. No upstream solver or intermediate
 NetworkX graph is required for the fallback.
 
+Leiden's owned Python helper keeps indexed weighted adjacency, aggregate node
+degrees, original-node memberships and partition state separate from graph
+storage. `community.py` owns public validation and iterator boundaries; the
+helper owns local moving, constrained randomized refinement and refined
+aggregation. Backend dispatch retains the caller graph until the first
+iterator advancement. No upstream community solver or additional native API
+is required by this seam.
+
 Floyd-Warshall's dictionary APIs retain the original graph and share a static,
 callback-free dictionary-read admission predicate with weighted analytics.
 Only ordinary exact scalar domains enter the existing vectorized distance
