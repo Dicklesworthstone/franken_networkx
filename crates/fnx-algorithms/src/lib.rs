@@ -10840,6 +10840,86 @@ struct BellmanFordSpfaState {
     discovered: IndexedTypedPredDistances,
 }
 
+/// Why a Bellman-Ford result cannot supply a path from its selected parents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BellmanFordPathError {
+    /// Relaxation proved a reachable negative cycle.
+    NegativeCycle,
+    /// Rounded distances left a parent cycle or a chain without the source.
+    /// A caller retaining all predecessor lists can still search those lists.
+    Unrepresentable,
+}
+
+fn bellman_ford_predecessor_path(
+    predecessors: &HashMap<&str, Option<&str>>,
+    source: &str,
+    target: &str,
+) -> Option<Vec<String>> {
+    let mut path = vec![target.to_owned()];
+    let mut current = target;
+    while current != source {
+        // A simple source-rooted path contains at most one entry per reached
+        // vertex. Float rounding can terminate relaxation with cyclic parents
+        // even when the recent-update heuristic did not report a cycle.
+        if path.len() >= predecessors.len() {
+            return None;
+        }
+        current = predecessors.get(current).copied().flatten()?;
+        path.push(current.to_owned());
+    }
+    path.reverse();
+    Some(path)
+}
+
+/// Reconstruct one bounded source-rooted path from a Bellman-Ford result.
+/// `Ok(None)` means the target was not reached; a cyclic parent chain is a
+/// distinct error so language bindings can retain their full-predecessor
+/// behavior without reporting a negative cycle that relaxation did not find.
+pub fn bellman_ford_path_from_result(
+    result: &WeightedShortestPathsResult,
+    source: &str,
+    target: &str,
+) -> Result<Option<Vec<String>>, BellmanFordPathError> {
+    if result.negative_cycle_detected {
+        return Err(BellmanFordPathError::NegativeCycle);
+    }
+    let predecessors = result
+        .predecessors
+        .iter()
+        .map(|entry| (entry.node.as_str(), entry.predecessor.as_deref()))
+        .collect::<HashMap<_, _>>();
+    if !predecessors.contains_key(target) {
+        return Ok(None);
+    }
+    bellman_ford_predecessor_path(&predecessors, source, target)
+        .map(Some)
+        .ok_or(BellmanFordPathError::Unrepresentable)
+}
+
+/// Reconstruct bounded paths in Bellman-Ford's first-discovery order.
+pub fn bellman_ford_paths_from_result(
+    result: &WeightedShortestPathsResult,
+    source: &str,
+) -> Result<OrderedPaths, BellmanFordPathError> {
+    if result.negative_cycle_detected {
+        return Err(BellmanFordPathError::NegativeCycle);
+    }
+    let predecessors = result
+        .predecessors
+        .iter()
+        .map(|entry| (entry.node.as_str(), entry.predecessor.as_deref()))
+        .collect::<HashMap<_, _>>();
+    result
+        .distances
+        .iter()
+        .map(|entry| {
+            bellman_ford_predecessor_path(&predecessors, source, &entry.node)
+                .map(|path| (entry.node.clone(), path))
+                .ok_or(BellmanFordPathError::Unrepresentable)
+        })
+        .collect()
+}
+
 /// Materialize a public Bellman-Ford result from the walk's index state.
 ///
 /// Keeping the walk index-backed avoids constructing three transient
@@ -10885,10 +10965,11 @@ fn weighted_paths_result_from_spfa<'g>(
 /// equal-distance tie. Mirroring this order is what makes fnx's reconstructed
 /// shortest paths agree with nx when multiple equal-length paths exist.
 ///
-/// Negative cycles are detected the same way nx does: a node enqueued
-/// `node_count` times implies a reachable negative cycle. Returns
-/// `(negative_cycle_detected, queue_peak)`; `distances` and `predecessors` are
-/// filled in place. (br-r37-c1-wloxg)
+/// The default NetworkX search detects a repeated vertex on its recent
+/// update path before the enqueue-count backstop. This matters when negative
+/// distances overflow: once a distance reaches negative infinity, further
+/// traversal of a negative cycle need not produce a strict improvement.
+/// A node enqueued `node_count` times is the secondary cycle check.
 /// br-r37-c1-d58s8 P1: index SPFA core. Replicates nx's
 /// _inner_bellman_ford exactly — FIFO deque, pred LISTS (strict
 /// improvement resets, EXACT-equality appends), and the pred-in-queue
@@ -10915,6 +10996,10 @@ fn bellman_ford_spfa_lazy<'g>(
     // br-r37-c1-0g2tj: networkx's type for each distance - `dist[u] + w`
     // stays an int only while every relaxation that set it added ints.
     let mut all_int = NodeTable::new(node_count, false);
+    // NetworkX's nonexistent recent-update edge is (None, None). The ordinary
+    // predecessor table above also serves as its `pred_edge` map: it changes
+    // only on strict improvement, independently of equal-distance pred lists.
+    let mut recent_update = NodeTable::new(node_count, (u32::MAX, u32::MAX));
     let mut pred_lists: FxHashMap<usize, Vec<u32>> = FxHashMap::default();
     let mut discovered: Vec<u32> = Vec::new();
     let mut in_queue = NodeTable::new(node_count, false);
@@ -10959,19 +11044,25 @@ fn bellman_ford_spfa_lazy<'g>(
             *edges_scanned += 1;
             let candidate = base + weight;
             let existing = dist.get(v);
-            let improves = if existing.is_infinite() {
-                true
-            } else {
-                candidate < existing
-            };
+            // Bellman-Ford uses strict comparison with +inf for an absent
+            // distance. Unlike Dijkstra, a +inf candidate never discovers a
+            // vertex. Negative infinity is a reached distance, and another
+            // -inf candidate is a tie rather than a fresh improvement.
+            let improves = candidate < existing;
             if !improves {
-                if !existing.is_infinite() && candidate == existing {
+                if existing != f64::INFINITY && candidate == existing {
                     pred_lists.entry(v).or_default().push(u);
                 }
                 continue;
             }
             let v_u32 = u32::try_from(v).unwrap_or(u32::MAX);
-            if existing.is_infinite() {
+            let recent = recent_update.get(u_usize);
+            if v_u32 == recent.0 || v_u32 == recent.1 {
+                negative_cycle = true;
+                break 'outer;
+            }
+            recent_update.set(v, if pred.get(v) == u { recent } else { (u, v_u32) });
+            if existing == f64::INFINITY {
                 *nodes_touched += 1;
                 discovered.push(v_u32);
             }
@@ -38080,7 +38171,9 @@ pub fn single_source_dijkstra_path_length_directed(
 }
 
 /// Single-source Bellman-Ford returning paths only.
-/// Returns None if a negative cycle is detected.
+/// Returns None if a negative cycle is detected or rounded parent pointers
+/// cannot describe source-rooted paths. The result reconstruction helpers
+/// distinguish those cases for callers that need a full-predecessor fallback.
 /// Matches `networkx.single_source_bellman_ford_path(G, source, weight=weight)`.
 #[must_use]
 pub fn single_source_bellman_ford_path(
@@ -38089,30 +38182,7 @@ pub fn single_source_bellman_ford_path(
     weight_attr: &str,
 ) -> Option<OrderedPaths> {
     let result = bellman_ford_shortest_paths(graph, source, weight_attr);
-    if result.negative_cycle_detected {
-        return None;
-    }
-
-    let pred_map: HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-
-    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
-    let mut paths = Vec::with_capacity(result.distances.len());
-    for entry in &result.distances {
-        let mut path = vec![entry.node.clone()];
-        let mut cur = entry.node.as_str();
-        while let Some(Some(prev)) = pred_map.get(cur) {
-            path.push((*prev).to_owned());
-            cur = prev;
-        }
-        path.reverse();
-        paths.push((entry.node.clone(), path));
-    }
-
-    Some(paths)
+    bellman_ford_paths_from_result(&result, source).ok()
 }
 
 /// Single-source Bellman-Ford returning distances only.
@@ -38140,7 +38210,7 @@ pub fn single_source_bellman_ford_path_length(
 }
 
 /// Single-source Bellman-Ford returning paths only for directed graph.
-/// Returns None if a negative cycle is detected.
+/// Returns None for a detected negative cycle or an unrepresentable parent path.
 #[must_use]
 pub fn single_source_bellman_ford_path_directed(
     digraph: &DiGraph,
@@ -38148,30 +38218,7 @@ pub fn single_source_bellman_ford_path_directed(
     weight_attr: &str,
 ) -> Option<OrderedPaths> {
     let result = bellman_ford_shortest_paths_directed(digraph, source, weight_attr);
-    if result.negative_cycle_detected {
-        return None;
-    }
-
-    let pred_map: HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-
-    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
-    let mut paths = Vec::with_capacity(result.distances.len());
-    for entry in &result.distances {
-        let mut path = vec![entry.node.clone()];
-        let mut cur = entry.node.as_str();
-        while let Some(Some(prev)) = pred_map.get(cur) {
-            path.push((*prev).to_owned());
-            cur = prev;
-        }
-        path.reverse();
-        paths.push((entry.node.clone(), path));
-    }
-
-    Some(paths)
+    bellman_ford_paths_from_result(&result, source).ok()
 }
 
 /// Single-source Bellman-Ford returning distances only for directed graph.
@@ -38198,7 +38245,7 @@ pub fn single_source_bellman_ford_path_length_directed(
 }
 
 /// Single-source Bellman-Ford returning (distances, paths).
-/// Returns None if a negative cycle is detected.
+/// Returns None for a detected negative cycle or an unrepresentable parent path.
 /// Matches `networkx.single_source_bellman_ford(G, source, weight=weight)`.
 #[must_use]
 pub fn single_source_bellman_ford(
@@ -38207,31 +38254,12 @@ pub fn single_source_bellman_ford(
     weight_attr: &str,
 ) -> Option<DijkstraFull> {
     let result = bellman_ford_shortest_paths(graph, source, weight_attr);
-    if result.negative_cycle_detected {
-        return None;
-    }
-
-    let pred_map: HashMap<&str, Option<&str>> = result
-        .predecessors
+    let paths = bellman_ford_paths_from_result(&result, source).ok()?;
+    let distances = result
+        .distances
         .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
+        .map(|entry| (entry.node.clone(), entry.distance))
         .collect();
-
-    // result.distances is in nx's SPFA first-discovery order. (br-r37-c1-e9rea)
-    let mut distances = Vec::with_capacity(result.distances.len());
-    let mut paths = Vec::with_capacity(result.distances.len());
-    for entry in &result.distances {
-        distances.push((entry.node.clone(), entry.distance));
-        let mut path = vec![entry.node.clone()];
-        let mut cur = entry.node.as_str();
-        while let Some(Some(prev)) = pred_map.get(cur) {
-            path.push((*prev).to_owned());
-            cur = prev;
-        }
-        path.reverse();
-        paths.push((entry.node.clone(), path));
-    }
-
     Some((distances, paths))
 }
 
@@ -69396,6 +69424,215 @@ mod tests {
         assert!(result.distances.is_empty());
         assert!(result.predecessors.is_empty());
         assert!(!result.negative_cycle_detected);
+    }
+
+    #[test]
+    fn bellman_ford_finite_positive_overflow_does_not_discover_infinity() {
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for (left, right, weight) in [("s", "a", 1.0e308), ("a", "b", 1.0e308), ("b", "t", 1.0)] {
+            let edge_attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph
+                .add_edge_with_attrs(left, right, edge_attrs.clone())
+                .unwrap();
+            digraph
+                .add_edge_with_attrs(left, right, edge_attrs)
+                .unwrap();
+        }
+
+        for result in [
+            bellman_ford_shortest_paths(&graph, "s", "weight"),
+            bellman_ford_shortest_paths_directed(&digraph, "s", "weight"),
+        ] {
+            assert!(!result.negative_cycle_detected);
+            assert_eq!(
+                result
+                    .distances
+                    .iter()
+                    .map(|entry| (entry.node.as_str(), entry.distance))
+                    .collect::<Vec<_>>(),
+                vec![("s", 0.0), ("a", 1.0e308)]
+            );
+            assert_eq!(result.witness.nodes_touched, 2);
+        }
+        for result in [
+            super::bellman_ford_indexed(&graph, 0, "weight"),
+            super::bellman_ford_indexed_directed(&digraph, 0, "weight"),
+        ] {
+            assert_eq!(
+                result.unwrap(),
+                vec![(0, 0.0, true, u32::MAX), (1, 1.0e308, false, 0)]
+            );
+        }
+    }
+
+    #[test]
+    fn bellman_ford_overflow_keeps_later_finite_alternatives() {
+        let mut graph = Graph::strict();
+        let mut digraph = DiGraph::strict();
+        for (left, right, weight) in [
+            ("s", "a", 1.0e308),
+            ("a", "b", 1.0e308),
+            ("s", "c", 3.0),
+            ("c", "b", 4.0),
+            ("b", "t", 1.0),
+        ] {
+            let edge_attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph
+                .add_edge_with_attrs(left, right, edge_attrs.clone())
+                .unwrap();
+            digraph
+                .add_edge_with_attrs(left, right, edge_attrs)
+                .unwrap();
+        }
+
+        for result in [
+            bellman_ford_shortest_paths(&graph, "s", "weight"),
+            bellman_ford_shortest_paths_directed(&digraph, "s", "weight"),
+        ] {
+            assert!(!result.negative_cycle_detected);
+            assert_eq!(
+                result
+                    .distances
+                    .iter()
+                    .map(|entry| (entry.node.as_str(), entry.distance))
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("s", 0.0),
+                    ("a", 1.0e308),
+                    ("c", 3.0),
+                    ("b", 7.0),
+                    ("t", 8.0)
+                ]
+            );
+            assert_eq!(result.witness.nodes_touched, 5);
+            assert_eq!(result.predecessors[3].predecessor.as_deref(), Some("c"));
+        }
+    }
+
+    #[test]
+    fn bellman_ford_negative_infinity_ties_preserve_first_paths_without_false_cycles() {
+        for positive_cycle in [false, true] {
+            let mut graph = DiGraph::strict();
+            for (left, right, weight) in [
+                ("s", "a", -1.0e308),
+                ("a", "b", -1.0e308),
+                ("a", "c", -1.0e308),
+                ("b", "t", 3.0),
+                ("c", "t", 2.0),
+            ] {
+                let edge_attrs: AttrMap =
+                    [("weight".to_owned(), weight.into())].into_iter().collect();
+                graph.add_edge_with_attrs(left, right, edge_attrs).unwrap();
+            }
+            if positive_cycle {
+                graph
+                    .add_edge_with_attrs("t", "b", attrs([("weight", "1")]))
+                    .unwrap();
+            }
+
+            let result = bellman_ford_shortest_paths_directed(&graph, "s", "weight");
+            assert!(!result.negative_cycle_detected);
+            assert_eq!(
+                result
+                    .distances
+                    .iter()
+                    .map(|entry| (entry.node.as_str(), entry.distance))
+                    .collect::<Vec<_>>(),
+                vec![
+                    ("s", 0.0),
+                    ("a", -1.0e308),
+                    ("b", f64::NEG_INFINITY),
+                    ("c", f64::NEG_INFINITY),
+                    ("t", f64::NEG_INFINITY),
+                ]
+            );
+            assert_eq!(result.witness.nodes_touched, 5);
+            assert_eq!(result.predecessors[4].predecessor.as_deref(), Some("b"));
+            assert_eq!(
+                super::bellman_ford_path_from_result(&result, "s", "t").unwrap(),
+                Some(vec![
+                    "s".to_owned(),
+                    "a".to_owned(),
+                    "b".to_owned(),
+                    "t".to_owned()
+                ])
+            );
+        }
+    }
+
+    #[test]
+    fn bellman_ford_bounds_cyclic_parent_paths_without_discarding_lengths() {
+        for (source_weight, return_weight, last_weight) in
+            [(0.0, -1.0e308, 0.0), (1.0, 1.0e308, -0.5)]
+        {
+            let mut graph = DiGraph::strict();
+            for (left, right, weight) in [
+                ("s", "a", source_weight),
+                ("a", "b", -1.0e308),
+                ("b", "t", return_weight),
+                ("t", "a", last_weight),
+            ] {
+                let edge_attrs: AttrMap =
+                    [("weight".to_owned(), weight.into())].into_iter().collect();
+                graph.add_edge_with_attrs(left, right, edge_attrs).unwrap();
+            }
+            let result = bellman_ford_shortest_paths_directed(&graph, "s", "weight");
+            assert!(!result.negative_cycle_detected);
+            assert_eq!(result.distances.len(), 4);
+            assert_eq!(
+                super::bellman_ford_path_from_result(&result, "s", "t"),
+                Err(super::BellmanFordPathError::Unrepresentable)
+            );
+            assert_eq!(
+                super::bellman_ford_paths_from_result(&result, "s"),
+                Err(super::BellmanFordPathError::Unrepresentable)
+            );
+            assert_eq!(
+                super::bellman_ford_path_from_result(&result, "s", "s").unwrap(),
+                Some(vec!["s".to_owned()])
+            );
+            let typed = super::bellman_ford_indexed_directed(&graph, 0, "weight").unwrap();
+            assert_eq!(typed.len(), 4);
+            assert_eq!(
+                typed[3].1,
+                if return_weight < 0.0 {
+                    f64::NEG_INFINITY
+                } else {
+                    0.0
+                }
+            );
+            assert!(!typed[3].2);
+        }
+    }
+
+    #[test]
+    fn bellman_ford_detects_recent_negative_cycles_before_float_saturation() {
+        for weight in [-1.0, -1.0e308] {
+            let mut graph = Graph::strict();
+            let mut digraph = DiGraph::strict();
+            let edge_attrs: AttrMap = [("weight".to_owned(), weight.into())].into_iter().collect();
+            graph
+                .add_edge_with_attrs("s", "a", edge_attrs.clone())
+                .unwrap();
+            digraph.add_edge_with_attrs("s", "a", edge_attrs).unwrap();
+            digraph
+                .add_edge_with_attrs("a", "s", attrs([("weight", "0")]))
+                .unwrap();
+            for index in 0..256 {
+                let node = format!("isolate-{index}");
+                let _ = graph.add_node(&node);
+                let _ = digraph.add_node(&node);
+            }
+
+            for result in [
+                bellman_ford_shortest_paths(&graph, "s", "weight"),
+                bellman_ford_shortest_paths_directed(&digraph, "s", "weight"),
+            ] {
+                assert!(result.negative_cycle_detected);
+                assert_eq!(result.witness.edges_scanned, 2);
+            }
+        }
     }
 
     #[test]

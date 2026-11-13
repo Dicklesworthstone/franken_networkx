@@ -1,4 +1,6 @@
-
+from franken_networkx._fnx import (
+    BellmanFordPathUnrepresentable as _BellmanFordPathUnrepresentable,
+)
 
 def _should_delegate_bellman_ford_path_to_networkx(G, weight):
     """Fast, cached delegation gate for ``bellman_ford_path``.
@@ -859,6 +861,12 @@ def bellman_ford_path(G, source, target, weight="weight"):
         raise NetworkXNoPath(
             f"Target {target} cannot be reached from given sources"
         )
+    except _BellmanFordPathUnrepresentable:
+        # Rounded distances can leave a cycle in the selected parents. The
+        # complete predecessor lists may still contain a source-rooted path.
+        return _single_source_bellman_ford_inproc(
+            G, source, target=target, weight=weight
+        )[1]
     except _WeightRowsUnverified:
         pass
     return _rerun_with_weight_scan(bellman_ford_path, G, source, target, weight)
@@ -1156,7 +1164,17 @@ def shortest_path(
         # br-r37-c1-syncedgeonly: edge-only sync (reads edge weights, not node
         # attrs) — skips the full sync's unguarded O(N) node-attr rebuild.
         _sync_rust_edge_attrs(G, edge_only=True)
-    result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
+    try:
+        result = _raw_shortest_path(G, source=source, target=target, weight=weight, method=method)
+    except _BellmanFordPathUnrepresentable:
+        # Source-only and target-only Bellman-Ford use the generic native
+        # binding. Keep their full-predecessor recovery on the owned engine.
+        H = G.reverse(copy=False) if source is None and G.is_directed() else G
+        endpoint = target if source is None else source
+        paths = _single_source_bellman_ford_inproc(H, endpoint, weight=weight)[1]
+        if source is None:
+            return {node: list(reversed(path)) for node, path in paths.items()}
+        return paths
     if source is None and target is None and isinstance(result, dict):
         # networkx returns a generator of (source, paths_dict) pairs when both
         # endpoints are omitted (dispatches to all_pairs_*). The Rust native

@@ -2132,34 +2132,8 @@ fn compute_single_shortest_path(
                 let result = py.allow_threads(|| {
                     fnx_algorithms::bellman_ford_shortest_paths(inner, source, w)
                 });
-                if result.negative_cycle_detected {
-                    return Err(crate::NetworkXUnbounded::new_err(
-                        "Negative cost cycle detected.",
-                    ));
-                }
-                let pred_map: std::collections::HashMap<&str, Option<&str>> = result
-                    .predecessors
-                    .iter()
-                    .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-                    .collect();
-
-                if !pred_map.contains_key(target) {
-                    return Ok(None);
-                }
-
-                let mut path = vec![target.to_owned()];
-                let mut current = target;
-                while current != source {
-                    match pred_map.get(current) {
-                        Some(Some(prev)) => {
-                            path.push((*prev).to_owned());
-                            current = prev;
-                        }
-                        _ => return Ok(None),
-                    }
-                }
-                path.reverse();
-                Ok(Some(path))
+                fnx_algorithms::bellman_ford_path_from_result(&result, source, target)
+                    .map_err(bellman_ford_path_error)
             }
             other => Err(NetworkXError::new_err(format!(
                 "Unknown method: '{}'. Supported: 'dijkstra', 'bellman-ford'.",
@@ -2197,34 +2171,8 @@ fn compute_single_shortest_path_directed(
                 let result = py.allow_threads(|| {
                     fnx_algorithms::bellman_ford_shortest_paths_directed(inner, source, w)
                 });
-                if result.negative_cycle_detected {
-                    return Err(crate::NetworkXUnbounded::new_err(
-                        "Negative cost cycle detected.",
-                    ));
-                }
-                let pred_map: std::collections::HashMap<&str, Option<&str>> = result
-                    .predecessors
-                    .iter()
-                    .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-                    .collect();
-
-                if !pred_map.contains_key(target) {
-                    return Ok(None);
-                }
-
-                let mut path = vec![target.to_owned()];
-                let mut current = target;
-                while current != source {
-                    match pred_map.get(current) {
-                        Some(Some(prev)) => {
-                            path.push((*prev).to_owned());
-                            current = prev;
-                        }
-                        _ => return Ok(None),
-                    }
-                }
-                path.reverse();
-                Ok(Some(path))
+                fnx_algorithms::bellman_ford_path_from_result(&result, source, target)
+                    .map_err(bellman_ford_path_error)
             }
             other => Err(NetworkXError::new_err(format!(
                 "Unknown method: '{}'. Supported: 'dijkstra', 'bellman-ford'.",
@@ -2256,14 +2204,10 @@ fn compute_single_source_shortest_paths(
                 })),
                 "bellman-ford" => {
                     let result = py.allow_threads(|| {
-                        fnx_algorithms::single_source_bellman_ford_path(inner, source, w)
+                        fnx_algorithms::bellman_ford_shortest_paths(inner, source, w)
                     });
-                    match result {
-                        Some(paths) => Ok(paths),
-                        None => Err(crate::NetworkXUnbounded::new_err(
-                            "Negative cost cycle detected.",
-                        )),
-                    }
+                    fnx_algorithms::bellman_ford_paths_from_result(&result, source)
+                        .map_err(bellman_ford_path_error)
                 }
                 other => Err(NetworkXError::new_err(format!(
                     "Method {other} not supported for shortest_path."
@@ -2438,14 +2382,10 @@ fn compute_single_source_shortest_paths_directed(
             })),
             "bellman-ford" => {
                 let result = py.allow_threads(|| {
-                    fnx_algorithms::single_source_bellman_ford_path_directed(inner, source, w)
+                    fnx_algorithms::bellman_ford_shortest_paths_directed(inner, source, w)
                 });
-                match result {
-                    Some(paths) => Ok(paths),
-                    None => Err(crate::NetworkXUnbounded::new_err(
-                        "Negative cost cycle detected.",
-                    )),
-                }
+                fnx_algorithms::bellman_ford_paths_from_result(&result, source)
+                    .map_err(bellman_ford_path_error)
             }
             other => Err(NetworkXError::new_err(format!(
                 "Method {other} not supported for shortest_path."
@@ -4907,6 +4847,25 @@ pyo3::create_exception!(
      them one by one. The caller re-runs with the whole-graph weight scan."
 );
 
+pyo3::create_exception!(
+    _fnx,
+    BellmanFordPathUnrepresentable,
+    pyo3::exceptions::PyException,
+    "Rounded Bellman-Ford distances left a cyclic selected-parent chain. \
+     The caller must search the complete Python predecessor lists."
+);
+
+fn bellman_ford_path_error(error: fnx_algorithms::BellmanFordPathError) -> PyErr {
+    match error {
+        fnx_algorithms::BellmanFordPathError::NegativeCycle => {
+            crate::NetworkXUnbounded::new_err("Negative cycle detected.")
+        }
+        fnx_algorithms::BellmanFordPathError::Unrepresentable => {
+            BellmanFordPathUnrepresentable::new_err(())
+        }
+    }
+}
+
 /// The most rows a row-checked search may expand, and the most row entries
 /// [`check_expanded_weight_rows`] reads: an eighth of the edges, at least
 /// 256. Past that the whole-graph scan, which the caller then caches, is the
@@ -5492,42 +5451,9 @@ pub fn bellman_ford_path(
     if check_rows {
         check_expanded_weight_rows(py, &gr, rows, weight, true)?;
     }
-    if result.negative_cycle_detected {
-        return Err(crate::NetworkXUnbounded::new_err(
-            "Negative cost cycle detected.",
-        ));
-    }
-
-    let pred_map: std::collections::HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|e| (e.node.as_str(), e.predecessor.as_deref()))
-        .collect();
-
-    if !pred_map.contains_key(t.as_str()) {
-        return Err(NetworkXNoPath::new_err(format!(
-            "No path between {} and {}.",
-            s, t
-        )));
-    }
-
-    let mut path = vec![t.clone()];
-    let mut current = t.as_str();
-    while current != s {
-        match pred_map.get(current) {
-            Some(Some(prev)) => {
-                path.push((*prev).to_owned());
-                current = prev;
-            }
-            _ => {
-                return Err(NetworkXNoPath::new_err(format!(
-                    "No path between {} and {}.",
-                    s, t
-                )));
-            }
-        }
-    }
-    path.reverse();
+    let path = fnx_algorithms::bellman_ford_path_from_result(&result, &s, &t)
+        .map_err(bellman_ford_path_error)?
+        .ok_or_else(|| NetworkXNoPath::new_err(format!("No path between {} and {}.", s, t)))?;
     Ok(path.iter().map(|n| gr.py_node_key(py, n)).collect())
 }
 
@@ -24108,49 +24034,21 @@ fn multidigraph_single_source_dijkstra(
     Ok(Some((distances.into_any().unbind(), paths.into_any())))
 }
 
-/// The source -> target length of a Bellman-Ford result with networkx's type:
-/// `all_int` when every edge on the final predecessor chain carries an int /
-/// bool weight or none (networkx's `dist[source] = 0` plus int weights stays
-/// int). `Err(true)` = negative cycle, `Err(false)` = unreachable.
+/// The target length and arithmetic type recorded during Bellman-Ford
+/// relaxation. Reading this metadata never walks the predecessor chain:
+/// rounded distances can be valid even when that chain has become cyclic.
+/// `Err(true)` = negative cycle, `Err(false)` = unreachable.
 fn bellman_ford_typed_length(
-    result: &fnx_algorithms::WeightedShortestPathsResult,
-    s: &str,
-    t: &str,
-    weight_is_int: impl Fn(&str, &str) -> bool,
+    result: &Option<fnx_algorithms::IndexedTypedPredDistances>,
+    target: usize,
 ) -> Result<(f64, bool), bool> {
-    if result.negative_cycle_detected {
-        return Err(true);
-    }
-    let distance = result
-        .distances
+    result
+        .as_ref()
+        .ok_or(true)?
         .iter()
-        .find(|entry| entry.node == t)
-        .map(|entry| entry.distance)
-        .ok_or(false)?;
-    let pred: HashMap<&str, Option<&str>> = result
-        .predecessors
-        .iter()
-        .map(|entry| (entry.node.as_str(), entry.predecessor.as_deref()))
-        .collect();
-    let mut all_int = true;
-    let mut current = t;
-    while current != s {
-        match pred.get(current) {
-            Some(Some(prev)) => {
-                all_int &= weight_is_int(prev, current);
-                current = prev;
-            }
-            _ => break,
-        }
-    }
-    Ok((distance, all_int))
-}
-
-fn stored_weight_is_int(attrs: Option<&AttrMap>, weight: &str) -> bool {
-    matches!(
-        attrs.and_then(|attrs| attrs.get(weight)),
-        None | Some(fnx_runtime::CgseValue::Int(_) | fnx_runtime::CgseValue::Bool(_))
-    )
+        .find(|(node, _, _, _)| *node as usize == target)
+        .map(|(_, distance, all_int, _)| (*distance, *all_int))
+        .ok_or(false)
 }
 
 /// Return the shortest path length from source to target using Bellman-Ford,
@@ -24174,33 +24072,38 @@ fn bellman_ford_path_length(
     let t = node_key_to_string(py, target)?;
     validate_node(&gr, &s, source, "Source")?;
     validate_node(&gr, &t, target, "Target")?;
+    let missing = || {
+        pyo3::exceptions::PyRuntimeError::new_err(
+            "Bellman-Ford endpoint missing from its projection",
+        )
+    };
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
+        let source_idx = __wp.get_node_index(&s).ok_or_else(missing)?;
+        let target_idx = __wp.get_node_index(&t).ok_or_else(missing)?;
         let (bf, rows) = py.allow_threads(|| {
             run_recording_rows(row_limit, || {
-                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
+                fnx_algorithms::bellman_ford_indexed_directed(__wp, source_idx, weight)
             })
         });
         if check_rows {
             check_expanded_weight_rows(py, &gr, rows, weight, true)?;
         }
-        bellman_ford_typed_length(&bf, &s, &t, |u, v| {
-            stored_weight_is_int(__wp.edge_attrs(u, v), weight)
-        })
+        bellman_ford_typed_length(&bf, target_idx)
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
+        let source_idx = __wp.get_node_index(&s).ok_or_else(missing)?;
+        let target_idx = __wp.get_node_index(&t).ok_or_else(missing)?;
         let (bf, rows) = py.allow_threads(|| {
             run_recording_rows(row_limit, || {
-                fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight)
+                fnx_algorithms::bellman_ford_indexed(__wp, source_idx, weight)
             })
         });
         if check_rows {
             check_expanded_weight_rows(py, &gr, rows, weight, true)?;
         }
-        bellman_ford_typed_length(&bf, &s, &t, |u, v| {
-            stored_weight_is_int(__wp.edge_attrs(u, v), weight)
-        })
+        bellman_ford_typed_length(&bf, target_idx)
     };
     match result {
         Ok(d) => Ok(d),
@@ -24508,72 +24411,37 @@ fn single_source_bellman_ford(
     let s = node_key_to_string(py, source)?;
     validate_node_str(&gr, &s, "Source")?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
-        let bf = {
-            let __wp = weighted_projection.as_ref();
-            py.allow_threads(|| {
-                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight)
-            })
-        };
-        if bf.negative_cycle_detected {
-            None
-        } else {
-            // bf.distances is in nx's SPFA first-discovery order; preserve it
-            // by emitting ordered Vecs instead of HashMaps. (br-r37-c1-e9rea)
-            let predecessors = bf
-                .predecessors
-                .iter()
-                .map(|entry| (entry.node.as_str(), entry.predecessor.as_deref()))
-                .collect::<HashMap<_, _>>();
-            let mut distances = Vec::with_capacity(bf.distances.len());
-            let mut paths = Vec::with_capacity(bf.distances.len());
-            for entry in &bf.distances {
-                distances.push((entry.node.clone(), entry.distance));
-                let mut path = vec![entry.node.clone()];
-                let mut cur = entry.node.as_str();
-                while let Some(Some(prev)) = predecessors.get(cur) {
-                    path.push((*prev).to_owned());
-                    cur = prev;
-                }
-                path.reverse();
-                paths.push((entry.node.clone(), path));
-            }
-            Some((distances, paths))
-        }
+        let __wp = weighted_projection.as_ref();
+        py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight))
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_bellman_ford(__wp, &s, weight))
+        py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight))
     };
-    match result {
-        Some((dists, paths)) => {
-            // weighted sp batch 2: discovery objects — a node displays as
-            // its path's second-to-last element's row object (the SPFA
-            // relaxation parent); source as passed.
-            let mut disp = display_map_with_capacity(paths.len() + 1);
-            disp.insert(s.clone(), source.clone().unbind());
-            for (node, p) in &paths {
-                if p.len() >= 2 {
-                    disp.insert(node.clone(), gr.py_row_key(py, &p[p.len() - 2], node));
-                }
-            }
-            let dist_dict = PyDict::new(py);
-            for (node, d) in &dists {
-                dist_dict.set_item(gr.disp_or_node_key(py, &disp, node), d)?;
-            }
-            let path_dict = PyDict::new(py);
-            for (node, path) in &paths {
-                let py_path: Vec<PyObject> = path
-                    .iter()
-                    .map(|n| gr.disp_or_node_key(py, &disp, n))
-                    .collect();
-                path_dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
-            }
-            Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
+    let paths = fnx_algorithms::bellman_ford_paths_from_result(&result, &s)
+        .map_err(bellman_ford_path_error)?;
+    // Discovery objects come from the selected source-rooted paths. Both
+    // dictionaries retain the relaxation engine's first-discovery order.
+    let mut disp = display_map_with_capacity(paths.len() + 1);
+    disp.insert(s.clone(), source.clone().unbind());
+    for (node, path) in &paths {
+        if path.len() >= 2 {
+            disp.insert(node.clone(), gr.py_row_key(py, &path[path.len() - 2], node));
         }
-        None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cycle detected.",
-        )),
     }
+    let dist_dict = PyDict::new(py);
+    for entry in &result.distances {
+        dist_dict.set_item(gr.disp_or_node_key(py, &disp, &entry.node), entry.distance)?;
+    }
+    let path_dict = PyDict::new(py);
+    for (node, path) in &paths {
+        let py_path: Vec<PyObject> = path
+            .iter()
+            .map(|n| gr.disp_or_node_key(py, &disp, n))
+            .collect();
+        path_dict.set_item(gr.disp_or_node_key(py, &disp, node), py_path)?;
+    }
+    Ok((dist_dict.into_any().unbind(), path_dict.into_any().unbind()))
 }
 
 /// Return paths from a single source using Bellman-Ford.
@@ -24591,24 +24459,16 @@ fn single_source_bellman_ford_path(
     validate_node_str(&gr, &s, "Source")?;
     let result = if let Some(weighted_projection) = gr.weighted_digraph_projection(weight) {
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| {
-            fnx_algorithms::single_source_bellman_ford_path_directed(__wp, &s, weight)
-        })
+        py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, &s, weight))
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::single_source_bellman_ford_path(__wp, &s, weight))
+        py.allow_threads(|| fnx_algorithms::bellman_ford_shortest_paths(__wp, &s, weight))
     };
-    match result {
-        Some(paths) => {
-            // weighted sp batch 2: discovery objects via the paths.
-            let dict = emit_paths_dict_discovery(py, &gr, &paths, &s, source.clone().unbind())?;
-            Ok(dict.into_any())
-        }
-        None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cycle detected.",
-        )),
-    }
+    let paths = fnx_algorithms::bellman_ford_paths_from_result(&result, &s)
+        .map_err(bellman_ford_path_error)?;
+    let dict = emit_paths_dict_discovery(py, &gr, &paths, &s, source.clone().unbind())?;
+    Ok(dict.into_any())
 }
 
 /// Return distances from a single source using Bellman-Ford, in SPFA
@@ -25149,42 +25009,36 @@ fn all_pairs_bellman_ford_path(
         let __wp = weighted_projection.as_ref();
         let mut all_paths = Vec::new();
         for source in __wp.nodes_ordered() {
-            let Some(paths) = py.allow_threads(|| {
-                fnx_algorithms::single_source_bellman_ford_path_directed(__wp, source, weight)
-            }) else {
-                return Err(crate::NetworkXUnbounded::new_err(
-                    "Negative cycle detected.",
-                ));
-            };
+            let bf = py.allow_threads(|| {
+                fnx_algorithms::bellman_ford_shortest_paths_directed(__wp, source, weight)
+            });
+            let paths = fnx_algorithms::bellman_ford_paths_from_result(&bf, source)
+                .map_err(bellman_ford_path_error)?;
             all_paths.push((source.to_owned(), paths));
         }
-        Some(all_paths)
+        all_paths
     } else {
         let weighted_projection = gr.weighted_undirected_projection(weight);
         let __wp = weighted_projection.as_ref();
-        py.allow_threads(|| fnx_algorithms::all_pairs_bellman_ford_path(__wp, weight))
-    };
-    match result {
-        Some(data) => {
-            let outer_dict = PyDict::new(py);
-            for (source, targets) in &data {
-                // br-r37-c1-7hsew: discovery objects per source; sources
-                // keep their node-map object (nx iterates G).
-                let inner_dict = emit_paths_dict_discovery(
-                    py,
-                    &gr,
-                    targets,
-                    source,
-                    gr.py_node_key(py, source),
-                )?;
-                outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
-            }
-            Ok(outer_dict.into_any().unbind())
+        let mut all_paths = Vec::new();
+        for source in __wp.nodes_ordered() {
+            let bf = py.allow_threads(|| {
+                fnx_algorithms::bellman_ford_shortest_paths(__wp, source, weight)
+            });
+            let paths = fnx_algorithms::bellman_ford_paths_from_result(&bf, source)
+                .map_err(bellman_ford_path_error)?;
+            all_paths.push((source.to_owned(), paths));
         }
-        None => Err(crate::NetworkXUnbounded::new_err(
-            "Negative cycle detected.",
-        )),
+        all_paths
+    };
+    let outer_dict = PyDict::new(py);
+    for (source, targets) in &result {
+        // Discovery objects per source; sources retain their node-map object.
+        let inner_dict =
+            emit_paths_dict_discovery(py, &gr, targets, source, gr.py_node_key(py, source))?;
+        outer_dict.set_item(gr.py_node_key(py, source), inner_dict)?;
     }
+    Ok(outer_dict.into_any().unbind())
 }
 
 /// Return Floyd-Warshall all-pairs shortest path distances.
@@ -30655,6 +30509,10 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "WeightRowsUnverified",
         m.py().get_type::<WeightRowsUnverified>(),
+    )?;
+    m.add(
+        "BellmanFordPathUnrepresentable",
+        m.py().get_type::<BellmanFordPathUnrepresentable>(),
     )?;
     // Shortest path
     m.add_function(wrap_pyfunction!(shortest_path, m)?)?;

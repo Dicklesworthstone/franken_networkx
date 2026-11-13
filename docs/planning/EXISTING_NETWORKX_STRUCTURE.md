@@ -604,6 +604,29 @@ The existing owned self-loop divergence remains: reconstruction evaluates
 the actual self-loop dictionary instead of reproducing the reference's
 erroneous argument order in its fallback self-loop check.
 
+### 22.8 Bellman-Ford overflow and bounded path reconstruction
+
+For finite floating-point edge weights, Bellman-Ford uses strict relaxation
+against positive infinity for an undiscovered node. A sum that overflows to
+positive infinity does not discover that node; a later finite alternative
+still can. Negative infinity is an already reached distance, and another
+negative-infinity candidate adds an equal predecessor without re-enqueuing
+the node. The default shortest-path APIs apply the recent-update cycle
+heuristic before the enqueue-count backstop, including when unrelated
+isolates would otherwise delay detection until arithmetic has saturated.
+
+Finite rounding or negative-infinity saturation can leave cyclic selected
+parents without the reference relaxation reporting a negative cycle.
+Distance queries retain their relaxation results and arithmetic types.
+Path reconstruction is bounded by the reached-node count and reports a
+distinct internal outcome for such parent chains. Python then searches the
+complete predecessor lists: an alternative predecessor may supply a valid
+path; when none does, the reference search's exception is preserved.
+This applies to pair, source, target and all-pairs queries over all four
+graph classes, including explicit backend dispatch. Regressions are in
+`tests/python/test_bellman_ford_float_overflow.py` and the native Bellman-Ford
+unit tests; current-native execution is required to qualify the full change.
+
 ## 23. Initial Flow Contract (P2C005 Extension)
 
 Legacy anchors:

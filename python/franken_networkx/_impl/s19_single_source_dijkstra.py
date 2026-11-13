@@ -507,7 +507,18 @@ def single_source_bellman_ford(G, source, target=None, weight="weight"):
     # br-r37-c1-e9rea: the kernel emits dist/path dicts in nx's SPFA
     # first-discovery order (NOT distance-sorted — e.g. a node at distance 3
     # can precede one at distance 2). Trust that order directly; do not sort.
-    dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
+    try:
+        dists, paths = _raw_single_source_bellman_ford(G, source, weight=weight)
+    except _BellmanFordPathUnrepresentable:
+        return _single_source_bellman_ford_inproc(G, source, weight=weight)
+    # The first discovered distance belongs to the source. Read it without
+    # an extra hash/equality call on a user-supplied source object.
+    if next(iter(dists.values())) != 0:
+        # Rounding can improve the source without proving a negative cycle.
+        # Its descendants may retain earlier int distances or acquire floats,
+        # depending on which relaxations improved. Final paths alone cannot
+        # recover those historical types from the binding's f64 distances.
+        return _single_source_bellman_ford_inproc(G, source, weight=weight)
     # weighted sp batch 2: nx preserves int distances for all-int weights.
     if _sp_edge_weights_all_int(G, weight):
         dists = _sp_coerce_dist_to_int(dists)
@@ -559,7 +570,10 @@ def single_source_bellman_ford_path(G, source, weight="weight"):
         raise NodeNotFound(f"Source {source} not in G")
     # br-r37-c1-e9rea: the kernel emits the path dict in nx's SPFA
     # first-discovery order (not distance-sorted). Trust it directly.
-    return _raw_single_source_bellman_ford_path(G, source, weight=weight)
+    try:
+        return _raw_single_source_bellman_ford_path(G, source, weight=weight)
+    except _BellmanFordPathUnrepresentable:
+        return _single_source_bellman_ford_inproc(G, source, weight=weight)[1]
 
 
 def single_source_bellman_ford_path_length(G, source, weight="weight"):
