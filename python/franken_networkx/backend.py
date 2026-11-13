@@ -95,6 +95,12 @@ _SUBSET_BETWEENNESS_INPUT_ALGORITHMS = frozenset(
 _CONNECTIVITY_BATCH_INPUT_ALGORITHMS = frozenset(
     {"all_pairs_node_connectivity", "average_node_connectivity", "gomory_hu_tree"}
 )
+_RESILIENCE_ALGORITHMS = frozenset(
+    {
+        "is_k_edge_connected", "k_edge_components", "k_edge_subgraphs",
+        "k_edge_augmentation", "k_components", "all_node_cuts",
+    }
+)
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
@@ -157,6 +163,10 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "antichains",
         "bridges",
         "local_bridges",
+        "k_edge_components",
+        "k_edge_subgraphs",
+        "k_edge_augmentation",
+        "all_node_cuts",
     }
 ) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS
 
@@ -251,6 +261,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _BIPARTITE_PROJECTION_ALGORITHMS
     | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
     | _RESIDUAL_FLOW_ALGORITHMS
+    | _RESILIENCE_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -297,6 +308,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | _BIPARTITE_MATCHING_ALGORITHMS
     | _BIPARTITE_PROJECTION_ALGORITHMS
+    | _RESILIENCE_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -321,6 +333,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _RESILIENCE_ALGORITHMS:
+        # Decompositions choose their own eager or lazy snapshot boundary.
+        # Flow solvers and available-edge providers may also change G, so a
+        # conversion cached by another algorithm must not replace the input.
+        return True
     if name in _BIPARTITE_PROJECTION_ALGORITHMS:
         # Projection preserves graph and node metadata and can invoke a
         # weight function with B itself. Keep these providers intact even
@@ -1002,6 +1019,13 @@ def _is_dispatch_conversion(graph, source):
 # Supported algorithm registry
 # ---------------------------------------------------------------------------
 
+def _k_edge_augmentation_backend_impl(G, k, avail=None, weight=None, partial=False):
+    """Defer the owned augmentation until NetworkX advances its iterator."""
+    yield from fnx.k_edge_augmentation(
+        G, k, avail=avail, weight=weight, partial=partial
+    )
+
+
 # Maps NetworkX function name -> FrankenNetworkX callable.
 # Add new entries here as more algorithms are bound.
 _SUPPORTED_ALGORITHMS = {
@@ -1028,6 +1052,12 @@ _SUPPORTED_ALGORITHMS = {
     "gomory_hu_tree": fnx.gomory_hu_tree,
     "edge_disjoint_paths": fnx.edge_disjoint_paths,
     "node_disjoint_paths": fnx.node_disjoint_paths,
+    "is_k_edge_connected": fnx.is_k_edge_connected,
+    "k_edge_components": fnx.k_edge_components,
+    "k_edge_subgraphs": fnx.k_edge_subgraphs,
+    "k_edge_augmentation": _k_edge_augmentation_backend_impl,
+    "k_components": fnx.k_components,
+    "all_node_cuts": fnx.all_node_cuts,
     "articulation_points": fnx.articulation_points,
     "bridges": fnx.bridges,
     "local_bridges": fnx.local_bridges,
@@ -2240,9 +2270,12 @@ class BackendInterface:
                         return _iterate_callback_result(result, source)
                     return result
                 except fnx.NetworkXNotImplemented as e:
-                    if name in _CORE_DECOMPOSITION_ALGORITHMS or name in {
-                        "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree"
-                    }:
+                    if (
+                        name in _CORE_DECOMPOSITION_ALGORITHMS | _RESILIENCE_ALGORITHMS
+                        or name in {
+                            "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree"
+                        }
+                    ):
                         # Keep documented self-loop and graph-type errors intact.
                         raise
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError

@@ -192,7 +192,8 @@ def k_edge_components(G, k):
         raise ValueError("k cannot be less than 1")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    G = _coerce_arg_to_fnx_graph(G)
+    # Low-k traversals read G when advanced; the auxiliary constructor owns
+    # the eager snapshot for higher-k components. Do not copy the input here.
     if G.is_directed():
         if k == 1:
             return strongly_connected_components(G)
@@ -213,7 +214,7 @@ def k_edge_subgraphs(G, k, *, backend=None, **backend_kwargs):
         raise ValueError("k cannot be less than 1")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    G = _coerce_arg_to_fnx_graph(G)
+    # The selected component/subgraph iterator owns its snapshot boundary.
     if G.is_directed():
         if k <= 1:
             return k_edge_components(G, k)

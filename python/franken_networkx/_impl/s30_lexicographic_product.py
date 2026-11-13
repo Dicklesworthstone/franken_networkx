@@ -866,9 +866,10 @@ def _all_node_cuts_gen(G, k=None, flow_func=None):
     def is_separating_set(cut):
         if len(cut) == len(G) - 1:
             return True
-        # fnx's native is_connected rejects filtered views; materialise
-        # the restricted view to a concrete Graph before dispatching.
-        return not is_connected(restricted_view(G, cut, []).copy())
+        # Build the induced snapshot through the input graph's own family.
+        # A native filtered-view mixin cannot wrap a foreign NetworkX base.
+        remaining = G.subgraph(node for node in G if node not in cut).copy()
+        return not is_connected(remaining)
 
     seen = set()
     auxiliary = build_auxiliary_node_connectivity(G)

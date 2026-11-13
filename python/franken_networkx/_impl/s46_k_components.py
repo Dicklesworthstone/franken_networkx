@@ -100,7 +100,7 @@ def k_components(G, flow_func=None, *, backend=None, **backend_kwargs):
     general decomposition retains the callback's execution and exceptions.
     """
     _validate_backend_dispatch_keywords("k_components", backend, backend_kwargs)
-    if type(G) is Graph:
+    if type(G) is Graph and flow_func is None:
         node_count = len(G)
         if node_count < 2:
             return {}

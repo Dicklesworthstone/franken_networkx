@@ -2686,3 +2686,17 @@ their identities, and node attribute keys need not be strings. Simple and
 multigraph projection output both copy node mappings without expanding them
 as keyword arguments. Regressions are in
 `tests/python/test_bipartite_projection_backend.py`.
+
+## 88. Graph Resilience Backend Contract
+
+Explicit NetworkX backend dispatch supports `is_k_edge_connected`,
+`k_edge_components`, `k_edge_subgraphs`, `k_edge_augmentation`, `k_components`
+and `all_node_cuts` through the owned implementations. Original-input recovery
+survives an earlier cached conversion. Low-k component/subgraph iteration and
+node-cut enumeration retain the caller's graph until advancement; higher-k
+component auxiliary construction retains its eager snapshot. Backend edge
+augmentation exposes a lazy generator. Supplied flow solvers and augmentation
+candidates observe the original graph state and invalidate affected conversion
+caches. Node-cut verification must retain the input graph's implementation
+family when constructing a graph with the cut vertices removed.
+
