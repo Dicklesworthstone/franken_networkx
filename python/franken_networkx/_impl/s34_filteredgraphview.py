@@ -1369,6 +1369,127 @@ def _private_native_method(graph, methods):
     return None
 
 
+def _complete_assigned_graph_storage(self, storage=None):
+    """Return the caller's complete storage, without substituting native rows."""
+    if storage is None:
+        storage = vars(self)
+    nodes = storage.get(_PRIVATE_NODE_OVERRIDE)
+    if nodes is None or _SHARED_STORAGE_SOURCE in storage:
+        return None
+    forward, backward = _assigned_private_edge_targets(self, storage)
+    if forward is None or backward is None:
+        return None
+    return nodes, forward, backward
+
+
+def _assigned_factory_clear_cache(self):
+    cache = getattr(self, "__networkx_cache__", None)
+    if cache:
+        cache.clear()
+
+
+def _assigned_factory_create_node(self, node):
+    """Create rows and attributes in their observable factory order."""
+    if node is None:
+        raise ValueError("None cannot be a node")
+    if self.is_directed():
+        self._succ[node] = self.adjlist_inner_dict_factory()
+        self._pred[node] = self.adjlist_inner_dict_factory()
+    else:
+        self._adj[node] = self.adjlist_inner_dict_factory()
+    self._node[node] = self.node_attr_dict_factory()
+
+
+def _assigned_factory_add_node_data(self, node, attr, *, bulk=False):
+    membership = self._node if bulk or not self.is_directed() else self._succ
+    if node not in membership:
+        _assigned_factory_create_node(self, node)
+    self._node[node].update(attr)
+    if not bulk:
+        _assigned_factory_clear_cache(self)
+
+
+def _assigned_factory_add_edge_data(
+    self, u, v, key, attr, *, extra_data=_PRIVATE_MISSING, bulk=False
+):
+    multi = self.is_multigraph()
+    directed = self.is_directed()
+    for node in (u, v):
+        membership = self._adj if multi or directed else self._node
+        if node not in membership:
+            _assigned_factory_create_node(self, node)
+
+    if not multi:
+        # The default expression is evaluated even when the edge exists.
+        data = self._adj[u].get(v, self.edge_attr_dict_factory())
+        data.update(attr)
+        if extra_data is not _PRIVATE_MISSING:
+            data.update(extra_data)
+        self._adj[u][v] = data
+        if directed:
+            self._pred[v][u] = data
+        else:
+            self._adj[v][u] = data
+    else:
+        if key is None:
+            key = self.new_edge_key(u, v)
+        if v in self._adj[u]:
+            keydict = self._adj[u][v]
+            data = keydict.get(key, self.edge_attr_dict_factory())
+            data.update(attr)
+            keydict[key] = data
+        else:
+            data = self.edge_attr_dict_factory()
+            data.update(attr)
+            keydict = self.edge_key_dict_factory()
+            keydict[key] = data
+            self._adj[u][v] = keydict
+            if directed:
+                self._pred[v][u] = keydict
+            else:
+                self._adj[v][u] = keydict
+    if not bulk:
+        _assigned_factory_clear_cache(self)
+    return key if multi else None
+
+
+def _assigned_factory_add_edges_from(self, edges, attr):
+    multi = self.is_multigraph()
+    keys = [] if multi else None
+    for edge in edges:
+        size = len(edge)
+        key = None
+        if size == 2:
+            u, v = edge
+            data = {}
+        elif size == 3:
+            u, v, data = edge
+        elif size == 4 and multi:
+            u, v, key, data = edge
+        else:
+            shapes = "2-tuple, 3-tuple or 4-tuple" if multi else "2-tuple or 3-tuple"
+            raise NetworkXError(f"Edge tuple {edge!r} must be a {shapes}.")
+        if multi:
+            merged = dict(attr)
+            try:
+                merged.update(data)
+            except (TypeError, ValueError):
+                if size != 3:
+                    raise
+                key = data
+            # MultiGraph's bulk protocol publishes the edge before updating
+            # it and deliberately respects the public single-edge hook.
+            key = self.add_edge(u, v, key)
+            self[u][v][key].update(merged)
+            keys.append(key)
+        else:
+            _assigned_factory_add_edge_data(
+                self, u, v, None, attr, extra_data=data, bulk=True
+            )
+    _assigned_factory_clear_cache(self)
+    return keys
+
+
 def _assigned_private_add_node(self, node_for_adding, **attr):
     # User attributes must never bind the internal synchronization controls.
     return _assigned_private_add_node_data(self, node_for_adding, attr)
@@ -1396,6 +1517,9 @@ def _assigned_private_add_node_data(
     Attribute semantics follow networkx: a NEW node takes `attr`, an existing one
     has `attr` merged into whatever it already carries.
     """
+    mappings = _complete_assigned_graph_storage(self)
+    if mappings is not None:
+        return _assigned_factory_add_node_data(self, node_for_adding, attr)
     if node_for_adding is None:
         raise ValueError("None cannot be a node")
 
@@ -1592,6 +1716,11 @@ def _assigned_private_add_edge_simple(self, u_of_edge, v_of_edge, **attr):
 def _assigned_private_add_edge_simple_data(self, u_of_edge, v_of_edge, attr):
     """add_edge for a graph carrying assigned private storage (br-r37-c1-wv3cu)."""
     storage = vars(self)
+    mappings = _complete_assigned_graph_storage(self, storage)
+    if mappings is not None:
+        return _assigned_factory_add_edge_data(
+            self, u_of_edge, v_of_edge, None, attr
+        )
     owner = _shared_unsplit_owner(self, storage)
     if owner is not None:
         raw = _RAW_ADD_EDGE_BY_CLASS.get(type(owner))
@@ -1626,6 +1755,11 @@ def _assigned_private_add_edge_multi(self, u_of_edge, v_of_edge, key=None, **att
 def _assigned_private_add_edge_multi_data(self, u_of_edge, v_of_edge, key, attr):
     """Multigraph add_edge: the key is part of the address, not an attribute."""
     storage = vars(self)
+    mappings = _complete_assigned_graph_storage(self, storage)
+    if mappings is not None:
+        return _assigned_factory_add_edge_data(
+            self, u_of_edge, v_of_edge, key, attr
+        )
     owner = _shared_unsplit_owner(self, storage)
     if owner is not None:
         raw = _RAW_ADD_EDGE_BY_CLASS.get(type(owner))
@@ -1700,6 +1834,24 @@ def _assigned_private_add_nodes_from(self, nodes_for_adding, **attr):
         if raw is not None:
             return raw(owner, nodes_for_adding, **attr)
         return owner.add_nodes_from(nodes_for_adding, **attr)
+    mappings = _complete_assigned_graph_storage(self)
+    if mappings is not None:
+        for node in nodes_for_adding:
+            try:
+                new_node = node not in self._node
+                merged = attr
+            except TypeError:
+                node, node_attr = node
+                # Providers may mutate the node store during the following
+                # update; creation follows this already-observed membership.
+                new_node = node not in self._node
+                merged = dict(attr)
+                merged.update(node_attr)
+            if new_node:
+                _assigned_factory_create_node(self, node)
+            self._node[node].update(merged)
+        _assigned_factory_clear_cache(self)
+        return
     for node in nodes_for_adding:
         try:
             _HASH_PROBE.get(node)

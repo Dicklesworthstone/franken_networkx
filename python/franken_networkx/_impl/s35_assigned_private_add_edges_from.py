@@ -35,6 +35,9 @@ def _assigned_private_add_edges_from(self, ebunch_to_add, **attr):
         if raw is not None:
             return raw(owner, ebunch_to_add, **attr)
         return owner.add_edges_from(ebunch_to_add, **attr)
+    mappings = _complete_assigned_graph_storage(self)
+    if mappings is not None:
+        return _assigned_factory_add_edges_from(self, ebunch_to_add, attr)
     multi = self.is_multigraph()
     keys = [] if multi else None
     for e in ebunch_to_add:
@@ -73,6 +76,10 @@ def _assigned_private_add_weighted_edges_from(
         if raw is not None:
             return raw(owner, ebunch_to_add, weight=weight, **attr)
         return owner.add_weighted_edges_from(ebunch_to_add, weight=weight, **attr)
+    if _complete_assigned_graph_storage(self) is not None:
+        self.add_edges_from(((u, v, {weight: d}) for u, v, d in ebunch_to_add), **attr)
+        _assigned_factory_clear_cache(self)
+        return
     _assigned_private_add_edges_from(
         self,
         ((u, v, {weight: d}) for u, v, d in ebunch_to_add),

@@ -2883,3 +2883,37 @@ Python traversal. Ordinary NetworkX simple graphs must be converted before a
 native call. Unweighted queries ignore every edge attribute, including a
 user attribute that collides with an internal unit-weight sentinel. Live
 graph and state providers must not be frozen by the indexed Python path.
+
+## 93. Factories for Complete Assigned Graph Storage
+
+When a caller supplies `_node` and the complete adjacency mappings (`_adj`,
+plus `_pred` for directed graphs), those dictionaries are the storage authority.
+Node, edge, adjacency-row and multiedge-key dictionaries are created through
+the graph's current factories. Preserve the exact objects returned by those
+factories, including deliberately shared edge-attribute dictionaries. Existing
+node/edge attributes retain their identities when updated. Factory replacements
+on instances or classes take effect on subsequent mutations without replacing
+existing dictionaries. Outer storage factories do not replace mappings already
+assigned by the caller.
+
+New undirected nodes create and install an adjacency row before creating their
+node attributes; directed nodes create successor and predecessor rows first.
+Scalar directed `add_node` tests successor membership, while `add_nodes_from`
+tests node-store membership on all four graph families. Simple `add_edge`
+always evaluates the edge-attribute factory, including for an existing edge.
+Multigraph insertion evaluates that factory for an existing key too; a new
+neighbor pair creates and updates attributes before creating its shared key
+dictionary. Failures retain exactly the already-created rows, nodes, attributes
+or edges; there is no rollback.
+
+Simple bulk edge insertion creates endpoints before applying common attributes
+and each edge's data provider. Multigraph bulk insertion first merges attributes
+in a temporary dictionary, calls the public `add_edge` with no attributes, and
+then updates the published edge. Its ambiguous three-tuple key interpretation
+retains partial temporary updates before `TypeError`/`ValueError`. Weighted bulk
+insertion delegates to the public `add_edges_from` over lazy triples. Successful
+public mutations clear the NetworkX conversion cache.
+
+This contract covers complete caller-assigned storage. General factory support
+for plain native storage and native subclass construction remains incomplete;
+this change does not wrap native allocators or ordinary native mutators.
