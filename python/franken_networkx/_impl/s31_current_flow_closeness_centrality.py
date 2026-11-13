@@ -101,6 +101,15 @@ def _subset_betweenness_uses_live_python_rows(G, sources, targets, weight):
         or _weighted_query_uses_live_python_rows(G, weight)
     ):
         return True
+    # Hashing a target belongs after the source traversal. Even a reusable
+    # list can contain labels whose hash/equality hooks change a later edge,
+    # so route those labels before probing membership or native conversion.
+    if any(
+        type(node) not in (str, int, float, bool, type(None))
+        for selection in (sources, targets)
+        for node in selection
+    ):
+        return True
     try:
         for source in sources:
             _HASH_PROBE.get(source)
@@ -133,7 +142,13 @@ def betweenness_centrality_subset(
     live_rows = _subset_betweenness_uses_live_python_rows(
         G, sources, targets, weight
     )
-    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+    if (
+        not live_rows
+        and not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
+    ):
+        # Both native subset kernels require owned storage. Plain NetworkX
+        # inputs are safe to convert after live graph/selection admission.
         G = _coerce_arg_to_fnx_graph(G)
 
     if not live_rows and weight is None and not G.is_multigraph():
@@ -198,7 +213,11 @@ def edge_betweenness_centrality_subset(
     live_rows = _subset_betweenness_uses_live_python_rows(
         G, sources, targets, weight
     )
-    if not live_rows and isinstance(weight, str) and not G.is_multigraph():
+    if (
+        not live_rows
+        and not G.is_multigraph()
+        and (weight is None or isinstance(weight, str))
+    ):
         G = _coerce_arg_to_fnx_graph(G)
 
     if not live_rows and weight is None and not G.is_multigraph():

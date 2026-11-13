@@ -89,6 +89,9 @@ _COMMUNITY_ITERATOR_ALGORITHMS = frozenset(
 _BETWEENNESS_INPUT_ALGORITHMS = frozenset(
     {"betweenness_centrality", "edge_betweenness_centrality"}
 )
+_SUBSET_BETWEENNESS_INPUT_ALGORITHMS = frozenset(
+    {"betweenness_centrality_subset", "edge_betweenness_centrality_subset"}
+)
 _CONNECTIVITY_BATCH_INPUT_ALGORITHMS = frozenset(
     {"all_pairs_node_connectivity", "average_node_connectivity", "gomory_hu_tree"}
 )
@@ -226,7 +229,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "astar_path",
         "astar_path_length",
     }
-) | _BIPARTITE_MATCHING_ALGORITHMS
+) | _BIPARTITE_MATCHING_ALGORITHMS | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
 )
@@ -267,6 +270,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _COMMUNITY_ITERATOR_ALGORITHMS
     | _WEIGHTED_PATH_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
+    | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | _BIPARTITE_MATCHING_ALGORITHMS
     | {
@@ -316,6 +320,10 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     if name in _BETWEENNESS_INPUT_ALGORITHMS:
         return fnx._betweenness_uses_live_python_rows(
             graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k")
+        )
+    if name in _SUBSET_BETWEENNESS_INPUT_ALGORITHMS:
+        return fnx._subset_betweenness_uses_live_python_rows(
+            graph, arguments["sources"], arguments["targets"], arguments.get("weight")
         )
     if name in _CONNECTIVITY_BATCH_INPUT_ALGORITHMS:
         # Node iterables and capacity/flow providers can change later pairs
@@ -982,6 +990,8 @@ _SUPPORTED_ALGORITHMS = {
     "katz_centrality": fnx.katz_centrality,
     "betweenness_centrality": fnx.betweenness_centrality,
     "edge_betweenness_centrality": fnx.edge_betweenness_centrality,
+    "betweenness_centrality_subset": fnx.betweenness_centrality_subset,
+    "edge_betweenness_centrality_subset": fnx.edge_betweenness_centrality_subset,
     "eigenvector_centrality": fnx.eigenvector_centrality,
     "pagerank": fnx.pagerank,
     "hits": fnx.hits,

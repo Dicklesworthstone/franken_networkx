@@ -1269,3 +1269,163 @@ def test_percolation_centrality_honors_attribute_and_states(monkeypatch):
 
     actual_states = fnx.percolation_centrality(graph, states=states)
     _assert_mapping_close(actual_states, expected_states)
+
+
+def _subset_betweenness_query(algorithm, graph, sources, targets, route, **kwargs):
+    if route == "backend":
+        return getattr(nx, algorithm)(
+            graph, sources, targets, backend="franken_networkx", **kwargs
+        )
+    return getattr(fnx, algorithm)(graph, sources, targets, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input", "backend"])
+@pytest.mark.parametrize("weight", [None, "cost"])
+@pytest.mark.parametrize("view", [False, True])
+def test_subset_betweenness_current_inputs_match_networkx(
+    algorithm, graph_class, route, weight, view
+):
+    module = fnx if route == "native-input" else nx
+    actual, expected = getattr(module, graph_class)(), getattr(nx, graph_class)()
+    for graph in (actual, expected):
+        graph.add_nodes_from([0, 3, 1, 2, 4, 99])
+        graph.add_weighted_edges_from(
+            [(0, 1, 1), (0, 2, 1), (1, 3, 1), (2, 3, 3), (0, 99, 1), (99, 3, 1)],
+            weight="cost",
+        )
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, key="parallel", cost=6)
+            graph.add_edge(2, 3, key="parallel", cost=1)
+    if view:
+        actual = actual.subgraph([0, 1, 2, 3, 4])
+        expected = expected.subgraph([0, 1, 2, 3, 4])
+    options = {"weight": weight, "normalized": True}
+    want = getattr(nx, algorithm)(expected, [0, 1], [3, 4], **options)
+    result = _subset_betweenness_query(
+        algorithm, actual, [0, 1], [3, 4], route, **options
+    )
+    assert list(result) == list(want)
+    _assert_mapping_close(result, want)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+@pytest.mark.parametrize("provider", ["sources", "targets", "weight"])
+def test_subset_betweenness_backend_live_providers(
+    algorithm, graph_class, warm_cache, provider
+):
+    def run(backend):
+        graph = getattr(nx, graph_class)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 1), (0, 2, 1), (1, 2, 1), (1, 3, 2), (2, 3, 5), (3, 4, 1)],
+            weight="cost",
+        )
+        if graph.is_multigraph():
+            graph.add_edge(2, 3, key="parallel", cost=9)
+        if backend and warm_cache:
+            nx.dijkstra_path_length(graph, 0, 4, weight="cost", backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        calls = []
+        sources, targets, weight = [0, 1], [4], "cost"
+
+        def change_weight():
+            attrs = graph[2][3][0] if graph.is_multigraph() else graph[2][3]
+            attrs["cost"] = 1
+
+        def source_iterator():
+            calls.append("source 0")
+            yield 0
+            change_weight()
+            calls.append("source 1")
+            yield 1
+
+        class TargetSelection:
+            def __iter__(self):
+                change_weight()
+                calls.append("target 4")
+                yield 4
+
+        def live_weight(u, v, data):
+            # Multigraph edge centrality also calls this provider with a
+            # temporary singleton keydict while splitting each edge score.
+            calls.append((u, v, data is graph._adj[u][v]))
+            if (u, v) == (0, 2):
+                change_weight()
+            if graph.is_multigraph():
+                return min(attrs.get("cost", 1) for attrs in data.values())
+            return data.get("cost", 1)
+
+        if provider == "sources":
+            sources = source_iterator()
+        elif provider == "targets":
+            targets = TargetSelection()
+        else:
+            weight = live_weight
+        options = {"backend": "franken_networkx"} if backend else {}
+        result = getattr(nx, algorithm)(graph, sources, targets, weight=weight, **options)
+        return result, calls, list(graph.edges(data="cost"))
+
+    expected = run(False)
+    actual = run(True)
+    assert actual == expected
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input", "backend"])
+def test_subset_betweenness_target_hash_follows_the_search(algorithm, graph_class, route):
+    def run(module, query):
+        graph = getattr(module, graph_class)([(0, 1), (1, 2), (2, 3)])
+        calls = []
+
+        class Target:
+            def __hash__(self):
+                calls.append("hash")
+                if not graph.has_edge(0, 3):
+                    graph.add_edge(0, 3)
+                return hash(3)
+
+            def __eq__(self, other):
+                return other == 3
+
+        result = query(graph, [0], [Target()])
+        return result, calls, graph.has_edge(0, 3)
+
+    expected = run(nx, getattr(nx, algorithm))
+    module = fnx if route == "native-input" else nx
+    actual = run(
+        module,
+        lambda graph, sources, targets: _subset_betweenness_query(
+            algorithm, graph, sources, targets, route
+        ),
+    )
+    assert actual == expected
+    assert actual[2]
+    if algorithm == "betweenness_centrality_subset":
+        assert actual[0][1] > 0 and actual[0][2] > 0
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("sources", [[99], [0, 99], [[0]], []])
+@pytest.mark.parametrize("weight", [None, "cost"])
+def test_subset_betweenness_backend_invalid_selections(algorithm, sources, weight):
+    def run(backend):
+        graph = nx.DiGraph([(0, 1), (1, 2), (2, 3)])
+        options = {"backend": "franken_networkx"} if backend else {}
+        try:
+            return getattr(nx, algorithm)(graph, sources, [[3]], weight=weight, **options)
+        except Exception as error:
+            return type(error), error.args
+
+    assert run(True) == run(False)

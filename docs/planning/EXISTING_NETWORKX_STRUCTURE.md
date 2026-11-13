@@ -1749,6 +1749,13 @@ regression matrix compares returned scores or exception type/arguments,
 callback traces, edge dictionary identity, resulting graph attributes,
 private adjacency, filtered views and sampled RNG state.
 
+Subset node and edge betweenness accepts native and NetworkX graphs through
+standalone and backend calls. Admitted simple inputs convert before either
+unweighted or weighted native kernels. Source and target iterables and custom
+label hash/equality protocols remain live: a source traversal completes before
+its target set is consumed, including after an unrelated cached backend
+conversion.
+
 ## 52. Flow Solvers over Caller Graphs and Residuals
 
 Residual construction consumes the original graph's node iteration,
