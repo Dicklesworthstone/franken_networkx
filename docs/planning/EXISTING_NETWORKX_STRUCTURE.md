@@ -2443,7 +2443,9 @@ custom node labels, mappings and record iterators. It copies and removes the
 identifier field of each node or edge record immediately before inserting that
 record; callbacks from insertion can therefore change records not yet read.
 Ordinary scalar lists retain bulk insertion, while nested attributes retain
-shallow identity and literal attribute keys are not stringified.
+shallow identity and literal attribute keys are not stringified. Invalid
+identifiers and excess adjacency rows keep the first offending record's
+reference exception instead of surfacing a later buffering failure first.
 
 Copies of graphs with logical metadata aliases own a fresh metadata dictionary
 and retain its shallow values. Native copies restore plain metadata aliases;
@@ -2565,3 +2567,19 @@ adjacency consumes the mapping's items directly. Supplying a node selection
 retains explicit row lookups, provider exceptions, missing-scalar errors and
 missing-list filtering. This keeps the global-cut snapshot from re-reading
 adjacency providers already used to establish connectivity.
+
+## 85. Live Collider and V-Structure Iteration
+
+`colliders` and `v_structures` reject undirected graphs immediately, but read
+nodes and predecessor rows only when their iterators advance. Each node's
+parent combinations are fixed when that node is reached; later predecessor
+rows and v-structure adjacency checks remain live. The original public node
+iterator stays active, preserving its ordering and graph-mutation errors.
+
+Ordinary native directed graphs retain one bulk predecessor read. Admission
+uses exact provider and primitive label types without calling user hash or
+equality protocols. The saved rows are reused only while the graph revision,
+predecessor provider and logical storage remain unchanged. At the next node
+after invalidation, traversal continues over public predecessor rows. Views,
+assigned storage and custom graph or node providers use that live traversal
+from the start, without materializing a graph snapshot.
