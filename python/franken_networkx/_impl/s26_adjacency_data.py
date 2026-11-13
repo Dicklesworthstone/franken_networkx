@@ -263,32 +263,54 @@ def adjacency_graph(
     key = None if not multigraph else attrs["key"]
     graph.graph.update(dict(data.get("graph", [])))
 
-    # br-r37-c1-jbldr: batch node + (simple-graph) edge construction. The prior
-    # per-node add_node + nodes[node].update and per-edge add_edge +
-    # graph[u][v].update paid the PyO3-boundary + adjacency-view __getitem__ cost
-    # once PER node/edge (~4.3x nx). add_nodes_from((node, attrs)) / add_edges_from
-    # ((u, v, attrs)) commit them in one bulk insertion: same insertion order,
-    # same per-element attr-update semantics (add_edges_from merges the attr dict
-    # into the edge exactly like the old .update), so output is byte-identical.
-    # The multigraph path keeps the per-edge key-aware _add_json_multiedge.
+    # Only ordinary scalar records can be read ahead of insertion. Custom
+    # labels and mappings may change records that have not yet been consumed.
     mapping = []
     node_batch = []
-    for node_payload in data["nodes"]:
+    node_records = data["nodes"]
+    batch_nodes = (
+        type(data) is dict and type(id_) is str
+        and _node_link_plain_records(node_records)
+        and all(id_ in record and record[id_] is not None for record in node_records)
+    )
+    for node_payload in node_records:
         node_data = node_payload.copy()
         node = node_data.pop(id_)
+        if batch_nodes:
+            node_batch.append((node, node_data))
+        else:
+            graph.add_node(node)
+            graph.nodes[node].update(node_data)
         mapping.append(node)
-        node_batch.append((node, node_data))
-    graph.add_nodes_from(node_batch)
+    if batch_nodes:
+        graph.add_nodes_from(node_batch)
 
     if not multigraph:
         edge_batch = []
-        for index, adjacency in enumerate(data["adjacency"]):
+        adjacency_rows = data["adjacency"]
+        # Source labels come from the node records. A custom source can run
+        # callbacks even when all of its edge records contain plain scalars.
+        batch_edges = (
+            batch_nodes and type(adjacency_rows) is list
+            and len(adjacency_rows) <= len(mapping)
+            and all(_node_link_plain_records(row) for row in adjacency_rows)
+            and all(
+                id_ in record and record[id_] is not None
+                for row in adjacency_rows for record in row
+            )
+        )
+        for index, adjacency in enumerate(adjacency_rows):
             source = mapping[index]
             for target_payload in adjacency:
                 target_data = target_payload.copy()
                 target = target_data.pop(id_)
-                edge_batch.append((source, target, target_data))
-        graph.add_edges_from(edge_batch)
+                if batch_edges:
+                    edge_batch.append((source, target, target_data))
+                else:
+                    graph.add_edge(source, target)
+                    graph[source][target].update(target_data)
+        if batch_edges:
+            graph.add_edges_from(edge_batch)
     else:
         for index, adjacency in enumerate(data["adjacency"]):
             source = mapping[index]

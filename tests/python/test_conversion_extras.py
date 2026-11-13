@@ -79,6 +79,88 @@ def test_pandas_adjacency_round_trip():
     assert restored["b"]["c"]["weight"] == 1.5
 
 
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+def test_adjacency_import_node_callbacks_can_change_later_records(directed, multigraph):
+    outcomes = []
+    for library in (fnx, nx):
+        later = {"id": "later", "state": "before"}
+
+        class Node:
+            def __hash__(self):
+                later["state"] = "after"
+                return 41
+
+        graph = library.adjacency_graph({
+            "directed": directed, "multigraph": multigraph,
+            "nodes": [{"id": Node()}, later], "adjacency": [[], []],
+        })
+        outcomes.append((graph.number_of_nodes(), graph.nodes["later"]["state"]))
+    assert outcomes == [(2, "after"), (2, "after")]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+def test_adjacency_import_edge_callbacks_can_change_later_records(directed, multigraph):
+    outcomes = []
+    for library in (fnx, nx):
+        later = {"id": 2, "key": 0, "weight": 2}
+
+        class Node:
+            def __hash__(self):
+                later["weight"] = 99
+                return 41
+
+        graph = library.adjacency_graph({
+            "directed": directed, "multigraph": multigraph,
+            "nodes": [{"id": 0}, {"id": 1}, {"id": 2}],
+            "adjacency": [[{"id": Node(), "key": 0, "weight": 1}], [later], []],
+        })
+        attrs = graph[1][2][0] if multigraph else graph[1][2]
+        outcomes.append((graph.number_of_edges(), attrs["weight"]))
+    assert outcomes == [(2, 99), (2, 99)]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+@pytest.mark.parametrize("malformed", ["node", "edge", "extra_rows"])
+def test_adjacency_import_keeps_first_malformed_record_error(directed, multigraph, malformed):
+    payload = {
+        "directed": directed, "multigraph": multigraph,
+        "nodes": [{"id": 0}], "adjacency": [],
+    }
+    if malformed == "node":
+        payload["nodes"] = [{"id": None}, {}]
+    elif malformed == "edge":
+        payload["adjacency"] = [[{"id": None}, {}]]
+    else:
+        payload["adjacency"] = [[{"id": None}], []]
+    with pytest.raises(ValueError) as expected:
+        nx.adjacency_graph(payload)
+    with pytest.raises(ValueError) as actual:
+        fnx.adjacency_graph(payload)
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
+def test_adjacency_import_retains_nested_values_and_literal_keys(directed, multigraph):
+    shared = []
+    payload = {
+        "directed": directed, "multigraph": multigraph,
+        "nodes": [{"id": "a", 7: shared}, {"id": "b"}],
+        "adjacency": [[{"id": "b", "key": "edge", 8: shared}], []],
+    }
+    actual = fnx.adjacency_graph(payload)
+    expected = nx.adjacency_graph(payload)
+    assert _graph_data_signature(actual) == _graph_data_signature(expected)
+    assert actual.nodes["a"][7] is shared
+    attrs = actual["a"]["b"]["edge"] if multigraph else actual["a"]["b"]
+    assert attrs[8] is shared
+    assert actual.nodes["a"] is not payload["nodes"][0]
+    assert attrs is not payload["adjacency"][0][0]
+
+
 def test_prufer_sequence_round_trip():
     tree = fnx.path_graph(5)
 

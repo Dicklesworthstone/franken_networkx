@@ -2187,6 +2187,15 @@ Ordinary concrete graphs retain the native bulk exporter. Graphs with logical
 storage use their public edge view, preserving edge order, selected column
 names, nested attribute identity, and subsequent mutations of held rows.
 
+Attributed `from_pandas_edgelist` imports commit each row before advancing an
+observable table or column iterator. The edge exists before its attributes are
+updated, including duplicate-edge merges and failures during an attribute
+update. Later input failures retain the completed prefix in `create_using`.
+Graph mutation hooks, custom object values and custom extension arrays retain
+this incremental path. Ordinary scalar DataFrame columns on unmodified native
+graphs can still use bulk insertion when inspecting them cannot invoke input
+providers or lose attribute values.
+
 ## 71. Owned Greedy Coloring and Strategy Protocols
 
 `greedy_color` returns an empty dictionary for an empty graph before resolving
@@ -2423,6 +2432,13 @@ Ordinary scalar JSON lists retain bulk insertion. Custom node labels, field
 keys, mappings or iterators are decoded and inserted incrementally so their
 callbacks can affect later records. The decoder does not consume those
 providers merely to select a fast path.
+
+Adjacency-format JSON decoding observes the same incremental boundary for
+custom node labels, mappings and record iterators. It copies and removes the
+identifier field of each node or edge record immediately before inserting that
+record; callbacks from insertion can therefore change records not yet read.
+Ordinary scalar lists retain bulk insertion, while nested attributes retain
+shallow identity and literal attribute keys are not stringified.
 
 Copies of graphs with logical metadata aliases own a fresh metadata dictionary
 and retain its shallow values. Native copies restore plain metadata aliases;

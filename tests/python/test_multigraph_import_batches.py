@@ -1,4 +1,4 @@
-"""Multigraph table/dictionary imports preserve the public construction contract."""
+"""Table/dictionary imports preserve the public construction contract."""
 
 from collections.abc import Mapping
 
@@ -13,30 +13,33 @@ def pandas():
     return pytest.importorskip("pandas")
 
 
-def _classes(directed):
-    return (
-        (fnx.MultiDiGraph, nx.MultiDiGraph)
-        if directed
-        else (fnx.MultiGraph, nx.MultiGraph)
-    )
+def _classes(directed, multigraph=True):
+    name = ("Multi" if multigraph else "") + ("DiGraph" if directed else "Graph")
+    return getattr(fnx, name), getattr(nx, name)
 
 
 def _snapshot(graph):
+    edges = (
+        graph.edges(keys=True, data=True)
+        if graph.is_multigraph()
+        else ((u, v, None, attrs) for u, v, attrs in graph.edges(data=True))
+    )
     return (
         list(graph.nodes(data=True)),
-        [(u, v, k, list(attrs.items())) for u, v, k, attrs in graph.edges(keys=True, data=True)],
+        [(u, v, k, list(attrs.items())) for u, v, k, attrs in edges],
         dict(graph.graph),
     )
 
 
 @pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
 @pytest.mark.parametrize("labels", ["int", "str"])
 @pytest.mark.parametrize("key_mode", ["auto", "unique", "gaps", "str", "duplicates", "none"])
 @pytest.mark.parametrize("edge_attr", [None, True, "weight", ["weight", "kind"]])
 def test_pandas_multigraph_import_matches_networkx(
-    pandas, directed, labels, key_mode, edge_attr
+    pandas, directed, multigraph, labels, key_mode, edge_attr
 ):
-    fnx_cls, nx_cls = _classes(directed)
+    fnx_cls, nx_cls = _classes(directed, multigraph)
     pairs = [(3, 1), (3, 1), (1, 3), (2, 2)] + [(i, i + 1) for i in range(12)]
     label = str if labels == "str" else int
     frame = pandas.DataFrame(
@@ -198,9 +201,10 @@ def test_multigraph_import_reuses_and_clears_existing_graph(pandas, directed, ro
 
 
 @pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("multigraph", [False, True])
 @pytest.mark.parametrize("edge_key", [None, "id"])
-def test_custom_table_iteration_observes_inserted_prefix(directed, edge_key):
-    fnx_cls, nx_cls = _classes(directed)
+def test_custom_table_iteration_observes_inserted_prefix(directed, multigraph, edge_key):
+    fnx_cls, nx_cls = _classes(directed, multigraph)
     outputs = []
     for library, cls in [(fnx, fnx_cls), (nx, nx_cls)]:
         graph = cls()
@@ -222,9 +226,10 @@ def test_custom_table_iteration_observes_inserted_prefix(directed, edge_key):
 
 
 @pytest.mark.parametrize("directed", [False, True])
-def test_custom_pandas_extension_array_observes_inserted_prefix(pandas, directed):
+@pytest.mark.parametrize("multigraph", [False, True])
+def test_custom_pandas_extension_array_observes_inserted_prefix(pandas, directed, multigraph):
     np = pytest.importorskip("numpy")
-    fnx_cls, nx_cls = _classes(directed)
+    fnx_cls, nx_cls = _classes(directed, multigraph)
     outputs = []
     for library, cls in [(fnx, fnx_cls), (nx, nx_cls)]:
         graph = cls()
@@ -394,8 +399,9 @@ def test_pandas_graph_subclass_keeps_add_edge_hooks(pandas, directed):
 
 
 @pytest.mark.parametrize("directed", [False, True])
-def test_pandas_invalid_node_keeps_prior_edges(pandas, directed):
-    fnx_cls, nx_cls = _classes(directed)
+@pytest.mark.parametrize("multigraph", [False, True])
+def test_pandas_invalid_node_keeps_prior_edges(pandas, directed, multigraph):
+    fnx_cls, nx_cls = _classes(directed, multigraph)
     outcomes = []
     for library, cls in [(fnx, fnx_cls), (nx, nx_cls)]:
         graph = cls()
@@ -502,3 +508,90 @@ def test_pandas_object_attributes_decline_before_buffering(pandas, monkeypatch, 
     expected = nx.from_pandas_edgelist(frame, edge_attr=True, create_using=nx_cls)
     assert observed == list(range(16))
     assert _snapshot(actual) == _snapshot(expected)
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("hook_scope", ["instance", "class"])
+def test_simple_pandas_mutation_hooks_can_change_later_rows(pandas, monkeypatch, directed, hook_scope):
+    fnx_cls, nx_cls = _classes(directed, multigraph=False)
+    outcomes = []
+    for library, cls in [(fnx, fnx_cls), (nx, nx_cls)]:
+        graph = cls()
+        frame = pandas.DataFrame({"source": [0, 1, 2], "target": [1, 2, 3], "weight": [1, 2, 3]})
+        weights = frame["weight"].array
+        calls = []
+        original = cls.add_edge
+
+        def tracked(self, u, v, **attrs):
+            calls.append((u, v, self.number_of_edges()))
+            result = original(self, u, v, **attrs)
+            if u == 0:
+                weights[2] = 99
+            return result
+
+        with monkeypatch.context() as patch:
+            if hook_scope == "class":
+                patch.setattr(cls, "add_edge", tracked)
+            else:
+                patch.setattr(graph, "add_edge", tracked.__get__(graph, cls))
+            result = library.from_pandas_edgelist(frame, edge_attr="weight", create_using=graph)
+        assert result is graph
+        assert calls == [(0, 1, 0), (1, 2, 1), (2, 3, 2)]
+        assert graph[2][3]["weight"] == 99
+        outcomes.append(_snapshot(graph))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+def test_simple_pandas_object_labels_can_change_later_rows(pandas, directed):
+    fnx_cls, nx_cls = _classes(directed, multigraph=False)
+    outcomes = []
+    for library, cls in [(fnx, fnx_cls), (nx, nx_cls)]:
+        armed = [False]
+        weights = None
+
+        class Node:
+            def __hash__(self):
+                if armed[0]:
+                    armed[0] = False
+                    weights[2] = 99
+                return 41
+
+        node = Node()
+        frame = pandas.DataFrame({
+            "source": pandas.Series([0, node, 2], dtype=object),
+            "target": [1, 2, 3], "weight": [1, 2, 3],
+        })
+        weights = frame["weight"].array
+        armed[0] = True
+        graph = library.from_pandas_edgelist(frame, edge_attr="weight", create_using=cls)
+        outcomes.append((
+            graph.number_of_edges(),
+            [graph[u][v]["weight"] for u, v in [(0, 1), (node, 2), (2, 3)]],
+        ))
+    assert outcomes == [(3, [1, 2, 99]), (3, [1, 2, 99])]
+
+
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("objects", [False, True])
+def test_simple_scalar_pandas_import_keeps_bulk_insertion(pandas, monkeypatch, directed, objects):
+    fnx_cls, nx_cls = _classes(directed, multigraph=False)
+    frame = pandas.DataFrame({
+        "source": [0] * 16, "target": range(1, 17),
+        "weight": range(16), "kind": ["road"] * 16,
+    })
+    if objects:
+        frame["weight"] = frame["weight"].astype(object)
+    batches = []
+    original = fnx._pandas_simple_import_batch
+
+    def track(*args):
+        batch = original(*args)
+        batches.append(None if batch is None else len(batch))
+        return batch
+
+    monkeypatch.setattr(fnx, "_pandas_simple_import_batch", track)
+    actual = fnx.from_pandas_edgelist(frame, edge_attr=True, create_using=fnx_cls)
+    expected = nx.from_pandas_edgelist(frame, edge_attr=True, create_using=nx_cls)
+    assert _snapshot(actual) == _snapshot(expected)
+    assert batches == [16]

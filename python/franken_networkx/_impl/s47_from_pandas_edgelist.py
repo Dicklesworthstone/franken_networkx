@@ -138,6 +138,92 @@ def _multigraph_import_plain_attrs(attrs):
     return True
 
 
+_SIMPLE_PANDAS_IMPORT_METHODS = {
+    cls: tuple(
+        (name, getattr(cls, name))
+        for name in (
+            "add_edge", "add_edges_from", "clear", "__getitem__",
+            "is_directed", "is_multigraph", "node_attr_dict_factory",
+            "edge_attr_dict_factory",
+        )
+    )
+    for cls in (Graph, DiGraph)
+}
+
+
+def _pandas_import_plain_series(
+    df, columns, attr_start, attr_count, *, allow_object_attrs=False
+):
+    """Select stored columns without advancing observable input iterators."""
+    try:
+        import pandas as pd
+    except ImportError:
+        return None
+    if type(df) is not pd.DataFrame or not all(
+        _multigraph_import_plain_key(column) for column in columns
+    ):
+        return None
+    numpy_array_type = getattr(pd.arrays, "NumpyExtensionArray", None)
+    if numpy_array_type is None:
+        numpy_array_type = getattr(pd.arrays, "PandasArray", None)
+    numpy_array_types = (numpy_array_type,)
+    array_types = numpy_array_types + tuple(
+        getattr(pd.arrays, name, None)
+        for name in ("StringArray", "ArrowStringArray", "IntegerArray", "FloatingArray", "BooleanArray")
+    )
+    series = []
+    for position, column in enumerate(columns):
+        values = df[column]
+        if type(values) is not pd.Series:
+            return None
+        array_type = type(values.array)
+        if array_type not in array_types:
+            return None
+        # Multigraph admission leaves object attributes on its incremental
+        # route. The simple collector opts in and checks every value before
+        # any graph mutation, retaining bulk insertion for ordinary strings.
+        if (
+            attr_start <= position < attr_start + attr_count
+            and array_type in numpy_array_types
+            and values.dtype.kind == "O"
+            and not allow_object_attrs
+        ):
+            return None
+        series.append(values)
+    return series
+
+
+def _pandas_simple_import_batch(graph, df, source, target, attr_columns):
+    """Return safe scalar rows, or retain the caller's incremental traversal."""
+    graph_type = type(graph)
+    if (
+        graph_type not in _SIMPLE_PANDAS_IMPORT_METHODS
+        or _has_networkx_private_storage(graph)
+        or type(attr_columns) not in (list, tuple)
+        or any(
+            getattr(graph_type, name) is not original
+            for name, original in _SIMPLE_PANDAS_IMPORT_METHODS[graph_type]
+        )
+        or any(name in graph.__dict__ for name, _ in _SIMPLE_PANDAS_IMPORT_METHODS[graph_type])
+    ):
+        return None
+    series = _pandas_import_plain_series(
+        df, [source, target, *attr_columns], 2, len(attr_columns),
+        allow_object_attrs=True,
+    )
+    if series is None:
+        return None
+    batch = []
+    for u, v, *values in zip(*series):
+        if not (_multigraph_import_plain_key(u) and _multigraph_import_plain_key(v)):
+            return None
+        attrs = dict(zip(attr_columns, values))
+        if not _multigraph_import_plain_attrs(attrs):
+            return None
+        batch.append((u, v, attrs))
+    return batch
+
+
 def _try_from_pandas_multigraph_batch(
     graph, df, source, target, attr_columns, edge_key
 ):
@@ -162,36 +248,11 @@ def _try_from_pandas_multigraph_batch(
     columns = [source, target, *attr_columns]
     if edge_key is not None:
         columns.append(edge_key)
-    if not all(_multigraph_import_plain_key(column) for column in columns):
-        return False
     # These pandas-owned arrays only yield stored values. In particular, do not
     # eagerly iterate a third-party ExtensionArray, whose iterator may observe G.
-    numpy_array_types = tuple(
-        getattr(pd.arrays, name, None)
-        for name in ("NumpyExtensionArray", "PandasArray")
-    )
-    array_types = numpy_array_types + tuple(
-        getattr(pd.arrays, name, None)
-        for name in ("StringArray", "ArrowStringArray", "IntegerArray", "FloatingArray", "BooleanArray")
-    )
-    series = []
-    for position, column in enumerate(columns):
-        values = df[column]
-        if type(values) is not pd.Series:
-            return False
-        array_type = type(values.array)
-        if array_type not in array_types:
-            return False
-        # Object columns can hide a non-native value at the very last row.
-        # Decline from their dtype before buffering; dedicated pandas string
-        # arrays remain eligible even though their dtype kind can also be "O".
-        if (
-            2 <= position < 2 + len(attr_columns)
-            and array_type in numpy_array_types
-            and values.dtype.kind == "O"
-        ):
-            return False
-        series.append(values)
+    series = _pandas_import_plain_series(df, columns, 2, len(attr_columns))
+    if series is None:
+        return False
     batch = []
     for row in zip(*series):
         u, v = row[:2]
@@ -362,32 +423,19 @@ def from_pandas_edgelist(
             else:
                 actual_key = graph.add_edge(source_node, target_node)
                 graph[source_node][target_node][actual_key].update(zip(attr_col_headings, attrs))
-    elif type(graph) in (Graph, DiGraph):
-        # br-r37-c1-nodebatch/pandas: batch the whole attributed edge set
-        # through add_edges_from (the attr edge batch, br-r37-c1-pr8q6) in one
-        # bulk insertion instead of per-edge add_edge + adjacency-view
-        # __getitem__ + dict.update (~2.6x nx). br-r37-c1-pandasdir (cc): DiGraph
-        # added to the gate — it previously fell to the per-row else loop, whose
-        # directed adjacency-view __getitem__ per row is O(N^2) (962ms @ n=800,
-        # 0.004x vs nx). The batch is identical for directed (no symmetric dedup;
-        # directed rows are unique, duplicate (u,v) rows merge later-wins exactly
-        # like the repeated update). Identical semantics: each edge's
-        # data dict is dict(zip(headings, attrs)); duplicate (u, v) rows merge
-        # per-key later-wins, exactly as the repeated ``update`` did. Any
-        # batch-incompatible attr value (e.g. an exotic numpy scalar) makes
-        # add_edges_from fall back to its per-edge path transparently.
-        graph.add_edges_from(
-            [
-                (source_node, target_node, dict(zip(attr_col_headings, attrs)))
-                for source_node, target_node, attrs in zip(
-                    df[source], df[target], attribute_data
-                )
-            ]
-        )
     else:
-        for source_node, target_node, attrs in zip(df[source], df[target], attribute_data):
-            graph.add_edge(source_node, target_node)
-            graph[source_node][target_node].update(zip(attr_col_headings, attrs))
+        # Ordinary scalar DataFrames still cross the native boundary once.
+        # Providers and mutation hooks must see each completed edge before
+        # the next row is read, and a failing later row keeps that prefix.
+        batch = _pandas_simple_import_batch(
+            graph, df, source, target, attr_col_headings
+        )
+        if batch is not None:
+            graph.add_edges_from(batch)
+        else:
+            for source_node, target_node, attrs in zip(df[source], df[target], attribute_data):
+                graph.add_edge(source_node, target_node)
+                graph[source_node][target_node].update(zip(attr_col_headings, attrs))
 
     return graph
 
