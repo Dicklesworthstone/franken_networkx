@@ -660,6 +660,11 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     if len(G) < 2:
         raise NetworkXError("graph has less than two nodes.")
 
+    # Spectral connectivity uses absolute edge weights, combines parallel
+    # magnitudes, and removes self-loops and zero-weight edges. Connectivity
+    # must be checked after this projection: a zero-weight bridge does not
+    # connect the Laplacian. The shared ordering path uses this same contract.
+    G = _spectral_preprocess_graph(G, weight)
     if not is_connected(G):
         return 0.0
 
@@ -678,9 +683,9 @@ def algebraic_connectivity(G, weight="weight", normalized=False, tol=1e-8, metho
     # tiny graph falls back to the exact dense eigvalsh, so correctness is never
     # at risk. 1.85s -> ~13ms (faster than nx); value matches nx within 1e-7.
     L = (
-        normalized_laplacian_matrix(G, weight=weight)
+        normalized_laplacian_matrix(G)
         if normalized
-        else laplacian_matrix(G, weight=weight)
+        else laplacian_matrix(G)
     )
     n = L.shape[0]
     # Shift-invert ARPACK is a large, reliable win on SPARSE Laplacians but can
@@ -772,6 +777,8 @@ def _fiedler_vector_impl(
     # already raise correctly — fiedler_vector was the outlier.
     if len(G) < 2:
         raise NetworkXError("graph has less than two nodes.")
+    original_graph = G
+    G = _spectral_preprocess_graph(G, weight)
     if not is_connected(G):
         raise NetworkXError("graph is not connected.")
     if len(G) == 2:
@@ -799,24 +806,28 @@ def _fiedler_vector_impl(
     # native Lanczos/Ritz solve works in the Laplacian matvec subspace and
     # proves its residual before returning; any unsupported or ill-conditioned
     # case falls through to the established SciPy/dense paths below.
-    native_node_count = len(G)
-    native_edge_count = G.number_of_edges()
+    # Preserve the native shortcut's original input domain. The prepared
+    # graph is always simple and carries explicit canonical weights, so its
+    # shape alone cannot establish that the original query was unweighted.
+    native_node_count = len(original_graph)
+    native_edge_count = original_graph.number_of_edges()
     if (
         _use_dense_native
         and not normalized
-        and not G.is_multigraph()
+        and not original_graph.is_multigraph()
         and 32 <= native_node_count <= 128
         and native_edge_count * 2 >= 16 * native_node_count
     ):
         try:
-            unweighted = weight is None
-            if not unweighted and isinstance(weight, str):
+            unweighted = False
+            if weight is None or isinstance(weight, str):
                 unweighted = not any(
-                    weight in attrs for _, _, attrs in G.edges(data=True)
+                    weight in attrs
+                    for _, _, attrs in original_graph.edges(data=True)
                 )
             if unweighted:
                 native_vector = _fnx.fiedler_vector_unweighted_lanczos_rust(
-                    G, 96, 1e-8
+                    original_graph, 96, 1e-8
                 )
                 if native_vector is not None:
                     return _oriented(np.asarray(native_vector, dtype=float))
@@ -835,9 +846,9 @@ def _fiedler_vector_impl(
     # dense/tiny graphs or any failure -- fall back to the exact dense eigh,
     # byte-identical to the previous implementation.
     L_sparse = (
-        normalized_laplacian_matrix(G, weight=weight)
+        normalized_laplacian_matrix(G)
         if normalized
-        else laplacian_matrix(G, weight=weight)
+        else laplacian_matrix(G)
     )
     n = L_sparse.shape[0]
     nnz = L_sparse.nnz if hasattr(L_sparse, "nnz") else None

@@ -826,6 +826,14 @@ heuristics that previously selected a cost-5 path over a cost-2 path.
 
 ## 28. Spectral Centrality Solver Contract
 
+Algebraic connectivity, Fiedler vectors and spectral bisection use the same
+weighted graph preparation as spectral ordering: take absolute edge weights,
+sum parallel-edge magnitudes, and remove self-loops and zero-weight edges.
+Connectivity checks apply to that prepared graph. A zero-weight bridge can
+therefore disconnect the spectral problem even when the input is connected.
+The caller's graph and node order remain unchanged; normalized and ordinary
+Laplacians both consume the prepared graph's canonical weights.
+
 `eigenvector_centrality_numpy` returns the real left eigenvector selected by
 SciPy's largest-real eigenpair, normalized to unit Euclidean norm with one
 global sign chosen from the sum of its entries. Signed edge weights retain

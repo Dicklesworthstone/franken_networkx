@@ -137,3 +137,108 @@ def test_matrix_nodelist_permutation_parity(seed, builder):
         got = getattr(fnx, name)(fg, nodelist=order).toarray()
         want = getattr(nx, name)(ng, nodelist=order).toarray()
         assert np.array_equal(got, want), name
+
+
+def _spectral_preprocessing_pair(graph_class, route, weight, edge_weights, loops=False):
+    oracle = getattr(nx, graph_class)()
+    oracle.add_nodes_from(["tail", "left", "center", "right"])
+    edges = [("left", "center"), ("center", "right"), ("right", "tail")]
+    for (u, v), value in zip(edges, edge_weights):
+        oracle.add_edges_from([(u, v, {weight: value})])
+        if graph_class == "MultiGraph":
+            oracle.add_edges_from([(u, v, {weight: -value})])
+    if loops:
+        oracle.add_edges_from((node, node, {weight: -1000}) for node in oracle)
+    graph = oracle.copy() if route == "networkx" else getattr(fnx, graph_class)(oracle)
+    return graph, oracle
+
+
+def _assert_spectral_eigenpair(graph, oracle, canonical, weight, normalized):
+    options = dict(weight=weight, normalized=normalized, method="tracemin_lu", seed=7)
+    expected = nx.algebraic_connectivity(oracle, **options)
+    assert fnx.algebraic_connectivity(graph, **options) == pytest.approx(expected, abs=1e-7)
+    matrix = (
+        nx.normalized_laplacian_matrix(canonical)
+        if normalized else nx.laplacian_matrix(canonical)
+    ).toarray()
+    vector = np.asarray(fnx.fiedler_vector(graph, **options))
+    assert vector.shape == (len(graph),)
+    assert np.linalg.norm(vector) > 0
+    assert np.linalg.norm(matrix @ vector - expected * vector) < 1e-7
+
+
+@pytest.mark.parametrize("route", ["fnx", "networkx"])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("normalized", [False, True])
+@pytest.mark.parametrize("weight", ["weight", "capacity", None, ("cost", 0)])
+def test_spectral_preprocessing_signed_and_parallel_weights(route, graph_class, normalized, weight):
+    graph, oracle = _spectral_preprocessing_pair(graph_class, route, weight, [-2, 3, -4])
+    before = [(u, v, dict(data)) for u, v, data in graph.edges(data=True)]
+    canonical = nx.Graph()
+    canonical.add_nodes_from(oracle)
+    values = [2, 3, 4] if graph_class == "Graph" else [4, 6, 8]
+    canonical.add_weighted_edges_from([
+        ("left", "center", values[0]),
+        ("center", "right", values[1]),
+        ("right", "tail", values[2]),
+    ])
+    _assert_spectral_eigenpair(graph, oracle, canonical, weight, normalized)
+    options = dict(weight=weight, normalized=normalized, method="tracemin_lu", seed=7)
+    assert fnx.spectral_ordering(graph, **options) == nx.spectral_ordering(oracle, **options)
+    assert {frozenset(part) for part in fnx.spectral_bisection(graph, **options)} == {
+        frozenset(part) for part in nx.spectral_bisection(oracle, **options)
+    }
+    assert list(graph) == list(oracle)
+    assert list(graph.edges(data=True)) == before
+
+
+@pytest.mark.parametrize("route", ["fnx", "networkx"])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("normalized", [False, True])
+@pytest.mark.parametrize("weight", ["weight", "capacity", None, ("cost", 0)])
+def test_spectral_preprocessing_zero_weight_bridge_is_disconnected(route, graph_class, normalized, weight):
+    graph, oracle = _spectral_preprocessing_pair(graph_class, route, weight, [2, 0, 3])
+    options = dict(weight=weight, normalized=normalized, method="tracemin_lu", seed=7)
+    assert nx.algebraic_connectivity(oracle, **options) == 0.0
+    assert fnx.algebraic_connectivity(graph, **options) == 0.0
+    for name in ("fiedler_vector", "spectral_bisection"):
+        with pytest.raises(nx.NetworkXError, match="graph is not connected"):
+            getattr(nx, name)(oracle, **options)
+        with pytest.raises(fnx.NetworkXError, match="graph is not connected"):
+            getattr(fnx, name)(graph, **options)
+    assert fnx.spectral_ordering(graph, **options) == nx.spectral_ordering(oracle, **options)
+
+
+@pytest.mark.parametrize("route", ["fnx", "networkx"])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("weight", ["weight", "capacity", None, ("cost", 0)])
+def test_spectral_preprocessing_ignores_self_loops_in_normalized_problem(route, graph_class, weight):
+    graph, oracle = _spectral_preprocessing_pair(graph_class, route, weight, [2, 3, 4], loops=True)
+    canonical = nx.Graph()
+    canonical.add_nodes_from(oracle)
+    values = [2, 3, 4] if graph_class == "Graph" else [4, 6, 8]
+    canonical.add_weighted_edges_from([
+        ("left", "center", values[0]),
+        ("center", "right", values[1]),
+        ("right", "tail", values[2]),
+    ])
+    _assert_spectral_eigenpair(graph, oracle, canonical, weight, True)
+
+
+@pytest.mark.parametrize("route", ["fnx", "networkx"])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("weight, expected", [(-3, 6.0), (0, 0.0)])
+def test_spectral_preprocessing_two_node_boundary(route, graph_class, weight, expected):
+    oracle = getattr(nx, graph_class)()
+    oracle.add_edge("first", "second", weight=weight)
+    if graph_class == "MultiGraph":
+        oracle.add_edge("first", "second", weight=-weight)
+        expected *= 2
+    graph = oracle.copy() if route == "networkx" else getattr(fnx, graph_class)(oracle)
+    assert fnx.algebraic_connectivity(graph) == pytest.approx(expected)
+    if weight == 0:
+        with pytest.raises(fnx.NetworkXError, match="graph is not connected"):
+            fnx.fiedler_vector(graph)
+    else:
+        assert fnx.fiedler_vector(graph).tolist() == [1.0, -1.0]
+        assert fnx.algebraic_connectivity(graph, normalized=True) == pytest.approx(2.0)
