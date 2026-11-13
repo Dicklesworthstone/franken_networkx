@@ -436,6 +436,55 @@ def test_contracted_nodes_preserves_integer_contraction_keys():
     assert contracted.nodes[0]["contraction"] == {1: {}}
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["identified_nodes", "contracted_nodes", "contracted_edge"])
+@pytest.mark.parametrize("native_input", [False, True], ids=["networkx-input", "native-input"])
+@pytest.mark.parametrize("copy_graph", [False, True], ids=["in-place", "copy"])
+@pytest.mark.parametrize("cyclic", [False, True], ids=["acyclic", "cyclic"])
+def test_contraction_retains_removed_attribute_dictionary(
+    cls_name, algorithm, native_input, copy_graph, cyclic
+):
+    def observe(graph_module, algorithm_module):
+        graph = getattr(graph_module, cls_name)()
+        graph.add_edges_from([(0, 1), (1, 2)])
+        removed = graph.nodes[1]
+        nested = []
+        removed["nested"] = nested
+        if cyclic:
+            removed["self"] = removed
+        graph.graph["removed_alias"] = removed
+        graph.nodes[0]["removed_alias"] = removed
+
+        args = ((0, 1),) if algorithm == "contracted_edge" else (0, 1)
+        result = getattr(algorithm_module, algorithm)(
+            graph, *args, copy=copy_graph, store_contraction_as="merged"
+        )
+        retained = result.nodes[0]["merged"][1]
+        assert (retained is removed) is (not copy_graph)
+        assert retained["nested"] is nested
+        assert result.graph["removed_alias"] is removed
+        assert result.nodes[0]["removed_alias"] is removed
+        if cyclic:
+            # A copied graph keeps shallow values pointing to the original;
+            # an in-place contraction keeps the dictionary's own cycle intact.
+            assert retained["self"] is removed
+            assert (retained["self"] is retained) is (not copy_graph)
+
+        removed["through_source"] = "source mutation"
+        assert ("through_source" in retained) is (not copy_graph)
+        retained["through_result"] = "result mutation"
+        assert ("through_result" in removed) is (not copy_graph)
+        nested.append("shared mutation")
+        assert retained["nested"] == ["shared mutation"]
+        assert (result is graph) is (not copy_graph)
+        assert (1 in graph) is copy_graph
+        assert 1 not in result
+        return list(graph), list(result), list(result.edges)
+
+    expected = observe(nx, nx)
+    assert observe(fnx if native_input else nx, fnx) == expected
+
+
 def test_identified_nodes_does_not_fallback(monkeypatch):
     path = fnx.path_graph(4)
     expected = nx.identified_nodes(_to_nx(path), 1, 2, self_loops=False)

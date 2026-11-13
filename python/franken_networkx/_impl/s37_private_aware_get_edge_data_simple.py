@@ -703,6 +703,26 @@ _RAW_GRAPH_SHALLOWCOPY = {
 }
 
 
+def _copy_graph_slots_shallow(source, target):
+    """Preserve inherited slots without copying their user-owned values."""
+    for cls in type(source).__mro__:
+        slots = vars(cls).get("__slots__", ())
+        if isinstance(slots, str):
+            slots = (slots,)
+        for name in slots:
+            if name in ("__dict__", "__weakref__"):
+                continue
+            class_name = cls.__name__.lstrip("_")
+            if class_name and name.startswith("__") and not name.endswith("__"):
+                name = f"_{class_name}{name}"
+            descriptor = vars(cls)[name]
+            try:
+                value = descriptor.__get__(source, type(source))
+            except AttributeError:
+                continue
+            descriptor.__set__(target, value)
+
+
 def _graph_view_shallowcopy(self):
     """Copy a view's wrapper while retaining its live, shared Python stores."""
     native_class = _graph_pickle_native_class(self)
@@ -744,22 +764,7 @@ def _graph_view_shallowcopy(self):
             getattr(result, marker)()
     _install_private_method_shadows(result, storage)
 
-    for cls in type(self).__mro__:
-        slots = vars(cls).get("__slots__", ())
-        if isinstance(slots, str):
-            slots = (slots,)
-        for name in slots:
-            if name in ("__dict__", "__weakref__"):
-                continue
-            class_name = cls.__name__.lstrip("_")
-            if class_name and name.startswith("__") and not name.endswith("__"):
-                name = f"_{class_name}{name}"
-            descriptor = vars(cls)[name]
-            try:
-                value = descriptor.__get__(self, type(self))
-            except AttributeError:
-                continue
-            descriptor.__set__(result, value)
+    _copy_graph_slots_shallow(self, result)
     return result
 
 
@@ -804,6 +809,7 @@ def _graph_shallowcopy(self):
         _install_private_method_shadows(result, dst_storage)
     if getattr(self, "frozen", False):
         freeze(result)
+    _copy_graph_slots_shallow(self, result)
     return result
 
 

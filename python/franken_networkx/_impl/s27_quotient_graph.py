@@ -531,7 +531,9 @@ def identified_nodes(
         edges_to_remap = list(G.in_edges(v, data=True)) + list(G.out_edges(v, data=True))
     else:
         edges_to_remap = list(G.edges(v, data=True))
-    v_data = dict(G.nodes[v])
+    # Keep the removed node's actual dictionary, including caller-held aliases
+    # and cycles. With copy=True, H already owns its shallow dictionary copy.
+    v_data = H.nodes[v]
     H.remove_node(v)
 
     store = store_contraction_as is not None

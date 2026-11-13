@@ -1371,6 +1371,19 @@ row-object aliasing or inconsistent half-edge storage parity.
 
 ## 43. Graph Pickle Persistence and Object Identity
 
+Shallow copies of concrete graph subclasses retain inherited and name-mangled
+slot values by identity, including aliases to instance attributes or the source
+graph. Unset slots stay unset, and replacing a slot on the copy does not replace
+the source's slot. Copying does not rerun subclass initialization. Concrete
+graphs and graph views share the same slot-preservation mechanism.
+
+Node and edge contraction retain the removed node's actual attribute dictionary
+in contraction metadata. In-place contraction preserves caller-held aliases and
+self-references; copied contraction retains the independent shallow dictionary
+from the graph copy, with its nested values still shared. The same rule applies
+to `identified_nodes`, `contracted_nodes`, and `contracted_edge`, on all four
+graph classes and NetworkX graph inputs.
+
 Shallow copying a graph view creates a distinct live wrapper of the same
 view class. It shares the source view's graph, node, adjacency, edge-key and
 attribute mappings, filter predicates, cached public views, and user attribute

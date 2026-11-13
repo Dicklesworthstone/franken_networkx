@@ -125,6 +125,70 @@ def test_shallow_copy_bidirectional_mutations_and_private_dict_identity(cls_name
     assert dict(fg.degree()) == dict(ng.degree())
 
 
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("frozen", [False, True])
+def test_concrete_shallow_copy_preserves_inherited_slot_state(cls_name, frozen):
+    def observe(module):
+        calls = []
+
+        class BaseGraph(getattr(module, cls_name)):
+            __slots__ = "base_payload"
+
+        class CustomGraph(BaseGraph):
+            __slots__ = ("payload", "__private_payload", "unset", "source")
+
+            def __init__(self, required):
+                calls.append(required)
+                super().__init__()
+
+            def set_private(self, value):
+                self.__private_payload = value
+
+            def get_private(self):
+                return self.__private_payload
+
+        graph = CustomGraph(None)
+        graph.add_edge(0, 1)
+        shared = []
+        graph.base_payload = shared
+        graph.payload = shared
+        graph.set_private(shared)
+        graph.user_payload = shared
+        graph.source = graph
+        if frozen:
+            module.freeze(graph)
+
+        def no_init(self, *args, **kwargs):
+            raise AssertionError("shallow copying reran subclass initialization")
+
+        CustomGraph.__init__ = no_init
+        duplicate = copymod.copy(graph)
+        assert type(duplicate) is CustomGraph
+        assert vars(duplicate) is not vars(graph)
+        assert duplicate.base_payload is shared
+        assert duplicate.payload is shared
+        assert duplicate.get_private() is shared
+        assert duplicate.user_payload is shared
+        assert duplicate.source is graph
+        with pytest.raises(AttributeError):
+            vars(CustomGraph)["unset"].__get__(duplicate, type(duplicate))
+        assert calls == [None]
+        assert module.is_frozen(duplicate) is frozen
+
+        shared.append("live")
+        assert duplicate.base_payload == ["live"]
+        duplicate.payload = ["replacement"]
+        duplicate.set_private(["private replacement"])
+        assert graph.payload is shared
+        assert graph.get_private() is shared
+        if not frozen:
+            duplicate.add_edge(1, 2)
+            assert graph.has_edge(1, 2)
+        return list(duplicate), list(duplicate.edges)
+
+    assert observe(fnx) == observe(nx)
+
+
 VIEW_CASES = [
     (cls_name, kind)
     for cls_name in CLASSES
