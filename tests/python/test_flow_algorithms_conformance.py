@@ -59,6 +59,13 @@ def _pair_directed(edges_with_cap, capacity_attr="capacity"):
     return fg, ng
 
 
+def _warm_flow_backend_conversion(graph):
+    # An unrelated query preserves all attributes in a reusable conversion.
+    # The solver must recover the caller even when dispatch skips conversion.
+    nx.convert_node_labels_to_integers(graph, backend="franken_networkx")
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
 # ---------------------------------------------------------------------------
 # Fixtures — each is (name, edges_with_cap, source, target)
 # ---------------------------------------------------------------------------
@@ -910,17 +917,29 @@ class _ResidualOnlyInput(nx.DiGraph):
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 @pytest.mark.parametrize("residual_module", [nx, fnx], ids=["networkx", "franken_networkx"])
-def test_supplied_residual_avoids_reading_input_topology(algorithm, residual_module):
+@pytest.mark.parametrize(
+    "backend_name,prewarm",
+    [(None, False), ("franken_networkx", False), ("franken_networkx", True)],
+    ids=["direct", "backend-cold", "backend-warm"],
+)
+def test_supplied_residual_avoids_reading_input_topology(
+    algorithm, residual_module, backend_name, prewarm
+):
     outcomes = []
-    for flow_module in (nx_flow, fnx.flow):
+    actual_module = fnx.flow if backend_name is None else nx_flow
+    for flow_module, selected_backend in (
+        (nx_flow, "networkx"), (actual_module, backend_name)
+    ):
         graph = _ResidualOnlyInput()
         graph.add_weighted_edges_from(
             [("s", "a", 4), ("a", "t", 3), ("s", "t", 2)], weight="capacity"
         )
+        if prewarm and selected_backend == "franken_networkx":
+            _warm_flow_backend_conversion(graph)
         residual = residual_module.flow.build_residual_network(graph, "capacity")
         held_attributes = {(u, v): data for u, v, data in residual.edges(data=True)}
         graph.forbid_topology = True
-        options = {"backend": "networkx"} if flow_module is nx_flow else {}
+        options = {} if selected_backend is None else {"backend": selected_backend}
 
         result = getattr(flow_module, algorithm)(
             graph, "s", "t", residual=residual, **options
@@ -937,13 +956,17 @@ def test_supplied_residual_avoids_reading_input_topology(algorithm, residual_mod
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
 @pytest.mark.parametrize("endpoints", [("missing", "t"), ("s", "missing"), ("s", "s")])
-def test_flow_endpoint_validation_precedes_input_topology(algorithm, endpoints):
+@pytest.mark.parametrize("backend_name", [None, "franken_networkx"], ids=["direct", "backend"])
+def test_flow_endpoint_validation_precedes_input_topology(algorithm, endpoints, backend_name):
     outcomes = []
-    for flow_module in (nx_flow, fnx.flow):
+    actual_module = fnx.flow if backend_name is None else nx_flow
+    for flow_module, selected_backend in (
+        (nx_flow, "networkx"), (actual_module, backend_name)
+    ):
         graph = _ResidualOnlyInput()
         graph.add_edge("s", "t", capacity=3)
         graph.forbid_topology = True
-        options = {"backend": "networkx"} if flow_module is nx_flow else {}
+        options = {} if selected_backend is None else {"backend": selected_backend}
         with pytest.raises(Exception) as error:
             getattr(flow_module, algorithm)(graph, *endpoints, **options)
         outcomes.append((type(error.value).__name__, str(error.value)))
@@ -977,9 +1000,13 @@ def test_residual_builder_reads_public_graph_without_node_attribute_export(direc
 
 
 @pytest.mark.parametrize("algorithm", ALGORITHMS)
-def test_flow_solver_keeps_live_public_edge_capacity_provider(algorithm):
+@pytest.mark.parametrize("backend_name", [None, "franken_networkx"], ids=["direct", "backend"])
+def test_flow_solver_keeps_live_public_edge_capacity_provider(algorithm, backend_name):
     outcomes = []
-    for flow_module in (nx_flow, fnx.flow):
+    actual_module = fnx.flow if backend_name is None else nx_flow
+    for flow_module, selected_backend in (
+        (nx_flow, "networkx"), (actual_module, backend_name)
+    ):
         reads = []
 
         class Capacity(dict):
@@ -1002,11 +1029,124 @@ def test_flow_solver_keeps_live_public_edge_capacity_provider(algorithm):
         graph.add_edge("s", "a", capacity=4)
         graph.add_edge("a", "t", capacity=3)
         graph.add_edge("s", "t", capacity=2)
-        options = {"backend": "networkx"} if flow_module is nx_flow else {}
+        options = {} if selected_backend is None else {"backend": selected_backend}
         result = getattr(flow_module, algorithm)(graph, "s", "t", **options)
         outcomes.append((result.graph["flow_value"], reads))
     assert outcomes[0] == outcomes[1]
     assert outcomes[0][0] == 5
+
+
+def _assert_flow_residual_matches(actual, expected, *, feasible=True):
+    assert list(actual) == list(expected)
+    for name in ("flow_value", "inf", "algorithm"):
+        assert actual.graph[name] == expected.graph[name]
+    assert type(actual.graph["flow_value"]) is type(expected.graph["flow_value"])
+    assert list(actual.edges()) == list(expected.edges())
+    for u, v, attrs in actual.edges(data=True):
+        assert attrs["capacity"] == expected[u][v]["capacity"]
+        assert attrs["flow"] == expected[u][v]["flow"]
+        assert attrs["flow"] <= attrs["capacity"]
+        assert attrs["flow"] == -actual[v][u]["flow"]
+    if feasible:
+        for node in actual:
+            net_flow = sum(attrs["flow"] for attrs in actual[node].values())
+            expected_flow = (
+                actual.graph["flow_value"] if node == "s"
+                else -actual.graph["flow_value"] if node == "t"
+                else 0
+            )
+            assert net_flow == expected_flow
+
+
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+@pytest.mark.parametrize("graph_class", [nx.Graph, nx.DiGraph], ids=["undirected", "directed"])
+@pytest.mark.parametrize("prewarm", [False, True])
+@pytest.mark.parametrize("keyword_arguments", [False, True])
+def test_backend_flow_solver_builds_exact_feasible_residual(
+    algorithm, graph_class, prewarm, keyword_arguments
+):
+    graph = graph_class()
+    graph.add_weighted_edges_from(
+        [("s", "a", 4), ("a", "t", 3), ("s", "t", 2)], weight="budget"
+    )
+    graph.add_node("isolated")
+    if prewarm:
+        _warm_flow_backend_conversion(graph)
+    # Attribute writes leave a warmed NetworkX conversion stale.
+    graph["a"]["t"]["budget"] = Fraction(7, 2)
+    solver = getattr(nx_flow, algorithm)
+    expected = solver(graph, "s", "t", capacity="budget", backend="networkx")
+    if keyword_arguments:
+        actual = solver(
+            G=graph, s="s", t="t", capacity="budget", backend="franken_networkx"
+        )
+    else:
+        actual = solver(graph, "s", "t", "budget", backend="franken_networkx")
+    assert isinstance(actual, fnx.DiGraph)
+    assert actual.graph["flow_value"] == Fraction(11, 2)
+    _assert_flow_residual_matches(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "algorithm,options",
+    [
+        ("edmonds_karp", {"cutoff": 3, "value_only": True}),
+        ("dinitz", {"cutoff": 3, "value_only": True}),
+        ("shortest_augmenting_path", {"cutoff": 3, "two_phase": True}),
+        ("shortest_augmenting_path", {"two_phase": True, "value_only": True}),
+        ("preflow_push", {"global_relabel_freq": 0}),
+        ("preflow_push", {"global_relabel_freq": 2, "value_only": True}),
+        ("boykov_kolmogorov", {"cutoff": 3, "value_only": True}),
+    ],
+)
+@pytest.mark.parametrize("prewarm", [False, True])
+def test_backend_flow_solver_options_match_networkx(algorithm, options, prewarm):
+    graph = nx.DiGraph()
+    graph.add_weighted_edges_from(
+        [("s", "a", 9), ("a", "t", 4), ("s", "b", 5), ("b", "t", 2)],
+        weight="capacity",
+    )
+    if prewarm:
+        _warm_flow_backend_conversion(graph)
+    solver = getattr(nx_flow, algorithm)
+    expected = solver(graph, "s", "t", backend="networkx", **options)
+    actual = solver(graph, "s", "t", backend="franken_networkx", **options)
+    _assert_flow_residual_matches(
+        actual, expected,
+        feasible=not (algorithm == "preflow_push" and options.get("value_only")),
+    )
+
+
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+@pytest.mark.parametrize("kind", ["multigraph", "multidigraph", "unbounded"])
+def test_backend_flow_solver_preserves_graph_errors(algorithm, kind):
+    graph = {
+        "multigraph": nx.MultiGraph,
+        "multidigraph": nx.MultiDiGraph,
+        "unbounded": nx.DiGraph,
+    }[kind]()
+    graph.add_edge("s", "t")
+    solver = getattr(nx_flow, algorithm)
+    with pytest.raises(nx.NetworkXException) as expected:
+        solver(graph, "s", "t", backend="networkx")
+    with pytest.raises(type(expected.value)) as actual:
+        solver(graph, "s", "t", backend="franken_networkx")
+    assert str(actual.value) == str(expected.value)
+
+
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+def test_backend_flow_solver_keeps_explicit_native_graph(algorithm):
+    original = nx.DiGraph()
+    original.add_weighted_edges_from(
+        [("s", "a", 5), ("a", "t", 2)], weight="capacity"
+    )
+    graph = fnx_backend.BackendInterface.convert_from_nx(
+        original, edge_attrs={"capacity": float("inf")}, name=algorithm
+    )
+    graph["a"]["t"]["capacity"] = 4
+    actual = getattr(nx_flow, algorithm)(graph, "s", "t", backend="franken_networkx")
+    assert actual.graph["flow_value"] == 4
+    assert original["a"]["t"]["capacity"] == 2
 
 
 @pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)

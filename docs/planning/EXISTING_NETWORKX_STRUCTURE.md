@@ -2058,6 +2058,12 @@ boundaries on both cold calls and calls with a cached native conversion.
 
 ## 63. Backend Flow Solvers and Residual Ownership
 
+The five residual solvers (`edmonds_karp`, `dinitz`,
+`shortest_augmenting_path`, `preflow_push` and `boykov_kolmogorov`) are also
+available through NetworkX backend dispatch. They retain the caller's graph
+and optional residual across cold and previously cached conversions, keeping
+capacity arithmetic, solver options, validation and residual identity intact.
+
 Backend-dispatched `maximum_flow`, `maximum_flow_value`, `minimum_cut` and
 `minimum_cut_value` preserve the original `flowG` when a solver or solver
 arguments are supplied. Positional and keyword graph arguments have the

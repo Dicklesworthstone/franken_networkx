@@ -105,6 +105,12 @@ _BIPARTITE_MATCHING_ALGORITHMS = frozenset(
         "minimum_weight_full_matching",
     }
 )
+_RESIDUAL_FLOW_ALGORITHMS = frozenset(
+    {
+        "edmonds_karp", "dinitz", "shortest_augmenting_path",
+        "preflow_push", "boykov_kolmogorov",
+    }
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -233,7 +239,11 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "astar_path",
         "astar_path_length",
     }
-) | _BIPARTITE_MATCHING_ALGORITHMS | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
+) | (
+    _BIPARTITE_MATCHING_ALGORITHMS
+    | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
+    | _RESIDUAL_FLOW_ALGORITHMS
+)
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
 )
@@ -271,6 +281,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
     | _FLOW_SOLVER_INPUT_ALGORITHMS
+    | _RESIDUAL_FLOW_ALGORITHMS
     | _COMMUNITY_ITERATOR_ALGORITHMS
     | _WEIGHTED_PATH_INPUT_ALGORITHMS
     | _BETWEENNESS_INPUT_ALGORITHMS
@@ -299,6 +310,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _RESIDUAL_FLOW_ALGORITHMS:
+        # The owned solvers validate G before constructing a residual. A
+        # supplied residual avoids input topology reads entirely; otherwise
+        # the builder must observe G's original node and edge providers.
+        return True
     if name == "transitive_closure_dag":
         # Ordering and copy providers own the closure's snapshot boundary.
         # A cached conversion loses copy hooks and changes later graph reads.
@@ -1037,6 +1053,11 @@ _SUPPORTED_ALGORITHMS = {
     "to_vertex_cover": fnx.bipartite.to_vertex_cover,
     "minimum_weight_full_matching": fnx.bipartite.minimum_weight_full_matching,
     # Flow
+    "edmonds_karp": fnx.flow.edmonds_karp,
+    "dinitz": fnx.flow.dinitz,
+    "shortest_augmenting_path": fnx.flow.shortest_augmenting_path,
+    "preflow_push": fnx.flow.preflow_push,
+    "boykov_kolmogorov": fnx.flow.boykov_kolmogorov,
     "maximum_flow": fnx.maximum_flow,
     "maximum_flow_value": fnx.maximum_flow_value,
     "capacity_scaling": fnx.capacity_scaling,
