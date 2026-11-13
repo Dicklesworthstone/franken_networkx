@@ -612,6 +612,8 @@ def from_numpy_array(
     G : Graph or DiGraph
         The constructed graph.
     """
+    import numpy as np
+
     kind_to_python_type = {
         "f": float,
         "i": int,
@@ -623,6 +625,9 @@ def from_numpy_array(
         "V": "void",
     }
     graph = _empty_graph_from_create_using(create_using)
+    if not _matrix_import_can_batch(graph):
+        # Empty-graph construction itself calls the public node inserter.
+        graph.add_nodes_from(())
     if A.ndim != 2:
         raise NetworkXError(f"Input array must be 2D, not {A.ndim}")
     n, m = A.shape
@@ -643,8 +648,9 @@ def from_numpy_array(
 
     if (
         default_nodes
-        and type(graph) in (Graph, DiGraph)
-        and isinstance(edge_attr, str)
+        and type(A) is np.ndarray
+        and _matrix_import_can_batch(graph)
+        and type(edge_attr) is str
         and not edge_attr.startswith("__fnx_incompatible")
         and dtype.kind in ("f", "i", "u", "b")
     ):
@@ -693,6 +699,79 @@ def from_numpy_array(
 
     graph.add_edges_from(triples)
     return graph
+
+
+_MATRIX_IMPORT_GRAPH_METHODS = {
+    cls: tuple(
+        (name, getattr(cls, name))
+        for name in (
+            "add_nodes_from", "add_edges_from", "add_weighted_edges_from",
+            "is_directed", "is_multigraph", "node_dict_factory",
+            "node_attr_dict_factory", "edge_attr_dict_factory",
+            "adjlist_outer_dict_factory", "adjlist_inner_dict_factory",
+        )
+    )
+    for cls in (Graph, DiGraph)
+}
+
+
+def _matrix_import_can_batch(graph):
+    """Admit only native storage with unchanged public construction behavior."""
+    graph_type = type(graph)
+    methods = _MATRIX_IMPORT_GRAPH_METHODS.get(graph_type)
+    return (
+        methods is not None
+        and not _has_networkx_private_storage(graph)
+        and all(getattr(graph_type, name) is original for name, original in methods)
+        and not any(name in vars(graph) for name, _ in methods)
+    )
+
+
+def _matrix_import_plain_sparse(matrix):
+    """Keep sparse providers and custom coordinate arrays on the public path."""
+    import numpy as np
+    import scipy.sparse as sparse
+
+    matrix_type = type(matrix)
+    if matrix_type in (sparse.coo_array, sparse.coo_matrix):
+        arrays = (matrix.data, matrix.row, matrix.col)
+    elif matrix_type in (
+        sparse.csr_array, sparse.csr_matrix, sparse.csc_array, sparse.csc_matrix,
+    ):
+        arrays = (matrix.data, matrix.indices, matrix.indptr)
+    else:
+        return False
+    return "tocoo" not in vars(matrix) and all(
+        type(array) is np.ndarray for array in arrays
+    )
+
+
+def _sparse_matrix_dok_triples(matrix):
+    # DOK traversal stays lazy until the graph's weighted insertion method
+    # advances it. NumPy's item conversion preserves extended precision.
+    for (source, target), value in matrix.items():
+        yield int(source), int(target), value.item()
+
+
+def _sparse_matrix_import_triples(matrix):
+    """Read each sparse format's public representation in storage order."""
+    format = matrix.format
+    if format in ("csr", "csc"):
+        major_size = matrix.shape[0 if format == "csr" else 1]
+        pointers, indices = matrix.indptr.tolist(), matrix.indices.tolist()
+        values = matrix.data.tolist()
+        positions = (
+            (major, position)
+            for major in range(major_size)
+            for position in range(pointers[major], pointers[major + 1])
+        )
+        if format == "csr":
+            return ((major, int(indices[pos]), values[pos]) for major, pos in positions)
+        return ((int(indices[pos]), major, values[pos]) for major, pos in positions)
+    if format == "dok":
+        return _sparse_matrix_dok_triples(matrix)
+    coo = matrix.tocoo()
+    return zip(coo.row.tolist(), coo.col.tolist(), coo.data.tolist())
 
 
 def _sparse_asformat(matrix, format):
@@ -1216,54 +1295,45 @@ def from_scipy_sparse_array(
         The constructed graph.
     """
     graph = _empty_graph_from_create_using(create_using)
+    plain_graph = _matrix_import_can_batch(graph)
+    if not plain_graph:
+        graph.add_nodes_from(())
     n, m = A.shape
     if n != m:
         raise NetworkXError(f"Adjacency matrix not square: nx,ny={A.shape}")
 
-    coo = A.tocoo()
-    # NumPy retains longdouble/clongdouble scalars when no Python numeric
-    # type can represent them losslessly. Match NetworkX's tolist conversion
-    # instead of narrowing those values to float or complex in the fallback.
-    edge_values = coo.data.tolist()
     if (
-        type(graph) in (Graph, DiGraph)
-        and isinstance(edge_attribute, str)
+        plain_graph
+        and _matrix_import_plain_sparse(A)
+        and type(edge_attribute) is str
         and not edge_attribute.startswith("__fnx_incompatible")
         and A.dtype.kind in ("f", "i", "u", "b")
     ):
+        coo = A.tocoo()
         if graph._native_fill_weighted_int_edges(
-            n, coo.row.tolist(), coo.col.tolist(), edge_values, edge_attribute
+            n, coo.row.tolist(), coo.col.tolist(), coo.data.tolist(), edge_attribute
         ):
             return graph
 
     graph.add_nodes_from(range(n))
-    triples = (
-        (int(u), int(v), weight)
-        for u, v, weight in zip(coo.row, coo.col, edge_values)
-    )
+    # Node insertion precedes observable matrix providers. CSR/CSC/DOK inputs
+    # expose their own traversal and need not support a COO conversion at all.
+    triples = _sparse_matrix_import_triples(A)
     if A.dtype.kind in ("i", "u") and graph.is_multigraph() and parallel_edges:
         chain = _itertools.chain.from_iterable
         triples = chain(((u, v, 1) for _ in range(int(weight))) for (u, v, weight) in triples)
     if graph.is_multigraph() and not graph.is_directed():
         triples = ((u, v, weight) for u, v, weight in triples if u <= v)
 
-    if edge_attribute is None:
-        # br-r37-c1-oa0fs: nx accepts ``edge_attribute=None`` and uses
-        # the literal ``None`` as the edge-attribute dict key. fnx's
-        # ``add_weighted_edges_from`` *and* ``add_edges_from`` both
-        # validate attr keys against ``str``, rejecting ``None``. Add
-        # each edge first (no attrs), then set ``G[u][v][None] = w``
-        # directly — the per-edge dict accepts arbitrary hashable keys.
-        if graph.is_multigraph():
-            for u, v, w in triples:
-                key = graph.add_edge(u, v)
-                graph[u][v][key][None] = w
-        else:
-            for u, v, w in triples:
-                graph.add_edge(u, v)
-                graph[u][v][None] = w
-    elif graph.is_multigraph():
+    if not plain_graph or graph.is_multigraph():
+        # A supplied graph's weighted insertion hook is part of this import
+        # protocol, including its side effects and partial failures.
         graph.add_weighted_edges_from(triples, weight=edge_attribute)
+    elif edge_attribute is None:
+        # Preserve the literal None attribute key on the native simple graph.
+        for u, v, w in triples:
+            graph.add_edge(u, v)
+            graph[u][v][None] = w
     else:
         # br-r37-c1-scipybulk: simple-graph path routes through the bulk
         # attributed add_edges_from (one native edge batch) instead of

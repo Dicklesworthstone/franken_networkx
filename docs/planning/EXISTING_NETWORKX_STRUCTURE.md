@@ -2762,3 +2762,38 @@ and do not duplicate the terminal level. `max_level` limits consumed public
 levels and must be positive or None, with the established islice validation.
 Resolve the RNG at API invocation, snapshot the graph only on first iterator
 advancement, and isolate later graph mutations and edits to yielded sets.
+
+## 91. Matrix Import Storage and Construction Contract
+
+`from_numpy_array` and `from_scipy_sparse_array` populate the graph supplied
+through `create_using` and return that same instance. Its existing graph data
+is cleared first. Assigned node/adjacency storage and public bulk-mutation
+methods remain authoritative during construction.
+This contract also applies through `from_pandas_adjacency`, generic graph
+conversion, and the `convert_matrix` module aliases.
+
+All matrix indices become nodes before edge values are consumed. NumPy array
+subclasses and sparse providers may observe those nodes while computing their
+nonzero coordinates or converting their values. Public bulk insertion methods
+must run on custom graph instances, including when they raise; prior inserted
+nodes/edges and the caller's own mutation effects remain visible after failure.
+Directed imports retain their separate predecessor and successor mappings.
+CSR/CSC inputs snapshot their compressed coordinate and value lists before
+calling weighted edge insertion; they need not provide COO conversion.
+DOK entry iteration remains lazy until weighted edge
+insertion advances it. Preserve stored-edge order, duplicate entries, loops,
+parallel-edge expansion, and NumPy's scalar conversion without narrowing
+extended-precision values.
+
+An empty native graph is not sufficient proof that its Python-visible storage
+is native. The one-call weighted matrix fill is admitted only for concrete
+simple graph classes with unmodified construction methods, standard factories,
+and no assigned storage. Source admission must exclude observable matrix
+providers; ordinary numeric arrays and supported ordinary sparse arrays retain
+the native fill. Declining that fill leaves the existing public construction
+path responsible for dtype conversion, multigraph parallel-edge semantics,
+node ordering, attributes, and errors.
+
+Custom node/edge factory support is a separate, still-incomplete core graph
+mutation contract. Such factories disqualify the native matrix fill, but this
+packet does not claim to complete those public mutation implementations.
