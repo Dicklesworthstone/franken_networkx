@@ -2664,3 +2664,25 @@ unmodified graph protocols retain bulk native adjacency reads and one final
 edge batch. Other inputs use the owned live traversal. Explicit backend
 dispatch preserves the original input and its copy protocol even after an
 earlier algorithm populated the conversion cache.
+
+## 87. Bipartite Projection Backend Availability and Metadata
+
+The backend exposes `projected_graph`, `weighted_projected_graph`,
+`collaboration_weighted_projected_graph`,
+`generic_weighted_projected_graph` and `overlap_weighted_projected_graph`.
+Calls bind the public graph parameter `B`, including keyword arguments.
+The owned implementations retain directed projections, keyed multigraph
+outputs, ratio weights, collaboration weights and both overlap conventions.
+
+Projection reads the original input graph even after another algorithm has
+populated its conversion cache. Graph and node metadata, live filtered views
+and custom weight callbacks must therefore see the caller's current state.
+Custom weighting receives that same graph object with its edge attributes
+and preserves the callback's exact numeric result. Callback mutations remain
+visible to later backend calls.
+
+Result graph and node attributes are shallow copies: nested values retain
+their identities, and node attribute keys need not be strings. Simple and
+multigraph projection output both copy node mappings without expanding them
+as keyword arguments. Regressions are in
+`tests/python/test_bipartite_projection_backend.py`.

@@ -765,8 +765,7 @@ def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwarg
     if multigraph:
         G = MultiDiGraph() if B.is_directed() else MultiGraph()
         G.graph.update(B.graph)
-        for node in nodes:
-            G.add_node(node, **dict(B.nodes[node]))
+        G.add_nodes_from((node, dict(B.nodes[node])) for node in nodes)
         for u in nodes:
             nbrs2 = {v for nbr in B[u] for v in B[nbr] if v != u}
             for v in nbrs2:
@@ -780,8 +779,7 @@ def projected_graph(B, nodes, multigraph=False, *, backend=None, **backend_kwarg
     else:
         G = DiGraph() if B.is_directed() else Graph()
         G.graph.update(B.graph)
-        for node in nodes:
-            G.add_node(node, **dict(B.nodes[node]))
+        G.add_nodes_from((node, dict(B.nodes[node])) for node in nodes)
         # br-projected-batch: the projection edge loop reads only the input B
         # (never the result G), and the projected nodes are pre-added above, so
         # the shared-neighbor pairs accumulate in the exact (u, then nbrs2-set

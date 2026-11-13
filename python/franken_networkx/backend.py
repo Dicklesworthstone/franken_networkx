@@ -105,6 +105,13 @@ _BIPARTITE_MATCHING_ALGORITHMS = frozenset(
         "minimum_weight_full_matching",
     }
 )
+_BIPARTITE_PROJECTION_ALGORITHMS = frozenset(
+    {
+        "projected_graph", "weighted_projected_graph",
+        "collaboration_weighted_projected_graph", "generic_weighted_projected_graph",
+        "overlap_weighted_projected_graph",
+    }
+)
 _RESIDUAL_FLOW_ALGORITHMS = frozenset(
     {
         "edmonds_karp", "dinitz", "shortest_augmenting_path",
@@ -241,6 +248,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     }
 ) | (
     _BIPARTITE_MATCHING_ALGORITHMS
+    | _BIPARTITE_PROJECTION_ALGORITHMS
     | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
     | _RESIDUAL_FLOW_ALGORITHMS
 )
@@ -288,6 +296,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | _BIPARTITE_MATCHING_ALGORITHMS
+    | _BIPARTITE_PROJECTION_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -305,11 +314,18 @@ _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=N
 
 def _primary_graph_parameter(name):
     """Use the public graph parameter when binding or restoring an input."""
+    if name in _BIPARTITE_PROJECTION_ALGORITHMS:
+        return "B"
     return "flowG" if name in _FLOW_SOLVER_INPUT_ALGORITHMS else "G"
 
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _BIPARTITE_PROJECTION_ALGORITHMS:
+        # Projection preserves graph and node metadata and can invoke a
+        # weight function with B itself. Keep these providers intact even
+        # when a previous query populated the conversion cache.
+        return True
     if name in _RESIDUAL_FLOW_ALGORITHMS:
         # The owned solvers validate G before constructing a residual. A
         # supplied residual avoids input topology reads entirely; otherwise
@@ -1052,6 +1068,12 @@ _SUPPORTED_ALGORITHMS = {
     "eppstein_matching": fnx.bipartite.eppstein_matching,
     "to_vertex_cover": fnx.bipartite.to_vertex_cover,
     "minimum_weight_full_matching": fnx.bipartite.minimum_weight_full_matching,
+    # Bipartite projections
+    "projected_graph": fnx.bipartite.projected_graph,
+    "weighted_projected_graph": fnx.bipartite.weighted_projected_graph,
+    "collaboration_weighted_projected_graph": fnx.bipartite.collaboration_weighted_projected_graph,
+    "generic_weighted_projected_graph": fnx.bipartite.generic_weighted_projected_graph,
+    "overlap_weighted_projected_graph": fnx.bipartite.overlap_weighted_projected_graph,
     # Flow
     "edmonds_karp": fnx.flow.edmonds_karp,
     "dinitz": fnx.flow.dinitz,
