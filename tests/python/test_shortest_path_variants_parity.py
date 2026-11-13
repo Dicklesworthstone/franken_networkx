@@ -345,3 +345,151 @@ def test_weighted_query_backend_family_preserves_public_errors(
     assert _weighted_outcome(
         lambda: getattr(nx, name)(graph, *args, backend="franken_networkx", **options)
     ) == expected
+
+
+def _reciprocal_weight_graph(graph_class):
+    graph = getattr(nx, graph_class)()
+    graph.add_nodes_from(["s", "a", "t", "isolated"])
+    graph.add_weighted_edges_from([
+        ("s", "a", 2), ("s", "t", 4), ("t", "a", 3),
+    ])
+    if graph.is_multigraph():
+        graph.add_edge("s", "a", key="parallel", weight=9)
+    return graph
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("name", ["shortest_path", "shortest_path_length"])
+@pytest.mark.parametrize("mutation", ["weight", "missing-edge"])
+@pytest.mark.parametrize("route", ["direct", "backend", "warm-backend"])
+def test_weighted_target_queries_preserve_separate_reciprocal_rows(
+    graph_class, name, mutation, route
+):
+    graph = _reciprocal_weight_graph(graph_class)
+    if route == "warm-backend":
+        nx.shortest_path_length(
+            graph, "s", "a", weight="weight", backend="franken_networkx"
+        )
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+    # NetworkX searches the supplied rows. A native conversion would repair
+    # these independent dictionaries, reintroducing a cost-2 reverse edge.
+    rows = graph._pred if graph.is_directed() else graph._adj
+    if mutation == "missing-edge":
+        del rows["a"]["s"]
+    else:
+        rows["a"]["s"] = (
+            {0: {"weight": 20}, "parallel": {"weight": 25}}
+            if graph.is_multigraph() else {"weight": 20}
+        )
+    options = {"target": "a", "weight": "weight"}
+    expected = getattr(nx, name)(graph, backend="networkx", **options)
+    assert expected["s"] == (["s", "t", "a"] if name == "shortest_path" else 7)
+    for _ in range(2):
+        actual = (
+            getattr(fnx, name)(graph, **options)
+            if route == "direct" else
+            getattr(nx, name)(graph, backend="franken_networkx", **options)
+        )
+        assert _ordered_weighted_value(actual) == _ordered_weighted_value(expected)
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("name", [
+    "single_source_dijkstra", "single_source_dijkstra_path_length",
+    "multi_source_dijkstra", "multi_source_dijkstra_path_length",
+    "dijkstra_predecessor_and_distance",
+])
+@pytest.mark.parametrize("route", ["direct", "backend", "warm-backend"])
+def test_weighted_source_queries_preserve_separate_reciprocal_rows(
+    graph_class, name, route
+):
+    graph = _reciprocal_weight_graph(graph_class)
+    if route == "warm-backend":
+        nx.dijkstra_path_length(graph, "s", "a", backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    graph._adj["a"]["s"] = (
+        {0: {"weight": 20}} if graph.is_multigraph() else {"weight": 20}
+    )
+    source = ["a"] if name.startswith("multi_source") else "a"
+    expected = getattr(nx, name)(graph, source, backend="networkx")
+    actual = (
+        getattr(fnx, name)(graph, source)
+        if route == "direct" else
+        getattr(nx, name)(graph, source, backend="franken_networkx")
+    )
+    assert _ordered_weighted_value(actual) == _ordered_weighted_value(expected)
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("mutation", ["missing-isolate", "extra-source"])
+@pytest.mark.parametrize("route", ["direct", "backend", "warm-backend"])
+def test_weighted_queries_preserve_private_node_coverage(graph_class, mutation, route):
+    graph = _reciprocal_weight_graph(graph_class)
+    if route == "warm-backend":
+        nx.dijkstra_path_length(graph, "s", "a", backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    if mutation == "missing-isolate":
+        # The missing row is outside the reached component; copying every
+        # node before searching would raise an unrelated KeyError.
+        del graph._adj["isolated"]
+        source = "s"
+    else:
+        graph._adj["ghost"] = {}
+        graph._adj["t"]["ghost"] = (
+            {0: {"weight": 1}} if graph.is_multigraph() else {"weight": 1}
+        )
+        # Conversion would add this endpoint to _node and make an invalid
+        # source pass membership validation.
+        source = "ghost"
+    expected = _weighted_outcome(
+        lambda: nx.single_source_dijkstra(graph, source, backend="networkx")
+    )
+    if mutation == "missing-isolate":
+        assert expected[0] == "return"
+    else:
+        assert expected[:2] == ("raise", "NodeNotFound")
+    actual = _weighted_outcome(
+        lambda: fnx.single_source_dijkstra(graph, source)
+        if route == "direct" else
+        nx.single_source_dijkstra(graph, source, backend="franken_networkx")
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+def test_consistent_weighted_rows_retain_native_search(monkeypatch, graph_class):
+    graph = _reciprocal_weight_graph(graph_class)
+    expected = nx.multi_source_dijkstra(graph, ["s"], backend="networkx")
+    namespace = fnx.multi_source_dijkstra.__globals__
+
+    def left_native(*args, **kwargs):
+        raise AssertionError("consistent NetworkX storage left its native route")
+
+    monkeypatch.setitem(namespace, "_multi_source_dijkstra_inproc", left_native)
+    monkeypatch.setitem(namespace, "_dijkstra_multisource_inproc", left_native)
+    assert namespace["_weighted_query_uses_live_python_rows"](graph, "weight") is False
+    assert _ordered_weighted_value(fnx.multi_source_dijkstra(graph, ["s"])) == (
+        _ordered_weighted_value(expected)
+    )
+
+
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+def test_reciprocal_row_admission_never_compares_attribute_values(graph_class):
+    class Uncomparable:
+        def __eq__(self, other):
+            raise AssertionError("weighted route compared an unrelated attribute")
+
+    graph = _reciprocal_weight_graph(graph_class)
+    left = graph._adj["s"]["a"]
+    if graph.is_multigraph():
+        left = left[0]
+    left["payload"] = Uncomparable()
+    gate = fnx._weighted_query_uses_live_python_rows
+    assert gate(graph, "weight") is False
+    rows = graph._pred if graph.is_directed() else graph._adj
+    rows["a"]["s"] = (
+        {0: {"weight": 2, "payload": Uncomparable()}}
+        if graph.is_multigraph() else {"weight": 2, "payload": Uncomparable()}
+    )
+    assert gate(graph, "weight") is True

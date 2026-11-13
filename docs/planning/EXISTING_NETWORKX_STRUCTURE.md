@@ -1894,6 +1894,12 @@ order without unnecessary input conversion. Backend dispatch recovers the
 original source when weighted-query admission requires live rows, including
 when an earlier call populated the conversion cache.
 
+Native weighted conversion admission also requires complete node coverage
+and reciprocal adjacency identity, including directed successor/predecessor
+agreement. Independently assigned rows retain their directional weights,
+topology, membership validation and error boundaries. Identity checks follow
+the plain-key/type checks and do not compare user attribute values.
+
 Weighted closeness, harmonic centrality and Wiener index obey the same
 live-row contract. Directed closeness retains its reference reverse-copy
 boundary, while harmonic centrality uses a live reverse view. Closeness

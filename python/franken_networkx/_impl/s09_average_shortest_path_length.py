@@ -954,6 +954,25 @@ def _weighted_query_uses_live_python_rows(G, weight):
                     if type(attrs.get(weight, 1)) not in (int, float, bool):
                         return True
 
+    # Conversion rebuilds reciprocal edges and directed predecessor rows. It
+    # cannot preserve separately assigned dictionaries or missing private rows:
+    # a search may read a different weight (or no edge) at the other endpoint.
+    # Validate only after every key and mapping above has been admitted, so
+    # these lookups cannot invoke a user-defined hash/equality protocol.
+    for rows in (adjacency, predecessors) if directed else (adjacency,):
+        if len(rows) != len(nodes) or any(node not in rows for node in nodes):
+            return True
+    reciprocal_rows = (
+        ((adjacency, predecessors), (predecessors, adjacency))
+        if directed else ((adjacency, adjacency),)
+    )
+    for rows, opposite in reciprocal_rows:
+        for node, row in rows.items():
+            for neighbor, edge_data in row.items():
+                reverse_row = opposite.get(neighbor)
+                if reverse_row is None or reverse_row.get(node) is not edge_data:
+                    return True
+
     # Ordinary cached NetworkX views are safe. Assigned readers are not:
     # conversion uses public node/edge views, while searches use private rows.
     coreviews = nx.classes.coreviews
