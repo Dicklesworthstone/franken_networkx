@@ -355,6 +355,29 @@ def test_random_spanning_tree_seeded_weighted_matches_networkx():
     assert _random_tree_signature(fr) == _random_tree_signature(nr)
 
 
+@pytest.mark.parametrize("multiplicative", [True, False])
+@pytest.mark.parametrize("seed", [0, 1, 7])
+@pytest.mark.parametrize("scale", [1.0, 1e-20, 1e-100, 1e100])
+def test_random_spanning_tree_preserves_positive_weight_scale(multiplicative, seed, scale):
+    # A common positive weight scale cancels from every sampling probability.
+    # In particular, a tiny Matrix-Tree determinant must remain usable after
+    # contractions instead of triggering a spurious zero-denominator error.
+    edges = [(0, 1, 2.0), (0, 2, 3.0), (1, 2, 5.0)]
+    base, _ = _pair_weighted(edges)
+    graph, reference = _pair_weighted([
+        (u, v, weight * scale) for u, v, weight in edges
+    ])
+    kwargs = {"weight": "weight", "multiplicative": multiplicative, "seed": seed}
+    actual = fnx.random_spanning_tree(graph, **kwargs)
+    expected = nx.random_spanning_tree(reference, **kwargs)
+    unscaled = fnx.random_spanning_tree(base, **kwargs)
+    actual_edges = {frozenset(edge) for edge in actual.edges()}
+    assert actual_edges == {frozenset(edge) for edge in expected.edges()}
+    assert actual_edges == {frozenset(edge) for edge in unscaled.edges()}
+    assert fnx.is_tree(actual)
+    assert set(actual) == set(graph)
+
+
 def test_random_spanning_tree_multiplicative_false_weight_none_raises_networkx_typeerror():
     fg, ng = _pair_weighted([(0, 1, 1.0), (1, 2, 2.0), (0, 2, 3.0)])
     with pytest.raises(TypeError) as nx_exc:

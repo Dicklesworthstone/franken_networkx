@@ -14594,7 +14594,14 @@ fn determinant(mut matrix: Vec<Vec<f64>>) -> f64 {
         return 1.0;
     }
 
+    // A Matrix-Tree cofactor scales with every edge weight. Neither a small
+    // pivot nor a small final product implies singularity, and a small
+    // elimination factor can still multiply a large, significant row entry.
+    // Keep the pivot product as a signed significand and a binary exponent so
+    // an intermediate product cannot underflow/overflow before later pivots
+    // bring the final determinant back into the representable range.
     let mut det = 1.0;
+    let mut exponent = 0_i64;
     for pivot_index in 0..n {
         let mut pivot_row = pivot_index;
         for row in (pivot_index + 1)..n {
@@ -14603,7 +14610,7 @@ fn determinant(mut matrix: Vec<Vec<f64>>) -> f64 {
             }
         }
 
-        if matrix[pivot_row][pivot_index].abs() <= DISTANCE_COMPARISON_EPSILON {
+        if matrix[pivot_row][pivot_index] == 0.0 {
             return 0.0;
         }
         if pivot_row != pivot_index {
@@ -14612,23 +14619,65 @@ fn determinant(mut matrix: Vec<Vec<f64>>) -> f64 {
         }
 
         let pivot = matrix[pivot_index][pivot_index];
-        det *= pivot;
+        if pivot.is_finite() {
+            let mut normalized = pivot;
+            if normalized.abs() < f64::MIN_POSITIVE {
+                // Multiplication by 2^52 normalizes even the smallest
+                // subnormal without rounding away any significant bits.
+                normalized *= 4_503_599_627_370_496.0;
+                exponent -= 52;
+            }
+            let bits = normalized.to_bits();
+            exponent += ((bits >> 52) & 0x7ff) as i64 - 1023;
+            let significand =
+                f64::from_bits((bits & 0x800f_ffff_ffff_ffff) | 0x3ff0_0000_0000_0000);
+            det *= significand;
+            if det.abs() >= 2.0 {
+                det *= 0.5;
+                exponent += 1;
+            }
+        } else {
+            det *= pivot;
+        }
         for row in (pivot_index + 1)..n {
-            let factor = matrix[row][pivot_index] / pivot;
-            if factor.abs() <= DISTANCE_COMPARISON_EPSILON {
+            let entry = matrix[row][pivot_index];
+            if entry == 0.0 {
                 continue;
             }
+            let factor = entry / pivot;
             let pivot_tail = matrix[pivot_index][(pivot_index + 1)..].to_vec();
             for (offset, value) in matrix[row][(pivot_index + 1)..].iter_mut().enumerate() {
-                *value -= factor * pivot_tail[offset];
+                // A tiny factor can lose precision or underflow before a
+                // large pivot-row entry brings the correction back in range.
+                // Prefer the other division order when it avoids that loss,
+                // without moving underflow/overflow into the alternate ratio.
+                let correction = if factor.abs() < f64::MIN_POSITIVE {
+                    let ratio = pivot_tail[offset] / pivot;
+                    if factor == 0.0 || ratio.is_normal() {
+                        entry * ratio
+                    } else {
+                        factor * pivot_tail[offset]
+                    }
+                } else {
+                    factor * pivot_tail[offset]
+                };
+                *value -= correction;
             }
         }
     }
 
-    if det.abs() <= DISTANCE_COMPARISON_EPSILON {
-        0.0
-    } else {
+    if !det.is_finite() {
         det
+    } else if exponent > 1023 {
+        f64::INFINITY.copysign(det)
+    } else if exponent < -1075 {
+        0.0_f64.copysign(det)
+    } else if exponent < -1022 {
+        // Round only the final multiplication into the subnormal range.
+        let scale = f64::from_bits(((exponent + 2045) as u64) << 52);
+        (det * scale) * f64::MIN_POSITIVE
+    } else {
+        det * f64::from_bits(((exponent + 1023) as u64) << 52)
     }
 }
 
@@ -15285,7 +15334,7 @@ pub fn random_spanning_tree_from_samples(
         let threshold = if representative_left != representative_right
             && prepared_graph.has_edge(&representative_left, &representative_right)
         {
-            if total_tree_weight.abs() <= DISTANCE_COMPARISON_EPSILON {
+            if total_tree_weight == 0.0 {
                 return Err(RandomSpanningTreeError::DivisionByZero);
             }
 
@@ -15301,7 +15350,7 @@ pub fn random_spanning_tree_from_samples(
                 let contracted_tree_count =
                     contracted_graph_spanning_tree_count(&contracted_graph, false);
                 let denominator = chosen_weight_sum * prepared_tree_count + total_tree_weight;
-                if denominator.abs() <= DISTANCE_COMPARISON_EPSILON {
+                if denominator == 0.0 {
                     return Err(RandomSpanningTreeError::DivisionByZero);
                 }
                 let numerator =
@@ -79171,6 +79220,180 @@ mod tests {
     }
 
     #[test]
+    fn determinant_keeps_small_pivots_products_and_elimination_factors() {
+        assert_eq!(super::determinant(Vec::new()), 1.0);
+        assert_eq!(super::determinant(vec![vec![0.0]]), 0.0);
+        assert_eq!(
+            super::determinant(vec![vec![1.0, 1.0], vec![1.0, 1.0]]),
+            0.0
+        );
+        for (matrix, expected) in [
+            (vec![vec![1e-20]], 1e-20),
+            (vec![vec![2e-8, 0.0], vec![0.0, 3e-8]], 6e-16),
+            (vec![vec![0.0, 2e-100], vec![3e-100, 0.0]], -6e-200),
+            // The factor 1e-20 is small, but its product with the other
+            // entry in the pivot row is 1: omitting it doubles the answer.
+            (vec![vec![1e20, 1e20], vec![1.0, 2.0]], 1e20),
+            // Here the factor itself underflows, but the correction and
+            // final determinant are both representable.
+            (vec![vec![1e308, 1e308], vec![1e-308, 2e-308]], 1.0),
+            // A nonzero subnormal factor must not lose its low bits before
+            // multiplication restores the row correction's ordinary scale.
+            (vec![vec![1e308, 1e308], vec![1e-12, 2e-12]], 1e296),
+        ] {
+            let actual = super::determinant(matrix);
+            assert!(
+                ((actual - expected) / expected).abs() <= 8.0 * f64::EPSILON,
+                "closed-form determinant: got {actual}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn determinant_delays_product_range_limits_until_the_final_result() {
+        for (diagonal, expected) in [
+            (vec![1e200, 1e200, 1e-200], 1e200),
+            (vec![1e-200, 1e-200, 1e200], 1e-200),
+            (vec![-1e200, 1e200, 1e-200, 1e-200], -1.0),
+            (vec![f64::from_bits(1)], f64::from_bits(1)),
+            (
+                vec![2.0_f64.powi(-500), 2.0_f64.powi(-574)],
+                f64::from_bits(1),
+            ),
+        ] {
+            let n = diagonal.len();
+            let mut matrix = vec![vec![0.0; n]; n];
+            for (index, value) in diagonal.into_iter().enumerate() {
+                matrix[index][index] = value;
+            }
+            let actual = super::determinant(matrix);
+            assert!(
+                ((actual - expected) / expected).abs() <= 8.0 * f64::EPSILON,
+                "diagonal product: got {actual}, expected {expected}"
+            );
+        }
+        assert_eq!(
+            super::determinant(vec![vec![1e200, 0.0], vec![0.0, 1e200]]),
+            f64::INFINITY
+        );
+        assert_eq!(
+            super::determinant(vec![vec![1e-200, 0.0], vec![0.0, 1e-200]]),
+            0.0
+        );
+    }
+
+    #[test]
+    fn spanning_tree_counts_match_weighted_tree_and_triangle_theorems() {
+        // A star has exactly one spanning tree, so its weighted count is
+        // the product of its edges. Deleting the center's Laplacian row and
+        // column leaves a diagonal cofactor, with no conditioning ambiguity.
+        for (weights, expected) in [
+            (vec![1e-20], 1e-20),
+            (vec![2e-8, 3e-8], 6e-16),
+            (vec![-2e-20, 3e-20], -6e-40),
+            (vec![1e200, 1e200, 1e-200], 1e200),
+            (vec![1e-200, 1e-200, 1e200], 1e-200),
+        ] {
+            let mut graph = Graph::strict();
+            for (index, weight) in weights.into_iter().enumerate() {
+                graph
+                    .add_edge_with_attrs(
+                        "root",
+                        format!("leaf-{index}"),
+                        AttrMap::from([("cost".to_owned(), CgseValue::Float(weight))]),
+                    )
+                    .expect("edge add should succeed");
+            }
+            for arm in [
+                super::SpanningTreeCountArm::Direct,
+                super::SpanningTreeCountArm::Contracted,
+            ] {
+                let actual = super::number_of_spanning_trees_arm(&graph, Some("cost"), arm);
+                assert!(
+                    ((actual - expected) / expected).abs() <= 8.0 * f64::EPSILON,
+                    "weighted star ({arm:?}): got {actual}, expected {expected}"
+                );
+            }
+        }
+
+        for scale in [1.0, 1e-10, 1e-100, 1e100] {
+            let mut graph = Graph::strict();
+            for (left, right, weight) in [("a", "b", 2.0), ("a", "c", 3.0), ("b", "c", 5.0)] {
+                graph
+                    .add_edge_with_attrs(
+                        left,
+                        right,
+                        AttrMap::from([("cost".to_owned(), CgseValue::Float(weight * scale))]),
+                    )
+                    .expect("edge add should succeed");
+            }
+            // The three trees have weights (2*3), (2*5), and (3*5).
+            let expected = 31.0 * scale * scale;
+            let actual = super::number_of_spanning_trees(&graph, Some("cost"));
+            assert!(
+                ((actual - expected) / expected).abs() <= 8.0 * f64::EPSILON,
+                "weighted triangle at scale {scale}: got {actual}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn spanning_arborescence_counts_preserve_small_and_mixed_weight_scales() {
+        for weights in [
+            vec![1e-20],
+            vec![2e-8, 3e-8],
+            vec![1e200, 1e200, 1e-200],
+            vec![1e-200, 1e-200, 1e200],
+        ] {
+            let mut graph = DiGraph::strict();
+            let expected = match weights.as_slice() {
+                [weight] => *weight,
+                [first, second] => first * second,
+                [first, second, third] => first * (second * third),
+                _ => unreachable!("the fixture has one, two or three edges"),
+            };
+            for (index, weight) in weights.into_iter().enumerate() {
+                graph
+                    .add_edge_with_attrs(
+                        "root",
+                        format!("leaf-{index}"),
+                        AttrMap::from([("cost".to_owned(), CgseValue::Float(weight))]),
+                    )
+                    .expect("edge add should succeed");
+            }
+            let actual = super::number_of_spanning_arborescences(&graph, "root", Some("cost"));
+            assert!(
+                ((actual - expected) / expected).abs() <= 8.0 * f64::EPSILON,
+                "outward star: got {actual}, expected {expected}"
+            );
+            assert_eq!(
+                super::number_of_spanning_arborescences(&graph, "leaf-0", Some("cost")),
+                0.0
+            );
+        }
+
+        for scale in [1.0, 1e-10, 1e-100, 1e100] {
+            let mut graph = DiGraph::strict();
+            for (left, right, weight) in [("a", "b", 2.0), ("a", "c", 3.0), ("b", "c", 5.0)] {
+                graph
+                    .add_edge_with_attrs(
+                        left,
+                        right,
+                        AttrMap::from([("cost".to_owned(), CgseValue::Float(weight * scale))]),
+                    )
+                    .expect("edge add should succeed");
+            }
+            // Both outward trees contain a->b; c chooses a->c or b->c.
+            let expected = 16.0 * scale * scale;
+            let actual = super::number_of_spanning_arborescences(&graph, "a", Some("cost"));
+            assert!(
+                ((actual - expected) / expected).abs() <= 8.0 * f64::EPSILON,
+                "directed triangle at scale {scale}: got {actual}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
     fn number_of_spanning_trees_direct_laplacian_exact_parity() {
         let assert_parity = |graph: &Graph, weight_attr: Option<&str>| {
             let baseline = super::number_of_spanning_trees_contracted_baseline(graph, weight_attr);
@@ -79374,6 +79597,61 @@ mod tests {
         assert_eq!(tree.node_count(), 3);
         assert_eq!(tree.edge_count(), 2);
         assert!(super::is_tree(&tree).is_tree);
+    }
+
+    #[test]
+    fn random_spanning_tree_samples_are_invariant_to_positive_weight_scale() {
+        let shuffled_edges = [
+            ("a".to_owned(), "b".to_owned()),
+            ("a".to_owned(), "c".to_owned()),
+            ("b".to_owned(), "c".to_owned()),
+        ];
+        for multiplicative in [true, false] {
+            for scale in [1.0, 1e-20, 1e-100, 1e100] {
+                let mut graph = Graph::strict();
+                for (left, right, weight) in [("a", "b", 2.0), ("a", "c", 3.0), ("b", "c", 5.0)] {
+                    graph
+                        .add_edge_with_attrs(
+                            left,
+                            right,
+                            AttrMap::from([("cost".to_owned(), CgseValue::Float(weight * scale))]),
+                        )
+                        .expect("edge add should succeed");
+                }
+                // In either weighting scheme these draws accept a-b,
+                // reject a-c, and then accept the mandatory b-c edge.
+                let tree = super::random_spanning_tree_from_samples(
+                    &graph,
+                    Some("cost"),
+                    multiplicative,
+                    &shuffled_edges,
+                    &[0.5, 0.6, 0.9],
+                )
+                .expect("a positive rescaling must not cause division by zero");
+                assert!(tree.has_edge("a", "b"));
+                assert!(tree.has_edge("b", "c"));
+                assert!(!tree.has_edge("a", "c"));
+                assert!(super::is_tree(&tree).is_tree);
+            }
+
+            let mut zero = Graph::strict();
+            zero.add_edge_with_attrs(
+                "a",
+                "b",
+                AttrMap::from([("cost".to_owned(), CgseValue::Float(0.0))]),
+            )
+            .expect("edge add should succeed");
+            assert!(matches!(
+                super::random_spanning_tree_from_samples(
+                    &zero,
+                    Some("cost"),
+                    multiplicative,
+                    &shuffled_edges[..1],
+                    &[0.5],
+                ),
+                Err(super::RandomSpanningTreeError::DivisionByZero)
+            ));
+        }
     }
 
     // -----------------------------------------------------------------------
