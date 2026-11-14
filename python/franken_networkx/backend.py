@@ -954,6 +954,13 @@ def _spectral_dispatch_uses_live_providers(name, graph, arguments):
 # and other execution contexts cannot replace its original inputs.
 _DISJOINT_ALGORITHMS = frozenset({"edge_disjoint_paths", "node_disjoint_paths"})
 _DISJOINT_CALL_INPUTS = ContextVar("franken_networkx_disjoint_inputs", default=None)
+_PAIRED_GRAPH_ALGORITHMS = frozenset(
+    {
+        "graph_edit_distance", "optimal_edit_paths",
+        "optimize_edit_paths", "optimize_graph_edit_distance",
+    }
+)
+_PAIRED_GRAPH_CALL_INPUTS = ContextVar("franken_networkx_paired_inputs", default=None)
 
 
 def _refresh_dispatch_source(graph):
@@ -1005,11 +1012,15 @@ def _iterate_callback_result(iterator, graph):
                 _clear_callback_conversions(graph)
             yield item
     finally:
-        iterator.close()
-        _clear_callback_conversions(graph)
+        try:
+            iterator.close()
+        finally:
+            _clear_callback_conversions(graph)
 
 
-def _call_disjoint_with_original_inputs(fn, signature, inputs, args, kwargs):
+def _call_with_original_inputs(
+    fn, signature, inputs, args, kwargs, *, invalidate_conversions=False
+):
     bound = signature.bind(*args, **kwargs)
     originals = []
     for parameter, source_ref in inputs:
@@ -1026,7 +1037,8 @@ def _call_disjoint_with_original_inputs(fn, signature, inputs, args, kwargs):
         bound.arguments[parameter] = source
         if not any(source is graph for graph in graphs):
             graphs.append(source)
-    if not callable(bound.arguments.get("flow_func")):
+        _discard_component_passthrough(source)
+    if not invalidate_conversions and not callable(bound.arguments.get("flow_func")):
         return fn(*bound.args, **bound.kwargs)
 
     for graph in graphs:
@@ -1274,6 +1286,11 @@ _SUPPORTED_ALGORITHMS = {
     "could_be_isomorphic": fnx.could_be_isomorphic,
     "fast_could_be_isomorphic": fnx.fast_could_be_isomorphic,
     "faster_could_be_isomorphic": fnx.faster_could_be_isomorphic,
+    # Exact graph edit distance and incremental edit scripts
+    "graph_edit_distance": fnx.graph_edit_distance,
+    "optimal_edit_paths": fnx.optimal_edit_paths,
+    "optimize_edit_paths": fnx.optimize_edit_paths,
+    "optimize_graph_edit_distance": fnx.optimize_graph_edit_distance,
     # Planarity
     "is_planar": fnx.is_planar,
     # Barycenter
@@ -2105,7 +2122,7 @@ class BackendInterface:
         traversal, so unrelated algorithms still receive native conversions.
         """
         pending_provider = _PROVIDER_CALL_INPUTS.get()
-        if name in _LIVE_INPUT_ALGORITHMS or (
+        if name in _LIVE_INPUT_ALGORITHMS | _PAIRED_GRAPH_ALGORITHMS or (
             pending_provider is not None
             and pending_provider[0] == name
             and pending_provider[1]() is G
@@ -2146,6 +2163,8 @@ class BackendInterface:
         try:
             bound = inspect.signature(fn).bind(*args, **kwargs)
         except TypeError:
+            if name in _PAIRED_GRAPH_ALGORITHMS:
+                _PAIRED_GRAPH_CALL_INPUTS.set(None)
             return False
         if name in _DISJOINT_ALGORITHMS:
             try:
@@ -2158,6 +2177,18 @@ class BackendInterface:
                 _DISJOINT_CALL_INPUTS.set(None)
                 return False
             _DISJOINT_CALL_INPUTS.set((name, inputs))
+        elif name in _PAIRED_GRAPH_ALGORITHMS:
+            try:
+                inputs = tuple(
+                    (parameter, weakref.ref(bound.arguments[parameter]))
+                    for parameter in ("G1", "G2")
+                )
+            except TypeError:
+                _PAIRED_GRAPH_CALL_INPUTS.set(None)
+                return False
+            for _, source_ref in inputs:
+                _refresh_dispatch_source(source_ref())
+            _PAIRED_GRAPH_CALL_INPUTS.set((name, inputs))
         elif name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
             graph_parameter = _primary_graph_parameter(name)
             _refresh_dispatch_source(bound.arguments.get(graph_parameter))
@@ -2233,6 +2264,12 @@ class BackendInterface:
                 if pending is not None and pending[0] == name:
                     disjoint_inputs = pending[1]
                     disjoint_signature = inspect.signature(fn)
+            paired_inputs = None
+            if name in _PAIRED_GRAPH_ALGORITHMS:
+                paired_pending = _PAIRED_GRAPH_CALL_INPUTS.get()
+                if paired_pending is not None and paired_pending[0] == name:
+                    paired_inputs = paired_pending[1]
+                    paired_signature = inspect.signature(fn)
 
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
@@ -2244,6 +2281,16 @@ class BackendInterface:
                         pending_provider = _PROVIDER_CALL_INPUTS.get()
                         if pending_provider is not None and pending_provider[0] == name:
                             _PROVIDER_CALL_INPUTS.set(None)
+                    if paired_inputs is not None:
+                        # Capture both owners before conversion. A warm cache
+                        # can supply the same native object for two arguments,
+                        # including one explicitly passed by the caller.
+                        if _PAIRED_GRAPH_CALL_INPUTS.get() is paired_pending:
+                            _PAIRED_GRAPH_CALL_INPUTS.set(None)
+                        return _call_with_original_inputs(
+                            fn, paired_signature, paired_inputs, args, kwargs,
+                            invalidate_conversions=True,
+                        )
                     if disjoint_inputs is not None:
                         # hasattr probes may look up and discard wrappers.
                         # Capture before conversion, but consume only on call.
@@ -2251,7 +2298,7 @@ class BackendInterface:
                         # consumed another record in this execution context.
                         if _DISJOINT_CALL_INPUTS.get() is pending:
                             _DISJOINT_CALL_INPUTS.set(None)
-                        return _call_disjoint_with_original_inputs(
+                        return _call_with_original_inputs(
                             fn, disjoint_signature, disjoint_inputs, args, kwargs
                         )
                     source = None

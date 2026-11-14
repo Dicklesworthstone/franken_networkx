@@ -22,6 +22,7 @@ larger fixtures exercise prefix work and the former eight-node boundary.
 from __future__ import annotations
 
 from collections import Counter
+import functools
 import itertools
 import math
 import warnings
@@ -30,6 +31,7 @@ import pytest
 import networkx as nx
 
 import franken_networkx as fnx
+import franken_networkx.backend as fnx_backend
 
 
 def _equiv(a, b, tol=1e-9):
@@ -655,3 +657,181 @@ def test_simrank_is_symmetric(name, builder):
                 f"{name}: simrank[{u}][{v}]={sim[u][v]} != "
                 f"simrank[{v}][{u}]={sim[v][u]}"
             )
+
+
+_EDIT_BACKEND_APIS = (
+    "graph_edit_distance", "optimal_edit_paths",
+    "optimize_graph_edit_distance", "optimize_edit_paths",
+)
+
+
+def _backend_edit_cost(name, result):
+    if name == "graph_edit_distance":
+        return result
+    if name == "optimal_edit_paths":
+        return result[1]
+    values = list(result)
+    return values[-1] if name == "optimize_graph_edit_distance" else values[-1][2]
+
+
+def _edit_backend_inputs(graph_type, route):
+    left, right = getattr(nx, graph_type)(), getattr(nx, graph_type)()
+    left.add_edge(0, 1, label="left")
+    right.add_edge(0, 1, label="right")
+    for graph in (left, right):
+        graph.nodes[0]["label"] = "start"
+        graph.nodes[1]["label"] = "end"
+    if route in {"native", "mixed"}:
+        left = fnx_backend.BackendInterface.convert_from_nx(left, preserve_all_attrs=True)
+    if route == "native":
+        right = fnx_backend.BackendInterface.convert_from_nx(right, preserve_all_attrs=True)
+    if route == "warm":
+        for graph in (left, right):
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    return left, right
+
+
+@pytest.mark.parametrize("name", _EDIT_BACKEND_APIS)
+def test_edit_backend_metadata_and_signature(name):
+    assert name in fnx_backend.get_backend_info()["functions"]
+    left, right = nx.path_graph(2), nx.path_graph(2)
+    assert fnx_backend.BackendInterface.can_run(name, (left, right), {}) is True
+    assert fnx_backend.BackendInterface.can_run(name, (left,), {}) is False
+
+
+@pytest.mark.parametrize("name", _EDIT_BACKEND_APIS)
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["cold", "warm", "native", "mixed"])
+def test_edit_backend_preserves_both_graphs_and_callback_dicts(name, graph_type, route):
+    left, right = _edit_backend_inputs(graph_type, route)
+    left_nodes = tuple(left.nodes.values())
+    right_nodes = tuple(right.nodes.values())
+    left_edges = tuple(data for *_, data in left.edges(data=True))
+    right_edges = tuple(data for *_, data in right.edges(data=True))
+    seen = set()
+
+    def node_cost(a, b):
+        assert any(a is attrs for attrs in left_nodes)
+        assert any(b is attrs for attrs in right_nodes)
+        a["visited"] = b["visited"] = True
+        seen.add("node")
+        return 0 if a["label"] == b["label"] else 4
+
+    def edge_cost(a, b):
+        assert any(a is attrs for attrs in left_edges)
+        assert any(b is attrs for attrs in right_edges)
+        a["visited"] = b["visited"] = True
+        seen.add("edge")
+        return 0.5
+
+    result = getattr(nx, name)(
+        left, right, node_subst_cost=node_cost, edge_subst_cost=edge_cost,
+        backend="franken_networkx",
+    )
+    assert _backend_edit_cost(name, result) == 0.5
+    assert seen == {"node", "edge"}
+    assert all(attrs["visited"] for attrs in left_nodes + right_nodes + left_edges + right_edges)
+    for graph in (left, right):
+        assert not getattr(graph, "__networkx_cache__", {}).get("backends")
+
+
+@pytest.mark.parametrize("name", _EDIT_BACKEND_APIS)
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_edit_backend_default_cost_matches_networkx(name, graph_type):
+    left, right = getattr(nx, graph_type)(), getattr(nx, graph_type)()
+    left.add_edges_from([(0, 1), (1, 2)])
+    right.add_edges_from([(0, 1), (1, 2), (0, 2)])
+    if left.is_multigraph():
+        right.add_edge(0, 1, key="parallel")
+    expected = nx.graph_edit_distance(left, right, backend="networkx")
+    actual = getattr(nx, name)(left, right, backend="franken_networkx")
+    assert _backend_edit_cost(name, actual) == expected
+
+
+@pytest.mark.parametrize("name", ["optimize_edit_paths", "optimize_graph_edit_distance"])
+@pytest.mark.parametrize("route", ["cold", "warm", "native", "mixed"])
+def test_edit_backend_defers_both_inputs_until_first_advancement(name, route):
+    left, right = _edit_backend_inputs("Graph", route)
+    result = getattr(nx, name)(left, right, backend="franken_networkx")
+    left.add_edge(1, 2)
+    right.add_edges_from([(1, 2), (2, 3)])
+    assert _backend_edit_cost(name, result) == 2.0
+
+
+@pytest.mark.parametrize("name", _EDIT_BACKEND_APIS)
+def test_edit_backend_invalidates_both_caches_when_callback_raises(name):
+    left, right = _edit_backend_inputs("Graph", "warm")
+
+    def reject(a, b):
+        a["visited"] = b["visited"] = True
+        # A callback can itself populate another backend's cache.
+        for graph in (left, right):
+            graph.__networkx_cache__["backends"] = {"other_backend": {"stale": graph.copy()}}
+        raise ValueError("cost callback failed")
+
+    with pytest.raises(ValueError, match="cost callback failed"):
+        result = getattr(nx, name)(
+            left, right, node_subst_cost=reject, backend="franken_networkx"
+        )
+        _backend_edit_cost(name, result)
+    assert left.nodes[0]["visited"] and right.nodes[0]["visited"]
+    assert "backends" not in left.__networkx_cache__
+    assert "backends" not in right.__networkx_cache__
+
+
+def test_edit_backend_keeps_explicit_native_input_independent_from_its_source():
+    source = nx.path_graph(2)
+    nx.relabel_nodes(source, {}, backend="franken_networkx")
+    native = next(iter(source.__networkx_cache__["backends"]["franken_networkx"].values()))
+    assert isinstance(native, fnx.Graph)
+    native.add_edge(1, 2)
+    assert nx.graph_edit_distance(source, native, backend="franken_networkx") == 2.0
+    assert set(source) == {0, 1}
+    assert set(native) == {0, 1, 2}
+
+
+def test_edit_backend_stale_probe_does_not_replace_direct_call_inputs():
+    interface = fnx_backend.BackendInterface()
+    assert interface.can_run("graph_edit_distance", (nx.path_graph(1), nx.path_graph(1)), {})
+    assert hasattr(interface, "graph_edit_distance")
+    left, right = nx.path_graph(2), nx.path_graph(3)
+    assert interface.graph_edit_distance(left, right) == 2.0
+
+
+def test_edit_backend_clears_both_caches_when_generator_close_raises(monkeypatch):
+    name = "optimize_edit_paths"
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS[name]
+    left, right = nx.path_graph(2), nx.path_graph(2)
+
+    @functools.wraps(implementation)
+    def search(*args, **kwargs):
+        try:
+            yield [], [], 0.0
+        finally:
+            for graph in (left, right):
+                graph.__networkx_cache__["backends"] = {"other_backend": {"stale": graph.copy()}}
+            raise ValueError("search cleanup failed")
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, name, search)
+    result = nx.optimize_edit_paths(left, right, backend="franken_networkx")
+    assert next(result) == ([], [], 0.0)
+    with pytest.raises(ValueError, match="search cleanup failed"):
+        result.close()
+    assert "backends" not in left.__networkx_cache__
+    assert "backends" not in right.__networkx_cache__
+
+
+@pytest.mark.parametrize("name", _EDIT_BACKEND_APIS)
+def test_edit_backend_uses_owned_search_without_networkx_fallback(monkeypatch, name):
+    def forbidden(*args, **kwargs):
+        pytest.fail("the edit backend delegated its solver to NetworkX")
+
+    for api in _EDIT_BACKEND_APIS:
+        monkeypatch.setattr(nx.algorithms.similarity, api, forbidden)
+    left, right = nx.path_graph(2), nx.path_graph(3)
+    actual = getattr(nx, name)(
+        left, right, node_subst_cost=lambda a, b: 0,
+        backend="franken_networkx",
+    )
+    assert _backend_edit_cost(name, actual) == 2.0

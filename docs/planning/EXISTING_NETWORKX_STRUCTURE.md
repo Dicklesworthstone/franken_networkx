@@ -1523,6 +1523,16 @@ ordinary edge. Those outputs are not used to weaken edge coverage or cost
 validation. Focused oracle comparisons cover loop-free multigraphs, while
 independent exhaustive checks cover loop scripts and arbitrary edge costs.
 
+NetworkX backend dispatch exposes all four edit APIs with the same two input
+graphs, including mixed native/NetworkX inputs. Conversion must not detach
+either graph's node or edge attribute dictionaries from cost and matching
+callbacks. A warmed conversion cache cannot substitute an earlier snapshot,
+and a graph explicitly supplied as a native input remains that independent
+input even when it originated from an earlier conversion. Both incremental
+APIs retain their input graphs and defer search initialization until the first
+advancement. Callback writes invalidate cached conversions on both inputs,
+including after an exception, iterator advancement, or iterator closure.
+
 ## 45. Incremental Component Decomposition
 
 `connected_components`, `weakly_connected_components`,
