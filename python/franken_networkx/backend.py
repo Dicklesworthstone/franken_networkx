@@ -147,6 +147,8 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "dfs_postorder_nodes",
         "edge_bfs",
         "edge_dfs",
+        "eulerian_circuit",
+        "eulerian_path",
         "all_pairs_shortest_path",
         "all_pairs_shortest_path_length",
         "all_pairs_dijkstra",
@@ -904,9 +906,16 @@ def _spectral_dispatch_uses_live_providers(name, graph, arguments):
     """
     import networkx as nx
 
-    if type(graph) not in (nx.Graph, nx.DiGraph) or "_graph" in vars(graph):
+    if type(graph) not in (nx.Graph, nx.DiGraph):
         return True
-    if type(graph._node) is not dict or type(graph._adj) is not dict:
+    storage = vars(graph)
+    if "_graph" in storage or any(
+        name in storage for name in (
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nbunch_iter", "neighbors", "adjacency", "get_edge_data",
+            "__iter__", "__getitem__", "__len__", "__contains__",
+        )
+    ):
         return True
     for parameter in ("max_iter", "tol", "alpha", "normalized"):
         if parameter in arguments and type(arguments[parameter]) not in (int, float, bool):
@@ -915,29 +924,26 @@ def _spectral_dispatch_uses_live_providers(name, graph, arguments):
         value = arguments.get(parameter)
         if value is None or type(value) in (int, float, bool):
             continue
-        if type(value) is not dict or any(
-            type(item) not in (int, float, bool) for item in value.values()
+        if (
+            type(value) is not dict
+            or any(type(key) not in (str, int, float, bool) for key in value)
+            or any(type(item) not in (int, float, bool) for item in value.values())
         ):
             return True
     weight = arguments.get("weight")
     if weight is not None and type(weight) is not str:
         return True
-    reads_weights = name == "katz_centrality" or bool(weight)
-    for row in graph._adj.values():
-        if type(row) is not dict:
+    # The shared admission checks node protocols, reciprocal storage and
+    # cached reader identities without invoking user mappings. Spectral
+    # iteration reads G[n], so an assigned adjacency reader must survive even
+    # a cold conversion, as must a size callback that changes later rows.
+    if fnx._weighted_query_uses_live_python_rows(graph, weight):
+        return True
+    if name == "katz_centrality" and weight is None:
+        # NetworkX's weight=None conversion hint drops edge attrs, but
+        # iterative Katz still looks up the literal None key.
+        if any(None in attrs for row in graph._adj.values() for attrs in row.values()):
             return True
-        if reads_weights:
-            for attrs in row.values():
-                if type(attrs) is not dict:
-                    return True
-                if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
-                    return True
-                # NetworkX's weight=None conversion hint drops edge attrs,
-                # but iterative Katz still looks up the literal None key.
-                if weight is None and None in attrs:
-                    return True
-                if type(attrs.get(weight, 1)) not in (int, float, bool):
-                    return True
     return False
 
 # These APIs have two independently observable graph inputs. A converted

@@ -1052,6 +1052,103 @@ def test_backend_spectral_admission_preserves_numeric_and_key_protocols(
     assert "float" not in actual_trace
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("raises", [False, True])
+def test_backend_spectral_size_reader_keeps_mutations_and_errors(
+    algorithm, cls_name, cached, raises, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1), (2, 0, 1)])
+        if cached and backend == "franken_networkx":
+            nx.dijkstra_path_length(graph, 0, 1, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        reads = []
+
+        def number_of_nodes():
+            reads.append("size")
+            # A dict write leaves any previous backend conversion cached.
+            # This reader belongs to the iterative algorithm and must run on
+            # the caller's graph before that algorithm consumes the weights.
+            graph[0][1]["weight"] = 4
+            if raises:
+                raise RuntimeError("size reader changed the graph")
+            return len(graph)
+
+        graph.number_of_nodes = number_of_nodes
+        call = getattr(nx, algorithm)
+        if raises:
+            with pytest.raises(RuntimeError, match="^size reader changed the graph$"):
+                call(graph, weight="weight", max_iter=1000, backend=backend)
+            answer = None
+        else:
+            answer = list(call(
+                graph, weight="weight", max_iter=1000, tol=1e-10, backend=backend
+            ).items())
+        assert reads == ["size"]
+        assert graph[0][1]["weight"] == 4
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+            assert nx.dijkstra_path_length(graph, 0, 1, backend=backend) == (
+                4 if graph.is_directed() else 2
+            )
+        return answer, reads, graph[0][1]["weight"]
+
+    expected = run("networkx")
+    assert expected[1:] == (["size"], 4)
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_spectral_admission_does_not_hash_custom_nodes(
+    algorithm, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        reads = []
+
+        class Node:
+            def __init__(self, index):
+                self.index = index
+
+            def __hash__(self):
+                reads.append(self.index)
+                return self.index
+
+        nodes = [Node(i) for i in range(3)]
+        graph = nx.DiGraph(zip(nodes, nodes[1:] + nodes[:1]))
+        if cached and backend == "franken_networkx":
+            _warm_live_input_cache(graph, monkeypatch)
+        reads.clear()
+        answer = getattr(nx, algorithm)(graph, max_iter=1000, backend=backend)
+        return [(node.index, value) for node, value in answer.items()], reads
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_backend_spectral_plain_cached_readers_remain_convertible(algorithm, cls_name):
+    from franken_networkx.backend import _spectral_dispatch_uses_live_providers
+
+    graph = getattr(nx, cls_name)([(0, 1), (1, 2), (2, 0)])
+    list(graph.nodes)
+    list(graph.edges)
+    list(graph.adj)
+    if graph.is_directed():
+        list(graph.succ)
+        list(graph.pred)
+    assert not _spectral_dispatch_uses_live_providers(
+        algorithm, graph, {"weight": "weight", "nstart": {0: 1, 1: 1, 2: 1}}
+    )
+
+
 @pytest.mark.parametrize("cached", [False, True])
 @pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("heap_kind", ["default", "observed", "pairing"])

@@ -900,6 +900,13 @@ Owned per-graph edge-dictionary subclasses remain eligible for numeric sparse
 iteration when their reads are unchanged builtins. Overridden reads retain
 their call order through the owned iteration without an admission-time probe.
 
+Backend dispatch preserves the same provider ordering on both cold and warm
+conversion caches. Assigned graph readers, custom node or vector keys, and
+logical adjacency keep the original source graph through the owned iteration;
+admission does not invoke their hashing or read protocols. Provider mutations
+and failures invalidate prior conversions before subsequent algorithms run.
+Ordinary cached node, edge and adjacency views remain eligible for conversion.
+
 Sparse iterations require arithmetic compatible with their reordered
 matrix reductions. Signed weights or vectors can expose catastrophic
 cancellation in the reference per-edge update order, so they retain owned
@@ -2468,6 +2475,13 @@ algorithm populated the conversion cache. Each algorithm owns its existing
 snapshot point. Changes before first advancement remain visible, and failures
 inside iterator bodies retain their deferred timing. The owned edge-path
 iterator is available through explicit backend dispatch.
+
+`eulerian_circuit` and `eulerian_path` also retain the original graph until
+first advancement, including after a prior algorithm cached a conversion.
+Topology changes before that boundary affect the traversal and its Eulerian
+validation. The owned working copy is then fixed: source changes after the
+first yielded edge do not alter the remaining traversal. This applies to all
+four graph families, with keyed and unkeyed output.
 
 `simple_cycles` keeps the original adjacency live through self-loop and
 undirected parallel-edge yields. Edge mutations and mutable filter changes

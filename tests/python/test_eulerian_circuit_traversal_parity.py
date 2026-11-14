@@ -112,3 +112,94 @@ def test_self_loop_triangle_matches_nx():
     g = _make_graph(fnx, edges)
     gx = _make_graph(nx, edges)
     assert list(fnx.eulerian_circuit(g)) == list(nx.eulerian_circuit(gx))
+
+
+def _backend_eulerian_cycle(graph_kind):
+    graph = getattr(nx, graph_kind)()
+    for u, v in [("a", "b"), ("b", "c"), ("c", "a")]:
+        if graph.is_multigraph():
+            graph.add_edge(u, v, key=(u, v))
+        else:
+            graph.add_edge(u, v)
+    return graph
+
+
+def _eulerian_iterator_pair(algorithm, graph_kind, keys, cached):
+    expected_graph = _backend_eulerian_cycle(graph_kind)
+    actual_graph = _backend_eulerian_cycle(graph_kind)
+    if cached:
+        assert nx.is_eulerian(actual_graph, backend="franken_networkx")
+        assert actual_graph.__networkx_cache__["backends"]["franken_networkx"]
+    function = getattr(nx, algorithm)
+    expected = function(expected_graph, source="a", keys=keys, backend="networkx")
+    actual = function(actual_graph, source="a", keys=keys, backend="franken_networkx")
+    return expected_graph, actual_graph, expected, actual
+
+
+@needs_nx
+@pytest.mark.parametrize("algorithm", ["eulerian_circuit", "eulerian_path"])
+@pytest.mark.parametrize("graph_kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("keys", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_eulerian_iterator_observes_mutation_before_first_yield(
+    algorithm, graph_kind, keys, cached
+):
+    expected_graph, actual_graph, expected, actual = _eulerian_iterator_pair(
+        algorithm, graph_kind, keys, cached
+    )
+    # Both algorithms defer their graph snapshot until the first advancement.
+    # A newly added self-loop preserves Eulerian validity and must be emitted,
+    # including its original key when the caller asks for multigraph keys.
+    for graph in (expected_graph, actual_graph):
+        if graph.is_multigraph():
+            graph.add_edge("a", "a", key=("late", 1))
+        else:
+            graph.add_edge("a", "a")
+    expected_edges = list(expected)
+    assert len(expected_edges) == 4
+    assert list(actual) == expected_edges
+    assert actual_graph.number_of_edges() == 4
+
+
+@needs_nx
+@pytest.mark.parametrize("algorithm", ["eulerian_circuit", "eulerian_path"])
+@pytest.mark.parametrize("graph_kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("keys", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_eulerian_iterator_validates_topology_at_first_yield(
+    algorithm, graph_kind, keys, cached
+):
+    expected_graph, actual_graph, expected, actual = _eulerian_iterator_pair(
+        algorithm, graph_kind, keys, cached
+    )
+    # Iterator construction must not freeze an earlier valid graph. An isolated
+    # node makes the current topology non-Eulerian before traversal starts.
+    expected_graph.add_node("isolated")
+    actual_graph.add_node("isolated")
+    with pytest.raises(nx.NetworkXError) as expected_error:
+        next(expected)
+    with pytest.raises(nx.NetworkXError) as actual_error:
+        next(actual)
+    assert type(actual_error.value) is type(expected_error.value)
+    assert str(actual_error.value) == str(expected_error.value)
+
+
+@needs_nx
+@pytest.mark.parametrize("algorithm", ["eulerian_circuit", "eulerian_path"])
+@pytest.mark.parametrize("graph_kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("keys", [False, True])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_eulerian_iterator_keeps_snapshot_after_first_yield(
+    algorithm, graph_kind, keys, cached
+):
+    expected_graph, actual_graph, expected, actual = _eulerian_iterator_pair(
+        algorithm, graph_kind, keys, cached
+    )
+    assert next(actual) == next(expected)
+    # Once traversal has started, its private snapshot is insulated from later
+    # edits to the caller's graph. Passing through a live source must preserve
+    # this boundary rather than reading that source again on every advancement.
+    expected_graph.clear()
+    actual_graph.clear()
+    assert list(actual) == list(expected)
+    assert actual_graph.number_of_nodes() == 0
