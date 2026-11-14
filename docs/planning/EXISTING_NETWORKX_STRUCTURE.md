@@ -2968,3 +2968,18 @@ public mutations clear the NetworkX conversion cache.
 This contract covers complete caller-assigned storage. General factory support
 for plain native storage and native subclass construction remains incomplete;
 this change does not wrap native allocators or ordinary native mutators.
+
+## 94. Live Chordless-Cycle Enumeration
+
+Direct `chordless_cycles` calls validate the length bound before inspecting
+the graph. They retain the caller through self-loop and parallel-edge yields,
+including NetworkX inputs and filtered views. Mutations made while enumeration
+is suspended affect the later source reads at the same boundaries as NetworkX.
+The longer search owns its `F` and `B` structural graphs; directed stem checks
+continue to consult the original graph after digons have been yielded.
+Conversion must not replace these live source reads with an eager snapshot.
+
+The focused regressions cover all four graph families, mutable filters,
+parallel-key changes, directed chords after suspension, and bound-validation
+ordering. NetworkX backend registration and cache integration are separate
+from this direct API contract.

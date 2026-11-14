@@ -314,3 +314,127 @@ def test_chordless_cycles_subclass_rows_match_networkx(fnx_cls, nx_cls):
     fg, ng = _build(Derived, nx_cls, [(0, 1), (1, 2), (2, 0)])
     assert type(fg) is Derived
     assert list(fnx.chordless_cycles(fg)) == list(nx.chordless_cycles(ng))
+
+
+_LIVE_ROUTES = ["networkx-input", "native-input"]
+
+
+def _live_chordless_cycles(graph, route, length_bound=None):
+    return fnx.chordless_cycles(graph, length_bound=length_bound)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", _LIVE_ROUTES)
+@pytest.mark.parametrize("length_bound", [None, 3])
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_chordless_cycles_reads_source_edges_after_selfloop(
+    cls_name, route, length_bound, mutation
+):
+    actual_lib = fnx if route == "native-input" else nx
+    actual, expected = getattr(actual_lib, cls_name)(), getattr(nx, cls_name)()
+    for graph in (actual, expected):
+        # The self-loop has its own component: it must not exclude a node
+        # from the later triangle. All nodes already exist before suspension.
+        graph.add_edges_from([(0, 0), (1, 2), (2, 3)])
+        if mutation == "remove":
+            graph.add_edge(3, 1)
+
+    actual_cycles = _live_chordless_cycles(actual, route, length_bound)
+    expected_cycles = nx.chordless_cycles(expected, length_bound=length_bound)
+    assert next(actual_cycles) == next(expected_cycles) == [0]
+    for graph in (actual, expected):
+        if mutation == "add":
+            graph.add_edge(3, 1)
+        else:
+            graph.remove_edge(3, 1)
+
+    remaining = list(expected_cycles)
+    assert len(remaining) == (1 if mutation == "add" else 0)
+    assert list(actual_cycles) == remaining
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", _LIVE_ROUTES)
+@pytest.mark.parametrize("length_bound", [None, 3])
+def test_chordless_cycles_reads_filter_changes_after_selfloop(
+    cls_name, route, length_bound
+):
+    def make_view(lib):
+        graph = getattr(lib, cls_name)()
+        graph.add_edges_from([(0, 0), (1, 2), (2, 3), (3, 1)])
+        visible = {"closing_edge": False}
+
+        def edge_filter(u, v, *key):
+            return visible["closing_edge"] or frozenset((u, v)) != frozenset((1, 3))
+
+        return lib.subgraph_view(graph, filter_edge=edge_filter), visible
+
+    actual, actual_visible = make_view(fnx if route == "native-input" else nx)
+    expected, expected_visible = make_view(nx)
+    actual_cycles = _live_chordless_cycles(actual, route, length_bound)
+    expected_cycles = nx.chordless_cycles(expected, length_bound=length_bound)
+    assert next(actual_cycles) == next(expected_cycles) == [0]
+    actual_visible["closing_edge"] = expected_visible["closing_edge"] = True
+    remaining = list(expected_cycles)
+    assert len(remaining) == 1
+    assert list(actual_cycles) == remaining
+
+
+@pytest.mark.parametrize("route", _LIVE_ROUTES)
+@pytest.mark.parametrize("mutation", ["add", "remove"])
+def test_chordless_cycles_reads_parallel_keys_after_selfloop(route, mutation):
+    actual_lib = fnx if route == "native-input" else nx
+    actual, expected = actual_lib.MultiGraph(), nx.MultiGraph()
+    for graph in (actual, expected):
+        graph.add_edges_from([(0, 0), (1, 2)])
+        if mutation == "remove":
+            graph.add_edge(1, 2, key="parallel")
+
+    actual_cycles = _live_chordless_cycles(actual, route, 2)
+    expected_cycles = nx.chordless_cycles(expected, length_bound=2)
+    assert next(actual_cycles) == next(expected_cycles) == [0]
+    for graph in (actual, expected):
+        if mutation == "add":
+            graph.add_edge(1, 2, key="parallel")
+        else:
+            graph.remove_edge(1, 2, key="parallel")
+    remaining = list(expected_cycles)
+    assert remaining == ([[2, 1]] if mutation == "add" else [])
+    assert list(actual_cycles) == remaining
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", _LIVE_ROUTES)
+@pytest.mark.parametrize("length_bound", [None, 3])
+def test_chordless_cycles_directed_chord_checks_stay_live_after_digon(
+    cls_name, route, length_bound
+):
+    actual_lib = fnx if route == "native-input" else nx
+    actual, expected = getattr(actual_lib, cls_name)(), getattr(nx, cls_name)()
+    for graph in (actual, expected):
+        graph.add_edges_from([(0, 1), (1, 0), (2, 3), (3, 4), (4, 2)])
+    actual_cycles = _live_chordless_cycles(actual, route, length_bound)
+    expected_cycles = nx.chordless_cycles(expected, length_bound=length_bound)
+    assert next(actual_cycles) == next(expected_cycles) == [0, 1]
+    # F has already been built, but directed stems still query the original
+    # graph for this chord. A source conversion silently emits the triangle.
+    actual.add_edge(4, 3)
+    expected.add_edge(4, 3)
+    assert list(actual_cycles) == list(expected_cycles) == []
+
+
+@pytest.mark.parametrize("route", ["networkx-input"])
+@pytest.mark.parametrize("length_bound", [0, -1])
+def test_chordless_cycles_bound_validation_precedes_graph_inspection(route, length_bound):
+    class UnreadableGraph(nx.Graph):
+        def is_directed(self):
+            raise AssertionError("graph inspected before bound validation")
+
+    actual_cycles = _live_chordless_cycles(UnreadableGraph(), route, length_bound)
+    expected_cycles = nx.chordless_cycles(UnreadableGraph(), length_bound=length_bound)
+    if length_bound == 0:
+        assert list(actual_cycles) == list(expected_cycles) == []
+    else:
+        for cycles in (actual_cycles, expected_cycles):
+            with pytest.raises(ValueError, match="^length bound must be non-negative$"):
+                next(cycles)

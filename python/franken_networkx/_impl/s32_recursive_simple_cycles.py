@@ -419,7 +419,12 @@ def minimum_cycle_basis(G, weight=None, *, backend=None, **backend_kwargs):
 
 
 def chordless_cycles(G, length_bound=None, *, backend=None, **backend_kwargs):
-    """Find all chordless (induced) cycles."""
+    """Yield chordless cycles while retaining the caller's live graph.
+
+    Self-loop and parallel-edge yields observe the original adjacency. The
+    longer search owns its structural graphs, while directed chord checks
+    continue to consult the caller as the generator advances.
+    """
     _validate_backend_dispatch_keywords("chordless_cycles", backend, backend_kwargs)
     return _chordless_cycles_via_parity(G, length_bound=length_bound)
 
@@ -466,7 +471,10 @@ def _chordless_cycle_search(F, B, path, length_bound):
 
 def _chordless_cycles_via_parity(G, *, length_bound=None):
     """In-process chordless cycle enumeration."""
-    G = _coerce_arg_to_fnx_graph(G)
+    # Conversion would detach NetworkX graphs and filtered views before the
+    # early yields below. Keep the source through directed stem checks too;
+    # F and B are the algorithm's own structural snapshots, not replacements
+    # for the caller's live graph. Bounds precede all graph inspection.
     if length_bound is not None:
         if length_bound == 0:
             return
