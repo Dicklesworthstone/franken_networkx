@@ -1167,6 +1167,16 @@ dicts for simple graphs and whole per-pair keydicts for multigraphs; directed
 incoming edges and self-loops are included. Both empty graphs are isomorphic
 without invoking callbacks, whereas VF2++ returns no empty-graph mapping.
 
+Direct fnx isomorphism calls preserve the caller's attribute dictionaries.
+Node and edge callbacks receive the original objects for native, NetworkX,
+mixed and view inputs; their writes remain visible on the caller's graphs.
+GraphMatcher, DiGraphMatcher, MultiGraphMatcher and MultiDiGraphMatcher retain
+those original graph objects, so attribute changes made after construction or
+an earlier query remain visible. Labeled and all-mapping VF2++ queries read
+custom node mappings through their original protocols. Conversion belongs only
+to the admitted native predicate/single-mapping boundary, not to the callback
+or custom-reader path. Backend conversion remains a separate dispatch contract.
+
 The existing labeled mapping contract accepts any valid first mapping and the
 complete set of valid mappings; input-node positions deterministically break
 candidate-order ties and order result keys. The canonical tests in

@@ -1158,11 +1158,12 @@ def _matcher_factory(nx_matcher_cls):
             # Earlier this factory only accepted (G1, G2), shadowing the
             # node_match/edge_match callbacks nx exposes — drop-in code
             # passing them got TypeError.
-            G1_nx = _networkx_graph_for_parity(G1)
-            G2_nx = _networkx_graph_for_parity(G2)
+            # VF2 reads the graph protocol directly. A converted snapshot
+            # would detach callback dictionaries and miss edits made between
+            # constructing this matcher and asking it for a mapping.
             super().__init__(
-                G1_nx,
-                G2_nx,
+                G1,
+                G2,
                 node_match=node_match,
                 edge_match=edge_match,
             )
@@ -1191,9 +1192,6 @@ GraphMatcher, DiGraphMatcher, MultiGraphMatcher, MultiDiGraphMatcher = (
 
 def is_isomorphic(G1, G2, node_match=None, edge_match=None):
     """Test graph isomorphism, preserving NetworkX callback semantics."""
-    # br-r37-c1-jwdzp: accept nx-typed inputs.
-    G1 = _coerce_arg_to_fnx_graph(G1)
-    G2 = _coerce_arg_to_fnx_graph(G2)
     # nro4w.7: networkx picks GraphMatcher / DiGraphMatcher and raises for a
     # mixed pair before any matching, callbacks or not (fnx returned False
     # without callbacks). A multigraph / simple-graph pair is NOT rejected:
@@ -1211,6 +1209,11 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
         and not G1.is_multigraph()
         and not G2.is_multigraph()
     ):
+        # Only the native predicate needs concrete fnx storage. The local
+        # matcher must retain the caller's node/edge dictionaries, including
+        # those exposed by NetworkX inputs and filtered/reversed views.
+        G1 = _coerce_arg_to_fnx_graph(G1)
+        G2 = _coerce_arg_to_fnx_graph(G2)
         # br-r37-c1-isoprecheck (cc): cheap sound pre-reject before the VF2++
         # rust kernel. faster_could_be_isomorphic is a degree-histogram
         # necessary condition (valid for undirected/directed/multi, ~0.013ms);
@@ -1238,9 +1241,6 @@ def is_isomorphic(G1, G2, node_match=None, edge_match=None):
 
 def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
     """Test isomorphism using VF2++."""
-    # br-r37-c1-9rd4z: accept nx-typed inputs.
-    G1 = _coerce_arg_to_fnx_graph(G1)
-    G2 = _coerce_arg_to_fnx_graph(G2)
     # br-r37-c1-vf2pp-empty: nx's vf2pp treats empty graphs as a
     # degenerate case and returns False / None / [] for the
     # is/get/all forms respectively.  The Rust binding instead
@@ -1255,6 +1255,8 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
         and not G2.is_multigraph()
         and not _vf2pp_uses_node_labels_local(G1, G2, node_label, default_label)
     ):
+        G1 = _coerce_arg_to_fnx_graph(G1)
+        G2 = _coerce_arg_to_fnx_graph(G2)
         # br-r37-c1-isoprecheck (cc): cheap sound degree-histogram pre-reject
         # before the VF2++ rust kernel (see is_isomorphic). Sound necessary
         # condition for all graph types; byte-identical result.
@@ -1275,9 +1277,6 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
     """Find one isomorphism mapping using VF2++."""
-    # br-r37-c1-9rd4z: accept nx-typed inputs.
-    G1 = _coerce_arg_to_fnx_graph(G1)
-    G2 = _coerce_arg_to_fnx_graph(G2)
     # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
     # vf2pp_is_isomorphic).
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
@@ -1287,7 +1286,9 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
         and not G2.is_multigraph()
         and not _vf2pp_uses_node_labels_local(G1, G2, node_label, default_label)
     ):
-        return _vf2pp_isomorphism_rust(G1, G2)
+        return _vf2pp_isomorphism_rust(
+            _coerce_arg_to_fnx_graph(G1), _coerce_arg_to_fnx_graph(G2)
+        )
 
     return next(
         _vf2pp_labeled_mappings_local(
@@ -1302,9 +1303,6 @@ def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
 
 def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     """Generate all isomorphism mappings using VF2++."""
-    # br-r37-c1-9rd4z: accept nx-typed inputs.
-    G1 = _coerce_arg_to_fnx_graph(G1)
-    G2 = _coerce_arg_to_fnx_graph(G2)
     # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
     # vf2pp_is_isomorphic).
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
@@ -1312,6 +1310,8 @@ def vf2pp_all_isomorphisms(G1, G2, node_label=None, default_label=None):
     # The native all-mapping binding returns a complete Vec. Even an
     # unlabeled query must yield its first mapping before enumerating the
     # remaining automorphisms, and must retain multigraph multiplicities.
+    # The owned search reads labels through the caller's dictionaries;
+    # copying them would discard custom mapping reads and their side effects.
     yield from _vf2pp_labeled_mappings_local(
         G1,
         G2,
