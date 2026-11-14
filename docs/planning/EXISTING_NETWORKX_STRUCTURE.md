@@ -3045,3 +3045,25 @@ mutations and provider exceptions retain their original meaning. These set
 operations do not read attributes that their result discards. The focused
 contracts are exercised by `tests/python/test_cross_type_operators.py` and
 `tests/python/test_graph_operators_parity.py`.
+
+## 98. Graph Combination Backend Dispatch
+
+The NetworkX backend exposes `disjoint_union`, `compose_all`, `union_all`,
+`intersection_all`, `disjoint_union_all`, `cartesian_product`, `tensor_product`,
+`lexicographic_product` and `strong_product`. Existing binary set operators
+also retain their original operands across backend dispatch.
+
+Each invocation records its graph owners before conversion. A cached native
+conversion can represent a NetworkX argument while also appearing explicitly
+as an independent native argument; these remain distinct inputs. Graph-list
+calls recover every owner in order, preserving repeated arguments and mixed
+NetworkX/fnx sequences. Recovery validates the complete invocation before
+substitution, and abandoned backend probes hold only weak references.
+
+The owned implementations determine when to read live attributes, membership
+methods, filters and constructors. Their mutations remain visible on the
+caller's graphs. Conversion caches are invalidated around execution, including
+when a provider creates another cache and then raises. A standalone `can_run`
+probe does not consume a graph generator. Coverage lives in
+`tests/python/test_graph_operator_backend.py`; current-native DSR qualification
+is still required by the open `br-r37-c1-78u12` work item.

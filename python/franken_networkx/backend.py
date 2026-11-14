@@ -954,12 +954,23 @@ def _spectral_dispatch_uses_live_providers(name, graph, arguments):
 # and other execution contexts cannot replace its original inputs.
 _DISJOINT_ALGORITHMS = frozenset({"edge_disjoint_paths", "node_disjoint_paths"})
 _DISJOINT_CALL_INPUTS = ContextVar("franken_networkx_disjoint_inputs", default=None)
+_BINARY_GRAPH_OPERATORS = frozenset(
+    {
+        "union", "compose", "intersection", "difference", "symmetric_difference",
+        "disjoint_union", "cartesian_product", "tensor_product",
+        "lexicographic_product", "strong_product",
+    }
+)
+_GRAPH_SEQUENCE_OPERATORS = frozenset(
+    {"compose_all", "union_all", "intersection_all", "disjoint_union_all"}
+)
+_GRAPH_SEQUENCE_CALL_INPUTS = ContextVar("franken_networkx_graph_sequence_inputs", default=None)
 _PAIRED_GRAPH_ALGORITHMS = frozenset(
     {
         "graph_edit_distance", "optimal_edit_paths",
         "optimize_edit_paths", "optimize_graph_edit_distance",
     }
-)
+) | _BINARY_GRAPH_OPERATORS
 _PAIRED_GRAPH_CALL_INPUTS = ContextVar("franken_networkx_paired_inputs", default=None)
 
 
@@ -1067,6 +1078,36 @@ def _is_dispatch_conversion(graph, source):
     # Their source's cache still establishes the conversion's owner.
     conversions = cache.get("backends", {}).get("franken_networkx", {})
     return any(graph is converted for converted in conversions.values())
+
+
+def _call_with_original_graph_sequence(fn, signature, inputs, args, kwargs):
+    """Recover each graph's owner without consuming an unrelated iterable.
+
+    NetworkX materializes graph-list arguments before consulting the backend.
+    Its conversion cache is per graph, so a single invocation can mix original
+    native graphs, fresh conversions, cached conversions, and repeated inputs.
+    Validate the entire sequence before substituting any of those owners.
+    """
+    bound = signature.bind(*args, **kwargs)
+    converted = bound.arguments.get("graphs")
+    if type(converted) not in (list, tuple) or len(converted) != len(inputs):
+        return fn(*args, **kwargs)
+    originals = [source_ref() for source_ref in inputs]
+    if any(
+        source is None or not _is_dispatch_conversion(graph, source)
+        for graph, source in zip(converted, originals)
+    ):
+        return fn(*args, **kwargs)
+
+    bound.arguments["graphs"] = originals
+    unique_graphs = {id(graph): graph for graph in originals}.values()
+    for graph in unique_graphs:
+        _clear_callback_conversions(graph)
+    try:
+        return fn(*bound.args, **bound.kwargs)
+    finally:
+        for graph in unique_graphs:
+            _clear_callback_conversions(graph)
 
 # ---------------------------------------------------------------------------
 # Supported algorithm registry
@@ -1482,6 +1523,15 @@ _SUPPORTED_ALGORITHMS = {
     "compose": fnx.compose,
     "difference": fnx.difference,
     "symmetric_difference": fnx.symmetric_difference,
+    "disjoint_union": fnx.disjoint_union,
+    "compose_all": fnx.compose_all,
+    "union_all": fnx.union_all,
+    "intersection_all": fnx.intersection_all,
+    "disjoint_union_all": fnx.disjoint_union_all,
+    "cartesian_product": fnx.cartesian_product,
+    "tensor_product": fnx.tensor_product,
+    "lexicographic_product": fnx.lexicographic_product,
+    "strong_product": fnx.strong_product,
     "degree_histogram": fnx.degree_histogram,
     # Tree recognition
     "is_arborescence": fnx.is_arborescence,
@@ -2122,7 +2172,7 @@ class BackendInterface:
         traversal, so unrelated algorithms still receive native conversions.
         """
         pending_provider = _PROVIDER_CALL_INPUTS.get()
-        if name in _LIVE_INPUT_ALGORITHMS | _PAIRED_GRAPH_ALGORITHMS or (
+        if name in _LIVE_INPUT_ALGORITHMS | _PAIRED_GRAPH_ALGORITHMS | _GRAPH_SEQUENCE_OPERATORS or (
             pending_provider is not None
             and pending_provider[0] == name
             and pending_provider[1]() is G
@@ -2165,6 +2215,8 @@ class BackendInterface:
         except TypeError:
             if name in _PAIRED_GRAPH_ALGORITHMS:
                 _PAIRED_GRAPH_CALL_INPUTS.set(None)
+            if name in _GRAPH_SEQUENCE_OPERATORS:
+                _GRAPH_SEQUENCE_CALL_INPUTS.set(None)
             return False
         if name in _DISJOINT_ALGORITHMS:
             try:
@@ -2178,10 +2230,11 @@ class BackendInterface:
                 return False
             _DISJOINT_CALL_INPUTS.set((name, inputs))
         elif name in _PAIRED_GRAPH_ALGORITHMS:
+            parameters = ("G", "H") if name in _BINARY_GRAPH_OPERATORS else ("G1", "G2")
             try:
                 inputs = tuple(
                     (parameter, weakref.ref(bound.arguments[parameter]))
-                    for parameter in ("G1", "G2")
+                    for parameter in parameters
                 )
             except TypeError:
                 _PAIRED_GRAPH_CALL_INPUTS.set(None)
@@ -2189,6 +2242,19 @@ class BackendInterface:
             for _, source_ref in inputs:
                 _refresh_dispatch_source(source_ref())
             _PAIRED_GRAPH_CALL_INPUTS.set((name, inputs))
+        elif name in _GRAPH_SEQUENCE_OPERATORS:
+            _GRAPH_SEQUENCE_CALL_INPUTS.set(None)
+            graphs = bound.arguments["graphs"]
+            # A direct can_run probe must not advance a caller's generator.
+            # Actual NetworkX dispatch has already materialized this argument.
+            if type(graphs) in (list, tuple):
+                try:
+                    inputs = tuple(weakref.ref(graph) for graph in graphs)
+                except TypeError:
+                    return False
+                for graph in graphs:
+                    _refresh_dispatch_source(graph)
+                _GRAPH_SEQUENCE_CALL_INPUTS.set((name, inputs))
         elif name in _LIVE_INPUT_ALGORITHMS or name in _CALLBACK_INPUT_ALGORITHMS:
             graph_parameter = _primary_graph_parameter(name)
             _refresh_dispatch_source(bound.arguments.get(graph_parameter))
@@ -2270,6 +2336,12 @@ class BackendInterface:
                 if paired_pending is not None and paired_pending[0] == name:
                     paired_inputs = paired_pending[1]
                     paired_signature = inspect.signature(fn)
+            sequence_inputs = None
+            if name in _GRAPH_SEQUENCE_OPERATORS:
+                sequence_pending = _GRAPH_SEQUENCE_CALL_INPUTS.get()
+                if sequence_pending is not None and sequence_pending[0] == name:
+                    sequence_inputs = sequence_pending[1]
+                    sequence_signature = inspect.signature(fn)
 
             @functools.wraps(fn)
             def wrapper(*args, **kwargs):
@@ -2290,6 +2362,12 @@ class BackendInterface:
                         return _call_with_original_inputs(
                             fn, paired_signature, paired_inputs, args, kwargs,
                             invalidate_conversions=True,
+                        )
+                    if sequence_inputs is not None:
+                        if _GRAPH_SEQUENCE_CALL_INPUTS.get() is sequence_pending:
+                            _GRAPH_SEQUENCE_CALL_INPUTS.set(None)
+                        return _call_with_original_graph_sequence(
+                            fn, sequence_signature, sequence_inputs, args, kwargs
                         )
                     if disjoint_inputs is not None:
                         # hasattr probes may look up and discard wrappers.
