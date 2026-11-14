@@ -1004,6 +1004,9 @@ def intersection_all(graphs):
     # silently diverged on both node and edge order. Pure-Python set ops
     # over the same values reproduce nx's iteration exactly (the jv0h5
     # kneser principle); error checks fire in nx's exact sequence.
+    # Keep the public NetworkX [graphs] normalization boundary. A generator
+    # may change earlier inputs before the operator starts reading them.
+    graphs = list(graphs)
     R = None
     for i, G in enumerate(graphs):
         G_nodes_set = set(G.nodes)
@@ -1014,7 +1017,7 @@ def intersection_all(graphs):
             else:
                 G_edges_set.update((v, u) for u, v in list(G_edges_set))
         if i == 0:
-            R = G.__class__()
+            R = _new_operator_graph(G)
             node_intersection = G_nodes_set
             edge_intersection = G_edges_set
         elif G.is_directed() != R.is_directed():
@@ -1054,6 +1057,18 @@ def disjoint_union_all(graphs):
         # string checks align (the function-name nuance is a known
         # nx leak, not a fnx improvement worth diverging on).
         raise ValueError("cannot apply union_all to an empty list")
+
+    if not all(_set_operator_native_inputs(graph, graph) for graph in graphs):
+        # Relabeling is observable for custom constructors and live providers.
+        # Complete the owned copies before union validates their families,
+        # matching the public integer-relabel + union operation. This remains
+        # linear in the total input size; no growing result is recopied.
+        relabeled = []
+        first_label = 0
+        for graph in graphs:
+            relabeled.append(convert_node_labels_to_integers(graph, first_label=first_label))
+            first_label += len(graph)
+        return union_all(relabeled)
 
     _validate_same_graph_family(graphs)
 

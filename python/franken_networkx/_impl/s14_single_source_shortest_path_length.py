@@ -834,6 +834,61 @@ def _copy_attrs_into(rebuilt, G, H=None):
     return rebuilt
 
 
+def _set_operator_native_inputs(G, H):
+    """Admit only ordinary native storage to fused graph operators.
+
+    A custom reader or constructor can change a later input while an operator
+    runs. Inspect stored identities without invoking those providers; foreign
+    graphs, views and subclasses keep their public protocols throughout.
+    """
+    if type(G) is not type(H) or type(G) not in _CONCRETE_FNX_GRAPH_TYPES:
+        return False
+    for graph in (G, H):
+        storage = vars(graph)
+        if _has_networkx_private_storage(graph) or _GRAPH_ATTR_OVERRIDE in storage:
+            return False
+        if (
+            graph.graph_attr_dict_factory is not dict
+            or graph.node_attr_dict_factory is not dict
+            or graph.edge_attr_dict_factory is not dict
+        ):
+            return False
+        if any(name in storage for name in (
+            "is_directed", "is_multigraph", "has_edge", "has_node",
+            "nbunch_iter", "adjacency", "neighbors", "predecessors",
+            "successors", "number_of_nodes", "number_of_edges",
+        )):
+            return False
+        if any(
+            name in storage and storage[name] is not storage.get("_fnx_view_" + name)
+            for name in ("nodes", "edges", "adj", "succ", "pred")
+        ):
+            return False
+    return True
+
+
+def _difference_from_live_inputs(G, H, *, symmetric=False):
+    """Filter live edge readers through the other input's membership method."""
+    if G.is_multigraph() != H.is_multigraph():
+        raise NetworkXError("G and H must both be graphs or multigraphs.")
+    result = _new_operator_graph(G)
+    result.add_nodes_from(G.nodes)
+    if set(G) != set(H):
+        raise NetworkXError("Node sets of graphs not equal")
+    if symmetric:
+        result.add_nodes_from(set(G).symmetric_difference(set(H)))
+    edges = G.edges(keys=True) if G.is_multigraph() else G.edges()
+    for edge in edges:
+        if not H.has_edge(*edge):
+            result.add_edge(*edge)
+    if symmetric:
+        edges = H.edges(keys=True) if H.is_multigraph() else H.edges()
+        for edge in edges:
+            if not G.has_edge(*edge):
+                result.add_edge(*edge)
+    return _finalize_operator_result(result)
+
+
 def union(G, H, rename=()):
     """Return the union of graphs G and H.
 
@@ -852,16 +907,16 @@ def union(G, H, rename=()):
     Graph
         A new graph with the nodes and edges from both G and H.
     """
-    # br-r37-c1-i2uub: accept nx-typed inputs by coercing to fnx
-    # graphs (matches nx's permissive duck-typing on mixed inputs).
-    G = _coerce_arg_to_fnx_graph(G)
-    H = _coerce_arg_to_fnx_graph(H)
-    if rename:
+    if not _set_operator_native_inputs(G, H):
+        return union_all([G, H], rename=rename)
+    if type(rename) is not tuple or len(rename) != 0:
         # br-r37-c1-kmxke: union_all natively supports rename (nx's own
         # union IS union_all([G, H], rename)). The old
         # _union_with_rename_via_parity round-trip (2x fnx->nx conversion
         # + nx union + per-edge _from_nx_graph rebuild) made
-        # union(rename=...) ~6.4x slower than nx.
+        # union(rename=...) ~6.4x slower than nx. Only the exact empty
+        # tuple default bypasses it: arbitrary prefix iterables need not
+        # support truth testing, and invalid iterables must still raise.
         return union_all([G, H], rename=rename)
     # br-r37-c1-union-order: nx checks the type-mismatch
     # (directed-vs-undirected, graph-vs-multigraph) BEFORE the
@@ -952,6 +1007,8 @@ def union(G, H, rename=()):
 
 def compose(G, H):
     """Return the composition of G and H — G ∪ H with H's attrs winning on overlap."""
+    if not _set_operator_native_inputs(G, H):
+        return compose_all([G, H])
     cls = _operator_output_class(G, H)
     # br-r37-c1-l5ve7: native single-pass for the exact Graph x Graph
     # case (the Python loop below pays per-node/edge interpreter calls).
@@ -1048,8 +1105,8 @@ def intersection(G, H):
     + per-edge rebuild, ~7x nx) is no longer needed — nx's own
     ``intersection`` is exactly ``intersection_all([G, H])``.
     """
-    G = _coerce_arg_to_fnx_graph(G)
-    H = _coerce_arg_to_fnx_graph(H)
+    if not _set_operator_native_inputs(G, H):
+        return intersection_all([G, H])
     if type(G) is Graph and type(H) is Graph:
         R = Graph()
         node_intersection = set(G.nodes)
@@ -1091,9 +1148,8 @@ def _intersection_via_parity(G, H):
 
 def difference(G, H):
     """Return a graph with edges in G but not in H (same node set)."""
-    # br-r37-c1-jwdzp: accept nx-typed inputs (sibling of br-r37-c1-i2uub).
-    G = _coerce_arg_to_fnx_graph(G)
-    H = _coerce_arg_to_fnx_graph(H)
+    if not _set_operator_native_inputs(G, H):
+        return _difference_from_live_inputs(G, H)
     # br-r37-c1-aun4c: replicate installed nx VERBATIM, including the
     # check SEQUENCE (multigraph mismatch -> create_empty_copy -> node-set
     # equality — br-diffnodes' early node-set check fired before the
@@ -1192,9 +1248,8 @@ def difference(G, H):
 
 def symmetric_difference(G, H):
     """Return a graph with edges in exactly one of G, H (same node set)."""
-    # br-r37-c1-jwdzp: accept nx-typed inputs (sibling of br-r37-c1-i2uub).
-    G = _coerce_arg_to_fnx_graph(G)
-    H = _coerce_arg_to_fnx_graph(H)
+    if not _set_operator_native_inputs(G, H):
+        return _difference_from_live_inputs(G, H, symmetric=True)
     # br-r37-c1-aun4c: replicate installed nx VERBATIM (see difference) —
     # check sequence, with_data=False copy depth, the (vestigial under the
     # equal-node-sets precondition) symmetric-difference node add, and

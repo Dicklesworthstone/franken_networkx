@@ -1450,6 +1450,8 @@ def power(G, k):
 
 def disjoint_union(G, H):
     """Return the disjoint union of *G* and *H*."""
+    if not _set_operator_native_inputs(G, H):
+        return disjoint_union_all([G, H])
     # br-r37-c1-l5ve7: fused native pass for the exact Graph x Graph case —
     # nx's pipeline (int-relabel G, int-relabel H, union_all) is THREE
     # full Python rebuilds; the binding replicates the composite output
@@ -1520,34 +1522,40 @@ def _finalize_operator_result(R):
     return _from_nx_graph(R)
 
 
+def _new_operator_graph(G):
+    """Construct an empty result without materializing the source graph.
+
+    Genuine graph subclasses keep their construction and storage factories.
+    The synthetic fnx view classes require their backing graph, so a result
+    from one of those uses its ordinary directed/multigraph flavor instead.
+    """
+    if isinstance(G, (_FilteredGraphView, _ReverseDirectedViewBase, _ConversionGraphViewBase)):
+        return _concrete_class_for(G)()
+    return G.__class__()
+
+
 def compose_all(graphs):
     """Return the composition of all graphs in the iterable."""
+    # NetworkX's public [graphs] dispatch parameter consumes the iterable
+    # first. Inside that boundary each graph is copied before the next one
+    # is inspected: later providers may mutate earlier attribute mappings.
     graphs = list(graphs)
     if not graphs:
         raise ValueError("cannot apply compose_all to an empty list")
-    _validate_same_graph_family(graphs)
-    # br-r37-c1-composeallbatch (cc): collect every graph's nodes/edges and commit
-    # via ONE add_nodes_from + ONE add_edges_from, replacing the O(k^2) pairwise
-    # fold (R = R._native_compose(H) re-copied the growing result each step:
-    # 0.13x @k=40, 0.02x @k=240 vs nx) and the per-element add_node/add_edge Python
-    # loop. One batch -> 1.05x @k=40, 0.81x @k=240. BYTE-IDENTICAL: compose = later
-    # graph wins on node/edge attr overlap, which add_nodes_from/add_edges_from
-    # reproduce by processing in graph order (dict-update merge semantics, matching
-    # nx's R.add_node(n,**attrs)); graph-level attrs follow nx's per-graph last-wins
-    # update. Verified all 4 classes x overlap (0/8 mismatches) + conformance.
-    R = type(graphs[0])()
-    multigraph = R.is_multigraph()
-    all_nodes = []
-    all_edges = []
-    for H in graphs:
-        R.graph.update(H.graph)
-        all_nodes.extend(H.nodes(data=True))
-        if multigraph:
-            all_edges.extend(H.edges(keys=True, data=True))
+    R = None
+    for G in graphs:
+        if R is None:
+            R = _new_operator_graph(G)
+        elif G.is_directed() != R.is_directed():
+            raise NetworkXError("All graphs must be directed or undirected.")
+        elif G.is_multigraph() != R.is_multigraph():
+            raise NetworkXError("All graphs must be graphs or multigraphs.")
+        R.graph.update(G.graph)
+        R.add_nodes_from(G.nodes(data=True))
+        if G.is_multigraph():
+            R.add_edges_from(G.edges(keys=True, data=True))
         else:
-            all_edges.extend(H.edges(data=True))
-    R.add_nodes_from(all_nodes)
-    R.add_edges_from(all_edges)
+            R.add_edges_from(G.edges(data=True))
     return _finalize_operator_result(R)
 
 
@@ -1565,78 +1573,43 @@ def union_all(graphs, rename=()):
     graphs = list(graphs)
     if not graphs:
         raise ValueError("cannot apply union_all to an empty list")
-    _validate_same_graph_family(graphs)
 
     _disjoint_msg = (
         "The node sets of the graphs are not disjoint.\n"
         "Use `rename` to specify prefixes for the graphs or use\n"
         "disjoint_union(G1, G2, ..., GN)."
     )
-    rename_list = list(_itertools.islice(
-        _itertools.chain(rename, _itertools.repeat(None)), len(graphs)
-    ))
-
-    # br-r37-c1-unionallbatch (cc): no-rename case -> collect every graph's
-    # nodes/edges (single-pass disjoint-node check) and commit via ONE
-    # add_nodes_from + ONE add_edges_from, replacing the O(k^2) _native_compose
-    # fold (R = R._native_compose(G) re-copied the growing result each step:
-    # ~0.14x @k=40, 277ms/~0.02x @k=240 vs nx) AND the partial no-data multigraph
-    # batch. Handles every graph class uniformly; node sets are validated disjoint
-    # (raise NetworkXError on overlap, exactly nx's contract) so there are no
-    # cross-graph merges. Graph-level attrs accumulate per graph (last wins, ==nx).
-    # 0.14x->1.02x @k=40, ~0.02x->0.83x @k=240; byte-identical node/edge/graph-attr
-    # order (0/4 classes). Renamed inputs use the loop below.
-    if all(p is None for p in rename_list):
-        R = type(graphs[0])()
-        multigraph = R.is_multigraph()
-        seen_nodes = set()
-        all_nodes = []
-        all_edges = []
-        for G in graphs:
-            R.graph.update(G.graph)
-            for node_data in G.nodes(data=True):
-                if node_data[0] in seen_nodes:
-                    raise NetworkXError(_disjoint_msg)
-                seen_nodes.add(node_data[0])
-                all_nodes.append(node_data)
-            if multigraph:
-                all_edges.extend(G.edges(keys=True, data=True))
-            else:
-                all_edges.extend(G.edges(data=True))
-        R.add_nodes_from(all_nodes)
-        R.add_edges_from(all_edges)
-        return _finalize_operator_result(R)
-
-    R = graphs[0].__class__()
-    for G, prefix in zip(graphs, rename_list):
+    prefixes = _itertools.chain(rename, _itertools.repeat(None))
+    R = None
+    seen_nodes = set()
+    for G in graphs:
+        # Fetch only this graph's prefix, after the previous graph has been
+        # copied. A prefix iterator can inspect or mutate its input graphs.
+        prefix = next(prefixes)
         if prefix is not None:
             # Prefixing can merge distinct labels within this input, such as
             # 1 and "1". Relabel first so node attributes and parallel-edge
             # keys follow the copied-relabel rules before checking overlap
             # with earlier inputs. Such an internal merge is a valid union.
             G = relabel_nodes(G, lambda node, prefix=prefix: f"{prefix}{node}")
-        if any(node in R for node in G):
+        graph_nodes = set(G.nodes)
+        if R is None:
+            R = _new_operator_graph(G)
+        elif G.is_directed() != R.is_directed():
+            raise NetworkXError("All graphs must be directed or undirected.")
+        elif G.is_multigraph() != R.is_multigraph():
+            raise NetworkXError("All graphs must be graphs or multigraphs.")
+        elif not seen_nodes.isdisjoint(graph_nodes):
             raise NetworkXError(_disjoint_msg)
+        seen_nodes.update(graph_nodes)
         R.graph.update(G.graph)
         # Attribute keys need not be strings, so preserve them through the
         # bulk node API instead of unpacking node dictionaries as keywords.
         R.add_nodes_from(G.nodes(data=True))
-        if R.is_multigraph():
-            R.add_edges_from(
-                (u, v, key, dict(d))
-                for u, v, key, d in G.edges(keys=True, data=True)
-            )
+        if G.is_multigraph():
+            R.add_edges_from(G.edges(keys=True, data=True))
         else:
-            R.add_edges_from(
-                [
-                    (u, v, dict(d))
-                    for u, v, d in G.edges(data=True)
-                ]
-            )
-    # br-norebuild: skip the redundant _from_nx_graph second construction when R
-    # is already an fnx graph; only convert nx-typed results (br-r37-c1-5388d:
-    # the _nx.Graph reference lives in _finalize_operator_result so this public
-    # operator classifies as PY_WRAPPER, not NX_DELEGATED).
+            R.add_edges_from(G.edges(data=True))
     return _finalize_operator_result(R)
 
 

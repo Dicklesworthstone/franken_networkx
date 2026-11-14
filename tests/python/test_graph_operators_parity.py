@@ -939,3 +939,176 @@ def test_native_line_graph_shared_power_keeps_canonical_looking_labels_distinct(
     result = fnx.power(graphs[0], 1)
     assert [(node, type(node)) for node in result] == [(node, type(node)) for node in expected]
     assert list(result.edges()) == list(expected.edges())
+
+
+class _ObservedOperatorNodes:
+    """A live node provider that changes another graph when it is read."""
+
+    def __init__(self, nodes, on_read):
+        self._nodes = nodes
+        self._on_read = on_read
+
+    def __iter__(self):
+        return iter(self._nodes)
+
+    def __len__(self):
+        return len(self._nodes)
+
+    def __getitem__(self, node):
+        return self._nodes[node]
+
+    def __getattr__(self, name):
+        return getattr(self._nodes, name)
+
+    def __call__(self, *args, **kwargs):
+        self._on_read()
+        return self._nodes(*args, **kwargs)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("operator_name", ["compose_all", "union_all"])
+def test_all_operators_copy_attributes_before_reading_the_next_graph(
+    graph_name, operator_name
+):
+    def inputs():
+        left = getattr(nx, graph_name)()
+        left.add_node(0, value="original")
+        left.add_edge(0, 1, weight=2)
+        right = getattr(nx, graph_name)()
+        right.add_node(2)
+
+        def change_left():
+            left.nodes[0]["value"] = "later"
+            if left.is_multigraph():
+                left[0][1][0]["weight"] = 99
+            else:
+                left[0][1]["weight"] = 99
+
+        right.nodes = _ObservedOperatorNodes(right.nodes, change_left)
+        return [left, right]
+
+    expected = getattr(nx, operator_name)(inputs())
+    result = getattr(fnx, operator_name)(inputs())
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+    assert result.nodes[0]["value"] == "original"
+    edge = result[0][1][0] if result.is_multigraph() else result[0][1]
+    assert edge["weight"] == 2
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("prefix", [None, "left-"])
+def test_union_all_reads_prefixes_between_graph_copies(graph_name, prefix):
+    def run(module):
+        left = getattr(nx, graph_name)()
+        left.add_node(0, value="original")
+        right = getattr(nx, graph_name)()
+        right.add_node(1)
+
+        def prefixes():
+            yield prefix
+            left.nodes[0]["value"] = "later"
+            yield None
+            raise AssertionError("unused prefixes must not be consumed")
+
+        return module.union_all([left, right], rename=prefixes())
+
+    expected = run(nx)
+    result = run(fnx)
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+    first = 0 if prefix is None else f"{prefix}0"
+    assert result.nodes[first]["value"] == "original"
+
+
+@pytest.mark.parametrize(
+    "operator_name", ["compose_all", "union_all", "intersection_all", "disjoint_union_all"]
+)
+def test_all_operators_normalize_the_public_graph_iterable_first(operator_name):
+    # NetworkX 3.6.1's public dispatcher materializes [graphs] before invoking
+    # any operator. Keep that observable boundary, even for the set-only one.
+    def inputs():
+        left = nx.Graph([(0, 1)])
+        left.nodes[0]["value"] = "original"
+        yield left
+        left.remove_edge(0, 1)
+        left.add_edge(0, 2)
+        left.nodes[0]["value"] = "later"
+        yield nx.Graph([(0, 2)] if operator_name != "union_all" else [(3, 4)])
+
+    expected = getattr(nx, operator_name)(inputs())
+    result = getattr(fnx, operator_name)(inputs())
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+
+
+@pytest.mark.parametrize("operator_name", ["compose_all", "union_all", "disjoint_union_all"])
+def test_all_operator_type_errors_follow_earlier_graph_reads(operator_name):
+    def run(module):
+        calls = []
+        left = nx.Graph([(0, 1)])
+        right = nx.DiGraph([(2, 3)])
+
+        def observe_first_read():
+            if not calls:
+                calls.append("left-nodes")
+
+        left.nodes = _ObservedOperatorNodes(left.nodes, observe_first_read)
+        with pytest.raises(nx.NetworkXError) as error:
+            getattr(module, operator_name)([left, right])
+        return type(error.value).__name__, str(error.value), calls
+
+    expected = run(nx)
+    assert expected[2]
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "operator_name", ["compose_all", "union_all", "intersection_all", "disjoint_union_all"]
+)
+def test_all_operators_preserve_live_view_inputs_and_shallow_attributes(
+    graph_name, operator_name
+):
+    def inputs(module):
+        graph = getattr(module, graph_name)()
+        graph.graph["shared"] = ["graph"]
+        graph.add_nodes_from([(0, {None: ["node"]}), 1, 2])
+        graph.add_edges_from([(0, 1, {7: ["edge"]}), (1, 2)])
+        return graph, graph.subgraph([0, 1])
+
+    parent, view = inputs(fnx)
+    _, reference = inputs(nx)
+    expected = getattr(nx, operator_name)([reference])
+    result = getattr(fnx, operator_name)([view])
+    assert type(result) is getattr(fnx, graph_name)
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+    assert list(parent) == [0, 1, 2]
+    if operator_name == "intersection_all":
+        assert dict(result.graph) == {}
+        assert all(not attrs for _, attrs in result.nodes(data=True))
+        return
+    assert result.graph is not parent.graph
+    assert result.graph["shared"] is parent.graph["shared"]
+    assert result.nodes[0] is not parent.nodes[0]
+    assert result.nodes[0][None] is parent.nodes[0][None]
+    result_attrs = result[0][1][0] if result.is_multigraph() else result[0][1]
+    parent_attrs = parent[0][1][0] if parent.is_multigraph() else parent[0][1]
+    assert result_attrs is not parent_attrs
+    assert result_attrs[7] is parent_attrs[7]
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_disjoint_union_honors_assigned_node_providers(graph_name):
+    def inputs(module):
+        left = getattr(module, graph_name)([("left-a", "left-b")])
+        right = getattr(module, graph_name)([("right-a", "right-b")])
+        right.nodes["right-a"]["value"] = "unread"
+
+        def on_read():
+            right.nodes["right-a"]["value"] = "read"
+
+        left.nodes = _ObservedOperatorNodes(left.nodes, on_read)
+        return left, right
+
+    expected = nx.disjoint_union(*inputs(nx))
+    result = fnx.disjoint_union(*inputs(fnx))
+    assert _ordered_union_signature(result) == _ordered_union_signature(expected)
+    assert result.nodes[2]["value"] == "read"

@@ -3019,3 +3019,29 @@ self-loops. Factor graph metadata is not inherited or read. Ordinary concrete
 factors with plain providers remain eligible for the existing native kernels.
 `tests/python/test_graph_products.py` compares all four graph families with
 NetworkX 3.6.1, including mutations from node and edge attribute readers.
+
+## 97. Graph Combination Read and Construction Boundaries
+
+The public `compose_all`, `union_all`, `intersection_all` and
+`disjoint_union_all` interfaces first normalize the outer graph iterable,
+matching NetworkX 3.6.1's public dispatcher. Composition and union then copy
+each graph's metadata, nodes and edges before advancing to the next graph's
+providers. Later reads cannot retroactively change previously copied attribute
+dictionaries. Nested attribute values remain shared. Union consumes each
+rename prefix when processing its graph, leaving unused prefixes unconsumed;
+arbitrary prefix iterables are not truth-tested.
+
+Genuine graph subclasses retain their result-construction effects. Synthetic
+fnx views produce a concrete graph of the same directedness and multiplicity
+without detaching their source providers. Observable integer relabeling in a
+disjoint union completes before the resulting graph families are validated.
+Ordinary native inputs retain fused pairwise operations and direct disjoint
+assembly; batch operations remain linear in total input size.
+
+`difference` and `symmetric_difference` require equal node sets and compatible
+multiplicity, but permit differing directedness. Each edge is tested with the
+other operand's own live `has_edge` method, so directed membership, provider
+mutations and provider exceptions retain their original meaning. These set
+operations do not read attributes that their result discards. The focused
+contracts are exercised by `tests/python/test_cross_type_operators.py` and
+`tests/python/test_graph_operators_parity.py`.
