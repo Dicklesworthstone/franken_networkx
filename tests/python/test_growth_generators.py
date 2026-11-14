@@ -1,5 +1,7 @@
 """Tests for growth-model and degree-model generator wrappers."""
 
+import random
+
 import networkx as nx
 import pytest
 
@@ -42,6 +44,240 @@ def test_gnc_and_gnr_graph_shapes():
     assert gnr.number_of_nodes() == 6
     assert gnc.number_of_edges() > 0
     assert gnr.number_of_edges() > 0
+
+
+_DIRECTED_GROWTH_CASES = [
+    ("gn_graph", (8,)),
+    ("gnc_graph", (8,)),
+    ("gnr_graph", (8, 0.4)),
+]
+
+
+def _directed_growth_signature(graph):
+    edge_options = {"keys": True} if graph.is_multigraph() else {}
+    return (
+        graph.is_directed(), graph.is_multigraph(), dict(graph.graph),
+        list(graph.nodes(data=True)), list(graph.edges(data=True, **edge_options)),
+        [list(graph.succ[node]) for node in graph],
+        [list(graph.pred[node]) for node in graph],
+    )
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+@pytest.mark.parametrize("graph_kind", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("use_instance", [False, True], ids=["class", "instance"])
+def test_directed_growth_preserves_constructor_and_clear_protocol(
+    name, args, graph_kind, use_instance,
+):
+    def outcome(lib):
+        events = []
+
+        class GeneratedGraph(getattr(lib, graph_kind)):
+            def __init__(self):
+                super().__init__()
+                events.append("construct")
+                self.graph["created_by_factory"] = len(events)
+                self.add_node("factory-node")
+
+            def clear(self):
+                events.append("clear")
+                super().clear()
+
+        target = GeneratedGraph() if use_instance else GeneratedGraph
+        if use_instance:
+            events.clear()
+        graph = getattr(lib, name)(*args, seed=7, create_using=target)
+        if use_instance:
+            assert graph is target
+        return _directed_growth_signature(graph), events
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+@pytest.mark.parametrize("graph_kind", ["DiGraph", "MultiDiGraph"])
+def test_directed_growth_random_callbacks_observe_each_completed_mutation(
+    name, args, graph_kind,
+):
+    def outcome(lib):
+        graph = getattr(lib, graph_kind)()
+        events = []
+
+        class GraphRandom(random.Random):
+            def random(self):
+                events.append(("random", tuple(graph), tuple(graph.edges())))
+                return 0.6
+
+            def randrange(self, start, stop=None):
+                events.append(("randrange", tuple(graph), tuple(graph.edges())))
+                if stop is None:
+                    start, stop = 0, start
+                return start + graph.number_of_edges() % (stop - start)
+
+        result = getattr(lib, name)(*args, seed=GraphRandom(7), create_using=graph)
+        assert result is graph
+        return _directed_growth_signature(graph), events
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES[1:])
+@pytest.mark.parametrize("graph_kind", ["DiGraph", "MultiDiGraph"])
+def test_directed_growth_reads_caller_successor_protocol(name, args, graph_kind):
+    def outcome(lib):
+        events = []
+
+        class GrowthGraph(getattr(lib, graph_kind)):
+            def successors(self, node):
+                events.append((node, tuple(self.edges())))
+                # A graph subclass may expose neighbors through a projection.
+                return iter(reversed(list(super().successors(node))))
+
+            def add_edge(self, u, v, **attrs):
+                result = super().add_edge(u, v, **attrs)
+                if u == 1:
+                    super().add_edge(u, "extra-successor")
+                return result
+
+        graph = GrowthGraph()
+        result = getattr(lib, name)(*args, seed=7, create_using=graph)
+        assert result is graph
+        return _directed_growth_signature(graph), events
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+def test_directed_growth_default_graph_honors_custom_random_methods(name, args):
+    def outcome(lib):
+        events = []
+
+        class CustomRandom(random.Random):
+            def random(self):
+                events.append("random")
+                return 0.6
+
+            def randrange(self, start, stop=None):
+                events.append(("randrange", start, stop))
+                return (start if stop is None else stop) - 1
+
+        rng = CustomRandom(11)
+        graph = getattr(lib, name)(*args, seed=rng)
+        return _directed_growth_signature(graph), rng.getstate(), events
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+@pytest.mark.parametrize("graph_kind", ["DiGraph", "MultiDiGraph"])
+def test_directed_growth_keeps_completed_prefix_when_random_callback_fails(
+    name, args, graph_kind,
+):
+    def outcome(lib):
+        graph = getattr(lib, graph_kind)()
+
+        class FailingRandom(random.Random):
+            calls = 0
+
+            def _next(self):
+                self.calls += 1
+                if self.calls == 3:
+                    raise RuntimeError("random source stopped")
+
+            def random(self):
+                self._next()
+                return 0.6
+
+            def randrange(self, start, stop=None):
+                self._next()
+                return start
+
+        with pytest.raises(RuntimeError, match="random source stopped"):
+            getattr(lib, name)(*args, seed=FailingRandom(7), create_using=graph)
+        return _directed_growth_signature(graph)
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+@pytest.mark.parametrize("graph_kind", ["Graph", "MultiGraph"])
+def test_directed_growth_rejects_undirected_after_initializing_target(
+    name, args, graph_kind,
+):
+    def outcome(lib):
+        graph = getattr(lib, graph_kind)()
+        graph.add_edge("old", "data")
+        graph.graph["old"] = True
+        with pytest.raises(lib.NetworkXError) as error:
+            getattr(lib, name)(*args, seed=7, create_using=graph)
+        return str(error.value), dict(graph.graph), list(graph), list(graph.edges())
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("kind", ["RandomState", "Generator", "legacy-adapter", "bits-adapter"])
+@pytest.mark.parametrize("graph_kind", [None, "DiGraph", "MultiDiGraph"])
+def test_gn_graph_preserves_numpy_random_stream(kind, graph_kind):
+    np = pytest.importorskip("numpy")
+
+    def outcome(lib):
+        raw = np.random.RandomState(11) if kind in {"RandomState", "legacy-adapter"} else np.random.default_rng(11)
+        seed = nx.utils.create_py_random_state(raw) if kind.endswith("adapter") else raw
+        graph = getattr(lib, graph_kind)() if graph_kind else None
+        result = lib.gn_graph(10, create_using=graph, seed=seed)
+        state = raw.get_state() if isinstance(raw, np.random.RandomState) else raw.bit_generator.state
+        return _directed_growth_signature(result), state
+
+    actual, expected = outcome(fnx), outcome(nx)
+    assert actual[0] == expected[0]
+    np.testing.assert_equal(actual[1], expected[1])
+
+
+@pytest.mark.parametrize(
+    "kind", ["float-subclass", "fraction", "decimal", "huge-int", "nan", "infinity"],
+)
+def test_gnr_graph_preserves_probability_comparisons(kind):
+    from decimal import Decimal
+    from fractions import Fraction
+
+    def outcome(lib):
+        events = []
+
+        class Probability(float):
+            def __gt__(self, value):
+                events.append(value)
+                return super().__gt__(value)
+
+        probability = {
+            "float-subclass": lambda: Probability(0.4),
+            "fraction": lambda: Fraction(2, 5),
+            "decimal": lambda: Decimal("0.4"),
+            "huge-int": lambda: 10**400,
+            "nan": lambda: float("nan"),
+            "infinity": lambda: float("inf"),
+        }[kind]()
+        rng = random.Random(11)
+        graph = lib.gnr_graph(8, probability, seed=rng)
+        return _directed_growth_signature(graph), rng.getstate(), events
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+@pytest.mark.parametrize("n", [-2, 0, 1, False, True, 1.0])
+def test_directed_growth_boundary_sizes_match_networkx(name, args, n):
+    actual = getattr(fnx, name)(n, *args[1:], seed=7)
+    expected = getattr(nx, name)(n, *args[1:], seed=7)
+    assert _directed_growth_signature(actual) == _directed_growth_signature(expected)
+
+
+@pytest.mark.parametrize("name,args", _DIRECTED_GROWTH_CASES)
+@pytest.mark.parametrize("n", [0, 6])
+def test_directed_growth_accepts_numpy_sizes(name, args, n):
+    np = pytest.importorskip("numpy")
+    actual = getattr(fnx, name)(np.int64(n), *args[1:], seed=7)
+    expected = getattr(nx, name)(np.int64(n), *args[1:], seed=7)
+    assert _directed_growth_signature(actual) == _directed_growth_signature(expected)
 
 
 def test_fast_gnp_random_graph_is_reproducible():

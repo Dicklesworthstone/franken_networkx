@@ -369,61 +369,60 @@ def gnc_graph(n, create_using=None, seed=None):
     """Return a growing network with copying (GNC) digraph."""
     from franken_networkx import _fnx
 
-    # br-r37-c1-ols3t: the kernel draws from an int or streams a random.Random
-    # (None is the global random._inst); a numpy-backed seed runs the body.
     kernel_seed = _kernel_seed(seed)
-    if kernel_seed is None or create_using is not None:
-        # br-r37-c1-cdf1v: networkx's draws on networkx's seed handling - for
-        # a numpy-backed seed, or a create_using graph built in place (a copy
-        # of the kernel's graph re-derived its predecessor rows). A node's
-        # successors are its target's successors then the target, all
-        # distinct, so plain lists stand in for G.successors and the edges go
-        # in as one batch in networkx's order.
-        rng = _generator_random_state(seed)
-        G = empty_graph(1, create_using=_checked_directed_create_using(create_using), default=DiGraph)
-        succs = [[]]
-        edges = []
-        for source in range(1, n):
-            target = rng.randrange(0, source)
-            row = succs[target] + [target]
-            succs.append(row)
-            edges.extend((source, succ) for succ in row)
-        G.add_edges_from(edges)
-        return G
+    if create_using is None and kernel_seed is not None and type(n) is int and n > 0:
+        return _fnx.gnc_graph(n, seed=kernel_seed, create_using=None)
 
-    # br-gnrempty: nx.gnc_graph(0) returns a 1-node DiGraph {0} (the seed
-    # node before the growth loop); the kernel returned the empty graph.
-    if n == 0:
-        return empty_graph(1, create_using=DiGraph(), default=DiGraph)
-    return _fnx.gnc_graph(n, seed=kernel_seed, create_using=None)
+    rng = _generator_random_state(
+        kernel_seed if isinstance(kernel_seed, _random.Random) else seed
+    )
+    graph = empty_graph(1, create_using=create_using, default=DiGraph)
+    if not graph.is_directed():
+        raise NetworkXError("create_using must indicate a Directed Graph")
+    if n == 1:
+        return graph
+
+    # A caller's graph and random source can observe and change each other.
+    # Complete each addition before the next draw and read successors from
+    # the supplied graph instead of maintaining an independent adjacency copy.
+    for source in range(1, n):
+        target = rng.randrange(0, source)
+        for successor in graph.successors(target):
+            graph.add_edge(source, successor)
+        graph.add_edge(source, target)
+    return graph
 
 
 def gnr_graph(n, p, create_using=None, seed=None):
     """Return a growing network with redirection (GNR) digraph."""
     from franken_networkx import _fnx
 
-    # br-r37-c1-ols3t: see gnc_graph.
     kernel_seed = _kernel_seed(seed)
-    if kernel_seed is None or create_using is not None:
-        # br-r37-c1-cdf1v: networkx's draws on networkx's seed handling (a
-        # create_using graph is built in place - see gnc_graph). Every node
-        # but 0 has exactly one successor, so a list stands in for
-        # next(G.successors(target)) and the edges go in as one batch.
-        rng = _generator_random_state(seed)
-        G = empty_graph(1, create_using=_checked_directed_create_using(create_using), default=DiGraph)
-        succ = [None]
-        for source in range(1, n):
-            target = rng.randrange(0, source)
-            if rng.random() < p and target != 0:
-                target = succ[target]
-            succ.append(target)
-        G.add_edges_from(zip(range(1, n), succ[1:]))
-        return G
+    if (
+        create_using is None
+        and kernel_seed is not None
+        and type(n) is int
+        and n > 0
+        and type(p) in (int, float)
+        and (type(p) is float or -(1 << 53) <= p <= 1 << 53)
+    ):
+        return _fnx.gnr_graph(n, p, seed=kernel_seed, create_using=None)
 
-    # br-gnrempty: see gnc_graph above.
-    if n == 0:
-        return empty_graph(1, create_using=DiGraph(), default=DiGraph)
-    return _fnx.gnr_graph(n, p, seed=kernel_seed, create_using=None)
+    rng = _generator_random_state(
+        kernel_seed if isinstance(kernel_seed, _random.Random) else seed
+    )
+    graph = empty_graph(1, create_using=create_using, default=DiGraph)
+    if not graph.is_directed():
+        raise NetworkXError("create_using must indicate a Directed Graph")
+    if n == 1:
+        return graph
+
+    for source in range(1, n):
+        target = rng.randrange(0, source)
+        if rng.random() < p and target != 0:
+            target = next(graph.successors(target))
+        graph.add_edge(source, target)
+    return graph
 
 
 def dual_barabasi_albert_graph(
@@ -835,33 +834,30 @@ def gn_graph(n, kernel=None, create_using=None, seed=None):
     """Return a growing network (GN) digraph."""
     import bisect
 
-    _kernel_seed(seed)  # br-r37-c1-cdf1v: nx's decorator resolves the seed first
+    kernel_seed = _kernel_seed(seed)
     from franken_networkx import _fnx
 
-    # NetworkX initializes the GN graph with edge (1, 0) for every
-    # integral n <= 0.  The Rust fast path takes usize and either
-    # returns the empty graph for 0 or rejects negative values before
-    # the wrapper can preserve that observable seed-graph contract.
-    if kernel is None and isinstance(n, _numbers.Integral) and n <= 0:
-        graph = _checked_directed_create_using(create_using, default=DiGraph)
-        graph = empty_graph(1, create_using=graph, default=DiGraph)
-        graph.add_edge(1, 0)
-        return graph
+    if (
+        kernel is None
+        and create_using is None
+        and kernel_seed is not None
+        and type(n) is int
+        and n > 0
+    ):
+        return _fnx.gn_graph(n, seed=kernel_seed, create_using=None)
 
-    if kernel is None and create_using is None:
-        return _fnx.gn_graph(n, seed=seed, create_using=None)
-
-    graph = _checked_directed_create_using(create_using, default=DiGraph)
-    if kernel is None and n != 0:
-        return _copy_graph_into(_fnx.gn_graph(n, seed=seed, create_using=None), graph)
+    rng = _generator_random_state(
+        kernel_seed if isinstance(kernel_seed, _random.Random) else seed
+    )
+    graph = empty_graph(1, create_using=create_using, default=DiGraph)
+    if not graph.is_directed():
+        raise NetworkXError("create_using must indicate a Directed Graph")
 
     if kernel is None:
 
         def kernel(x):
             return x
 
-    rng = _generator_random_state(seed)
-    graph = empty_graph(1, create_using=graph, default=DiGraph)
     if n == 1:
         return graph
 
@@ -869,10 +865,11 @@ def gn_graph(n, kernel=None, create_using=None, seed=None):
     degree_sequence = [1, 1]
 
     for source in range(2, n):
+        distribution = [kernel(degree) for degree in degree_sequence]
         cumulative = [0.0]
         total = 0.0
-        for degree in degree_sequence:
-            total += kernel(degree)
+        for value in distribution:
+            total += value
             cumulative.append(total)
         cumulative = [value / total for value in cumulative]
         target = bisect.bisect_left(cumulative, rng.random()) - 1

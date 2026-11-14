@@ -2983,3 +2983,21 @@ The focused regressions cover all four graph families, mutable filters,
 parallel-key changes, directed chords after suspension, and bound-validation
 ordering. NetworkX backend registration and cache integration are separate
 from this direct API contract.
+
+## 95. Directed Growth Generators and Caller Protocols
+
+`gn_graph`, `gnc_graph` and `gnr_graph` resolve the random source before graph
+construction. A supplied graph class is constructed once and retains its
+constructor metadata; a supplied instance is cleared once and reused. The
+seed node is installed before an undirected graph is rejected. GN starts with
+edge `(1, 0)` except for its singleton case; GNC and GNR retain their seed-node
+behavior for nonpositive integral sizes.
+
+Python and NumPy random streams, their adapters, and custom Random methods
+keep their draw order and resulting state. Complete each graph mutation before
+the next random callback. GNC reads the selected target's live successors;
+GNR reads its first live successor when redirection is selected. A failure
+retains the completed graph prefix. Custom graph, size and probability
+protocols stay on the owned Python path; ordinary admitted native routes remain
+available. Native admission must not require NumPy streams to provide a Python
+MT19937 `getstate` method.

@@ -289,6 +289,8 @@ _NATIVE_CALLS = [
     ("connected_watts_strogatz_exhausted", lambda lib, s: lib.connected_watts_strogatz_graph(10, 2, 0.9, tries=3, seed=s)),
     ("powerlaw_cluster", lambda lib, s: lib.powerlaw_cluster_graph(30, 3, 0.4, seed=s)),
     ("random_geometric", lambda lib, s: lib.random_geometric_graph(20, 0.3, seed=s)),
+    ("gn", lambda lib, s: lib.gn_graph(15, seed=s)),
+    ("gn_multidigraph", lambda lib, s: lib.gn_graph(6, create_using=lib.MultiDiGraph, seed=s)),
     ("gnc", lambda lib, s: lib.gnc_graph(15, seed=s)),
     ("gnc_multidigraph", lambda lib, s: lib.gnc_graph(6, create_using=lib.MultiDiGraph, seed=s)),
     ("gnr", lambda lib, s: lib.gnr_graph(15, 0.4, seed=s)),
