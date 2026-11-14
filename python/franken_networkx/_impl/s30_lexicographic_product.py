@@ -7,6 +7,8 @@ def lexicographic_product(G, H):
     OR u1==u2 and v1-v2 is an edge in H.
     """
     _validate_product_graph_types(G, H)
+    if _product_uses_live_factors(G, H):
+        return _product_from_live_factors(G, H, kind="lexicographic")
     G, H = _product_factors(G, H)
     # br-r37-c1-prodstronglex: native fast path (simple, no-attr, self-loop-free).
     # Each G-edge fully connects the two H-copies (|G.edges| x |H|^2 edges) + the

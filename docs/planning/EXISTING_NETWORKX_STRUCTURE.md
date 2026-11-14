@@ -3001,3 +3001,21 @@ retains the completed graph prefix. Custom graph, size and probability
 protocols stay on the owned Python path; ordinary admitted native routes remain
 available. Native admission must not require NumPy streams to provide a Python
 MT19937 `getstate` method.
+
+## 96. Graph Product Input Providers
+
+`cartesian_product`, `tensor_product`, `strong_product` and
+`lexicographic_product` retain the original factors when their views, storage
+or attribute mappings have observable readers. Pairing attributes invokes the
+original mappings' `get` methods; mutations made by those readers affect later
+product layers. The initial Cartesian node-label pools are snapshots, while
+edge layers read the factors anew in each product's specified order. Invalid
+concurrent changes retain the source iterator's exception instead of silently
+completing against an earlier conversion.
+
+Results contain fresh shallow attribute dictionaries, retain nested value
+identity and arbitrary attribute keys, and preserve parallel-edge keys and
+self-loops. Factor graph metadata is not inherited or read. Ordinary concrete
+factors with plain providers remain eligible for the existing native kernels.
+`tests/python/test_graph_products.py` compares all four graph families with
+NetworkX 3.6.1, including mutations from node and edge attribute readers.

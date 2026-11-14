@@ -1515,6 +1515,111 @@ def _product_factors(G, H):
     return _coerce_arg_to_fnx_graph(G), _coerce_arg_to_fnx_graph(H)
 
 
+def _product_uses_live_factors(G, H):
+    """Keep observable factor providers out of the native snapshot route.
+
+    Pairing node and edge attributes calls their mappings' ``get`` methods.
+    Those calls can change a later product layer, so neither conversion nor
+    an attribute preflight may consume them before product construction.
+    Plain concrete factors retain the existing native kernels.
+    """
+    for graph in (G, H):
+        if _weighted_query_uses_live_python_rows(graph, None):
+            return True
+        if type(graph) in _CONCRETE_FNX_GRAPH_TYPES:
+            storage = vars(graph)
+            if graph.node_attr_dict_factory is not dict or any(
+                name in storage for name in (
+                    "is_directed", "is_multigraph", "nbunch_iter", "adjacency",
+                    "number_of_nodes", "number_of_edges", "neighbors",
+                )
+            ):
+                return True
+            if any(
+                name in storage and storage[name] is not storage.get("_fnx_view_" + name)
+                for name in ("nodes", "edges", "adj")
+            ):
+                return True
+        # A custom attribute key can execute user code while the paired
+        # dictionary is built. Inspect its type without hashing it again.
+        for attrs in graph.nodes.values():
+            if not _attr_dict_has_plain_reads(attrs):
+                return True
+            if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+                return True
+    return False
+
+
+def _product_from_live_factors(G, H, *, kind):
+    """Construct product layers while retaining the caller's live factors.
+
+    The initial node product snapshots its label pools. Edge layers stream
+    their factors anew: attribute readers can affect later edges, and invalid
+    concurrent changes keep the source iterator's exception. Product
+    dictionaries are fresh shallow copies and graph metadata is not inherited.
+    """
+    result = _product_graph_class(G, H)()
+    g_multi, h_multi = G.is_multigraph(), H.is_multigraph()
+    multi = result.is_multigraph()
+
+    result.add_nodes_from(
+        ((g, h), _product_node_attrs(G.nodes[g], H.nodes[h]))
+        for g, h in _itertools.product(G, H)
+    )
+
+    def factor_edges(graph, multigraph):
+        if multigraph:
+            yield from graph.edges(keys=True, data=True)
+        else:
+            for u, v, attrs in graph.edges(data=True):
+                yield u, v, None, attrs
+
+    def edge_record(u, v, key, attrs):
+        return (u, v, key, attrs) if multi else (u, v, attrs)
+
+    def left_layer():
+        for u, v, key, attrs in factor_edges(G, g_multi):
+            for h in H:
+                yield edge_record((u, h), (v, h), key, attrs)
+
+    def right_layer():
+        for g in G:
+            for u, v, key, attrs in factor_edges(H, h_multi):
+                yield edge_record((g, u), (g, v), key, attrs)
+
+    def tensor_layer(reverse):
+        for gu, gv, gkey, gattrs in factor_edges(G, g_multi):
+            if reverse:
+                gu, gv = gv, gu
+            for hu, hv, hkey, hattrs in factor_edges(H, h_multi):
+                yield edge_record(
+                    (gu, hu), (gv, hv),
+                    _cross_product_edge_key(g_multi, h_multi, gkey, hkey),
+                    _paired_edge_attrs(gattrs, hattrs),
+                )
+
+    def lexicographic_layer():
+        for u, v, key, attrs in factor_edges(G, g_multi):
+            for hu in H:
+                for hv in H:
+                    yield edge_record((u, hu), (v, hv), key, attrs)
+
+    if kind == "cartesian":
+        result.add_edges_from(left_layer())
+        result.add_edges_from(right_layer())
+    elif kind == "lexicographic":
+        result.add_edges_from(lexicographic_layer())
+        result.add_edges_from(right_layer())
+    else:
+        if kind == "strong":
+            result.add_edges_from(right_layer())
+            result.add_edges_from(left_layer())
+        result.add_edges_from(tensor_layer(False))
+        if not G.is_directed():
+            result.add_edges_from(tensor_layer(True))
+    return result
+
+
 def _product_graph_class(G, H):
     if G.is_directed():
         return MultiDiGraph if (G.is_multigraph() or H.is_multigraph()) else DiGraph

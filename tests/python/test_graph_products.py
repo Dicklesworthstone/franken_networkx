@@ -1,6 +1,7 @@
 """Tests for line_graph, cartesian_product, and tensor_product."""
 
 import pytest
+import networkx as nx
 
 import franken_networkx as fnx
 
@@ -190,3 +191,150 @@ class TestErrors:
     def test_mixed_types_tensor(self, k2, path2_directed):
         with pytest.raises(fnx.NetworkXError):
             fnx.tensor_product(k2, path2_directed)
+
+
+_LIVE_PRODUCTS = (
+    "cartesian_product", "tensor_product", "strong_product", "lexicographic_product",
+)
+
+
+def _product_snapshot(graph):
+    edges = graph.edges(keys=True, data=True) if graph.is_multigraph() else graph.edges(data=True)
+    return (
+        list(graph.nodes(data=True)), list(edges),
+        [(node, list(graph.adj[node])) for node in graph], dict(graph.graph),
+    )
+
+
+@pytest.mark.parametrize("name", _LIVE_PRODUCTS)
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("library", [nx, fnx])
+def test_product_node_mapping_reads_mutate_later_factor_layers(name, cls_name, library):
+    def query(module, graph_library):
+        right = getattr(graph_library, cls_name)()
+        right.add_edge(0, 1, weight=1)
+        calls = []
+
+        class NodeAttrs(dict):
+            def get(self, key, default=None):
+                calls.append(key)
+                right.add_edge(1, 2, weight=9)
+                return super().get(key, default)
+
+        left = getattr(graph_library, cls_name)()
+        left.add_edge(0, 1)
+        left._node = {0: NodeAttrs(value=11), 1: NodeAttrs()}
+        result = getattr(module, name)(left, right)
+        return _product_snapshot(result), calls, _product_snapshot(right)
+
+    assert query(fnx, library) == query(nx, nx)
+
+
+@pytest.mark.parametrize("name", ["tensor_product", "strong_product"])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("change_topology", [False, True])
+def test_product_edge_mapping_get_keeps_later_layers_live(name, cls_name, change_topology):
+    def query(module):
+        right = getattr(nx, cls_name)()
+        right.add_edge(0, 1, weight=2)
+        calls = []
+
+        class EdgeAttrs(dict):
+            def get(self, key, default=None):
+                calls.append(key)
+                if change_topology:
+                    right.add_edge(1, 2, weight=7)
+                else:
+                    attrs = right[0][1][0] if right.is_multigraph() else right[0][1]
+                    attrs["weight"] = 7
+                return super().get(key, default)
+
+        class LeftGraph(getattr(nx, cls_name)):
+            edge_attr_dict_factory = EdgeAttrs
+
+        left = LeftGraph()
+        left.add_edge(0, 1, weight=3)
+        try:
+            result = getattr(module, name)(left, right)
+        except RuntimeError as error:
+            result = (type(error), str(error))
+        else:
+            result = _product_snapshot(result)
+        return result, calls, _product_snapshot(right)
+
+    assert query(fnx) == query(nx)
+
+
+@pytest.mark.parametrize("name", _LIVE_PRODUCTS)
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_product_live_factors_preserve_arbitrary_attributes_and_keys(name, cls_name):
+    class Factor(getattr(nx, cls_name)):
+        pass
+
+    left, right = Factor(), Factor()
+    shared = []
+    for graph in (left, right):
+        graph.add_nodes_from([(0, {None: shared, ("node",): 4}), (1, {})])
+        if graph.is_multigraph():
+            graph.add_edges_from([
+                (0, 1, ("parallel", 0), {None: shared, "key": 3}),
+                (0, 1, ("parallel", 1), {("edge",): 5}),
+                (1, 1, ("loop",), {None: 7}),
+            ])
+        else:
+            graph.add_edges_from([(0, 1, {None: shared, "key": 3}), (1, 1, {("edge",): 5})])
+        graph.graph["excluded"] = "factor metadata"
+
+    expected = getattr(nx, name)(left, right)
+    actual = getattr(fnx, name)(left, right)
+    assert _product_snapshot(actual) == _product_snapshot(expected)
+    assert actual.nodes[(0, 0)][None][0] is shared
+    assert actual.nodes[(0, 0)][None][1] is shared
+    actual.nodes[(0, 0)]["new"] = True
+    assert "new" not in left.nodes[0]
+    assert "new" not in right.nodes[0]
+
+
+@pytest.mark.parametrize("name", _LIVE_PRODUCTS)
+def test_product_does_not_read_factor_graph_metadata(name):
+    class UnreadableMetadata(dict):
+        def keys(self):
+            raise AssertionError("product read graph metadata")
+
+        def __iter__(self):
+            raise AssertionError("product read graph metadata")
+
+    left, right = nx.path_graph(2), nx.path_graph(3)
+    left.graph = UnreadableMetadata(secret=1)
+    right.graph = UnreadableMetadata(secret=2)
+    assert _product_snapshot(getattr(fnx, name)(left, right)) == _product_snapshot(
+        getattr(nx, name)(left, right)
+    )
+
+
+@pytest.mark.parametrize("name", _LIVE_PRODUCTS)
+@pytest.mark.parametrize("left_cls,right_cls", [
+    ("Graph", "MultiGraph"), ("MultiGraph", "Graph"),
+    ("DiGraph", "MultiDiGraph"), ("MultiDiGraph", "DiGraph"),
+])
+def test_product_live_mixed_multiplicity_keeps_parallel_keys(name, left_cls, right_cls):
+    def factor(cls_name):
+        class Factor(getattr(nx, cls_name)):
+            pass
+
+        graph = Factor()
+        graph.add_nodes_from([(0, {None: []}), (1, {("node",): "value"})])
+        if graph.is_multigraph():
+            graph.add_edges_from([
+                (0, 1, ("edge", 0), {None: 4, "key": 5}),
+                (0, 1, ("edge", 1), {"other": 2}),
+                (1, 1, ("loop",), {}),
+            ])
+        else:
+            graph.add_edges_from([(0, 1, {None: 4, "key": 5}), (1, 1, {})])
+        return graph
+
+    left, right = factor(left_cls), factor(right_cls)
+    assert _product_snapshot(getattr(fnx, name)(left, right)) == _product_snapshot(
+        getattr(nx, name)(left, right)
+    )

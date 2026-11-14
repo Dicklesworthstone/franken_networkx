@@ -9,6 +9,8 @@ def cartesian_product(G, H):
     is an edge in *G*.
     """
     _validate_product_graph_types(G, H)
+    if _product_uses_live_factors(G, H):
+        return _product_from_live_factors(G, H, kind="cartesian")
     G, H = _product_factors(G, H)
     # br-r37-c1-prodnative: native fast path for the no-attr, non-multigraph,
     # self-loop-free case (canonicalizes each product tuple once, assembles edges
@@ -94,6 +96,8 @@ def tensor_product(G, H):
     ``(u1, u2)`` is an edge in *G* AND ``(v1, v2)`` is an edge in *H*.
     """
     _validate_product_graph_types(G, H)
+    if _product_uses_live_factors(G, H):
+        return _product_from_live_factors(G, H, kind="tensor")
     G, H = _product_factors(G, H)
     _fast = _native_graph_product(G, H, kind="tensor")
     if _fast is not None:
@@ -236,6 +240,8 @@ def strong_product(G, H):
     Union of Cartesian and tensor products.
     """
     _validate_product_graph_types(G, H)
+    if _product_uses_live_factors(G, H):
+        return _product_from_live_factors(G, H, kind="strong")
     G, H = _product_factors(G, H)
     # br-r37-c1-prodstronglex: native fast path (simple, no-attr, self-loop-free)
     # assembles the cartesian ∪ tensor edge set in Rust, canonicalising each
