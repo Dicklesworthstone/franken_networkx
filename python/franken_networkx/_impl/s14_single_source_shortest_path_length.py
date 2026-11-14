@@ -442,6 +442,31 @@ def _coerce_arg_to_fnx_graph(G):
     return G
 
 
+def _view_filter_node_key_is_stable(node):
+    """Whether set membership can compare this key without user protocols."""
+    pending = [node]
+    while pending:
+        value = pending.pop()
+        if type(value) in (str, int, float, bool, complex, bytes, type(None)):
+            continue
+        if type(value) in (tuple, frozenset):
+            pending.extend(value)
+            continue
+        return False
+    return True
+
+
+def _view_root_node_keys_are_stable(root, nodes_seq):
+    if type(root) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        return False
+    storage = vars(root)
+    cached = storage.get("_fnx_view_stable_node_keys")
+    if cached is None or cached[0] != nodes_seq:
+        cached = (nodes_seq, all(_view_filter_node_key_is_stable(node) for node in root))
+        storage["_fnx_view_stable_node_keys"] = cached
+    return cached[1]
+
+
 def _view_filter_cache_token(view):
     """Describe only filter state whose behavior is known without calling it.
 
@@ -458,15 +483,12 @@ def _view_filter_cache_token(view):
     node_filter = view._filter_node
     if type(node_filter) is _NodeSetFilter and type(node_filter.nodes) is set:
         nodes = tuple(node_filter.nodes)
+        if not all(_view_filter_node_key_is_stable(node) for node in nodes):
+            return None
         return tuple(map(id, nodes)), nodes
-    if (
-        isinstance(node_filter, _types.FunctionType)
-        and not node_filter.__closure__
-        and not node_filter.__defaults__
-        and not node_filter.__kwdefaults__
-        and not node_filter.__code__.co_names
-    ):
-        return (id(node_filter), node_filter.__code__), node_filter
+    # A function with no globals, defaults or closure can still invoke mutable
+    # node protocols: ``lambda node: node`` tests __bool__, and ``node > 0``
+    # calls __gt__. Its bytecode therefore cannot certify a stable predicate.
     return None
 
 
@@ -529,6 +551,7 @@ def _materialize_view(view):
     filter_tokens = []
     filter_references = []
     filters_cacheable = True
+    has_node_set_filter = False
     while True:
         if isinstance(root, _FilteredGraphView):
             snapshot = _view_filter_cache_token(root)
@@ -538,6 +561,7 @@ def _materialize_view(view):
                 token, references = snapshot
                 filter_tokens.append(token)
                 filter_references.append(references)
+                has_node_set_filter |= not root._filter_node_is_default
         inner = getattr(root, "_graph", None)
         if inner is None:
             break
@@ -553,13 +577,19 @@ def _materialize_view(view):
         and ns is not None
         and es is not None
         and not _has_networkx_private_storage(root)
+        and (
+            not has_node_set_filter
+            or _view_root_node_keys_are_stable(root, ns)
+        )
     ):
         try:
             epoch = _fnx.edge_attr_epoch(root)
         except TypeError:
             epoch = None
         node_token, node_references = _view_node_attribute_snapshot(view, root)
-        cache_key = (id(root), ns, es, epoch, tuple(filter_tokens), node_token)
+        cache_key = (
+            id(root), ns, es, epoch, tuple(filter_tokens), node_token, id(view.graph)
+        )
         cached = view.__dict__.get("_fnx_materialized_cache")
         if cached is not None and cached[0] == cache_key:
             return cached[1]
@@ -589,6 +619,7 @@ def _materialize_view(view):
     # br-r37-c1-u9a13: networkx's views share the parent's graph dict; the
     # concrete graph shares it too (as copy.copy's result does), so a graph
     # attribute written after the cache was filled is there without a check.
+    # Replacing the mapping itself is covered by its identity in the cache key.
     vars(out)[_GRAPH_ATTR_OVERRIDE] = view.graph
     out._fnx_register_gc_dict(vars(out))
     # br-r37-c1-36v6r: copy() fills each row in edge-walk order (networkx's
@@ -876,12 +907,17 @@ def union(G, H, rename=()):
     # STATEMENT-IDENTICAL to compose (union_all == compose_all minus the
     # disjointness check, which already passed above) — reuse the native
     # single-pass compose binding for the exact Graph x Graph case.
+    # Native compose reads its stored graph dictionary directly. A Python
+    # override (including a materialized view's shared metadata) is authoritative
+    # instead and must be merged through the public mapping below.
     if (
         type(G) is Graph
         and type(H) is Graph
         and cls is Graph
         and not _has_networkx_private_storage(G)
         and not _has_networkx_private_storage(H)
+        and _GRAPH_ATTR_OVERRIDE not in vars(G)
+        and _GRAPH_ATTR_OVERRIDE not in vars(H)
     ):
         native = getattr(G, "_native_compose", None)
         if native is not None:
@@ -925,6 +961,8 @@ def compose(G, H):
         and cls is Graph
         and not _has_networkx_private_storage(G)
         and not _has_networkx_private_storage(H)
+        and _GRAPH_ATTR_OVERRIDE not in vars(G)
+        and _GRAPH_ATTR_OVERRIDE not in vars(H)
     ):
         native = getattr(G, "_native_compose", None)
         if native is not None:
@@ -938,6 +976,8 @@ def compose(G, H):
         and cls is DiGraph
         and not _has_networkx_private_storage(G)
         and not _has_networkx_private_storage(H)
+        and _GRAPH_ATTR_OVERRIDE not in vars(G)
+        and _GRAPH_ATTR_OVERRIDE not in vars(H)
     ):
         native = getattr(G, "_native_compose", None)
         if native is not None:

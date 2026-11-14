@@ -203,6 +203,7 @@ class _ConversionGraphViewBase:
         # if setup raises before the canonical __init__ / __setattr__ hooks run.
         self._fnx_register_gc_dict(self.__dict__)
         self.__dict__["_graph"] = graph
+        self.__dict__[_GRAPH_ATTR_OVERRIDE] = graph.graph
         self.__dict__["frozen"] = True
         self.__dict__["_nodes_view"] = _ConversionNodeView(self)
         self.__dict__["_edges_view"] = _CONVERSION_EDGE_VIEW_TYPES[
@@ -265,10 +266,13 @@ class _ConversionGraphViewBase:
         # br-r37-c1-9ut0c: the fnx Graph base class exposes ``graph`` as a
         # ``_GraphAttrsDescriptor`` (a data descriptor), so an instance
         # ``__dict__`` entry cannot shadow it.  Surface the source graph's
-        # attribute dict directly — a conversion view shares structure
-        # with its source, so ``to_directed``/``to_undirected`` must
-        # preserve graph-level attributes (parity with networkx).
-        return self._graph.graph
+        # attribute mapping shared at construction. Reassigning either graph's
+        # mapping later is local to that graph, as it is for NetworkX views.
+        return self.__dict__[_GRAPH_ATTR_OVERRIDE]
+
+    @graph.setter
+    def graph(self, value):
+        self.__dict__[_GRAPH_ATTR_OVERRIDE] = value
 
     def __iter__(self):
         return iter(self._graph)

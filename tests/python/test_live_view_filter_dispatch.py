@@ -1,5 +1,7 @@
 """Native algorithms must observe live view predicates and node data."""
 
+from collections import UserDict
+
 import networkx as nx
 import pytest
 
@@ -94,6 +96,125 @@ def test_node_filter_can_depend_on_live_node_attributes(cls):
     assert results[1] == results[0]
 
 
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("wrapper", ["direct", "nested", "conversion", "reverse"])
+@pytest.mark.parametrize("predicate_kind", ["truthiness", "comparison"])
+def test_closure_free_node_predicates_keep_live_python_protocols(
+    cls, wrapper, predicate_kind
+):
+    if wrapper == "reverse" and cls in ("Graph", "MultiGraph"):
+        pytest.skip("reverse views require a directed graph")
+
+    class Node:
+        def __init__(self, label):
+            self.label = label
+            self.visible = True
+
+        def __bool__(self):
+            return self.visible
+
+        def __gt__(self, other):
+            return self.visible
+
+    nodes = [Node(label) for label in range(4)]
+    predicate = (
+        (lambda node: node)
+        if predicate_kind == "truthiness"
+        else (lambda node: node > 0)
+    )
+    # Neither callback mentions globals or captures closure/default state, but
+    # both invoke a mutable node protocol when the view tests membership.
+    assert not predicate.__code__.co_names
+    assert predicate.__closure__ is None
+
+    graphs = [getattr(lib, cls)() for lib in (nx, fnx)]
+    for graph in graphs:
+        graph.add_nodes_from(nodes)
+        graph.add_edges_from(zip(nodes, nodes[1:]))
+    expected, actual = (
+        _wrap(lib.subgraph_view(graph, filter_node=predicate), wrapper)
+        for lib, graph in zip((nx, fnx), graphs)
+    )
+
+    for visible in (True, False, True):
+        nodes[1].visible = visible
+        snapshot = fnx._materialize_view(actual)
+        assert list(snapshot) == list(actual) == list(expected)
+        nx_components = (
+            nx.weakly_connected_components
+            if expected.is_directed()
+            else nx.connected_components
+        )
+        fnx_components = (
+            fnx.weakly_connected_components
+            if actual.is_directed()
+            else fnx.connected_components
+        )
+        assert {frozenset(part) for part in fnx_components(actual)} == {
+            frozenset(part) for part in nx_components(expected)
+        }
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("wrapper", ["direct", "nested", "conversion", "reverse"])
+def test_cached_view_tracks_replacement_graph_attribute_mapping(cls, wrapper):
+    if wrapper == "reverse" and cls in ("Graph", "MultiGraph"):
+        pytest.skip("reverse views require a directed graph")
+
+    expected_graph, actual_graph = (_path(lib, cls) for lib in (nx, fnx))
+    expected_graph.graph["phase"] = actual_graph.graph["phase"] = "before"
+    expected = _wrap(expected_graph.subgraph(list(expected_graph)), wrapper)
+    actual = _wrap(actual_graph.subgraph(list(actual_graph)), wrapper)
+    first = fnx._materialize_view(actual)
+    assert first.graph is actual.graph
+
+    payload = []
+    for view in (expected, actual):
+        # Graph assignment preserves ordinary dictionary identity in fnx.
+        # A general mapping is replaced, so sharing the previous dictionary
+        # cannot make a previously materialized view observe this assignment.
+        view.graph = UserDict({"phase": "after", "payload": payload})
+    second = fnx._materialize_view(actual)
+    assert second.graph is actual.graph
+    assert dict(second.graph) == dict(expected.graph)
+    assert second.graph["payload"] is payload
+
+    for name in ("union", "compose"):
+        nx_result = getattr(nx, name)(expected, type(expected)())
+        fnx_result = getattr(fnx, name)(actual, getattr(fnx, type(expected).__name__)())
+        assert dict(fnx_result.graph) == dict(nx_result.graph)
+        assert fnx_result.graph["payload"] is payload
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("mapping_type", [dict, UserDict])
+def test_conversion_view_graph_mapping_assignment_keeps_local_ownership(cls, mapping_type):
+    for lib in (nx, fnx):
+        graph = _path(lib, cls)
+        graph.graph["phase"] = "shared"
+        view = (
+            graph.to_undirected(as_view=True)
+            if graph.is_directed()
+            else graph.to_directed(as_view=True)
+        )
+        shared = graph.graph
+        assert view.graph is shared
+        shared["updated"] = True
+        assert view.graph["updated"] is True
+
+        graph.graph = UserDict({"phase": "parent"})
+        assert view.graph is shared
+        assert view.graph["phase"] == "shared"
+
+        payload = []
+        replacement = mapping_type({"phase": "view", "payload": payload})
+        view.graph = replacement
+        assert view.graph is replacement
+        assert graph.graph == {"phase": "parent"}
+        assert shared == {"phase": "shared", "updated": True}
+        assert view.graph["payload"] is payload
+
+
 @pytest.mark.parametrize("cls", ["MultiGraph", "MultiDiGraph"])
 def test_keyed_edge_filter_changes_weighted_paths(cls):
     results = []
@@ -126,6 +247,44 @@ def test_builtin_node_selection_cache_tracks_its_mutable_set(cls):
     assert second is not first
     assert list(second) == list(view) == [0, 2, 3]
     assert fnx._materialize_view(view) is second
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("custom_key_location", ["selection", "graph"])
+def test_node_set_filter_membership_protocol_stays_live(cls, custom_key_location):
+    class Alias:
+        enabled = True
+
+        def __hash__(self):
+            return hash("selected")
+
+        def __eq__(self, other):
+            return other is self or (
+                self.enabled and type(other) is str and other == "selected"
+            )
+
+    alias = Alias()
+    node = "selected" if custom_key_location == "selection" else alias
+    selected = {alias if custom_key_location == "selection" else "selected", "neighbor"}
+    expected_graph, actual_graph = (getattr(lib, cls)() for lib in (nx, fnx))
+    for graph in (expected_graph, actual_graph):
+        graph.add_edge(node, "neighbor")
+    expected = nx.subgraph_view(expected_graph, filter_node=nx.filters.show_nodes(selected))
+    actual = fnx.subgraph_view(actual_graph, filter_node=fnx._NodeSetFilter(selected))
+
+    for enabled in (True, False, True):
+        alias.enabled = enabled
+        assert list(fnx._materialize_view(actual)) == list(actual) == list(expected)
+
+
+@pytest.mark.parametrize("cls", CLASSES)
+def test_builtin_container_node_keys_keep_view_cache_reuse(cls):
+    nodes = [("left", 1), frozenset({"right", 2})]
+    graph = getattr(fnx, cls)()
+    graph.add_edge(*nodes)
+    view = fnx.subgraph_view(graph, filter_node=fnx._NodeSetFilter(set(nodes)))
+    first = fnx._materialize_view(view)
+    assert fnx._materialize_view(view) is first
 
 
 @pytest.mark.parametrize("cls", CLASSES)

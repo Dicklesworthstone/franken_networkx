@@ -86,7 +86,7 @@ Exclude for V1:
 | Component | Primary mutable fields | Mutability boundary | Core invariant family |
 |---|---|---|---|
 | graph store (`fnx-classes`) | `nodes`, `adjacency`, `attrs`, `revision` | mutation commit must preserve deterministic adjacency contract | adjacency symmetry, revision monotonicity |
-| view cache (`fnx-views`) | cached snapshot, parent revision pointer, filters | stale cache cannot be served after parent revision changes | ordering parity with parent graph |
+| view cache (`fnx-views`) | cached snapshot, parent revision pointer, filters | stale cache cannot be served after parent revision, attributes, or predicate state changes | ordering parity with parent graph |
 | dispatch registry (`fnx-dispatch`) | backend list, decision ledger | unknown incompatible feature always rejects route | deterministic backend selection |
 | conversion/readwrite pipeline (`fnx-convert`, `fnx-readwrite`) | parser cursor, warnings, graph builder state | malformed parse cannot silently alter strict-mode output | deterministic round-trip + bounded hardened recovery |
 | algorithm/conformance surface (`fnx-algorithms`, `fnx-conformance`) | work queue, witness payload, mismatch vector, structured logs | zero-tolerance drift in strict parity gates | deterministic packet routing and replay metadata integrity |
@@ -98,8 +98,9 @@ Exclude for V1:
 - `mutating -> stable`: commit only if invariants hold; otherwise rollback then fail-closed.
 2. View cache lifecycle:
 - `cache_cold -> cache_hot`: first read materializes deterministic snapshot.
-- `cache_hot -> cache_stale`: parent revision changes.
+- `cache_hot -> cache_stale`: parent revision, observed attributes, or graph-attribute mapping identity changes.
 - `cache_stale -> cache_hot`: refresh if ordering invariants validate; else reset and fail-closed.
+- User predicates are evaluated again when materializing views: even closure-free functions can invoke mutable node truthiness or comparison protocols. Default filters retain caching; built-in node-set filters require immutable built-in keys on both sides of membership tests as well as explicit selection-state tokens.
 3. Dispatch lifecycle:
 - `registered -> resolved`: deterministic backend selected under strict/hardened policy.
 - `registered -> rejected`: no compatible backend or unknown incompatible feature.
@@ -1008,6 +1009,13 @@ Conversion edge counts and full unweighted degree queries admit the native
 undirected-degree helper only for a concrete DiGraph with native storage;
 filtered, reverse, and private-storage sources use their visible topology,
 including when a collection asks for a length hint before iteration.
+
+Conversion views share their source's graph-attribute mapping at construction.
+Mutating that mapping remains visible through both objects, while assigning a
+replacement mapping on either object changes only that object's attributes.
+Materialized view caches must track replacement mapping identities.
+Union and composition consume the public graph-attribute mapping, including
+view overrides, with the later input's values taking precedence.
 
 
 ## 32. Live Weighted Shortest-Path Queries
