@@ -571,7 +571,11 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
     values also retain that solver's per-edge accumulation order: a sparse
     reduction can erase cancellation and report a spurious convergence.
     """
-    if type(G) not in (Graph, DiGraph) or _has_networkx_private_storage(G):
+    # Public readers can change the graph at the iteration's node-count or
+    # adjacency boundary. Admit them statically before probing edges or start
+    # keys: a sparse snapshot must not skip those callbacks or introduce reads
+    # of an assigned edge provider which the power iteration never uses.
+    if not _greedy_color_native_graph(G):
         return False
     if nstart is not None and (
         type(nstart) is not dict
@@ -584,9 +588,11 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
         return True
     if type(weight) is not str:
         return False
-    plain_attrs = _plain_read_attr_dict_types()
     for _, _, attrs in G.edges(data=True):
-        if type(attrs) not in plain_attrs:
+        # Bulk native mirrors have an owned per-graph dictionary subclass.
+        # Inspect its reads, not its exact type; write tracking alone does not
+        # make an ordinary numeric row an observable Python provider.
+        if not _attr_dict_has_plain_reads(attrs):
             return False
         if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
             return False

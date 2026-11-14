@@ -445,6 +445,97 @@ def test_iterative_centrality_vectors_mutate_the_live_graph(fnx, nx, algorithm, 
     assert actual_edges == expected_edges
 
 
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_iterative_centrality_reads_assigned_node_count_live(
+    fnx, nx, algorithm, graph_type, weight
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 0.5), (1, 2, 0.25), (2, 3, 0.75), (3, 0, 0.5)]
+        )
+        events = []
+
+        def node_count():
+            events.append("number_of_nodes")
+            graph.add_edge(0, 2, weight=0.125)
+            return len(graph)
+
+        graph.number_of_nodes = node_count
+        result = getattr(module, algorithm)(graph, weight=weight)
+        return result, events, graph.has_edge(0, 2)
+
+    expected, expected_events, expected_edge = outcome(nx)
+    actual, actual_events, actual_edge = outcome(fnx)
+    assert list(actual) == list(expected)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_events == expected_events == ["number_of_nodes"]
+    assert actual_edge is expected_edge is True
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_iterative_centrality_does_not_read_assigned_edge_provider(
+    fnx, nx, algorithm, graph_type
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 0.5), (1, 2, 0.25), (2, 3, 0.75), (3, 0, 0.5)]
+        )
+
+        def edges(*args, **kwargs):
+            raise AssertionError("power iteration reads adjacency, not edges")
+
+        graph.edges = edges
+        return getattr(module, algorithm)(graph, weight="weight")
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert list(actual) == list(expected)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_iterative_centrality_retains_overridden_edge_reads(
+    fnx, nx, monkeypatch, algorithm, graph_type
+):
+    expected_reads = []
+    actual_reads = []
+
+    class EdgeAttrs(dict):
+        __slots__ = ()
+
+        def get(self, key, default=None):
+            expected_reads.append(key)
+            return dict.get(self, key, default)
+
+    expected_graph = getattr(nx, graph_type)()
+    expected_graph.edge_attr_dict_factory = EdgeAttrs
+    actual_graph = getattr(fnx, graph_type)()
+    for graph in (expected_graph, actual_graph):
+        graph.add_weighted_edges_from(
+            [(0, 1, 0.5), (1, 2, 0.25), (2, 3, 0.75), (3, 0, 0.5)]
+        )
+    rows = [data for _, _, data in actual_graph.edges(data=True)]
+
+    def tracked_get(data, key, default=None):
+        actual_reads.append(key)
+        return dict.get(data, key, default)
+
+    for cls in {type(row) for row in rows}:
+        monkeypatch.setattr(cls, "get", tracked_get)
+
+    expected = getattr(nx, algorithm)(expected_graph, weight="weight")
+    actual = getattr(fnx, algorithm)(actual_graph, weight="weight")
+    assert actual == expected
+    assert actual_reads == expected_reads
+    assert expected_reads
+
+
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("number", [Decimal, Fraction])
 @pytest.mark.parametrize("workers", [1, 3])

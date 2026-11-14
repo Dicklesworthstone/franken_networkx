@@ -891,6 +891,15 @@ private logical storage and observable mapping/numeric protocols therefore
 use the existing owned iterations. Ordinary concrete storage with admitted
 numeric values retains native or sparse acceleration.
 
+Assigned public graph readers follow the same rule. A `number_of_nodes`
+provider runs at the reference iteration boundary, and its graph mutations
+affect subsequent adjacency reads. Spectral admission inspects reader
+identity without invoking it; an assigned `edges` provider must not be called
+merely to build a snapshot when the iteration itself only reads adjacency.
+Owned per-graph edge-dictionary subclasses remain eligible for numeric sparse
+iteration when their reads are unchanged builtins. Overridden reads retain
+their call order through the owned iteration without an admission-time probe.
+
 Sparse iterations require arithmetic compatible with their reordered
 matrix reductions. Signed weights or vectors can expose catastrophic
 cancellation in the reference per-edge update order, so they retain owned
