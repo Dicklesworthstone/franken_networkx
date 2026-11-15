@@ -167,6 +167,7 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "enumerate_all_cliques",
         "all_triangles",
         "simple_cycles",
+        "chordless_cycles",
         "antichains",
         "bridges",
         "local_bridges",
@@ -194,6 +195,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "predecessor",
         "average_degree_connectivity",
         "average_neighbor_degree",
+        "minimum_cycle_basis",
         "transitive_closure_dag",
         "number_of_spanning_trees",
         "quotient_graph",
@@ -330,6 +332,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
         "single_source_shortest_path_length", "predecessor",
         "average_degree_connectivity", "average_neighbor_degree",
+        "minimum_cycle_basis",
         "group_betweenness_centrality", "group_closeness_centrality",
         "minimum_spanning_tree", "maximum_spanning_tree",
         "stoer_wagner", "transitive_closure_dag", "number_of_spanning_trees",
@@ -378,6 +381,11 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     if name == "number_of_spanning_trees":
         # Matrix construction reads the caller's edge providers and literal
         # attribute keys, including None. Conversion can discard that state.
+        return True
+    if name == "minimum_cycle_basis":
+        # Component views retain live edge dictionaries and arbitrary weight
+        # keys, including None. The owned solver chooses its exact-arithmetic
+        # or native route after those reads; a cached conversion is too early.
         return True
     if name in {"group_betweenness_centrality", "group_closeness_centrality"}:
         # Resolving groups can mutate the graph before searches begin. The
@@ -1553,6 +1561,8 @@ _SUPPORTED_ALGORITHMS = {
     "is_perfect_matching": fnx.is_perfect_matching,
     # Cycles
     "simple_cycles": fnx.simple_cycles,
+    "chordless_cycles": fnx.chordless_cycles,
+    "minimum_cycle_basis": fnx.minimum_cycle_basis,
     "find_cycle": fnx.find_cycle,
     "girth": fnx.girth,
     "find_negative_cycle": fnx.find_negative_cycle,
@@ -2445,7 +2455,8 @@ class BackendInterface:
                     if (
                         name in _CORE_DECOMPOSITION_ALGORITHMS | _RESILIENCE_ALGORITHMS
                         or name in {
-                            "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree"
+                            "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
+                            "minimum_cycle_basis",
                         }
                     ):
                         # Keep documented self-loop and graph-type errors intact.

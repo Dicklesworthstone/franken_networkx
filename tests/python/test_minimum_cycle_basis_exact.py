@@ -296,3 +296,93 @@ def test_cycle_basis_optional_scipy_batches_keep_zero_cost_ties(monkeypatch):
     # Every start, including starts on both sides of a batch boundary, ties.
     # A zero in a sparse matrix must remain an edge, not disappear as padding.
     assert fnx.minimum_cycle_basis(_as_fnx(reference), weight="cost") == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("weight", [None, "cost", 5, ("edge", "cost")])
+@pytest.mark.parametrize(
+    "make_weight",
+    [
+        pytest.param(lambda n: n, id="integers"),
+        pytest.param(lambda n: 2**53 + n, id="large-integers"),
+        pytest.param(lambda n: Fraction(n, 7), id="fractions"),
+        pytest.param(lambda n: Decimal(n) / 10, id="decimals"),
+    ],
+)
+def test_cycle_basis_backend_preserves_live_exact_weights(
+    owned_without_scipy, monkeypatch, cached, weight, make_weight
+):
+    graph = nx.complete_graph(4)
+    for (u, v), value in zip(graph.edges, (9, 2, 1, 8, 3, 7)):
+        graph[u][v][weight] = make_weight(value)
+    graph.add_edge("hidden", 0)
+    view = graph.subgraph(range(4))
+    if cached:
+        nx.relabel_nodes(view, {}, backend="franken_networkx")
+        assert view.__networkx_cache__["backends"]["franken_networkx"]
+
+    # A dictionary write does not clear NetworkX's conversion cache. The
+    # minimum-basis call must select weights from the original component view.
+    graph[0][1][weight] = make_weight(1)
+    graph[0][2][weight] = make_weight(20)
+    expected = nx.minimum_cycle_basis(view, weight=weight)
+    optimum = _minimum_basis_weight_by_enumeration(view, weight)
+    monkeypatch.setattr(nx.algorithms.cycles, "_min_cycle", _reject_call)
+
+    actual = nx.minimum_cycle_basis(G=view, weight=weight, backend="franken_networkx")
+
+    assert actual == expected
+    assert _independent_basis_weight(view, actual, weight) == optimum
+    assert not view.__networkx_cache__.get("backends", {}).get("franken_networkx")
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_cycle_basis_backend_keeps_attribute_provider_mutations(
+    owned_without_scipy, cached, raises
+):
+    class ProviderFailure(RuntimeError):
+        pass
+
+    def run(backend):
+        graph = nx.complete_graph(4)
+        nx.set_edge_attributes(graph, 5, "cost")
+        if cached and backend is not None:
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        events = []
+
+        class WeightProvider(dict):
+            def __getitem__(self, key):
+                if key == "cost" and not events:
+                    events.append(self is graph[0][1])
+                    graph[0][2]["cost"] = Fraction(1, 3)
+                    if raises:
+                        raise ProviderFailure("weight reader failed after mutation")
+                return super().__getitem__(key)
+
+        data = WeightProvider(graph[0][1])
+        graph._adj[0][1] = graph._adj[1][0] = data
+        try:
+            result = nx.minimum_cycle_basis(graph, weight="cost", backend=backend)
+        except ProviderFailure as error:
+            result = (type(error), error.args)
+        return result, events, graph[0][2]["cost"], graph.__networkx_cache__
+
+    expected = run(None)
+    actual = run("franken_networkx")
+    assert actual[:3] == expected[:3]
+    assert actual[1] == [True]
+    assert actual[2] == Fraction(1, 3)
+    assert not actual[3].get("backends", {}).get("franken_networkx")
+
+
+@pytest.mark.parametrize("kind", ["DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_cycle_basis_backend_preserves_graph_type_rejection(kind):
+    from franken_networkx.backend import backend_interface
+
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        nx.minimum_cycle_basis(getattr(nx, kind)())
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual:
+        backend_interface.minimum_cycle_basis(getattr(fnx, kind)())
+    assert actual.value.args == expected.value.args

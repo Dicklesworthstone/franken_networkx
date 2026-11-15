@@ -316,10 +316,19 @@ def test_chordless_cycles_subclass_rows_match_networkx(fnx_cls, nx_cls):
     assert list(fnx.chordless_cycles(fg)) == list(nx.chordless_cycles(ng))
 
 
-_LIVE_ROUTES = ["networkx-input", "native-input"]
+_LIVE_ROUTES = ["networkx-input", "native-input", "backend", "cached-backend"]
 
 
 def _live_chordless_cycles(graph, route, length_bound=None):
+    if route == "cached-backend":
+        # An eager algorithm's conversion must not replace the caller when
+        # the cycle iterator resumes after a mutation or a filter change.
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    if route in ("backend", "cached-backend"):
+        return nx.chordless_cycles(
+            G=graph, length_bound=length_bound, backend="franken_networkx"
+        )
     return fnx.chordless_cycles(graph, length_bound=length_bound)
 
 
@@ -423,7 +432,7 @@ def test_chordless_cycles_directed_chord_checks_stay_live_after_digon(
     assert list(actual_cycles) == list(expected_cycles) == []
 
 
-@pytest.mark.parametrize("route", ["networkx-input"])
+@pytest.mark.parametrize("route", ["networkx-input", "backend"])
 @pytest.mark.parametrize("length_bound", [0, -1])
 def test_chordless_cycles_bound_validation_precedes_graph_inspection(route, length_bound):
     class UnreadableGraph(nx.Graph):
@@ -438,3 +447,33 @@ def test_chordless_cycles_bound_validation_precedes_graph_inspection(route, leng
         for cycles in (actual_cycles, expected_cycles):
             with pytest.raises(ValueError, match="^length bound must be non-negative$"):
                 next(cycles)
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["backend", "cached-backend"])
+def test_chordless_cycles_backend_owns_later_structural_snapshot(cls_name, route):
+    actual, expected = getattr(nx, cls_name)(), getattr(nx, cls_name)()
+    for graph in (actual, expected):
+        graph.add_edges_from([(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3)])
+
+    cycles = _live_chordless_cycles(actual, route)
+    oracle = nx.chordless_cycles(expected)
+    assert next(cycles) == next(oracle)
+    # The owned cycle-search graph exists now. Removing source edges must not
+    # destroy its remaining triangle; directed chord checks still see G.
+    actual.clear()
+    expected.clear()
+    remaining = list(oracle)
+    assert len(remaining) == 1
+    assert list(cycles) == remaining
+
+
+def test_chordless_cycles_backend_uses_owned_search(monkeypatch):
+    graph = nx.DiGraph([(0, 1), (1, 2), (2, 3), (3, 0)])
+    expected = list(nx.chordless_cycles(graph))
+
+    def reject_networkx_search(*args, **kwargs):
+        raise AssertionError("backend delegated chordless cycle search to NetworkX")
+
+    monkeypatch.setattr(nx.algorithms.cycles, "_chordless_cycle_search", reject_networkx_search)
+    assert list(nx.chordless_cycles(graph, backend="franken_networkx")) == expected
