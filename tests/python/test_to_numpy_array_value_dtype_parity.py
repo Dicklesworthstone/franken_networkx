@@ -87,6 +87,37 @@ def test_structured_dtype_errors_match_networkx(cls):
         assert outcomes[1] == outcomes[0], (cls, weight)
 
 
+@pytest.mark.parametrize("cls", CLASSES)
+@pytest.mark.parametrize("weight", ["weight", None])
+def test_structured_dtype_validation_preserves_subgraph_provider_order(cls, weight):
+    dtype = np.dtype([("cost", float)])
+    outcomes = []
+    for module in (nx, fnx):
+        calls = []
+
+        class PublicGraph(getattr(nx, cls)):
+            def subgraph(self, nodes):
+                calls.append(list(nodes))
+                return super().subgraph(nodes)
+
+        graph = PublicGraph()
+        graph.add_edge(0, 1, cost=2)
+        try:
+            matrix = module.to_numpy_array(
+                graph, nodelist=[0], dtype=dtype, weight=weight
+            )
+        except Exception as exc:
+            result = (type(exc).__name__, str(exc))
+        else:
+            result = (str(matrix.dtype), matrix.tolist())
+        outcomes.append((result, calls))
+    assert outcomes[1] == outcomes[0]
+    # Invalid weight/dtype combinations fail before any graph copying.
+    # A valid structured request copies first, even if a multigraph is then
+    # rejected or the selected induced subgraph has no edges.
+    assert outcomes[1][1] == ([] if weight is not None else [[0]])
+
+
 def test_edgeless_structured_request_returns_the_filled_array_like_networkx():
     dtype = np.dtype([("weight", int), ("cost", int)])
     for module in (nx, fnx):

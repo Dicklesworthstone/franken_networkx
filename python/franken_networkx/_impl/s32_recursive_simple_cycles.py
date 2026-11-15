@@ -140,17 +140,25 @@ def remove_edge_attributes(G, *attr_names, ebunch=None):
                 data.pop(name, None)
 
 
-def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
-    """Floyd-Warshall via numpy matrix operations."""
+def floyd_warshall_numpy(
+    G, nodelist=None, weight="weight", *, backend=None, **backend_kwargs
+):
+    """Return dense all-pairs distances in the caller's node order."""
+    _validate_backend_dispatch_keywords("floyd_warshall_numpy", backend, backend_kwargs)
     import numpy as np
 
-    # br-r37-c1-fwdense: native in-place SIMD min-plus Floyd-Warshall for the
-    # common case (simple Graph/DiGraph, default nodelist). Replaces numpy's
-    # broadcast FW (`for k: A = minimum(A, A[:,k:k+1] + A[k:k+1,:])`), which
-    # allocates n temporary n*n arrays, with a zero-temp cache-friendly kernel
-    # that also builds the matrix natively (no AtlasView walk). Bit-identical
-    # output. Gated on exact type so subclasses / SubgraphViews fall back.
-    if nodelist is None and type(G) in (Graph, DiGraph) and isinstance(weight, str):
+    # The native kernel uses comparison-based minima and skips unreachable
+    # rows. NumPy instead propagates NaNs, inf + -inf and signed zero, and
+    # exposes floating-point errors under np.errstate. Keep the native path
+    # for ordinary nonnegative weights whose intermediate sums stay finite.
+    # Other domains use the same simultaneous matrix recurrence as NetworkX.
+    weights = _numpy_native_weight_values(G, weight) if nodelist is None else None
+    limit = _sys.float_info.max / (2 * max(1, len(G))) if weights is not None else 0
+    if weights is not None and all(
+        0 <= value <= limit
+        and not (type(value) is float and value == 0 and _math.copysign(1, value) < 0)
+        for value in weights
+    ):
         try:
             from franken_networkx._fnx import floyd_warshall_dense as _fw_dense
         except ImportError:
@@ -167,19 +175,16 @@ def floyd_warshall_numpy(G, nodelist=None, weight="weight"):
                 "nodelist must contain every node in G with no repeats."
                 "If you wanted a subgraph of G use G.subgraph(nodelist)"
             )
-    else:
-        nodelist = list(G.nodes())
-    n = len(nodelist)
     # Initialize missing edges as +inf via the nonedge sentinel so that
     # weight-0 and negative-weight edges are handled correctly. The
     # previous `if A[i,j] != 0` gate skipped any edge with weight 0
     # (leaving dist[i,j] = inf) and silently dropped paths through them.
     # multigraph_weight=min, as networkx builds it: parallel edges contribute
     # the lightest one, not their sum (br-r37-c1-545ld).
-    A = to_numpy_array(
+    dist = to_numpy_array(
         G, nodelist=nodelist, weight=weight, nonedge=np.inf, multigraph_weight=min
     )
-    dist = np.array(A, dtype=float)
+    n = len(dist)
     np.fill_diagonal(dist, 0)
     for k in range(n):
         dist = np.minimum(dist, dist[:, k : k + 1] + dist[k : k + 1, :])

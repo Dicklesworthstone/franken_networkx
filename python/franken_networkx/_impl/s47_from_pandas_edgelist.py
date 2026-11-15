@@ -440,6 +440,56 @@ def from_pandas_edgelist(
     return graph
 
 
+def _numpy_native_weight_values(G, weight):
+    """Admit dense exports only when native reads preserve graph protocols.
+
+    Inspect dictionary types before looking up a weight. Caller-supplied
+    readers and numeric conversions must run during the public edge walk,
+    not while selecting or synchronizing a native route.
+    """
+    if (
+        type(G) not in (Graph, DiGraph)
+        or type(weight) is not str
+        or _has_networkx_private_storage(G)
+        or G.edge_attr_dict_factory is not dict
+    ):
+        return None
+    storage = G.__dict__
+    if any(name in storage for name in (
+        "is_directed", "is_multigraph", "number_of_edges", "number_of_nodes",
+        "nbunch_iter", "adjacency", "get_edge_data",
+    )):
+        return None
+    cached = storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
+    for name, view_type in (
+        ("edges", _fnx.EdgeView if type(G) is Graph else _DiGraphEdgeView),
+        ("nodes", _fnx.NodeView if type(G) is Graph else _fnx.DiNodeView),
+    ):
+        if name in storage and (
+            name not in cached or type(storage[name]) is not view_type
+        ):
+            return None
+
+    plain_types = (str, int, float, bool, type(None))
+    if any(type(node) not in plain_types for node in G):
+        return None
+    values = []
+    for _, _, attrs in G.edges(data=True):
+        if not _attr_dict_has_plain_reads(attrs):
+            return None
+        if any(type(key) not in plain_types for key in dict.keys(attrs)):
+            return None
+        # Synchronization also visits non-weight attributes. Do not let an
+        # unrelated value's conversion run before the matrix exporter reads it.
+        if any(type(value) not in plain_types for value in dict.values(attrs)):
+            return None
+        value = dict.get(attrs, weight, 1.0)
+        if type(value) not in (int, float, bool):
+            return None
+        values.append(value)
+    return values
+
+
 def to_numpy_array(
     G,
     nodelist=None,
@@ -501,15 +551,19 @@ def to_numpy_array(
     # networkx's corner cases come before any dtype/weight validation.
     if not nodelist or G.number_of_edges() == 0:
         return matrix
+    if matrix.dtype.names and weight is not None:
+        # Validate before invoking subgraph/copy providers. NetworkX rejects
+        # an incompatible structured request without consulting either one.
+        raise ValueError(
+            "Specifying `weight` not supported for structured dtypes\n."
+            "To create adjacency matrices from structured dtypes, use `weight=None`."
+        )
     index = {node: i for i, node in enumerate(nodelist)}
+    if len(nodelist) < len(G):
+        G = G.subgraph(nodelist).copy()
     if matrix.dtype.names:
         # networkx's structured-dtype branch: weight=None, one field per edge
         # attribute (default 1.0), simple graphs only.
-        if weight is not None:
-            raise ValueError(
-                "Specifying `weight` not supported for structured dtypes\n."
-                "To create adjacency matrices from structured dtypes, use `weight=None`."
-            )
         if G.is_multigraph():
             raise NetworkXError("Structured arrays are not supported for MultiGraphs")
         rows, cols, datas = [], [], []
@@ -537,9 +591,7 @@ def to_numpy_array(
     if (
         native_dtype_ok
         and _native_adjacency_arrays is not None
-        and type(G) in (Graph, DiGraph)
-        and not _has_networkx_private_storage(G)
-        and isinstance(weight, str)
+        and _numpy_native_weight_values(G, weight) is not None
     ):
         # Keep the common float64 weighted path native while reading live
         # Python-visible mutations. A None weight key uses the Python path:
@@ -555,17 +607,27 @@ def to_numpy_array(
                 matrix[rows_arr, cols_arr] = data_arr
             return matrix
 
-    if G.is_multigraph():
+    is_multigraph = G.is_multigraph()
+    edge_view = G.edges
+    if type(edge_view) is _fnx.EdgeView and weight is not True and weight is not False:
+        # The native undirected view stores data selectors as strings. Read
+        # its live dictionaries for literal Python keys (including None),
+        # and let their public get method own attribute lookup. Other edge
+        # providers receive the same call signature as NetworkX.
+        weighted_edges = (
+            (u, v, attrs.get(weight, 1.0)) for u, v, attrs in edge_view(data=True)
+        )
+    else:
+        weighted_edges = edge_view(data=weight, default=1.0)
+
+    if is_multigraph:
         # Reduce live values before casting, just as NetworkX does. Casting
         # each parallel edge first can erase exact integer cancellation,
         # Python's compensated float sum, or even unit-edge counts in float16.
         # Assign all reduced values together so NumPy owns dtype conversion.
         reduced = {}
-        for u, v, _, edge_attrs in G.edges(keys=True, data=True):
-            if u in index and v in index:
-                reduced.setdefault((index[u], index[v]), []).append(
-                    edge_attrs.get(weight, 1.0)
-                )
+        for u, v, value in weighted_edges:
+            reduced.setdefault((index[u], index[v]), []).append(value)
         rows, cols = np.array(list(reduced.keys())).T
         weights = [multigraph_weight(values) for values in reduced.values()]
         matrix[rows, cols] = weights
@@ -576,11 +638,10 @@ def to_numpy_array(
     # networkx's reference path for simple graphs (see the multigraph branch
     # above): collect every edge's value, default 1.0, then assign as a group.
     rows, cols, weights = [], [], []
-    for u, v, edge_attrs in G.edges(data=True):
-        if u in index and v in index:
-            rows.append(index[u])
-            cols.append(index[v])
-            weights.append(edge_attrs.get(weight, 1.0))
+    for u, v, value in weighted_edges:
+        rows.append(index[u])
+        cols.append(index[v])
+        weights.append(value)
     matrix[rows, cols] = weights
     if not G.is_directed():
         matrix[cols, rows] = weights

@@ -393,3 +393,178 @@ def test_floyd_warshall_backend_retains_public_weight_provider(cached, kind, alg
         outcomes.append((_floyd_distance_state(distances), reads))
         assert distances[0][2] == 25
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "edges",
+    [
+        pytest.param([(0, 1, 0.0), (1, 2, 3.0)], id="zero-weight"),
+        pytest.param([(0, 1, -0.0), (1, 2, 0.0)], id="signed-zero"),
+        pytest.param([(0, 1, -2), (1, 2, 3)], id="negative-edge"),
+        pytest.param([(0, 1, -2), (1, 0, 1)], id="negative-cycle"),
+        pytest.param([(0, 0, -2), (0, 1, 3)], id="negative-self-loop"),
+        pytest.param([(0, 1, float("nan"))], id="nan-edge"),
+        pytest.param([(0, 1, float("inf"))], id="positive-infinity"),
+        pytest.param([(0, 1, -float("inf"))], id="negative-infinity"),
+        pytest.param([(0, 1, 1e308), (1, 2, 1e308)], id="finite-overflow"),
+        pytest.param([(0, 1, -1e308), (1, 2, -1e308)], id="finite-underflow"),
+    ],
+)
+def test_dense_floyd_warshall_numpy_numeric_contract(kind, edges):
+    graphs = [getattr(module, kind)() for module in (fnx, nx)]
+    for graph in graphs:
+        graph.add_nodes_from(range(4))
+        graph.add_weighted_edges_from(edges, weight="cost")
+    with np.errstate(over="ignore", invalid="ignore"):
+        actual = fnx.floyd_warshall_numpy(graphs[0], weight="cost")
+        expected = nx.floyd_warshall_numpy(graphs[1], weight="cost")
+    np.testing.assert_array_equal(actual, expected)
+    zero_cells = expected == 0
+    np.testing.assert_array_equal(np.signbit(actual[zero_cells]), np.signbit(expected[zero_cells]))
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("value", [float("nan"), -float("inf"), 1e308])
+def test_dense_floyd_warshall_obeys_numpy_error_policy(kind, value):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, kind)()
+        graph.add_nodes_from(range(4))
+        graph.add_weighted_edges_from([(0, 1, value), (1, 2, value)])
+        with np.errstate(over="raise", invalid="raise"):
+            try:
+                matrix = module.floyd_warshall_numpy(graph)
+            except FloatingPointError as exc:
+                outcomes.append((type(exc), str(exc)))
+            else:
+                outcomes.append(("matrix", matrix.tolist()))
+    # NaN inputs need not raise, but must propagate to the same cells.
+    if outcomes[0][0] == "matrix":
+        assert outcomes[1][0] == "matrix"
+        np.testing.assert_array_equal(outcomes[0][1], outcomes[1][1])
+    else:
+        assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["to_numpy_array", "floyd_warshall_numpy"])
+@pytest.mark.parametrize("shadow", ["edges", "nodes", "is_directed", "is_multigraph"])
+def test_dense_matrices_preserve_exact_graph_providers(kind, algorithm, shadow):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, kind)()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)])
+        reads = []
+        if shadow == "edges":
+            original_edges = graph.edges
+
+            def edges(*args, **kwargs):
+                reads.append((args, kwargs))
+                return original_edges(*args, **kwargs)
+
+            graph.edges = edges
+        elif shadow == "nodes":
+            # Both dense APIs iterate G, not its assignable node view.
+            graph.nodes = object()
+        else:
+            original_graph_kind = getattr(graph, shadow)
+
+            def graph_kind():
+                reads.append(shadow)
+                return original_graph_kind()
+
+            setattr(graph, shadow, graph_kind)
+        result = getattr(module, algorithm)(graph)
+        outcomes.append((result, reads))
+    np.testing.assert_array_equal(outcomes[0][0], outcomes[1][0])
+    assert outcomes[0][1] == outcomes[1][1]
+
+
+@pytest.mark.parametrize("algorithm", ["to_numpy_array", "floyd_warshall_numpy"])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_dense_matrices_read_original_edge_attribute_protocol(kind, algorithm):
+    outcomes = []
+    for implementation in (fnx, nx):
+        reads = []
+
+        class WeightData(dict):
+            def get(self, key, default=None):
+                reads.append((key, default))
+                return super().get(key, default) + 10
+
+        class PublicGraph(getattr(nx, kind)):
+            edge_attr_dict_factory = WeightData
+
+        graph = PublicGraph()
+        graph.add_edge(0, 1, cost=2)
+        graph.add_edge(1, 2, cost=3)
+        result = getattr(implementation, algorithm)(graph, weight="cost")
+        outcomes.append((result, reads))
+    np.testing.assert_array_equal(outcomes[0][0], outcomes[1][0])
+    assert outcomes[0][1] == outcomes[1][1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+def test_dense_floyd_warshall_reads_self_loop_values_before_zeroing_diagonal(kind):
+    for module in (fnx, nx):
+        graph = getattr(module, kind)()
+        graph.add_edge(0, 0, weight="not numeric")
+        with pytest.raises(ValueError, match="could not convert string to float"):
+            module.floyd_warshall_numpy(graph)
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+def test_dense_floyd_warshall_plain_weights_retain_native_kernel(kind, monkeypatch):
+    graph = getattr(fnx, kind)()
+    graph.add_weighted_edges_from([(0, 1, 2.0), (1, 2, 3.0), (0, 2, 7.0)])
+    list(graph.nodes)
+    list(graph.edges)
+    native = fnx._fnx.floyd_warshall_dense
+    calls = []
+
+    def record_native(*args):
+        calls.append(args)
+        return native(*args)
+
+    monkeypatch.setattr(fnx._fnx, "floyd_warshall_dense", record_native)
+    result = fnx.floyd_warshall_numpy(graph)
+    assert result[0, 2] == 5.0
+    assert calls == [(graph, "weight")]
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", ["cost", None, 7])
+def test_dense_floyd_warshall_backend_preserves_weights_and_node_order(cached, kind, weight, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = getattr(nx, kind)()
+    graph.add_nodes_from(["last", "middle", "first", "isolated"])
+    graph.add_edges_from([("first", "middle"), ("middle", "last"), ("first", "last")])
+    for (u, v), value in zip(graph.edges(), (2, 7, 3)):
+        if graph.is_multigraph():
+            graph[u][v][0][weight] = value
+        else:
+            graph[u][v][weight] = value
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    # Direct dictionary mutation does not clear NetworkX's conversion cache.
+    attrs = graph["first"]["last"][0] if graph.is_multigraph() else graph["first"]["last"]
+    attrs[weight] = 100
+    order = list(graph)[::-1]
+    expected = nx.floyd_warshall_numpy(graph, nodelist=order, weight=weight, backend="networkx")
+    actual = nx.floyd_warshall_numpy(graph, nodelist=order, weight=weight, backend="franken_networkx")
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("algorithm", ["to_numpy_array", "floyd_warshall_numpy"])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, 7, ("cost", 2), "cost"])
+def test_dense_matrices_preserve_literal_attribute_keys(algorithm, kind, weight):
+    results = []
+    for module in (nx, fnx):
+        graph = getattr(module, kind)()
+        graph.add_edges_from([(0, 1, {weight: 2}), (1, 2, {weight: 3})])
+        results.append(getattr(module, algorithm)(graph, weight=weight))
+    np.testing.assert_array_equal(results[1], results[0])

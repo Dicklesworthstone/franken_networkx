@@ -263,6 +263,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "dijkstra_path_length",
         "floyd_warshall",
         "floyd_warshall_predecessor_and_distance",
+        "floyd_warshall_numpy",
         "bellman_ford_path",
         "bellman_ford_path_length",
         "bellman_ford_predecessor_and_distance",
@@ -346,7 +347,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
-        "floyd_warshall", "floyd_warshall_predecessor_and_distance",
+        "floyd_warshall", "floyd_warshall_predecessor_and_distance", "floyd_warshall_numpy",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
         "single_source_shortest_path_length", "predecessor",
@@ -369,6 +370,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "floyd_warshall_numpy":
+        # Node selection and dense matrix construction own their input read
+        # order. A cached conversion can lose live weights or edge providers.
+        return True
     if name in _ASSORTATIVITY_INPUT_ALGORITHMS:
         # Pair iterators read attributes/degrees between yields. Eager
         # measures also consume node selectors and observable providers in
@@ -1175,6 +1180,7 @@ _SUPPORTED_ALGORITHMS = {
     "dijkstra_path": fnx.dijkstra_path,
     "bellman_ford_path": fnx.bellman_ford_path,
     "johnson": fnx.johnson,
+    "floyd_warshall_numpy": fnx.floyd_warshall_numpy,
     # Graph transformations
     "quotient_graph": fnx.quotient_graph,
     # Connectivity
