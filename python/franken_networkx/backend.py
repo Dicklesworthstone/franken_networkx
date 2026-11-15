@@ -106,6 +106,15 @@ _LEIDEN_ALGORITHMS = frozenset({"leiden_communities", "leiden_partitions"})
 _LOAD_PERCOLATION_ALGORITHMS = frozenset(
     {"newman_betweenness_centrality", "edge_load_centrality", "percolation_centrality"}
 )
+_ASSORTATIVITY_INPUT_ALGORITHMS = frozenset(
+    {
+        "node_attribute_xy", "node_degree_xy",
+        "attribute_mixing_dict", "attribute_mixing_matrix",
+        "degree_mixing_dict", "degree_mixing_matrix",
+        "attribute_assortativity_coefficient", "numeric_assortativity_coefficient",
+        "degree_pearson_correlation_coefficient",
+    }
+)
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
@@ -175,6 +184,8 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "k_edge_subgraphs",
         "k_edge_augmentation",
         "all_node_cuts",
+        "node_attribute_xy",
+        "node_degree_xy",
     }
 ) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS
 
@@ -275,6 +286,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _RESILIENCE_ALGORITHMS
     | _LEIDEN_ALGORITHMS
     | _LOAD_PERCOLATION_ALGORITHMS
+    | _ASSORTATIVITY_INPUT_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -324,6 +336,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _RESILIENCE_ALGORITHMS
     | _LEIDEN_ALGORITHMS
     | _LOAD_PERCOLATION_ALGORITHMS
+    | _ASSORTATIVITY_INPUT_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -350,6 +363,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _ASSORTATIVITY_INPUT_ALGORITHMS:
+        # Pair iterators read attributes/degrees between yields. Eager
+        # measures also consume node selectors and observable providers in
+        # their own order, even after another algorithm cached a conversion.
+        return True
     if name in _LOAD_PERCOLATION_ALGORITHMS:
         # State mappings and public rows remain live between source searches.
         # Each owned algorithm admits its native snapshot after these reads.
@@ -1185,6 +1203,15 @@ _SUPPORTED_ALGORITHMS = {
     "voterank": fnx.voterank,
     "average_neighbor_degree": fnx.average_neighbor_degree,
     "degree_assortativity_coefficient": fnx.degree_assortativity_coefficient,
+    "node_attribute_xy": fnx.node_attribute_xy,
+    "node_degree_xy": fnx.node_degree_xy,
+    "attribute_mixing_dict": fnx.attribute_mixing_dict,
+    "attribute_mixing_matrix": fnx.attribute_mixing_matrix,
+    "degree_mixing_dict": fnx.degree_mixing_dict,
+    "degree_mixing_matrix": fnx.degree_mixing_matrix,
+    "attribute_assortativity_coefficient": fnx.attribute_assortativity_coefficient,
+    "numeric_assortativity_coefficient": fnx.numeric_assortativity_coefficient,
+    "degree_pearson_correlation_coefficient": fnx.degree_pearson_correlation_coefficient,
     # Clustering
     "clustering": fnx.clustering,
     "average_clustering": fnx.average_clustering,

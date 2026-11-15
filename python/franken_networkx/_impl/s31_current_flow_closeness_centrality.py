@@ -1490,6 +1490,21 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
     return _gen()
 
 
+def _assortativity_has_native_graph_access(G):
+    """Admit eager native snapshots without bypassing graph providers."""
+    if type(G) not in (Graph, DiGraph) or not _adc_has_native_graph_access(G):
+        return False
+    storage = vars(G)
+    if any(name in storage for name in (
+        "is_directed", "is_multigraph", "adjacency", "number_of_edges",
+        "__iter__", "__getitem__", "__len__", "__contains__",
+    )):
+        return False
+    if "edges" in storage and storage["edges"] is not storage.get("_fnx_view_edges"):
+        return False
+    return all(type(node) in (str, int, float, bool, bytes, type(None)) for node in G)
+
+
 def node_attribute_xy(G, attribute, nodes=None):
     """Yield (x, y) pairs of attribute values for edges.
 
@@ -1497,53 +1512,37 @@ def node_attribute_xy(G, attribute, nodes=None):
     source is in ``nodes`` are emitted. Matches networkx's public
     signature ``node_attribute_xy(G, attribute, nodes=None)``.
     """
-    G = _coerce_arg_to_fnx_graph(G)
-    node_filter = None if nodes is None else set(nodes)
-    # br-r37-c1-bjrgc: pre-materialize the node-attribute dict ONCE.
-    # br-r37-c1-br82u: bypass G.adjacency() AtlasView for non-multigraph
-    # via _raw_neighbors_dispatch.
-    # br-r37-c1-bxvof: factor the per-node attr-resolution policy into
-    # a single closure so the fast/slow/multigraph branches share one
-    # source of truth (was duplicated at 5 callsites).
-    try:
-        node_attrs = dict(G.nodes(data=True))
-    except (TypeError, AttributeError):
-        node_attrs = None
-    if node_attrs is not None:
-        def _attr_for(node):
-            return node_attrs.get(node, {}).get(attribute)
-    else:
-        nodes_view = G.nodes
-        nodes_view_supports_getitem = hasattr(nodes_view, "__getitem__")
-        def _attr_for(node):
-            if not nodes_view_supports_getitem:
-                return None
-            attrs = nodes_view[node]
-            return attrs.get(attribute) if isinstance(attrs, dict) else None
-    _raw_nbrs = _raw_neighbors_dispatch(G) if not G.is_multigraph() else None
-    if _raw_nbrs is not None:
-        # Fast non-multigraph path: iterate G's nodes + raw neighbors.
-        for u in G:
-            if node_filter is not None and u not in node_filter:
-                continue
-            x = _attr_for(u)
-            for v in _raw_nbrs(G, u):
-                yield (x, _attr_for(v))
-        return
-    # Slow path: multigraph (needs AtlasView's keys structure for
-    # parallel-edge counting) OR private-storage graph.
+    # A consumer can change attributes or topology between yields. Resolve
+    # the selection on first advancement and retain the caller's live node
+    # and adjacency providers instead of converting or caching their rows.
+    node_filter = set(G) if nodes is None else set(nodes)
+    node_attrs = G.nodes
     for u, nbrsdict in G.adjacency():
-        if node_filter is not None and u not in node_filter:
+        if u not in node_filter:
             continue
-        x = _attr_for(u)
+        x = node_attrs[u].get(attribute, None)
         if G.is_multigraph():
             for v, keys in nbrsdict.items():
-                y = _attr_for(v)
+                y = node_attrs[v].get(attribute, None)
                 for _ in keys:
                     yield (x, y)
         else:
             for v in nbrsdict:
-                yield (x, _attr_for(v))
+                yield (x, node_attrs[v].get(attribute, None))
+
+
+def _assortativity_degree_items(G, degree_view, nodes, weight):
+    """Keep owned degree views live instead of using their bulk snapshots."""
+    if (
+        isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph))
+        and type(degree_view).__module__ == __name__
+        and getattr(degree_view, "_graph", None) is G
+    ):
+        # Like a NetworkX DegreeView, resolve the node bunch on creation,
+        # then compute each value when its consumer asks for the next pair.
+        selected = list(G.nbunch_iter(nodes))
+        return ((node, degree_view(node, weight=weight)) for node in selected)
+    return degree_view(nodes, weight=weight)
 
 
 def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
@@ -1563,43 +1562,14 @@ def node_degree_xy(G, x="out", y="in", weight=None, nodes=None):
     else:
         xdeg = ydeg = G.degree
 
-    # br-r37-c1-wqhqr: nx recomputes each neighbor's y-degree via a FRESH
-    # DegreeView per source node (``ydeg(neighbors)``) — O(E) degree
-    # recomputations, each a per-node round-trip. Precompute the full
-    # y-degree map ONCE (single bulk pass) and replace the inner view with
-    # a dict lookup. ``dy[v]`` is identical to ``ydeg(v)`` for every node,
-    # so this is byte-exact in both VALUE and ITERATION ORDER: the outer
-    # ``xdeg(node_set)`` (source order + degu) and per-node ``G.edges(u)``
-    # (neighbor order, multigraph parallel-edge multiplicity, self-loops)
-    # are unchanged.
-    dy = dict(ydeg(weight=weight))
-
-    # Whole-graph fast path: nx's per-node ``G.edges(u)`` builds a fresh
-    # EdgeView per source node (O(V) PyO3 view allocations on the fnx
-    # substrate). For the default (nodes=None), non-multigraph case, snapshot
-    # the entire adjacency with ONE native ``_native_adjacency_keys`` call
-    # (verified to yield neighbours in exact ``G.edges(u)`` order, self-loops
-    # included) and iterate it as a pure-Python dict — identical emission
-    # order to nx (source order via ``set(G)``; neighbour order via the
-    # snapshot). Multigraph (no native keys snapshot) and the ``nodes``
-    # subset case keep the per-node path above.
-    nak = getattr(G, "_native_adjacency_keys", None)
-    if nodes is None and nak is not None and type(G) in (Graph, DiGraph):
-        # undirected: xdeg is ydeg, so reuse dy (one degree pass instead of two)
-        dx = dy if not G.is_directed() else dict(xdeg(weight=weight))
-        adj = dict(nak())
-        for u in node_set:
-            degu = dx[u]
-            for nbr in adj[u]:
-                yield degu, dy[nbr]
-        return
-
-    for u, degu in xdeg(node_set, weight=weight):
-        # use G.edges to treat multigraphs correctly (each
-        # parallel edge yields a separate tuple).
-        for _, nbr in G.edges(u):
-            if nbr in node_set:
-                yield degu, dy[nbr]
+    # The degree providers belong to each source/neighbor read, not the
+    # creation of this iterator. In particular, a retained edge dictionary
+    # may be written after a yielded pair. Eager consumers can select their
+    # own native snapshot; a public lazy iterator cannot freeze this state.
+    for u, degu in _assortativity_degree_items(G, xdeg, node_set, weight):
+        neighbors = (nbr for _, nbr in G.edges(u) if nbr in node_set)
+        for _, degv in _assortativity_degree_items(G, ydeg, neighbors, weight):
+            yield degu, degv
 
 
 def number_of_walks(G, walk_length, *, backend=None, **backend_kwargs):

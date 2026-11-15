@@ -895,7 +895,7 @@ def _degree_xy_pairs_fast(G, x, y, weight, nodes):
     """
     import numpy as np
 
-    if nodes is not None:
+    if nodes is not None or not _assortativity_has_native_graph_access(G):
         return None
     if G.is_multigraph() or G.number_of_edges() == 0:
         return None

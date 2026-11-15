@@ -774,39 +774,23 @@ def degree_mixing_dict(G, x="out", y="in", weight=None, nodes=None, normalized=F
         ``result[d1][d2]`` is the _count of edges between nodes of
         degree d1 and degree d2.
     """
-    # br-r37-c1-mixfast: vectorize the common undirected / unweighted /
-    # full-graph count. node_degree_xy walks G.edges(u) per node AND
-    # re-looks-up each neighbour's degree through the DegreeView (~4.8x nx).
-    # Here count degree pairs over the native edge list once against a native
-    # degree dict. The resulting counts are IDENTICAL (an undirected non-loop
-    # edge contributes (du,dv) and (dv,du); a self-loop contributes (du,du)
-    # once — exactly nx's per-node G.edges(u) enumeration). Directed /
-    # weighted / multigraph / nodes-subset keep the generator path (in/out
-    # semantics, parallel-edge tuples, weights, node filtering).
+    # This eager consumer can snapshot ordinary unweighted native storage.
+    # Count in node_degree_xy's set-of-nodes and neighbor order so the outer
+    # and inner dictionaries retain the reference insertion order too.
     if (
         weight is None
         and nodes is None
         and not G.is_directed()
         and not G.is_multigraph()
         and type(G) is Graph
+        and _assortativity_has_native_graph_access(G)
     ):
         deg = dict(G.degree())
-        result = {}
-        for u, v in G.edges():
-            du = deg[u]
-            dv = deg[v]
-            inner = result.setdefault(du, {})
-            inner[dv] = inner.get(dv, 0) + 1
-            if u != v:
-                inner2 = result.setdefault(dv, {})
-                inner2[du] = inner2.get(du, 0) + 1
-        if normalized:
-            total = sum(sum(inner.values()) for inner in result.values())
-            if total:
-                for inner in result.values():
-                    for key in inner:
-                        inner[key] /= total
-        return result
+        adjacency = dict(G._native_adjacency_keys())
+        return mixing_dict(
+            ((deg[u], deg[v]) for u in set(G) for v in adjacency[u]),
+            normalized=normalized,
+        )
     return mixing_dict(
         node_degree_xy(G, x=x, y=y, weight=weight, nodes=nodes),
         normalized=normalized,
@@ -861,7 +845,7 @@ def degree_mixing_matrix(
             if right not in mapping:
                 continue
             matrix[mapping[left], mapping[right]] = value
-    if normalized and matrix.sum() > 0:
+    if normalized:
         matrix = matrix / matrix.sum()
     return matrix
 
@@ -896,6 +880,7 @@ def numeric_assortativity_coefficient(G, attribute, nodes=None):
     # iterator + attribute_mixing_matrix. Any non-applicable case falls through.
     if (
         nodes is None
+        and _assortativity_has_native_graph_access(G)
         and not G.is_directed()
         and not G.is_multigraph()
         and G.number_of_edges() > 0
@@ -957,6 +942,7 @@ def attribute_assortativity_coefficient(G, attribute, nodes=None):
     # than the slow node_attribute_xy / attribute_mixing_matrix path).
     if (
         nodes is None
+        and _assortativity_has_native_graph_access(G)
         and not G.is_directed()
         and not G.is_multigraph()
         and G.number_of_edges() > 0
