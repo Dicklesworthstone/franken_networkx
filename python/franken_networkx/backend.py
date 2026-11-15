@@ -96,6 +96,12 @@ _SUBSET_BETWEENNESS_INPUT_ALGORITHMS = frozenset(
 _CONNECTIVITY_BATCH_INPUT_ALGORITHMS = frozenset(
     {"all_pairs_node_connectivity", "average_node_connectivity", "gomory_hu_tree"}
 )
+_LOCAL_CONNECTIVITY_ALGORITHMS = frozenset(
+    {
+        "local_node_connectivity", "local_edge_connectivity",
+        "minimum_st_node_cut", "minimum_st_edge_cut",
+    }
+)
 _RESILIENCE_ALGORITHMS = frozenset(
     {
         "is_k_edge_connected", "k_edge_components", "k_edge_subgraphs",
@@ -972,14 +978,15 @@ def _spectral_dispatch_uses_live_providers(name, graph, arguments):
             return True
     return False
 
-# These APIs have two independently observable graph inputs. A converted
-# graph can also be supplied explicitly as the auxiliary, so its weak source
-# marker cannot identify both arguments' owners. NetworkX calls can_run with
+# These APIs have independently observable graph and auxiliary inputs.
+# A converted graph may also be supplied explicitly as an auxiliary,
+# so its weak source marker cannot identify every owner. NetworkX calls can_run with
 # original arguments, then looks up the callable before converting anything.
 # Capture that single invocation in the returned wrapper; nested conversions
 # and other execution contexts cannot replace its original inputs.
 _DISJOINT_ALGORITHMS = frozenset({"edge_disjoint_paths", "node_disjoint_paths"})
-_DISJOINT_CALL_INPUTS = ContextVar("franken_networkx_disjoint_inputs", default=None)
+_AUXILIARY_GRAPH_ALGORITHMS = _DISJOINT_ALGORITHMS | _LOCAL_CONNECTIVITY_ALGORITHMS
+_AUXILIARY_GRAPH_CALL_INPUTS = ContextVar("franken_networkx_auxiliary_graph_inputs", default=None)
 _BINARY_GRAPH_OPERATORS = frozenset(
     {
         "union", "compose", "intersection", "difference", "symmetric_difference",
@@ -1075,6 +1082,17 @@ def _call_with_original_inputs(
         if not any(source is graph for graph in graphs):
             graphs.append(source)
         _discard_component_passthrough(source)
+    # NetworkX converts G and auxiliary, but passes residual through unchanged.
+    # Keep solver-owned tokens opaque while invalidating real residual graphs
+    # that a solver may mutate or cache during a reentrant backend call.
+    residual = bound.arguments.get("residual")
+    if residual is not None:
+        import networkx as nx
+
+        if issubclass(
+            type(residual), (fnx.Graph, fnx.DiGraph, fnx.MultiGraph, fnx.MultiDiGraph, nx.Graph)
+        ) and not any(residual is graph for graph in graphs):
+            graphs.append(residual)
     if not invalidate_conversions and not callable(bound.arguments.get("flow_func")):
         return fn(*bound.args, **bound.kwargs)
 
@@ -1167,6 +1185,10 @@ _SUPPORTED_ALGORITHMS = {
     "minimum_node_cut": fnx.minimum_node_cut,
     "edge_connectivity": fnx.edge_connectivity,
     "minimum_edge_cut": fnx.minimum_edge_cut,
+    "local_node_connectivity": fnx.connectivity.local_node_connectivity,
+    "local_edge_connectivity": fnx.connectivity.local_edge_connectivity,
+    "minimum_st_node_cut": fnx.connectivity.minimum_st_node_cut,
+    "minimum_st_edge_cut": fnx.connectivity.minimum_st_edge_cut,
     "all_pairs_node_connectivity": fnx.all_pairs_node_connectivity,
     "average_node_connectivity": fnx.average_node_connectivity,
     "gomory_hu_tree": fnx.gomory_hu_tree,
@@ -2209,7 +2231,10 @@ class BackendInterface:
         traversal, so unrelated algorithms still receive native conversions.
         """
         pending_provider = _PROVIDER_CALL_INPUTS.get()
-        if name in _LIVE_INPUT_ALGORITHMS | _PAIRED_GRAPH_ALGORITHMS | _GRAPH_SEQUENCE_OPERATORS or (
+        if name in (
+            _LIVE_INPUT_ALGORITHMS | _PAIRED_GRAPH_ALGORITHMS
+            | _GRAPH_SEQUENCE_OPERATORS | _LOCAL_CONNECTIVITY_ALGORITHMS
+        ) or (
             pending_provider is not None
             and pending_provider[0] == name
             and pending_provider[1]() is G
@@ -2250,12 +2275,14 @@ class BackendInterface:
         try:
             bound = inspect.signature(fn).bind(*args, **kwargs)
         except TypeError:
+            if name in _AUXILIARY_GRAPH_ALGORITHMS:
+                _AUXILIARY_GRAPH_CALL_INPUTS.set(None)
             if name in _PAIRED_GRAPH_ALGORITHMS:
                 _PAIRED_GRAPH_CALL_INPUTS.set(None)
             if name in _GRAPH_SEQUENCE_OPERATORS:
                 _GRAPH_SEQUENCE_CALL_INPUTS.set(None)
             return False
-        if name in _DISJOINT_ALGORITHMS:
+        if name in _AUXILIARY_GRAPH_ALGORITHMS:
             try:
                 inputs = tuple(
                     (parameter, weakref.ref(bound.arguments[parameter]))
@@ -2263,9 +2290,9 @@ class BackendInterface:
                     if bound.arguments.get(parameter) is not None
                 )
             except TypeError:
-                _DISJOINT_CALL_INPUTS.set(None)
+                _AUXILIARY_GRAPH_CALL_INPUTS.set(None)
                 return False
-            _DISJOINT_CALL_INPUTS.set((name, inputs))
+            _AUXILIARY_GRAPH_CALL_INPUTS.set((name, inputs))
         elif name in _PAIRED_GRAPH_ALGORITHMS:
             parameters = ("G", "H") if name in _BINARY_GRAPH_OPERATORS else ("G1", "G2")
             try:
@@ -2361,12 +2388,12 @@ class BackendInterface:
                 inspect.signature(fn)
                 if live_input or name in _CALLBACK_INPUT_ALGORITHMS else None
             )
-            disjoint_inputs = None
-            if name in _DISJOINT_ALGORITHMS:
-                pending = _DISJOINT_CALL_INPUTS.get()
+            auxiliary_inputs = None
+            if name in _AUXILIARY_GRAPH_ALGORITHMS:
+                pending = _AUXILIARY_GRAPH_CALL_INPUTS.get()
                 if pending is not None and pending[0] == name:
-                    disjoint_inputs = pending[1]
-                    disjoint_signature = inspect.signature(fn)
+                    auxiliary_inputs = pending[1]
+                    auxiliary_signature = inspect.signature(fn)
             paired_inputs = None
             if name in _PAIRED_GRAPH_ALGORITHMS:
                 paired_pending = _PAIRED_GRAPH_CALL_INPUTS.get()
@@ -2406,15 +2433,16 @@ class BackendInterface:
                         return _call_with_original_graph_sequence(
                             fn, sequence_signature, sequence_inputs, args, kwargs
                         )
-                    if disjoint_inputs is not None:
+                    if auxiliary_inputs is not None:
                         # hasattr probes may look up and discard wrappers.
                         # Capture before conversion, but consume only on call.
                         # A nested conversion may already have installed and
                         # consumed another record in this execution context.
-                        if _DISJOINT_CALL_INPUTS.get() is pending:
-                            _DISJOINT_CALL_INPUTS.set(None)
+                        if _AUXILIARY_GRAPH_CALL_INPUTS.get() is pending:
+                            _AUXILIARY_GRAPH_CALL_INPUTS.set(None)
                         return _call_with_original_inputs(
-                            fn, disjoint_signature, disjoint_inputs, args, kwargs
+                            fn, auxiliary_signature, auxiliary_inputs, args, kwargs,
+                            invalidate_conversions=name in _LOCAL_CONNECTIVITY_ALGORITHMS,
                         )
                     source = None
                     has_callbacks = False

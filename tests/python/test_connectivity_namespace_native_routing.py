@@ -441,6 +441,10 @@ _CONNECTIVITY_BACKEND_APIS = (
 
 
 def _warm_connectivity_backend_cache(graph):
+    # NetworkX's auxiliary/residual builders may disable caching. Enable it
+    # deliberately when exercising caller-owned shared graphs with warm caches.
+    if graph.__networkx_cache__ is None:
+        graph.__networkx_cache__ = {}
     nx.relabel_nodes(graph, {}, backend="franken_networkx")
     assert graph.__networkx_cache__["backends"]["franken_networkx"]
 
@@ -897,3 +901,225 @@ def test_batch_connectivity_clears_reentrant_solver_conversions(monkeypatch, nam
         getattr(nx, name)(graph, flow_func=solver, backend="franken_networkx")
     assert calls and graph.graph["after_conversion"] is True
     assert not graph.__networkx_cache__.get("backends")
+
+
+_LOCAL_CONNECTIVITY_BACKEND_APIS = (
+    "local_node_connectivity", "local_edge_connectivity",
+    "minimum_st_node_cut", "minimum_st_edge_cut",
+)
+
+
+def _local_connectivity_graphs(name, graph_type):
+    graph = getattr(nx, graph_type)(
+        [(0, 1), (0, 2), (1, 3), (2, 3), (3, 4), (1, 4)]
+    )
+    if graph.is_multigraph():
+        graph.add_edge(0, 1)
+    builder = (
+        nx.connectivity.build_auxiliary_node_connectivity
+        if "node" in name else nx.connectivity.build_auxiliary_edge_connectivity
+    )
+    auxiliary = builder(graph, backend="networkx")
+    residual = nx.algorithms.flow.build_residual_network(
+        auxiliary, "capacity", backend="networkx"
+    )
+    return graph, auxiliary, residual
+
+
+@pytest.mark.parametrize("name", _LOCAL_CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("positional", [False, True])
+def test_local_connectivity_backend_preserves_each_graph_and_solver(
+    monkeypatch, name, graph_type, cached, positional
+):
+    from franken_networkx import backend as fnx_backend
+
+    reference, reference_auxiliary, reference_residual = _local_connectivity_graphs(
+        name, graph_type
+    )
+    expected = getattr(nx.connectivity, name)(
+        reference, 0, 3, auxiliary=reference_auxiliary,
+        residual=reference_residual, backend="networkx",
+    )
+    graph, auxiliary, residual = _local_connectivity_graphs(name, graph_type)
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if cached:
+        for original in (graph, auxiliary, residual):
+            _warm_connectivity_backend_cache(original)
+
+    implementation = fnx_backend._SUPPORTED_ALGORITHMS[name]
+    inputs, callbacks = [], []
+
+    @wraps(implementation)
+    def record_inputs(*args, **kwargs):
+        bound = inspect.signature(implementation).bind(*args, **kwargs)
+        inputs.append(tuple(bound.arguments[key] for key in ("G", "auxiliary", "residual")))
+        return implementation(*args, **kwargs)
+
+    class Solver:
+        # Neither false truth values nor a built-in's name select its options.
+        __name__ = "preflow_push"
+
+        def __bool__(self):
+            return False
+
+        def __call__(self, original, source, target, **kwargs):
+            assert original is auxiliary
+            assert kwargs["residual"] is residual
+            callbacks.append((source, target))
+            result = fnx.flow.edmonds_karp(original, source, target, **kwargs)
+            assert result is residual
+            return result
+
+    converter = fnx_backend._nx_to_fnx_for_dispatch
+
+    def reject_input_snapshot(original, *args, **kwargs):
+        assert all(original is not value for value in (graph, auxiliary, residual))
+        return converter(original, *args, **kwargs)
+
+    monkeypatch.setitem(fnx_backend._SUPPORTED_ALGORITHMS, name, record_inputs)
+    monkeypatch.setattr(fnx_backend, "_nx_to_fnx_for_dispatch", reject_input_snapshot)
+    call = getattr(nx.connectivity, name)
+    if positional:
+        actual = call(graph, 0, 3, Solver(), auxiliary, residual, backend="franken_networkx")
+    else:
+        actual = call(
+            graph, 0, 3, flow_func=Solver(), auxiliary=auxiliary,
+            residual=residual, backend="franken_networkx",
+        )
+    assert actual == expected and type(actual) is type(expected)
+    assert len(inputs) == 1 and all(
+        observed is original
+        for observed, original in zip(inputs[0], (graph, auxiliary, residual))
+    )
+    assert callbacks
+    assert list(residual.edges(data=True)) == list(reference_residual.edges(data=True))
+    assert all(not (original.__networkx_cache__ or {}).get("backends") for original in inputs[0])
+
+
+@pytest.mark.parametrize("name", _LOCAL_CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_local_connectivity_reuses_supplied_residual_with_default_solver(
+    monkeypatch, name, graph_type, dispatch
+):
+    outcomes = []
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    for reference in (True, False):
+        graph, auxiliary, residual = _local_connectivity_graphs(name, graph_type)
+        residual.graph["caller_marker"] = marker = object()
+        results = []
+        for target in (3, 4):
+            if not reference and dispatch:
+                for original in (graph, auxiliary, residual):
+                    _warm_connectivity_backend_cache(original)
+            module = nx.connectivity if reference or dispatch else fnx_conn
+            options = (
+                {"backend": "networkx" if reference else "franken_networkx"}
+                if reference or dispatch else {}
+            )
+            result = getattr(module, name)(
+                graph, 0, target, auxiliary=auxiliary, residual=residual, **options
+            )
+            assert residual.graph["caller_marker"] is marker
+            results.append((
+                result,
+                [(u, v, dict(attrs)) for u, v, attrs in residual.edges(data=True)],
+                residual.graph["flow_value"],
+            ))
+            if not reference and dispatch:
+                assert all(
+                    not (original.__networkx_cache__ or {}).get("backends")
+                    for original in (graph, auxiliary, residual)
+                )
+        outcomes.append(results)
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("name", _LOCAL_CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("fails", [False, True])
+def test_local_connectivity_clears_all_reentrant_callback_conversions(monkeypatch, name, fails):
+    graph, auxiliary, residual = _local_connectivity_graphs(name, "Graph")
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    failure = RuntimeError("local solver stopped after changing shared state")
+    calls = []
+
+    def solver(original, source, target, **kwargs):
+        assert original is auxiliary and kwargs["residual"] is residual
+        calls.append((source, target))
+        for value in (graph, auxiliary, residual):
+            _warm_connectivity_backend_cache(value)
+            value.graph["after_conversion"] = True
+        if fails:
+            raise failure
+        return fnx.flow.edmonds_karp(original, source, target, **kwargs)
+
+    options = dict(flow_func=solver, auxiliary=auxiliary, residual=residual, backend="franken_networkx")
+    if fails:
+        with pytest.raises(RuntimeError) as error:
+            getattr(nx.connectivity, name)(graph, 0, 3, **options)
+        assert error.value is failure
+    else:
+        getattr(nx.connectivity, name)(graph, 0, 3, **options)
+    assert calls
+    for original in (graph, auxiliary, residual):
+        assert original.graph["after_conversion"] is True
+        assert not (original.__networkx_cache__ or {}).get("backends")
+
+
+@pytest.mark.parametrize("dispatch", [False, True])
+def test_minimum_st_edge_cut_preserves_custom_auxiliary_providers(dispatch):
+    class PublicAuxiliary(nx.DiGraph):
+        @property
+        def nodes(self):
+            raise AssertionError("edge connectivity exported unrelated auxiliary node attributes")
+
+    graph = nx.Graph([(0, 1), (1, 2), (0, 3), (3, 2)])
+    source_auxiliary = nx.connectivity.build_auxiliary_edge_connectivity(graph, backend="networkx")
+    auxiliary = PublicAuxiliary()
+    auxiliary.add_nodes_from(source_auxiliary)
+    auxiliary.add_edges_from(source_auxiliary.edges(data=True))
+    expected = nx.connectivity.minimum_st_edge_cut(
+        graph, 0, 2, auxiliary=auxiliary, backend="networkx"
+    )
+    actual = (
+        nx.connectivity.minimum_st_edge_cut(
+            graph, 0, 2, auxiliary=auxiliary, backend="franken_networkx"
+        )
+        if dispatch else fnx_conn.minimum_st_edge_cut(graph, 0, 2, auxiliary=auxiliary)
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("name", _LOCAL_CONNECTIVITY_BACKEND_APIS)
+@pytest.mark.parametrize("dispatch", ["direct", "explicit", "priority"])
+def test_local_connectivity_keeps_solver_owned_residual_opaque(monkeypatch, name, dispatch):
+    class SolverResidual:
+        __slots__ = ()
+
+        def __getattribute__(self, attribute):
+            raise AssertionError(f"dispatch inspected solver residual: {attribute}")
+
+    graph, auxiliary, _ = _local_connectivity_graphs(name, "DiGraph")
+    residual = SolverResidual()
+    expected = getattr(nx.connectivity, name)(graph, 0, 3, backend="networkx")
+    calls = []
+
+    def solver(original, source, target, **kwargs):
+        assert original is auxiliary
+        assert kwargs.pop("residual") is residual
+        calls.append((source, target))
+        return fnx.flow.edmonds_karp(original, source, target, **kwargs)
+
+    options = dict(flow_func=solver, auxiliary=auxiliary, residual=residual)
+    if dispatch == "direct":
+        actual = getattr(fnx_conn, name)(graph, 0, 3, **options)
+    else:
+        if dispatch == "priority":
+            monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+        else:
+            options["backend"] = "franken_networkx"
+        actual = getattr(nx.connectivity, name)(graph, 0, 3, **options)
+    assert actual == expected
+    assert len(calls) == 1

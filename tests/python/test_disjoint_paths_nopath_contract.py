@@ -619,32 +619,38 @@ def test_disjoint_backend_cached_auxiliary_remains_live_after_deepcopy(monkeypat
 
 
 @pytest.mark.parametrize("name", _DISJOINT_APIS)
-def test_disjoint_backend_callback_failure_clears_both_reentrant_caches(monkeypatch, name):
+def test_disjoint_backend_callback_failure_clears_all_reentrant_caches(monkeypatch, name):
     graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
     builder = (
         "build_auxiliary_node_connectivity" if name == "node_disjoint_paths"
         else "build_auxiliary_edge_connectivity"
     )
     auxiliary = getattr(nx.algorithms.connectivity, builder)(graph)
-    converter = _warm_disjoint_conversion_cache(monkeypatch, graph, auxiliary)
+    residual = nx.algorithms.flow.build_residual_network(
+        auxiliary, "capacity", backend="networkx"
+    )
+    residual.__networkx_cache__ = {}
+    converter = _warm_disjoint_conversion_cache(monkeypatch, graph, auxiliary, residual)
     failure = RuntimeError("solver stopped after writing input attributes")
 
     def solver(H, source, target, **kwargs):
         assert H is auxiliary
-        for original in (graph, auxiliary):
+        assert kwargs["residual"] is residual
+        for original in (graph, auxiliary, residual):
             original.graph["changed"] = True
             nx.relabel_nodes(original, {}, backend="franken_networkx")
             assert original.__networkx_cache__["backends"]["franken_networkx"]
         raise failure
 
     paths = getattr(nx, name)(
-        graph, 0, 3, flow_func=solver, auxiliary=auxiliary, backend="franken_networkx"
+        graph, 0, 3, flow_func=solver, auxiliary=auxiliary,
+        residual=residual, backend="franken_networkx"
     )
     monkeypatch.setattr(fnx_backend.BackendInterface, "convert_from_nx", staticmethod(converter))
     with pytest.raises(RuntimeError) as error:
         next(paths)
     assert error.value is failure
-    for original in (graph, auxiliary):
+    for original in (graph, auxiliary, residual):
         assert original.graph["changed"] is True
         assert not original.__networkx_cache__.get("backends")
 
@@ -704,5 +710,39 @@ def test_disjoint_backend_priority_uses_the_registered_implementation(monkeypatc
     graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
     assert list(getattr(nx, name)(graph, 0, 3)) == [[0, 1, 3], [0, 2, 3]]
     assert len(calls) == 1 and calls[0] is graph
+
+
+@pytest.mark.parametrize("name", _DISJOINT_APIS)
+@pytest.mark.parametrize("priority", [False, True])
+def test_disjoint_backend_keeps_solver_owned_residual_opaque(monkeypatch, name, priority):
+    class SolverResidual:
+        __slots__ = ()
+
+        def __getattribute__(self, attribute):
+            raise AssertionError(f"dispatch inspected solver residual: {attribute}")
+
+    graph = nx.DiGraph([(0, 1), (1, 3), (0, 2), (2, 3)])
+    builder = (
+        fnx_connectivity.build_auxiliary_node_connectivity
+        if name == "node_disjoint_paths"
+        else fnx_connectivity.build_auxiliary_edge_connectivity
+    )
+    auxiliary = builder(graph)
+    residual = SolverResidual()
+    calls = []
+
+    def solver(original, source, target, **kwargs):
+        assert original is auxiliary
+        assert kwargs.pop("residual") is residual
+        calls.append((source, target))
+        return fnx_flow.edmonds_karp(original, source, target, **kwargs)
+
+    options = dict(flow_func=solver, auxiliary=auxiliary, residual=residual)
+    if priority:
+        monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    else:
+        options["backend"] = "franken_networkx"
+    assert list(getattr(nx, name)(graph, 0, 3, **options)) == [[0, 1, 3], [0, 2, 3]]
+    assert len(calls) == 1
 
 

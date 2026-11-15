@@ -276,7 +276,13 @@ def minimum_st_edge_cut(
         "minimum_st_edge_cut", backend, backend_kwargs
     )
     H = build_auxiliary_edge_connectivity(G) if auxiliary is None else auxiliary
-    if flow_func is None and residual is None:
+    # Supplied auxiliaries can expose live capacity and adjacency providers.
+    # Admit the native shortcut only after preserving those reader boundaries.
+    if (
+        flow_func is None
+        and residual is None
+        and not _fnx._flow_uses_live_python_rows(H, "capacity")
+    ):
         H_fnx = _fnx._coerce_arg_to_fnx_graph(H)
         _, (reachable, non_reachable) = _fnx._minimum_cut_raw(
             H_fnx, s, t, capacity="capacity", edmonds_karp=True
