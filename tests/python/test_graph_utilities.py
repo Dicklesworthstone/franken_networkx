@@ -4836,3 +4836,67 @@ def test_reverse_view_supports_edge_subgraph_without_fallback(monkeypatch, fnx_c
     assert result.is_multigraph() == expected_result.is_multigraph()
     assert result.frozen == expected_result.frozen
     assert _graph_snapshot(result) == _graph_snapshot(expected_result)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("kind", ["concrete", "subclass", "view"])
+@pytest.mark.parametrize("surface", ["top-level", "classes"])
+def test_freeze_keeps_caller_owned_networkx_graph(graph_name, kind, surface):
+    graph_class = getattr(nx, graph_name)
+    if kind == "subclass":
+        graph_class = type("CallerGraph", (graph_class,), {})
+    graph = graph_class([("a", "b"), ("b", "c")])
+    parent = graph
+    if kind == "view":
+        graph = graph.subgraph(["a", "b", "c"])
+    original_attrs = graph.graph
+    original_edges = list(graph.edges)
+    if surface == "classes":
+        from franken_networkx.classes import freeze as freezer
+    else:
+        freezer = fnx.freeze
+    assert freezer(graph) is graph
+    assert nx.is_frozen(graph)
+    assert graph.graph is original_attrs
+    for mutation in (
+        "add_node", "add_nodes_from", "remove_node", "remove_nodes_from",
+        "add_edge", "add_edges_from", "add_weighted_edges_from", "remove_edge",
+        "remove_edges_from", "clear", "clear_edges",
+    ):
+        assert _frozen_mutation_outcome(graph, mutation) == (
+            "NetworkXError", "Frozen graph can't be modified"
+        )
+    assert list(graph.edges) == original_edges
+    graph.nodes["a"]["value"] = 7
+    assert parent.nodes["a"]["value"] == 7
+    if kind == "view":
+        assert not nx.is_frozen(parent)
+        parent.add_edge("a", "c")
+        assert graph.has_edge("a", "c")
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("foreign", [False, True], ids=["native-subclass", "networkx-subclass"])
+@pytest.mark.parametrize("reject", [None, "remove_edge"])
+def test_freeze_honors_subclass_assignment_protocol(graph_name, foreign, reject):
+    observations = []
+    for library, source in ((nx, nx), (fnx, nx if foreign else fnx)):
+        class ObservableGraph(getattr(source, graph_name)):
+            def __setattr__(self, name, value):
+                if "assignments" in vars(self) and not name.startswith("_fnx_"):
+                    self.assignments.append(name)
+                    if name == reject:
+                        raise RuntimeError("method assignment rejected")
+                super().__setattr__(name, value)
+
+        graph = ObservableGraph([("a", "b")])
+        graph.assignments = []
+        try:
+            result = library.freeze(graph)
+        except RuntimeError as exc:
+            outcome = type(exc).__name__, str(exc)
+        else:
+            assert result is graph
+            outcome = None
+        observations.append((graph.assignments, outcome, nx.is_frozen(graph)))
+    assert observations[0] == observations[1]

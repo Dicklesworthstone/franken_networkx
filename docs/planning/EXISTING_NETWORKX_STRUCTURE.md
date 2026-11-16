@@ -3122,3 +3122,37 @@ The focused cases extend `tests/python/test_distance_measures_parity.py`.
 Their execution and current-native DSR qualification remain outstanding under
 `br-r37-c1-78u12`; the implementation and tests received source review only
 because the execution environment disconnected during this session.
+
+## 101. In-Place Graph Mutation Utilities
+
+`freeze` returns the exact graph supplied by the caller and prevents structural
+mutation on that object, including foreign NetworkX graphs and views. It
+retains shared graph, node and edge attributes. Subclasses observe each
+mutator assignment through their own `__setattr__`; an assignment failure
+preserves the reference exception and preceding assignments. Exact native
+graph classes retain their existing instance-dictionary optimization.
+
+`set_node_attributes` and `set_edge_attributes` consume mapping-like
+`items()` providers without requiring a Mapping base class. Named node
+assignments read `values[node]` afresh, while edge assignments use each
+yielded value and address the supplied orientation in `G._adj`. Scalar
+broadcasts share the original value object. Attribute names may be any
+supported hashable key. Streaming writes, missing-key handling, malformed
+edge identifiers and the named-form AttributeError broadcast boundary
+preserve the caller's observable protocol.
+
+Native bulk setters remain available for ordinary concrete storage, exact
+dict inputs and supported names. Assigned public providers, custom attribute
+factories and nonordinary mappings keep their live Python access. Broadcast
+admission is reevaluated after a provider callback, because that callback can
+replace public storage before requesting the scalar fallback.
+
+Every successfully completed setter clears a truthy backend-conversion
+cache, including empty updates and native fast paths. Failed partial writes
+retain the reference exception boundary; falsey custom caches are untouched.
+This prevents a subsequent cached backend query from using old attributes.
+
+Focused cases extend `tests/python/test_attribute_access_parity.py` and
+`tests/python/test_graph_utilities.py`. They received independent source
+review; execution and current-native DSR qualification remain outstanding
+under `br-r37-c1-78u12` because the execution environment is unavailable.

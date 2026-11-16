@@ -872,59 +872,86 @@ def _native_edge_mapping_has_exact_tuple_keys(values, arity):
         type(edge) is tuple and len(edge) == arity for edge in values
     )
 
+
+def _attribute_write_has_native_access(G, layer):
+    """Keep assigned public providers and custom factories on the live path."""
+    if not _adc_has_native_graph_access(G):
+        return False
+    storage = G.__dict__
+    if any(name in storage for name in ("is_directed", "is_multigraph")):
+        return False
+    if "edges" in storage and storage["edges"] is not storage.get("_fnx_view_edges"):
+        return False
+    factory = G.node_attr_dict_factory if layer == "node" else G.edge_attr_dict_factory
+    return factory is dict
+
+
+def _clear_attribute_write_cache(G):
+    cache = getattr(G, "__networkx_cache__", None)
+    if cache:
+        cache.clear()
+
+
 def set_node_attributes(G, values, name=None):
-    """_Set node attributes from a dictionary or scalar.
+    """Set node attributes from a dictionary, items provider, or scalar.
 
     Parameters
     ----------
     G : Graph
-        The graph to modify.
-    values : dict or scalar
-        If a dict keyed by node, ``values[node]`` is the attribute value.
-        If a dict keyed by node mapping to dicts, each inner dict is merged
-        into the node's attributes. If a scalar, set it for all nodes.
-    name : str, optional
-        Attribute name. Required when *values* is a dict of scalars or a scalar.
+        The graph to modify in place.
+    values : mapping-like or scalar
+        With name, per-node values are read through items() and values[node].
+        Without name, each yielded attribute mapping is merged into the node.
+        A scalar with name is shared by all nodes.
+    name : hashable, optional
+        Attribute name. Required for per-node scalar values or a broadcast.
     """
-    if isinstance(values, _Mapping):
-        if name is not None:
-            # br-r37-c1-snabulk: one native pass over the values dict
-            # (was 3 PyO3 round-trips/node: has_node + G.nodes[n] +
-            # setitem). node_py_attrs is the authoritative store.
+    native_graph = _attribute_write_has_native_access(G, "node")
+    if type(values) is dict and native_graph:
+        # Retain the bulk setters for ordinary inputs. Dict subclasses and
+        # arbitrary items() providers must be consumed through their protocol.
+        if type(name) is str:
             native = getattr(G, "_native_set_node_attribute_scalar", None)
-            if native is not None and isinstance(values, dict) and not _has_networkx_private_storage(G):
+            if native is not None:
                 native(values, name)
+                _clear_attribute_write_cache(G)
                 return
-            for node, value in values.items():
-                if G.has_node(node):
-                    G.nodes[node][name] = value
-            return
-
-        # br-r37-c1-snabulk-dict (cc): native one-pass for the {node: attrdict}
-        # form (was a per-node G.nodes[node] NodeView __getitem__ + update,
-        # ~0.27x vs nx). node_py_attrs is authoritative across all graph types.
-        if isinstance(values, dict):
+        elif name is None and all(type(attrs) is dict for attrs in values.values()):
             native = getattr(G, "_native_set_node_attributes_dict", None)
-            if native is not None and not _has_networkx_private_storage(G):
+            if native is not None:
                 native(values)
+                _clear_attribute_write_cache(G)
                 return
-        for node, attrs in values.items():
-            if G.has_node(node):
-                G.nodes[node].update(attrs)
-        return
 
     if name is not None:
-        # br-r37-c1-setattrbcast (cc): native one-pass broadcast onto every node
-        # (was a per-node NodeView __getitem__ loop, ~0.22x vs nx).
-        native = getattr(G, "_native_broadcast_node_attribute", None)
-        if native is not None and not _has_networkx_private_storage(G):
-            native(name, values)
-            return
-        for node in G.nodes():
-            G.nodes[node][name] = values
-        return
-
-    values.items()
+        try:
+            for node, _value in values.items():
+                try:
+                    # The named-node protocol performs a fresh lookup: an
+                    # items provider may yield a different value or mutate G.
+                    G.nodes[node][name] = values[node]
+                except KeyError:
+                    pass
+        except AttributeError:
+            # A missing/failed attribute protocol broadcasts the original
+            # object, preserving shared mutable-value identity.
+            native = (
+                getattr(G, "_native_broadcast_node_attribute", None)
+                if type(name) is str and _attribute_write_has_native_access(G, "node")
+                else None
+            )
+            if native is not None:
+                native(name, values)
+            else:
+                for node in G:
+                    G.nodes[node][name] = values
+    else:
+        for node, attrs in values.items():
+            try:
+                G.nodes[node].update(attrs)
+            except KeyError:
+                pass
+    _clear_attribute_write_cache(G)
 
 
 def get_node_attributes(G, name, default=None):
@@ -968,83 +995,83 @@ def get_node_attributes(G, name, default=None):
 
 
 def set_edge_attributes(G, values, name=None):
-    """_Set edge attributes from a dictionary or scalar.
+    """Set edge attributes from a dictionary, items provider, or scalar.
 
     Parameters
     ----------
     G : Graph
-        The graph to modify.
-    values : dict or scalar
-        If a dict keyed by ``(u, v)``, sets the attribute per edge.
-        If a scalar, sets it for all edges.
-    name : str, optional
-        Attribute name. Required when *values* is a scalar.
+        The graph to modify in place.
+    values : mapping-like or scalar
+        Mappings identify simple edges by (u, v), or parallel edges by
+        (u, v, key). Without name, yielded attribute mappings are merged.
+        A scalar with name is shared by all edges.
+    name : hashable, optional
+        Attribute name. Required for per-edge scalar values or a broadcast.
     """
-    if isinstance(values, _Mapping):
-        if name is not None:
-            # br-r37-c1-seabulk: one native pass over the {(u,v): value}
-            # dict (was per-edge G[u][v] resolve + setitem). Native sets
-            # the edge_py_attrs mirror + marks edges dirty so the lazy
-            # inner flush reaches the kernels. Simple graphs only (Multi
-            # edge keys are 3-tuples); others fall back.
-            arity = 3 if G.is_multigraph() else 2
-            if (
-                not _has_networkx_private_storage(G)
-                and _native_edge_mapping_has_exact_tuple_keys(values, arity)
-            ):
+    native_graph = _attribute_write_has_native_access(G, "edge")
+    if native_graph:
+        arity = 3 if G.is_multigraph() else 2
+        if _native_edge_mapping_has_exact_tuple_keys(values, arity):
+            if type(name) is str:
                 if arity == 2:
                     native = getattr(G, "_native_set_edge_attribute_scalar", None)
-                    if native is not None:
-                        native(values, name)
-                        return
                 else:
                     native = getattr(G, "_native_set_edge_attribute_scalar_multi", None)
-                    if native is not None:
-                        native(values, name)
-                        return
-            for edge, value in values.items():
-                try:
-                    _edge_attribute_dict(G, edge)[name] = value
-                except KeyError:
-                    continue
-            return
+                if native is not None:
+                    native(values, name)
+                    _clear_attribute_write_cache(G)
+                    return
+            elif name is None and arity == 2 and all(
+                type(attrs) is dict for attrs in values.values()
+            ):
+                native = getattr(G, "_native_set_edge_attributes_dict", None)
+                if native is not None:
+                    native(values)
+                    _clear_attribute_write_cache(G)
+                    return
 
-        # br-r37-c1-seabulk-dict (cc): native one-pass for the {(u,v): attrdict}
-        # form. The loop below resolves `G[u][v]` (a full EdgeAttrDict VIEW)
-        # per edge (~0.06x vs nx's plain `G._adj[u][v].update`). Simple graphs
-        # only (Multi edge keys are 3-tuples; others keep the loop).
-        if (
-            not G.is_multigraph()
-            and not _has_networkx_private_storage(G)
-            and _native_edge_mapping_has_exact_tuple_keys(values, 2)
-        ):
-            native = getattr(G, "_native_set_edge_attributes_dict", None)
-            if native is not None:
-                native(values)
-                return
-        for edge, attrs in values.items():
-            try:
-                _edge_attribute_dict(G, edge).update(attrs)
-            except KeyError:
-                continue
-        return
-
+    # Bind edge identifiers before entering the per-edge missing-key handler.
+    # A malformed edge iterator is an input error, not a missing graph edge.
     if name is not None:
-        if G.is_multigraph():
-            for u, v, key, attrs in G.edges(keys=True, data=True):
-                attrs[name] = values
-        else:
-            # br-r37-c1-setattrbcast (cc): native one-pass broadcast onto every
-            # edge (was a per-edge edges(data=True) loop, ~0.39x vs nx).
-            native = getattr(G, "_native_broadcast_edge_attribute", None)
-            if native is not None and not _has_networkx_private_storage(G):
+        try:
+            if G.is_multigraph():
+                for (u, v, key), value in values.items():
+                    try:
+                        G._adj[u][v][key][name] = value
+                    except KeyError:
+                        pass
+            else:
+                for (u, v), value in values.items():
+                    try:
+                        G._adj[u][v][name] = value
+                    except KeyError:
+                        pass
+        except AttributeError:
+            native = (
+                getattr(G, "_native_broadcast_edge_attribute", None)
+                if type(name) is str
+                and _attribute_write_has_native_access(G, "edge")
+                and not G.is_multigraph()
+                else None
+            )
+            if native is not None:
                 native(name, values)
-                return
-            for u, v, attrs in G.edges(data=True):
-                attrs[name] = values
-        return
-
-    values.items()
+            else:
+                for _, _, attrs in G.edges(data=True):
+                    attrs[name] = values
+    elif G.is_multigraph():
+        for (u, v, key), attrs in values.items():
+            try:
+                G._adj[u][v][key].update(attrs)
+            except KeyError:
+                pass
+    else:
+        for (u, v), attrs in values.items():
+            try:
+                G._adj[u][v].update(attrs)
+            except KeyError:
+                pass
+    _clear_attribute_write_cache(G)
 
 
 def get_edge_attributes(G, name, default=None):

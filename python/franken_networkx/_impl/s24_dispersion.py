@@ -1128,28 +1128,8 @@ def rescale_layout(pos, scale=1):
 
 
 def freeze(G):
-    """Modify *G* so that mutation raises an error. Returns *G*.
-
-    br-r37-c1-cfcls: Convert nx input to fnx for consistent return type.
-    """
-    if not isinstance(G, (Graph, DiGraph, MultiGraph, MultiDiGraph)):
-        G = _coerce_arg_to_fnx_graph(G)
-    # br-r37-c1-frzsetattr: write the method shadows straight into the instance
-    # dict, and let only the LAST assignment go through the normal path.
-    #
-    # Every setattr on an fnx graph runs the class's custom __setattr__, which
-    # ends in self._fnx_register_gc_dict(vars(self)). vars(self) is the SAME dict
-    # object each time, so freezing re-registered one dict TWELVE times per call -
-    # and freeze() measured 0.0768-0.0820x against networkx, which just rebinds
-    # the names. The cost was per-assignment bookkeeping, not the assignments.
-    #
-    # None of these names is in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES or
-    # _DIRECTED_CACHED_PUBLIC_NAMES, so the custom path
-    # would do nothing for them except the plain write and that redundant
-    # registration. `G.frozen = True` is deliberately left on the normal path, so
-    # the instance dict is still registered exactly once per freeze.
-    instance_dict = vars(G)
-    for name in (
+    """Modify *G* so that structural mutation raises an error. Returns *G*."""
+    mutators = (
         "add_node",
         "add_nodes_from",
         "remove_node",
@@ -1161,9 +1141,18 @@ def freeze(G):
         "remove_edges_from",
         "clear",
         "clear_edges",
-    ):
-        if hasattr(G, name):
+    )
+    if type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        # These method shadows need no descriptor handling. Register the
+        # native instance dictionary once through the final frozen assignment.
+        instance_dict = vars(G)
+        for name in mutators:
             instance_dict[name] = _frozen
+    else:
+        # Freezing is in-place, including on NetworkX graphs and views.
+        # Subclasses may observe or reject each method assignment.
+        for name in mutators:
+            setattr(G, name, _frozen)
     G.frozen = True
     return G
 

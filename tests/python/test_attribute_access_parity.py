@@ -1975,3 +1975,277 @@ class TestRemoveBunchMaterialized:
         G.add_edge(0, 3)
         first_split = next(nx.community.girvan_newman(G))
         assert len(first_split) == 2  # partition into 2 communities
+
+
+class _MutationAttributeItems:
+    """A Series-like protocol without inheriting from Mapping."""
+
+    def __init__(self, entries):
+        self.entries = entries
+
+    def items(self):
+        yield from self.entries
+
+    def __getitem__(self, key):
+        return dict(self.entries)[key]
+
+
+class _MutationAttributeDict(dict):
+    def __init__(self, entries):
+        super().__init__({"not-a-real-node-or-edge": "ignored"})
+        self.entries = entries
+
+    def items(self):
+        yield from self.entries
+
+    def __getitem__(self, key):
+        return dict(self.entries)[key]
+
+
+def _mutation_attribute_target(graph, layer, key):
+    return graph.nodes[key] if layer == "node" else graph.edges[key]
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("foreign", [False, True], ids=["native", "networkx"])
+@pytest.mark.parametrize("layer", ["node", "edge"])
+@pytest.mark.parametrize("name", [None, "value", 3])
+@pytest.mark.parametrize("provider", [_MutationAttributeItems, _MutationAttributeDict])
+def test_attribute_setters_consume_items_protocol(graph_name, foreign, layer, name, provider):
+    actual_lib = nx if foreign else fnx
+    actual = getattr(actual_lib, graph_name)([(0, 1), (1, 2)])
+    expected = getattr(nx, graph_name)([(0, 1), (1, 2)])
+    key = 1 if layer == "node" else ((0, 1, 0) if actual.is_multigraph() else (0, 1))
+    absent = 99 if layer == "node" else ((8, 9, 0) if actual.is_multigraph() else (8, 9))
+    payload = []
+    value = {"value": payload} if name is None else payload
+    entries = [(key, value), (absent, value)]
+    setter = f"set_{layer}_attributes"
+    getattr(nx, setter)(expected, provider(entries), name)
+    assert getattr(fnx, setter)(actual, provider(entries), name) is None
+    attribute = "value" if name is None else name
+    assert _mutation_attribute_target(actual, layer, key) == _mutation_attribute_target(
+        expected, layer, key
+    )
+    assert _mutation_attribute_target(actual, layer, key)[attribute] is payload
+    assert list(actual) == list(expected)
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("foreign", [False, True], ids=["native", "networkx"])
+@pytest.mark.parametrize("layer", ["node", "edge"])
+@pytest.mark.parametrize("form", ["mapping", "merge", "broadcast", "empty"])
+def test_attribute_setters_invalidate_backend_conversions(graph_name, foreign, layer, form):
+    actual_lib = nx if foreign else fnx
+    actual = getattr(actual_lib, graph_name)([(0, 1), (1, 2)])
+    expected = getattr(nx, graph_name)([(0, 1), (1, 2)])
+    key = 1 if layer == "node" else ((0, 1, 0) if actual.is_multigraph() else (0, 1))
+    if form == "merge":
+        value, name = {key: {"value": 7}}, None
+    else:
+        value = {key: 7} if form == "mapping" else ({} if form == "empty" else 7)
+        name = "value"
+    for library, graph in ((nx, expected), (fnx, actual)):
+        graph.__networkx_cache__["backends"] = {"prior-conversion": object()}
+        assert getattr(library, f"set_{layer}_attributes")(graph, value, name) is None
+    assert actual.__networkx_cache__ == expected.__networkx_cache__ == {}
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_edge_attribute_update_changes_cached_backend_shortest_path(graph_name):
+    graph = getattr(nx, graph_name)()
+    graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1), (0, 2, 5)])
+    assert nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx") == 2
+    assert graph.__networkx_cache__.get("backends")
+    key = (0, 1, 0) if graph.is_multigraph() else (0, 1)
+    fnx.set_edge_attributes(graph, {key: 10}, "weight")
+    assert not graph.__networkx_cache__
+    assert nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx") == 5
+
+
+@pytest.mark.parametrize("layer", ["node", "edge"])
+@pytest.mark.parametrize("failure", [None, AttributeError, RuntimeError])
+@pytest.mark.parametrize("name", [None, "value"])
+def test_attribute_setters_keep_streaming_writes_and_failure_boundary(layer, failure, name):
+    outcomes = []
+    for library in (nx, fnx):
+        graph = nx.Graph([(0, 1), (1, 2)])
+        key = 0 if layer == "node" else (0, 1)
+        second = 1 if layer == "node" else (1, 2)
+        graph.__networkx_cache__["old"] = True
+
+        class Values:
+            def items(self):
+                yield key, {"value": 7} if name is None else 7
+                assert _mutation_attribute_target(graph, layer, key)["value"] == 7
+                if failure is not None:
+                    raise failure("provider failed")
+                yield second, {"value": 9} if name is None else 9
+
+            def __getitem__(self, item):
+                return {key: 7, second: 9}[item]
+
+        values = Values()
+        try:
+            getattr(library, f"set_{layer}_attributes")(graph, values, name)
+        except Exception as exc:
+            error = type(exc).__name__, exc.args
+        else:
+            error = None
+        attrs = [_mutation_attribute_target(graph, layer, item) for item in (key, second)]
+        state = [
+            {attr: "broadcast-provider" if value is values else value for attr, value in data.items()}
+            for data in attrs
+        ]
+        outcomes.append((state, error, graph.__networkx_cache__))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("foreign", [False, True], ids=["native", "networkx"])
+def test_named_node_attributes_use_fresh_mapping_lookup(foreign):
+    observations = []
+    for library, graph_library in ((nx, nx), (fnx, nx if foreign else fnx)):
+        graph = graph_library.Graph([(0, 1)])
+
+        class Values:
+            def items(self):
+                yield 0, "discarded items value"
+
+            def __getitem__(self, node):
+                assert node == 0
+                graph.add_node(2)
+                return "fresh lookup value"
+
+        library.set_node_attributes(graph, Values(), "value")
+        observations.append((list(graph), dict(graph.nodes(data=True))))
+    assert observations[0] == observations[1]
+    assert observations[1][1][0]["value"] == "fresh lookup value"
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("foreign", [False, True], ids=["native", "networkx"])
+def test_edge_attribute_setter_does_not_reverse_missing_public_rows(graph_name, foreign):
+    actual_lib = nx if foreign else fnx
+    outcomes = []
+    for library, graph_lib in ((fnx, actual_lib), (nx, nx)):
+        graph = getattr(graph_lib, graph_name)([(0, 1)])
+        data = {"weight": 2}
+        graph._adj = {0: {1: {0: data} if graph.is_multigraph() else data}, 1: {}}
+        key = (1, 0, 0) if graph.is_multigraph() else (1, 0)
+        library.set_edge_attributes(graph, {key: 9}, "weight")
+        outcomes.append(data)
+    assert outcomes[0] == outcomes[1] == {"weight": 2}
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_node_attribute_setter_respects_assigned_public_nodes(graph_name):
+    outcomes = []
+    for library in (nx, fnx):
+        graph = getattr(library, graph_name)([(0, 1)])
+        original_attrs = graph.nodes[0]
+        assigned = {0: {}, 1: {}}
+        graph.nodes = assigned
+        library.set_node_attributes(graph, {0: 7}, "value")
+        outcomes.append((assigned, dict(original_attrs)))
+    assert outcomes[0] == outcomes[1] == ({0: {"value": 7}, 1: {}}, {})
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_edge_attribute_broadcast_respects_assigned_public_edges(graph_name):
+    outcomes = []
+    for library in (nx, fnx):
+        graph = getattr(library, graph_name)([(0, 1)])
+        original_attrs = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+        assigned = {}
+        graph.edges = lambda data=False: [(0, 1, assigned)]
+        payload = []
+        library.set_edge_attributes(graph, payload, "value")
+        assert assigned["value"] is payload
+        outcomes.append((assigned, dict(original_attrs)))
+    assert outcomes[0] == outcomes[1] == ({"value": []}, {})
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_edge_attribute_setter_uses_adjacency_without_graph_getitem(graph_name):
+    outcomes = []
+    for library in (nx, fnx):
+        class Graph(getattr(library, graph_name)):
+            def __getitem__(self, node):
+                raise AssertionError("graph indexing is not the edge setter protocol")
+
+        graph = Graph([(0, 1)])
+        key = (0, 1, 0) if graph.is_multigraph() else (0, 1)
+        library.set_edge_attributes(graph, {key: 7}, "value")
+        data = graph._adj[0][1][0] if graph.is_multigraph() else graph._adj[0][1]
+        outcomes.append(dict(data))
+    assert outcomes[0] == outcomes[1] == {"value": 7}
+
+
+@pytest.mark.parametrize("name", [None, "value"])
+def test_edge_attribute_setter_does_not_swallow_malformed_edge_keyerror(name):
+    class BadEdge:
+        def __iter__(self):
+            raise KeyError("malformed edge iterator")
+
+    observations = []
+    for library in (nx, fnx):
+        graph = nx.Graph([(0, 1)])
+        graph.__networkx_cache__["old"] = True
+        values = _MutationAttributeItems([(BadEdge(), {"value": 7} if name is None else 7)])
+        with pytest.raises(KeyError) as error:
+            library.set_edge_attributes(graph, values, name)
+        observations.append((error.value.args, dict(graph.edges[0, 1]), graph.__networkx_cache__))
+    assert observations[0] == observations[1]
+
+
+@pytest.mark.parametrize("layer", ["node", "edge"])
+def test_attribute_setter_keeps_falsey_custom_cache(layer):
+    class FalseyCache(dict):
+        def __bool__(self):
+            return False
+
+        def clear(self):
+            raise AssertionError("a falsey cache must not be cleared")
+
+    for library in (nx, fnx):
+        graph = nx.Graph([(0, 1)])
+        graph.__networkx_cache__ = FalseyCache(old=True)
+        getattr(library, f"set_{layer}_attributes")(graph, 7, "value")
+        assert dict(graph.__networkx_cache__) == {"old": True}
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    "layer, failure_point",
+    [("node", "items"), ("node", "lookup"), ("edge", "items")],
+)
+def test_attribute_broadcast_readmits_providers_after_callback(graph_name, layer, failure_point):
+    for library in (nx, fnx):
+        graph = getattr(library, graph_name)([(0, 1)])
+        assigned = {0: {}, 1: {}} if layer == "node" else {}
+        key = 0 if layer == "node" else ((0, 1, 0) if graph.is_multigraph() else (0, 1))
+
+        def replace_provider():
+            if layer == "node":
+                graph.nodes = assigned
+            else:
+                graph.edges = lambda data=False: [(0, 1, assigned)]
+
+        class Values:
+            def items(self):
+                if failure_point == "items":
+                    replace_provider()
+                    raise AttributeError("provider changed")
+                yield key, 7
+
+            def __getitem__(self, item):
+                assert item == key
+                replace_provider()
+                raise AttributeError("provider changed")
+
+        values = Values()
+        graph.__networkx_cache__["old"] = True
+        getattr(library, f"set_{layer}_attributes")(graph, values, "value")
+        dictionaries = assigned.values() if layer == "node" else (assigned,)
+        assert all(data["value"] is values for data in dictionaries)
+        assert not graph.__networkx_cache__
