@@ -206,11 +206,12 @@ def _extrema_bounding_inproc(G, compute="diameter", weight=None):
     candidates. Alternating low-lower and high-upper pivots avoids a full
     all-sources sweep when the requested extreme is established sooner.
     """
-    if weight is None or not _weighted_query_uses_live_python_rows(G, weight):
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
 
     start_key = None
-    if weight is None:
+    if weight is None and not live_rows:
         snapshot = _cached_distance_measures_snapshot(G)
         if snapshot is not None:
             if compute == "diameter":
@@ -292,7 +293,7 @@ def _extrema_bounding_inproc(G, compute="diameter", weight=None):
 
     # Pruned intervals are not exact eccentricities. Publish a reusable full
     # snapshot only if every interval really collapsed and topology is stable.
-    if weight is None and all(lower[node] == upper[node] for node in lower):
+    if weight is None and not live_rows and all(lower[node] == upper[node] for node in lower):
         _store_distance_measures_snapshot(G, lower, start_key)
     if compute == "diameter":
         return max_lower
@@ -330,7 +331,7 @@ def diameter(G, e=None, usebounds=False, weight=None):
         return _extrema_bounding_inproc(G, compute="diameter", weight=weight)
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
-    if weight is not None or usebounds:
+    if weight is not None or usebounds or _weighted_query_uses_live_python_rows(G, None):
         return max(eccentricity(G, weight=weight).values())
     # Only the native default route needs a materialized graph. In particular,
     # a weight callback must keep observing the caller's live edge dictionaries.
@@ -375,7 +376,7 @@ def radius(G, e=None, usebounds=False, weight=None):
         return _extrema_bounding_inproc(G, compute="radius", weight=weight)
     if len(G) == 0:
         raise ValueError("min() iterable argument is empty")
-    if weight is not None or usebounds:
+    if weight is not None or usebounds or _weighted_query_uses_live_python_rows(G, None):
         return min(eccentricity(G, weight=weight).values())
     G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-tcyne: same directed-collapse defect as _raw_diameter —
@@ -418,7 +419,7 @@ def center(G, e=None, usebounds=False, weight=None):
         if weight is None and not G.is_directed():
             raise NetworkXPointlessConcept("G has no nodes.")
         raise ValueError("min() iterable argument is empty")
-    if weight is not None or usebounds:
+    if weight is not None or usebounds or _weighted_query_uses_live_python_rows(G, None):
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
@@ -473,7 +474,7 @@ def periphery(G, e=None, usebounds=False, weight=None):
         return _extrema_bounding_inproc(G, compute="periphery", weight=weight)
     if len(G) == 0:
         raise ValueError("max() iterable argument is empty")
-    if weight is not None or usebounds:
+    if weight is not None or usebounds or _weighted_query_uses_live_python_rows(G, None):
         ecc = eccentricity(G, weight=weight)
         if not ecc:
             return []
@@ -501,14 +502,12 @@ def periphery(G, e=None, usebounds=False, weight=None):
 
 def eccentricity(G, v=None, sp=None, weight=None):
     """Returns the eccentricity of nodes in G."""
-    # Weighted queries retain the same authoritative rows as Dijkstra. In
-    # particular, an undirected view of a directed graph can have different
-    # costs at opposite endpoints; materializing it loses those costs even
-    # when the weight is an ordinary attribute name. Supplied distances also
-    # keep the caller's graph. The unweighted native/cache route is unchanged.
-    if sp is None and (
-        weight is None or not _weighted_query_uses_live_python_rows(G, weight)
-    ):
+    # A view or assigned adjacency can expose different reachability as well
+    # as different weights at opposite endpoints. Materializing an undirected
+    # graph adds reciprocal edges and changes its distances. Keep those rows
+    # live for BFS and Dijkstra; ordinary storage retains the native cache.
+    live_rows = sp is None and _weighted_query_uses_live_python_rows(G, weight)
+    if sp is None and not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
     if len(G) == 0 and _networkx_release() >= (3, 7):
         # This check precedes nbunch/sp validation in the actual 3.7 oracle.
@@ -518,8 +517,8 @@ def eccentricity(G, v=None, sp=None, weight=None):
     if len(G) == 0 and v is None:
         return {}
 
-    if sp is not None:
-        # A supplied distance provider may mutate G as each source is read.
+    if sp is not None or live_rows:
+        # Distance or adjacency providers may mutate G as each source is read.
         # Keep nbunch lazy so the caller's iterator and its mutation errors
         # remain observable, and capture the order before consuming it.
         order = G.order()
@@ -546,7 +545,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # functions diameter/radius/center/periphery already delegate the
     # directed case to NX; mirror that here so the family stays
     # internally consistent and matches NX.
-    if sp is None and weight is None and not G.is_directed():
+    if sp is None and not live_rows and weight is None and not G.is_directed():
         snapshot = _cached_distance_measures_snapshot(G)
         if snapshot is not None:
             # Normalize v before checking the topology key: consuming a bunch
@@ -566,7 +565,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
             _store_distance_measures_snapshot(G, result, start_key)
             return result
 
-    if sp is None:
+    if sp is None and not live_rows:
         order = G.order()
     eccentricities = {}
     # br-r37-c1-eccallpairs (cc): for the all-nodes case compute every distance in ONE
@@ -580,7 +579,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
     # arrives: draining them first let a later source's error win - a negative cycle
     # unreachable from the first node raised ValueError('Contradictory paths') where nx
     # raises "not strongly connected" at that first node.
-    if v is None and sp is None:
+    if v is None and sp is None and not live_rows:
         if weight is not None:
             all_lengths = all_pairs_dijkstra_path_length(G, weight=weight)
         else:
@@ -618,7 +617,7 @@ def eccentricity(G, v=None, sp=None, weight=None):
 
         eccentricities[node] = max(lengths.values())
 
-    if sp is not None:
+    if sp is not None or live_rows:
         single_node = v in G
     if single_node:
         return eccentricities[v]

@@ -1119,3 +1119,98 @@ def test_harmonic_diameter_bounds_graph_conversion_work(monkeypatch, class_name,
     actual = api(graph, weight="distance", **options)
     assert actual == expected
     assert len(conversions) <= 1, "each source search rebuilt the same input graph"
+
+
+def _unweighted_directional_distance_graph(module, class_name, storage="view"):
+    """An undirected graph protocol whose filter admits only one direction."""
+    blocked = {(2, 0)}
+    graph = getattr(module, class_name)()
+    graph.add_edges_from([(0, 1), (0, 2), (1, 2)])
+    if graph.is_multigraph():
+        graph.add_edge(0, 2, key="parallel")
+
+    def visible(u, v, *key):
+        return (u, v) not in blocked
+
+    if storage == "view":
+        return module.subgraph_view(graph, filter_edge=visible), blocked
+
+    # The native store deliberately still contains the complete triangle.
+    # Assigned public adjacency, like a filtered view, is authoritative.
+    rows = getattr(nx, class_name)()
+    rows.add_edges_from([(0, 1), (0, 2), (1, 2)])
+    if rows.is_multigraph():
+        rows.add_edge(0, 2, key="parallel")
+    graph._adj = nx.subgraph_view(rows, filter_edge=visible)._adj
+    return graph, blocked
+
+
+def _unweighted_distance_outcome(function, graph, **kwargs):
+    try:
+        value = function(graph, **kwargs)
+    except nx.NetworkXException as exc:
+        return "error", type(exc).__name__, exc.args
+    return "return", _distance_value_and_types(value)
+
+
+@pytest.mark.parametrize(
+    ("name", "usebounds"),
+    [("eccentricity", False)]
+    + [(name, bounds) for name in ("diameter", "radius", "center", "periphery")
+       for bounds in (False, True)],
+)
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("storage", ["view", "private"])
+def test_unweighted_distance_measures_keep_directional_rows(
+    name, usebounds, class_name, input_module, storage
+):
+    graph, blocked = _unweighted_directional_distance_graph(input_module, class_name, storage)
+    reference, expected_blocked = _unweighted_directional_distance_graph(nx, class_name, storage)
+    assert nx.eccentricity(reference, backend="networkx") == {0: 1, 1: 1, 2: 2}
+    kwargs = {} if name == "eccentricity" else {"usebounds": usebounds}
+    for hidden in ({(2, 0)}, {(0, 2)}, set(), {(2, 0), (2, 1)}):
+        for selection in (blocked, expected_blocked):
+            selection.clear()
+            selection.update(hidden)
+        expected = _unweighted_distance_outcome(
+            getattr(nx, name), reference, backend="networkx", **kwargs
+        )
+        actual = _unweighted_distance_outcome(getattr(fnx, name), graph, **kwargs)
+        assert actual == expected
+
+
+@pytest.mark.parametrize("name", ["eccentricity", "diameter", "radius", "center", "periphery"])
+@pytest.mark.parametrize("entrypoint", ["distance_measures", "algorithms", "backend-cold", "backend-warm"])
+def test_unweighted_distance_entrypoints_keep_directional_rows(name, entrypoint):
+    graph, _ = _unweighted_directional_distance_graph(nx, "Graph")
+    expected = getattr(nx, name)(graph, backend="networkx")
+    if entrypoint == "backend-warm":
+        nx.degree_centrality(graph, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    if entrypoint.startswith("backend-"):
+        actual = getattr(nx, name)(graph, backend="franken_networkx")
+    else:
+        actual = getattr(getattr(fnx, entrypoint), name)(graph)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("storage", ["view", "private"])
+def test_unweighted_eccentricity_consumes_live_source_bunch(
+    class_name, input_module, storage
+):
+    def run(module, function):
+        graph, blocked = _unweighted_directional_distance_graph(module, class_name, storage)
+
+        def sources():
+            yield 2
+            blocked.clear()
+            yield 0
+
+        return list(function(graph, v=sources()).items())
+
+    expected = run(nx, nx.eccentricity)
+    assert expected == [(2, 2), (0, 1)]
+    assert run(input_module, fnx.eccentricity) == expected

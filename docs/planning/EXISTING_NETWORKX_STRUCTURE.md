@@ -3103,3 +3103,22 @@ default matcher retain their existing native conversion route.
 The focused contract is covered by
 `tests/python/test_covering_module_parity.py`; current-native DSR execution is
 required before claiming whole-package qualification.
+
+## 100. Unweighted Distance Measures on Live Adjacency
+
+Unweighted eccentricity, diameter, radius, center and periphery retain the
+caller's adjacency whenever a filtered view or assigned logical storage can
+expose different reachability at opposite endpoints. Materializing an
+undirected graph must not introduce reciprocal edges that its public rows
+exclude. This applies to the existing bounds algorithm and to calls made after
+another query has populated a backend conversion cache.
+
+Live eccentricity consumes its source bunch one node at a time, so filter and
+adjacency changes between source yields affect subsequent searches. Ordinary
+concrete storage retains native BFS and the shared topology-revision cache.
+Observable providers neither read nor publish that cache.
+
+The focused cases extend `tests/python/test_distance_measures_parity.py`.
+Their execution and current-native DSR qualification remain outstanding under
+`br-r37-c1-78u12`; the implementation and tests received source review only
+because the execution environment disconnected during this session.
