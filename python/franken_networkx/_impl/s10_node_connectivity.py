@@ -1667,10 +1667,13 @@ def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs
         ``(v, u)`` directions per edge, matching nx's contract.
     """
     _validate_backend_dispatch_keywords("min_edge_cover", backend, backend_kwargs)
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    if G.is_multigraph():
+        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if len(G) == 0:
+        # There is nothing to cover; a supplied matcher must not run.
+        return set()
     # br-r37-c1-mec-iso: nx raises ``NetworkXException`` (not
     # NetworkXError) the moment any node has degree 0 — covering
     # both "no edges with isolated nodes" and "some edges but at
@@ -1697,14 +1700,19 @@ def min_edge_cover(G, matching_algorithm=None, *, backend=None, **backend_kwargs
         min_cover = set(matching.items())
         bipartite_cover = True
     except AttributeError:
-        min_cover = set(matching)
+        # A set-returning matcher owns this result. Complete that same set,
+        # preserving its identity and any custom mutation protocol.
+        min_cover = matching
         bipartite_cover = False
 
+    from franken_networkx.utils import arbitrary_element
+
     covered = {u for e in min_cover for u in e}
-    uncovered = set(G.nodes()) - covered
+    uncovered = set(G) - covered
     for v in uncovered:
-        nbrs = iter(G.neighbors(v))
-        u = next(nbrs)
+        # Public adjacency can be supplied independently of neighbors().
+        # The owned helper also preserves rejection of iterator-only rows.
+        u = arbitrary_element(G[v])
         min_cover.add((u, v))
         if bipartite_cover:
             min_cover.add((v, u))

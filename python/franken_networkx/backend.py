@@ -213,6 +213,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "average_degree_connectivity",
         "average_neighbor_degree",
         "minimum_cycle_basis",
+        "min_edge_cover",
         "transitive_closure_dag",
         "number_of_spanning_trees",
         "quotient_graph",
@@ -354,7 +355,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "harmonic_diameter",
         "single_source_shortest_path_length", "predecessor",
         "average_degree_connectivity", "average_neighbor_degree",
-        "minimum_cycle_basis",
+        "minimum_cycle_basis", "min_edge_cover",
         "group_betweenness_centrality", "group_closeness_centrality",
         "minimum_spanning_tree", "maximum_spanning_tree",
         "stoer_wagner", "transitive_closure_dag", "number_of_spanning_trees",
@@ -418,6 +419,11 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # Matrix construction reads the caller's edge providers and literal
         # attribute keys, including None. Conversion can discard that state.
         return True
+    if name == "min_edge_cover":
+        # The matcher receives the caller's graph and can change it before
+        # uncovered nodes are selected. Preserve that boundary even when
+        # another algorithm has already cached a native conversion.
+        return arguments.get("matching_algorithm") is not None
     if name == "minimum_cycle_basis":
         # Component views retain live edge dictionaries and arbitrary weight
         # keys, including None. The owned solver chooses its exact-arithmetic
@@ -2538,11 +2544,11 @@ class BackendInterface:
                         )
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
-                            "minimum_cycle_basis",
+                            "minimum_cycle_basis", "min_edge_cover",
                         }
                     ):
-                        # Preserve graph-contract errors and exceptions from
-                        # isomorphism callbacks instead of requesting fallback.
+                        # Preserve graph-contract errors and user callback
+                        # exceptions instead of requesting backend fallback.
                         raise
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError
                     # to correctly trigger its fallback sequence.

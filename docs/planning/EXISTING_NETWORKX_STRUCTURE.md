@@ -3077,3 +3077,29 @@ when a provider creates another cache and then raises. A standalone `can_run`
 probe does not consume a graph generator. Coverage lives in
 `tests/python/test_graph_operator_backend.py`; current-native DSR qualification
 is still required by the open `br-r37-c1-78u12` work item.
+
+## 99. Minimum Edge Cover Matching Callbacks
+
+`min_edge_cover` rejects unsupported graph families before returning an empty
+cover for an empty graph. Empty graphs never invoke a supplied matcher.
+
+An explicit `matching_algorithm` receives the caller's original graph,
+including through NetworkX backend dispatch and a warm conversion cache.
+The matcher may change that graph; the completion phase selects uncovered
+nodes through graph iteration over its resulting live topology and obtains
+each chosen neighbor through public adjacency lookup. Iterator-only adjacency
+providers retain the `arbitrary_element` rejection contract.
+
+A set-returning matcher supplies the result object itself. The algorithm adds
+completion edges to that same set and returns it. A mapping-returning matcher
+instead produces a new edge set containing both directions, including both
+directions of completion edges.
+
+Callback exceptions retain their identity, type and arguments. Conversion
+caches are invalidated around callback execution, including conversions
+created by nested backend calls before the callback raises. Calls using the
+default matcher retain their existing native conversion route.
+
+The focused contract is covered by
+`tests/python/test_covering_module_parity.py`; current-native DSR execution is
+required before claiming whole-package qualification.
