@@ -447,7 +447,8 @@ def _live_distance_weight(graph, calls):
 @pytest.mark.parametrize("class_name, view", _LIVE_DISTANCE_CASES)
 @pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
 @pytest.mark.parametrize(
-    "name", ["eccentricity", "diameter", "radius", "center", "periphery", "barycenter"]
+    "name",
+    ["eccentricity", "diameter", "radius", "center", "periphery", "barycenter", "harmonic_diameter"],
 )
 def test_distance_measures_use_live_weight_callbacks(name, input_module, class_name, view):
     outcomes = []
@@ -755,7 +756,9 @@ def test_distance_bounds_never_cache_partial_eccentricities(name, class_name):
     assert fnx.eccentricity(actual) == expected
 
 
-_WEIGHTED_DISTANCE_MEASURES = ["eccentricity", "diameter", "radius", "center", "periphery"]
+_WEIGHTED_DISTANCE_MEASURES = [
+    "eccentricity", "diameter", "radius", "center", "periphery", "harmonic_diameter",
+]
 
 
 def _asymmetric_distance_view(module, class_name, view, numeric):
@@ -956,3 +959,163 @@ def test_distance_live_rows_preserve_invalid_weight_errors(name, weight, entrypo
             api(graph, weight=weight, **options)
         outcomes.append(caught.value.args)
     assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize(
+    "distance", [Fraction(3, 2), Decimal("1.5"), 10**400],
+    ids=["fraction", "decimal", "huge-integer"],
+)
+@pytest.mark.parametrize("supplied", [False, True], ids=["weighted", "precomputed"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "backend-cold", "backend-warm"])
+def test_harmonic_diameter_preserves_exact_reciprocal_arithmetic(
+    distance, supplied, class_name, entrypoint
+):
+    graph = getattr(nx, class_name)()
+    graph.add_edge(0, 1, distance=distance)
+    if graph.is_directed():
+        graph.add_edge(1, 0, distance=distance)
+    distances = (
+        {0: {0: 0, 1: distance}, 1: {0: distance, 1: 0}} if supplied else None
+    )
+    expected = nx.harmonic_diameter(
+        graph, sp=distances, weight="distance", backend="networkx"
+    )
+    if entrypoint == "backend-warm":
+        nx.degree_centrality(graph, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    if entrypoint == "direct":
+        actual = fnx.harmonic_diameter(graph, sp=distances, weight="distance")
+    else:
+        actual = nx.harmonic_diameter(
+            graph, sp=distances, weight="distance", backend="franken_networkx"
+        )
+    assert type(actual) is type(expected)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("entrypoint", ["direct", "namespace", "backend"])
+def test_harmonic_diameter_precomputed_distances_do_not_read_topology(entrypoint):
+    class NoTopologyGraph(nx.Graph):
+        @property
+        def adj(self):
+            raise AssertionError("precomputed distances must not read adjacency")
+
+        @property
+        def edges(self):
+            raise AssertionError("precomputed distances must not enumerate edges")
+
+        def adjacency(self):
+            raise AssertionError("precomputed distances must not enumerate adjacency")
+
+    def unused_weight(u, v, data):
+        raise AssertionError("precomputed distances must not evaluate weights")
+
+    graph = NoTopologyGraph()
+    graph.add_nodes_from([0, 1, 2])
+    distances = {
+        0: {0: 0, 1: Fraction(3, 2)},
+        1: {0: Fraction(3, 2), 1: 0},
+        2: {2: 0},
+    }
+    expected = nx.harmonic_diameter(
+        graph, sp=distances, weight=unused_weight, backend="networkx"
+    )
+    api = {
+        "direct": fnx.harmonic_diameter,
+        "namespace": fnx.algorithms.harmonic_diameter,
+        "backend": nx.harmonic_diameter,
+    }[entrypoint]
+    options = {"backend": "franken_networkx"} if entrypoint == "backend" else {}
+    actual = api(graph, sp=distances, weight=unused_weight, **options)
+    assert type(actual) is type(expected)
+    assert actual == expected == Fraction(9, 2)
+
+
+@pytest.mark.parametrize("entrypoint", ["direct", "backend-cold", "backend-warm"])
+def test_harmonic_diameter_supplied_distances_keep_live_node_iteration(entrypoint):
+    outcomes = []
+    for reference in (True, False):
+        graph = nx.path_graph(3)
+        calls = []
+
+        class Distances(dict):
+            def __getitem__(self, node):
+                calls.append(node)
+                if node == 0:
+                    graph.remove_node(2)
+                return super().__getitem__(node)
+
+        distances = Distances({
+            0: {0: 0, 1: 1, 2: 2},
+            1: {0: 1, 1: 0, 2: 1},
+            2: {0: 2, 1: 1, 2: 0},
+        })
+        if not reference and entrypoint == "backend-warm":
+            nx.degree_centrality(graph, backend="franken_networkx")
+            assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+        api = nx.harmonic_diameter if reference else fnx.harmonic_diameter
+        options = {"backend": "networkx"} if reference else {}
+        if not reference and entrypoint.startswith("backend-"):
+            api, options = nx.harmonic_diameter, {"backend": "franken_networkx"}
+        with pytest.raises(RuntimeError) as caught:
+            api(graph, sp=distances, **options)
+        outcomes.append((caught.value.args, calls, list(graph)))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize(
+    "node_count, edges, expected",
+    [
+        (0, [], None),
+        (1, [], None),
+        (3, [], float("inf")),
+        (4, [(0, 1, 1), (2, 3, 1)], 3.0),
+        (2, [(0, 1, 0)], float("inf")),
+    ],
+    ids=["null", "singleton", "edgeless", "disconnected-pairs", "zero-distance"],
+)
+@pytest.mark.parametrize("entrypoint", ["direct", "backend"])
+def test_harmonic_diameter_disconnected_and_zero_distance_contract(
+    node_count, edges, expected, entrypoint
+):
+    graph = nx.Graph()
+    graph.add_nodes_from(range(node_count))
+    graph.add_weighted_edges_from(edges, weight="distance")
+    reference = nx.harmonic_diameter(graph, weight="distance", backend="networkx")
+    api = fnx.harmonic_diameter if entrypoint == "direct" else nx.harmonic_diameter
+    options = {} if entrypoint == "direct" else {"backend": "franken_networkx"}
+    actual = api(graph, weight="distance", **options)
+    if expected is None:
+        assert actual != actual and reference != reference  # Both are NaN.
+    else:
+        assert actual == reference == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("entrypoint", ["direct", "backend-cold", "backend-warm"])
+def test_harmonic_diameter_bounds_graph_conversion_work(monkeypatch, class_name, entrypoint):
+    import franken_networkx.readwrite as readwrite
+
+    graph = getattr(nx, class_name)()
+    graph.add_edges_from(
+        (node, (node + 1) % 8, {"distance": 1 + node % 3}) for node in range(8)
+    )
+    expected = nx.harmonic_diameter(graph, weight="distance", backend="networkx")
+    if entrypoint == "backend-warm":
+        nx.degree_centrality(graph, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    original = readwrite._from_nx_graph
+    conversions = []
+
+    def record_conversion(source):
+        if source is graph:
+            conversions.append(source)
+        return original(source)
+
+    monkeypatch.setattr(readwrite, "_from_nx_graph", record_conversion)
+    api = fnx.harmonic_diameter if entrypoint == "direct" else nx.harmonic_diameter
+    options = {} if entrypoint == "direct" else {"backend": "franken_networkx"}
+    actual = api(graph, weight="distance", **options)
+    assert actual == expected
+    assert len(conversions) <= 1, "each source search rebuilt the same input graph"

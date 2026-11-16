@@ -226,6 +226,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "center",
         "periphery",
         "barycenter",
+        "harmonic_diameter",
         "closeness_centrality",
         "harmonic_centrality",
         "group_betweenness_centrality",
@@ -350,6 +351,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "floyd_warshall", "floyd_warshall_predecessor_and_distance", "floyd_warshall_numpy",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
+        "harmonic_diameter",
         "single_source_shortest_path_length", "predecessor",
         "average_degree_connectivity", "average_neighbor_degree",
         "minimum_cycle_basis",
@@ -370,6 +372,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "harmonic_diameter":
+        # Supplied distances bypass topology entirely. Otherwise each source
+        # search must see the original graph's live weights and node order,
+        # including after another algorithm has cached a native conversion.
+        return True
     if name == "floyd_warshall_numpy":
         # Node selection and dense matrix construction own their input read
         # order. A cached conversion can lose live weights or edge providers.
@@ -1296,6 +1303,7 @@ _SUPPORTED_ALGORITHMS = {
     "radius": fnx.radius,
     "center": fnx.center,
     "periphery": fnx.periphery,
+    "harmonic_diameter": fnx.harmonic_diameter,
     # Tree / forest / bipartite / coloring / core
     "is_tree": fnx.is_tree,
     "is_forest": fnx.is_forest,

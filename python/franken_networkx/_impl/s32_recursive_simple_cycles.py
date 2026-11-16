@@ -191,14 +191,21 @@ def floyd_warshall_numpy(
     return dist
 
 
-def harmonic_diameter(G, sp=None, *, weight=None):
+def harmonic_diameter(G, sp=None, *, weight=None, backend=None, **backend_kwargs):
     """Harmonic diameter: n*(n-1) / sum(1/d(u,v)) for all connected pairs."""
-    G = _coerce_arg_to_fnx_graph(G)
+    _validate_backend_dispatch_keywords("harmonic_diameter", backend, backend_kwargs)
+    # Keep the caller's node iteration and weight providers live between
+    # source searches. With supplied distances, no topology read is needed.
     order = G.order()
-    sum_invd = 0.0
+    search_graph = G
+    if sp is None and not _weighted_query_uses_live_python_rows(G, weight):
+        # Ordinary storage can be converted once for the entire calculation.
+        # Converting inside every source search would rebuild the same graph.
+        search_graph = _coerce_arg_to_fnx_graph(G)
+    sum_invd = 0
     for n in G:
         if sp is None:
-            length = single_source_dijkstra_path_length(G, n, weight=weight)
+            length = single_source_dijkstra_path_length(search_graph, n, weight=weight)
         else:
             try:
                 length = sp[n]
@@ -208,7 +215,9 @@ def harmonic_diameter(G, sp=None, *, weight=None):
 
         for d in length.values():
             if d != 0:
-                sum_invd += 1.0 / d
+                # Integer literals preserve Decimal/Fraction arithmetic and
+                # Python's true division for integers too large for float().
+                sum_invd += 1 / d
 
     if sum_invd != 0:
         return order * (order - 1) / sum_invd
