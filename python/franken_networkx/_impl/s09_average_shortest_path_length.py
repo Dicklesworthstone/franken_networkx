@@ -377,6 +377,26 @@ def _floyd_warshall_predecessor_and_distance_inproc(G, weight="weight"):
     return dict(pred), dict(dist)
 
 
+def _distance_query_is_connected(G, *, strong):
+    """Check connectivity on the caller's rows without a native snapshot."""
+    if (not strong) == G.is_directed():
+        kind = "undirected" if strong else "directed"
+        raise NetworkXNotImplemented(f"not implemented for {kind} type")
+    count = len(G)
+    if count == 0:
+        raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
+    # The component wrapper validates graph kind again after the count read.
+    # Providers can mutate adjacency during either of these observable calls.
+    if (not strong) == G.is_directed():
+        kind = "undirected" if strong else "directed"
+        raise NetworkXNotImplemented(f"not implemented for {kind} type")
+    # The public component wrappers can select eager native kernels while
+    # witness collection is armed. Live rows must keep the owned traversals.
+    components = _strong_component_sets(G) if strong else _connected_component_sets(G)
+    size = len(next(components))
+    return size == (len(G) if strong else count)
+
+
 def average_shortest_path_length(G, weight=None, method=None):
     """Return the average shortest path length.
 
@@ -406,31 +426,24 @@ def average_shortest_path_length(G, weight=None, method=None):
         or type(G) not in _CONCRETE_FNX_GRAPH_TYPES
         or _weighted_query_uses_live_python_rows(G, weight)
     )
-    # Dictionary Floyd-Warshall and live weight providers own their graph
-    # reads. Materialization would detach later reads and provider writes.
-    if not live_weight and method not in ("floyd-warshall", "floyd-warshall-numpy"):
+    live_unweighted = (
+        method == "unweighted" and _weighted_query_uses_live_python_rows(G, None)
+    )
+    # Every source must see the caller's rows, including asymmetric filters.
+    # An explicitly unweighted method does not inspect the weight argument.
+    live_rows = (
+        live_weight or live_unweighted
+        or method in ("floyd-warshall", "floyd-warshall-numpy")
+    )
+    if not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
-    live_rows = live_weight or method in ("floyd-warshall", "floyd-warshall-numpy")
-
-    def connected_live(strong):
-        # Keep the public connectivity boundary, including its fresh graph
-        # kind/count reads, while retaining the caller's live adjacency rows.
-        if G.is_directed() != strong:
-            kind = "undirected" if strong else "directed"
-            raise NetworkXNotImplemented(f"not implemented for {kind} type")
-        count = len(G)
-        if count == 0:
-            raise NetworkXPointlessConcept("Connectivity is undefined for the null graph.")
-        components = strongly_connected_components(G) if strong else connected_components(G)
-        size = len(next(components))
-        return size == (len(G) if strong else count)
 
     if G.is_directed() and not (
-        connected_live(True) if live_rows else is_strongly_connected(G)
+        _distance_query_is_connected(G, strong=True) if live_rows else is_strongly_connected(G)
     ):
         raise NetworkXError("Graph is not strongly connected.")
     if not G.is_directed() and not (
-        connected_live(False) if live_rows else is_connected(G)
+        _distance_query_is_connected(G, strong=False) if live_rows else is_connected(G)
     ):
         raise NetworkXError("Graph is not connected.")
     # In-process exact Floyd-Warshall variants
@@ -441,6 +454,13 @@ def average_shortest_path_length(G, weight=None, method=None):
         else:
             s = float(floyd_warshall_numpy(G, weight=weight).sum())
         return s / (n * (n - 1))
+    if live_unweighted:
+        total = sum(
+            distance
+            for source in G
+            for distance in single_source_shortest_path_length(G, source).values()
+        )
+        return total / (n * (n - 1))
     if live_weight:
         # In an explicitly weighted method, None is an attribute key. Each
         # source resolves its live weight function afresh, matching the public

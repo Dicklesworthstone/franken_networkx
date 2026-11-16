@@ -3118,6 +3118,18 @@ adjacency changes between source yields affect subsequent searches. Ordinary
 concrete storage retains native BFS and the shared topology-revision cache.
 Observable providers neither read nor publish that cache.
 
+Average shortest path length, Wiener index and barycenter use the same live
+adjacency admission for unweighted searches. Their per-source traversal must
+not restore hidden reciprocal edges through conversion or a neighbor snapshot.
+Connectivity checks retain the reference graph-kind reads and operate on
+current adjacency even when native witness collection is armed. These checks
+retain the reference first-component semantics for asymmetric undirected rows.
+
+An explicitly unweighted average-path method ignores its weight argument,
+including callable and unhashable selectors. Live distance totals preserve
+flat accumulation order and Wiener retains its final directedness read.
+Barycenter retains its existing per-source reachability error contract.
+
 The focused cases extend `tests/python/test_distance_measures_parity.py`.
 Their execution and current-native DSR qualification remain outstanding under
 `br-r37-c1-78u12`; the implementation and tests received source review only

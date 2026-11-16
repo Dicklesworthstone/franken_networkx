@@ -284,9 +284,12 @@ def barycenter(G, weight=None, attr=None, sp=None, *, backend=None, **backend_kw
         if G.is_directed():
             return []
         raise NetworkXPointlessConcept("G has no nodes.")
-    if weight is None and attr is None and sp is None:
-        # Materialize only the native default route. The general route must
-        # retain the caller's graph for callbacks and incremental attr writes.
+    if (
+        weight is None and attr is None and sp is None
+        and not _weighted_query_uses_live_python_rows(G, None)
+    ):
+        # Materialize only the ordinary native default route. Live adjacency
+        # retains each endpoint's reachability, callbacks and attribute writes.
         G = _coerce_arg_to_fnx_graph(G)
         # br-r37-c1-pooue: the Rust _raw_barycenter does not check
         # reachability before computing, so it silently returns a

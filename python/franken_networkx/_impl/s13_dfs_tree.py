@@ -160,7 +160,8 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     callback rows, exact arithmetic and parallel-edge selection.
     """
     _validate_backend_dispatch_keywords("wiener_index", backend, backend_kwargs)
-    if weight is None or not _weighted_query_uses_live_python_rows(G, weight):
+    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    if not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
 
     # br-wienerport: route the unweighted simple-graph case (the most
@@ -169,7 +170,7 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
     # Weighted inputs use the typed single-source shortest-path routes rather
     # than the Wiener binding's separate weight handling. Multigraphs retain
     # minimum parallel-edge distances.
-    if weight is None and not G.is_multigraph():
+    if weight is None and not live_rows and not G.is_multigraph():
         # Empty graphs: nx raises NetworkXPointlessConcept via is_connected.
         # Trigger that contract BEFORE falling into the Rust path so the
         # parity is preserved.
@@ -194,11 +195,18 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             return int(value)
         return value
 
-    connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
+    if live_rows:
+        connected = (
+            _distance_query_is_connected(G, strong=True)
+            if G.is_directed()
+            else _distance_query_is_connected(G, strong=False)
+        )
+    else:
+        connected = is_strongly_connected(G) if G.is_directed() else is_connected(G)
     if not connected:
         return float("inf")
 
-    if weight is None:
+    if weight is None and not live_rows:
         # Unweighted multigraph distances need only the topology; keep their
         # existing neighbor snapshot and integer-hop accumulation.
         neighbor_keys = {node: list(G.neighbors(node)) for node in G}
@@ -220,9 +228,9 @@ def wiener_index(G, weight=None, *, backend=None, **backend_kwargs):
             sum(_single_source_unweighted_lengths(node).values()) for node in G
         )
     else:
-        # Reuse Dijkstra's discovery/finalization, hidden-edge and contradiction
-        # rules. Flatten the completed rows into one sum: summing row totals
-        # first changes floating arithmetic and custom numeric protocols.
+        # Reuse the live BFS or weighted traversal for each source. Flatten
+        # completed rows into one sum: summing row totals first changes
+        # floating arithmetic and custom numeric protocols.
         total = sum(
             _itertools.chain.from_iterable(
                 distances.values()

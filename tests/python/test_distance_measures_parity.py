@@ -1214,3 +1214,127 @@ def test_unweighted_eccentricity_consumes_live_source_bunch(
     expected = run(nx, nx.eccentricity)
     assert expected == [(2, 2), (0, 1)]
     assert run(input_module, fnx.eccentricity) == expected
+
+
+_UNWEIGHTED_DISTANCE_AGGREGATES = (
+    "average_shortest_path_length", "wiener_index", "barycenter",
+)
+
+
+@pytest.mark.parametrize("name", _UNWEIGHTED_DISTANCE_AGGREGATES)
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("storage", ["view", "private"])
+def test_unweighted_distance_aggregates_keep_directional_rows(
+    name, class_name, input_module, storage
+):
+    graph, blocked = _unweighted_directional_distance_graph(input_module, class_name, storage)
+    reference, expected_blocked = _unweighted_directional_distance_graph(nx, class_name, storage)
+    for hidden in ({(2, 0)}, {(0, 2)}, set(), {(2, 0), (2, 1)}):
+        for selection in (blocked, expected_blocked):
+            selection.clear()
+            selection.update(hidden)
+        expected = _unweighted_distance_outcome(
+            getattr(nx, name), reference, backend="networkx"
+        )
+        actual = _unweighted_distance_outcome(getattr(fnx, name), graph)
+        assert actual == expected
+
+
+@pytest.mark.parametrize("name", _UNWEIGHTED_DISTANCE_AGGREGATES)
+@pytest.mark.parametrize("entrypoint", ["direct", "algorithms", "backend-cold", "backend-warm"])
+def test_unweighted_distance_aggregate_entrypoints_keep_directional_rows(name, entrypoint):
+    graph, _ = _unweighted_directional_distance_graph(nx, "Graph")
+    expected = getattr(nx, name)(graph, backend="networkx")
+    golden = {
+        "average_shortest_path_length": 7 / 6,
+        "wiener_index": 3.5,
+        "barycenter": [0, 1],
+    }
+    assert expected == golden[name]
+    if entrypoint == "backend-warm":
+        nx.degree_centrality(graph, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    if entrypoint.startswith("backend-"):
+        actual = getattr(nx, name)(graph, backend="franken_networkx")
+    else:
+        api = fnx if entrypoint == "direct" else fnx.algorithms
+        actual = getattr(api, name)(graph)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx-input", "fnx-input"])
+@pytest.mark.parametrize("weight_kind", ["callback", "unhashable"])
+def test_live_unweighted_average_distance_does_not_inspect_weight(
+    class_name, input_module, weight_kind
+):
+    def forbidden_weight(*args):
+        raise AssertionError("unweighted shortest paths evaluated the weight")
+
+    weight = forbidden_weight if weight_kind == "callback" else []
+    graph, _ = _unweighted_directional_distance_graph(input_module, class_name)
+    reference, _ = _unweighted_directional_distance_graph(nx, class_name)
+    expected = nx.average_shortest_path_length(
+        reference, method="unweighted", weight=weight, backend="networkx"
+    )
+    assert expected == 7 / 6
+    # The direct API ignores even an unhashable selector. NetworkX's backend
+    # converter hashes selectors before calling a backend, so that separate
+    # dispatcher boundary is deliberately not part of this assertion.
+    actual = fnx.average_shortest_path_length(
+        graph, method="unweighted", weight=weight
+    )
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize("name", ["average_shortest_path_length", "wiener_index"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_live_distance_connectivity_keeps_rows_when_witnesses_are_armed(
+    name, class_name, monkeypatch
+):
+    graph = getattr(nx, class_name)()
+    graph.add_edges_from([(0, 1), (0, 2), (1, 2)])
+    if graph.is_directed():
+        graph.add_edges_from([(1, 0), (2, 0), (2, 1)])
+    view = nx.subgraph_view(
+        graph, filter_edge=lambda u, v, *key: (u, v) != (2, 0)
+    )
+    expected = getattr(nx, name)(view, backend="networkx")
+
+    def forbidden_snapshot(*args, **kwargs):
+        raise AssertionError("live connectivity used a native snapshot")
+
+    monkeypatch.setattr(fnx, "_cgse_armed", lambda: True)
+    monkeypatch.setattr(fnx, "_armed_cc", forbidden_snapshot)
+    monkeypatch.setattr(fnx, "_armed_scc", forbidden_snapshot)
+    actual = getattr(fnx, name)(view)
+    assert _distance_value_and_types(actual) == _distance_value_and_types(expected)
+
+
+@pytest.mark.parametrize(
+    ("name", "mutation_read", "expected_value"),
+    [("wiener_index", 3, 3.5), ("average_shortest_path_length", 4, 7 / 6)],
+)
+def test_live_distance_connectivity_preserves_kind_provider_order(
+    name, mutation_read, expected_value
+):
+    def run(api, **kwargs):
+        class ChangingKindGraph(nx.Graph):
+            def is_directed(self):
+                self.kind_reads = getattr(self, "kind_reads", 0) + 1
+                if getattr(self, "armed", False) and self.kind_reads == mutation_read:
+                    del self._adj[2][0]
+                return False
+
+        graph = ChangingKindGraph()
+        graph.add_edges_from([(0, 1), (0, 2), (1, 2)])
+        graph.kind_reads = 0
+        graph.armed = True
+        value = api(graph, **kwargs)
+        return _distance_value_and_types(value), graph.kind_reads, list(graph._adj[2])
+
+    expected = run(getattr(nx, name), backend="networkx")
+    assert expected[0] == (float, expected_value)
+    assert expected[2] == [1]
+    assert run(getattr(fnx, name)) == expected
