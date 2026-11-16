@@ -1003,12 +1003,18 @@ _GRAPH_SEQUENCE_OPERATORS = frozenset(
     {"compose_all", "union_all", "intersection_all", "disjoint_union_all"}
 )
 _GRAPH_SEQUENCE_CALL_INPUTS = ContextVar("franken_networkx_graph_sequence_inputs", default=None)
+_ISOMORPHISM_INPUT_ALGORITHMS = frozenset(
+    {
+        "is_isomorphic", "vf2pp_is_isomorphic",
+        "vf2pp_isomorphism", "vf2pp_all_isomorphisms",
+    }
+)
 _PAIRED_GRAPH_ALGORITHMS = frozenset(
     {
         "graph_edit_distance", "optimal_edit_paths",
         "optimize_edit_paths", "optimize_graph_edit_distance",
     }
-) | _BINARY_GRAPH_OPERATORS
+) | _BINARY_GRAPH_OPERATORS | _ISOMORPHISM_INPUT_ALGORITHMS
 _PAIRED_GRAPH_CALL_INPUTS = ContextVar("franken_networkx_paired_inputs", default=None)
 
 
@@ -1385,8 +1391,12 @@ _SUPPORTED_ALGORITHMS = {
     "average_degree_connectivity": fnx.average_degree_connectivity,
     "rich_club_coefficient": fnx.rich_club_coefficient,
     "s_metric": fnx.s_metric,
-    # Graph isomorphism
+    # Graph isomorphism. Preserve both callers for attribute readers and
+    # matching callbacks; all-mapping search retains its lazy input boundary.
     "is_isomorphic": fnx.is_isomorphic,
+    "vf2pp_is_isomorphic": fnx.vf2pp_is_isomorphic,
+    "vf2pp_isomorphism": fnx.vf2pp_isomorphism,
+    "vf2pp_all_isomorphisms": fnx.vf2pp_all_isomorphisms,
     "could_be_isomorphic": fnx.could_be_isomorphic,
     "fast_could_be_isomorphic": fnx.fast_could_be_isomorphic,
     "faster_could_be_isomorphic": fnx.faster_could_be_isomorphic,
@@ -2514,13 +2524,17 @@ class BackendInterface:
                     return result
                 except fnx.NetworkXNotImplemented as e:
                     if (
-                        name in _CORE_DECOMPOSITION_ALGORITHMS | _RESILIENCE_ALGORITHMS
+                        name in (
+                            _CORE_DECOMPOSITION_ALGORITHMS | _RESILIENCE_ALGORITHMS
+                            | _ISOMORPHISM_INPUT_ALGORITHMS
+                        )
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis",
                         }
                     ):
-                        # Keep documented self-loop and graph-type errors intact.
+                        # Preserve graph-contract errors and exceptions from
+                        # isomorphism callbacks instead of requesting fallback.
                         raise
                     # NetworkX's dispatcher strictly requires the builtin NotImplementedError
                     # to correctly trigger its fallback sequence.

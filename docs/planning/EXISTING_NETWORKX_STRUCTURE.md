@@ -1175,7 +1175,17 @@ those original graph objects, so attribute changes made after construction or
 an earlier query remain visible. Labeled and all-mapping VF2++ queries read
 custom node mappings through their original protocols. Conversion belongs only
 to the admitted native predicate/single-mapping boundary, not to the callback
-or custom-reader path. Backend conversion remains a separate dispatch contract.
+or custom-reader path.
+
+NetworkX backend dispatch for `is_isomorphic` and the three VF2++ entry points
+recovers both original inputs before invoking these same owned wrappers,
+including warm conversions, views and mixed native inputs. Callback and
+label-reader failures retain their exact exception objects. Both inputs'
+conversions are invalidated after eager execution and after each lazy
+advancement or close. The all-mapping iterator defers graph and label reads
+until first advancement and retains its input owners while its search is
+alive. A caller-supplied native graph stays independent even when it is also
+cached as the conversion of the other argument.
 
 The existing labeled mapping contract accepts any valid first mapping and the
 complete set of valid mappings; input-node positions deterministically break
