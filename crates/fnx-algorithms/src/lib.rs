@@ -5549,6 +5549,328 @@ pub fn pagerank_with_weight<G: GraphView>(
     }
 }
 
+/// Result of a personalized PageRank run.
+///
+/// `cancelled` is distinct from `converged == false`: cancellation stops
+/// before the iteration budget is exhausted at the caller's request, while a
+/// non-converged run spent its whole budget. `scores` always contains one
+/// entry per graph node in `nodes_ordered()` order, so callers can compare
+/// runs without sorting.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PersonalizedPageRankResult {
+    pub scores: Vec<CentralityScore>,
+    pub converged: bool,
+    pub cancelled: bool,
+    pub witness: ComplexityWitness,
+}
+
+/// Input and policy error for [`personalized_pagerank_with_control`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum PersonalizedPageRankError {
+    /// A seed names a node the graph does not contain.
+    UnknownSeedNode(String),
+    /// A seed weight is negative or non-finite (NaN, infinity).
+    InvalidSeedWeight { node: String, weight: f64 },
+    /// Every supplied seed weight is zero, leaving no teleport distribution.
+    ZeroSeedWeightSum,
+    /// An edge weight is negative; signed transition rows are unsupported.
+    NegativeEdgeWeight {
+        source: String,
+        target: String,
+        weight: f64,
+    },
+    /// An edge weight is NaN or infinite.
+    NonFiniteEdgeWeight {
+        source: String,
+        target: String,
+        weight: f64,
+    },
+    /// `alpha` was outside `[0, 1)`, `tol` was negative or non-finite, or
+    /// `max_iter` was zero.
+    InvalidParameter(&'static str),
+}
+
+impl fmt::Display for PersonalizedPageRankError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::UnknownSeedNode(node) => {
+                write!(formatter, "personalized PageRank seed node not found: {node}")
+            }
+            Self::InvalidSeedWeight { node, weight } => write!(
+                formatter,
+                "personalized PageRank seed weight for {node} must be finite and non-negative, got {weight}"
+            ),
+            Self::ZeroSeedWeightSum => write!(
+                formatter,
+                "personalized PageRank seed weights must sum to a positive value"
+            ),
+            Self::NegativeEdgeWeight {
+                source,
+                target,
+                weight,
+            } => write!(
+                formatter,
+                "personalized PageRank edge {source}->{target} has negative weight {weight}"
+            ),
+            Self::NonFiniteEdgeWeight {
+                source,
+                target,
+                weight,
+            } => write!(
+                formatter,
+                "personalized PageRank edge {source}->{target} has non-finite weight {weight}"
+            ),
+            Self::InvalidParameter(name) => {
+                write!(formatter, "personalized PageRank invalid parameter: {name}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PersonalizedPageRankError {}
+
+/// Deterministic weighted personalized PageRank.
+///
+/// The teleport distribution is the normalized `seed_weights` vector. An empty
+/// slice means uniform teleportation. Seed weights are normalized by their sum,
+/// so `[(a, 3.0), (b, 1.0)]` teleports to `a` with probability `0.75`.
+///
+/// `weight_attr` names an edge attribute used as the transition weight;
+/// `None` gives every out-edge an equal share. A node with no positive
+/// out-weight (including a graph node with no out-edges) is dangling and its
+/// rank is redistributed through the same teleport distribution.
+///
+/// Nodes are indexed in sorted order for accumulation, so equal inputs produce
+/// byte-identical scores across runs. Output follows `nodes_ordered()` order.
+///
+/// # Errors
+///
+/// Returns [`PersonalizedPageRankError`] for an unknown seed node, a negative
+/// or non-finite seed weight, a zero seed-weight sum, a negative or non-finite
+/// edge weight, or an out-of-range policy parameter.
+pub fn personalized_pagerank<G: GraphView>(
+    graph: &G,
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+    weight_attr: Option<&str>,
+    seed_weights: &[(&str, f64)],
+) -> Result<PersonalizedPageRankResult, PersonalizedPageRankError> {
+    personalized_pagerank_with_control(
+        graph,
+        alpha,
+        max_iter,
+        tol,
+        weight_attr,
+        seed_weights,
+        || false,
+    )
+}
+
+/// [`personalized_pagerank`] with a cancellation predicate.
+///
+/// `should_cancel` is checked once before each power iteration. When it
+/// returns `true`, the current scores are returned with `cancelled = true` and
+/// `converged = false`; the budget is not exhausted. A caller that needs a
+/// wall-clock budget can close over its deadline, and a caller using an
+/// Asupersync budget can close over its cancellation check.
+pub fn personalized_pagerank_with_control<G: GraphView, F>(
+    graph: &G,
+    alpha: f64,
+    max_iter: usize,
+    tol: f64,
+    weight_attr: Option<&str>,
+    seed_weights: &[(&str, f64)],
+    mut should_cancel: F,
+) -> Result<PersonalizedPageRankResult, PersonalizedPageRankError>
+where
+    F: FnMut() -> bool,
+{
+    if !alpha.is_finite() || !(0.0..1.0).contains(&alpha) {
+        return Err(PersonalizedPageRankError::InvalidParameter(
+            "alpha must be finite and in [0, 1)",
+        ));
+    }
+    if max_iter == 0 {
+        return Err(PersonalizedPageRankError::InvalidParameter(
+            "max_iter must be positive",
+        ));
+    }
+    if !tol.is_finite() || tol < 0.0 {
+        return Err(PersonalizedPageRankError::InvalidParameter(
+            "tolerance must be finite and non-negative",
+        ));
+    }
+
+    let nodes = graph.nodes_ordered();
+    let n = nodes.len();
+    if n == 0 {
+        return Ok(PersonalizedPageRankResult {
+            scores: Vec::new(),
+            converged: true,
+            cancelled: false,
+            witness: ComplexityWitness {
+                algorithm: "personalized_pagerank_power_iteration".to_owned(),
+                complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+                nodes_touched: 0,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        });
+    }
+
+    let mut canonical_nodes = nodes.clone();
+    canonical_nodes.sort_unstable();
+    let index_by_node = canonical_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| (*node, idx))
+        .collect::<HashMap<&str, usize>>();
+
+    let n_f64 = n as f64;
+    let mut personalization = vec![0.0_f64; n];
+    for &(node, weight) in seed_weights {
+        let Some(&idx) = index_by_node.get(node) else {
+            return Err(PersonalizedPageRankError::UnknownSeedNode(
+                node.to_owned(),
+            ));
+        };
+        if !weight.is_finite() || weight < 0.0 {
+            return Err(PersonalizedPageRankError::InvalidSeedWeight {
+                node: node.to_owned(),
+                weight,
+            });
+        }
+        personalization[idx] += weight;
+    }
+    let seed_sum = personalization.iter().sum::<f64>();
+    if seed_weights.is_empty() {
+        personalization.fill(1.0 / n_f64);
+    } else if seed_sum > 0.0 {
+        for value in &mut personalization {
+            *value /= seed_sum;
+        }
+    } else {
+        return Err(PersonalizedPageRankError::ZeroSeedWeightSum);
+    }
+
+    let mut canonical_out_edges = Vec::<Vec<(usize, f64)>>::with_capacity(n);
+    let mut out_weight = Vec::<f64>::with_capacity(n);
+    let mut total_edges_per_iter = 0usize;
+    for &source in &canonical_nodes {
+        let mut neighbors = graph
+            .neighbors_iter(source)
+            .map(|iter| iter.collect::<Vec<_>>())
+            .unwrap_or_default();
+        neighbors.sort_unstable();
+        let mut entries = Vec::<(usize, f64)>::with_capacity(neighbors.len());
+        let mut weight_sum = 0.0_f64;
+        for &target in &neighbors {
+            let Some(&target_idx) = index_by_node.get(target) else {
+                continue;
+            };
+            let weight = graph.edge_weight(source, target, weight_attr);
+            if !weight.is_finite() {
+                return Err(PersonalizedPageRankError::NonFiniteEdgeWeight {
+                    source: source.to_owned(),
+                    target: target.to_owned(),
+                    weight,
+                });
+            }
+            if weight < 0.0 {
+                return Err(PersonalizedPageRankError::NegativeEdgeWeight {
+                    source: source.to_owned(),
+                    target: target.to_owned(),
+                    weight,
+                });
+            }
+            if weight > 0.0 {
+                entries.push((target_idx, weight));
+                weight_sum += weight;
+            }
+        }
+        if weight_sum > 0.0 {
+            for (_, share) in &mut entries {
+                *share /= weight_sum;
+            }
+        }
+        total_edges_per_iter += entries.len();
+        canonical_out_edges.push(entries);
+        out_weight.push(weight_sum);
+    }
+
+    let teleport_scale = 1.0 - alpha;
+    let mut ranks = personalization.clone();
+    let mut next_ranks = vec![0.0_f64; n];
+    let mut iterations = 0usize;
+    let mut edges_scanned = 0usize;
+    let mut converged = false;
+    let mut cancelled = false;
+
+    for _ in 0..max_iter {
+        if should_cancel() {
+            cancelled = true;
+            break;
+        }
+        iterations += 1;
+        let dangling_mass = ranks
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, value)| (out_weight[idx] == 0.0).then_some(*value))
+            .sum::<f64>();
+        let dangling_scale = teleport_scale + alpha * dangling_mass;
+
+        for idx in 0..n {
+            next_ranks[idx] = dangling_scale * personalization[idx];
+        }
+        for source_idx in 0..n {
+            let entries = &canonical_out_edges[source_idx];
+            if entries.is_empty() {
+                continue;
+            }
+            let push = alpha * ranks[source_idx];
+            for &(target_idx, weight_share) in entries {
+                next_ranks[target_idx] += push * weight_share;
+            }
+        }
+        edges_scanned += total_edges_per_iter;
+
+        let delta = next_ranks
+            .iter()
+            .zip(ranks.iter())
+            .map(|(left, right)| (left - right).abs())
+            .sum::<f64>();
+        ranks.copy_from_slice(&next_ranks);
+        if delta < n_f64 * tol {
+            converged = true;
+            break;
+        }
+    }
+
+    let scores = nodes
+        .iter()
+        .map(|node| CentralityScore {
+            node: (*node).to_owned(),
+            score: ranks[*index_by_node
+                .get(*node)
+                .expect("graph output node must exist in canonical PPR index")],
+        })
+        .collect::<Vec<CentralityScore>>();
+
+    Ok(PersonalizedPageRankResult {
+        scores,
+        converged,
+        cancelled,
+        witness: ComplexityWitness {
+            algorithm: "personalized_pagerank_power_iteration".to_owned(),
+            complexity_claim: "O(k * (|V| + |E|))".to_owned(),
+            nodes_touched: n.saturating_mul(iterations),
+            edges_scanned,
+            queue_peak: 0,
+        },
+    })
+}
+
 fn pagerank_unweighted_indexed<G: GraphView>(
     graph: &G,
     nodes: &[&str],
@@ -72331,6 +72653,210 @@ mod tests {
 
         let result = super::pagerank_with_params(&graph, super::PAGERANK_DEFAULT_ALPHA, 1, 1.0e-20);
         assert!(!result.converged);
+    }
+
+    fn weighted_edge(graph: &mut DiGraph, source: &str, target: &str, weight: f64) {
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), CgseValue::Float(weight));
+        graph
+            .add_edge_with_attrs(source.to_owned(), target.to_owned(), attrs)
+            .expect("weighted edge add should succeed");
+    }
+
+    fn ppr_scores(result: &super::PersonalizedPageRankResult) -> BTreeMap<&str, f64> {
+        result
+            .scores
+            .iter()
+            .map(|score| (score.node.as_str(), score.score))
+            .collect()
+    }
+
+    #[test]
+    fn personalized_pagerank_empty_and_single_node_are_defined() {
+        let empty = DiGraph::strict();
+        let empty_result = super::personalized_pagerank(&empty, 0.85, 100, 1.0e-6, None, &[])
+            .expect("empty PPR should succeed");
+        assert!(empty_result.scores.is_empty());
+        assert!(empty_result.converged);
+        assert!(!empty_result.cancelled);
+
+        let mut singleton = DiGraph::strict();
+        let _ = singleton.add_node("solo");
+        let result = super::personalized_pagerank(&singleton, 0.85, 100, 1.0e-6, None, &[])
+            .expect("singleton PPR should succeed");
+        assert_eq!(result.scores.len(), 1);
+        assert_eq!(result.scores[0].node, "solo");
+        assert!((result.scores[0].score - 1.0).abs() <= TEST_TOLERANCE);
+        assert!(result.converged);
+    }
+
+    #[test]
+    fn personalized_pagerank_normalizes_seed_weights() {
+        let mut graph = DiGraph::strict();
+        let _ = graph.add_node("a");
+        let _ = graph.add_node("b");
+        let result = super::personalized_pagerank(
+            &graph,
+            0.0,
+            100,
+            1.0e-12,
+            None,
+            &[("a", 3.0), ("b", 1.0)],
+        )
+        .expect("PPR should succeed");
+        let scores = ppr_scores(&result);
+        assert!((scores["a"] - 0.75).abs() <= 1.0e-12);
+        assert!((scores["b"] - 0.25).abs() <= 1.0e-12);
+        assert!(result.converged);
+    }
+
+    #[test]
+    fn personalized_pagerank_redistributes_dangling_mass_through_seed_distribution() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        let result = super::personalized_pagerank(
+            &graph,
+            0.5,
+            200,
+            1.0e-12,
+            None,
+            &[("a", 1.0)],
+        )
+        .expect("PPR should succeed");
+        let scores = ppr_scores(&result);
+        assert!((scores["a"] - 2.0 / 3.0).abs() <= 1.0e-9, "{scores:?}");
+        assert!((scores["b"] - 1.0 / 3.0).abs() <= 1.0e-9, "{scores:?}");
+        assert!(result.converged);
+    }
+
+    #[test]
+    fn personalized_pagerank_uses_weighted_directed_edges() {
+        let mut graph = DiGraph::strict();
+        weighted_edge(&mut graph, "a", "b", 3.0);
+        weighted_edge(&mut graph, "a", "c", 1.0);
+        weighted_edge(&mut graph, "b", "a", 1.0);
+        weighted_edge(&mut graph, "c", "a", 1.0);
+        let result = super::personalized_pagerank(
+            &graph,
+            0.5,
+            200,
+            1.0e-12,
+            Some("weight"),
+            &[("a", 1.0)],
+        )
+        .expect("weighted PPR should succeed");
+        let scores = ppr_scores(&result);
+        assert!((scores["a"] - 2.0 / 3.0).abs() <= 1.0e-9, "{scores:?}");
+        assert!((scores["b"] - 0.25).abs() <= 1.0e-9, "{scores:?}");
+        assert!((scores["c"] - 1.0 / 12.0).abs() <= 1.0e-9, "{scores:?}");
+        assert!(result.converged);
+    }
+
+    #[test]
+    fn personalized_pagerank_is_replay_stable_and_ordered_by_nodes_ordered() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("z", "a").expect("edge add should succeed");
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "z").expect("edge add should succeed");
+        let first = super::personalized_pagerank(
+            &graph,
+            0.85,
+            100,
+            1.0e-12,
+            None,
+            &[("a", 1.0), ("b", 2.0)],
+        )
+        .expect("PPR should succeed");
+        let second = super::personalized_pagerank(
+            &graph,
+            0.85,
+            100,
+            1.0e-12,
+            None,
+            &[("b", 2.0), ("a", 1.0)],
+        )
+        .expect("PPR should succeed");
+        assert_eq!(
+            first
+                .scores
+                .iter()
+                .map(|score| (score.node.as_str(), score.score.to_bits()))
+                .collect::<Vec<_>>(),
+            second
+                .scores
+                .iter()
+                .map(|score| (score.node.as_str(), score.score.to_bits()))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            first
+                .scores
+                .iter()
+                .map(|score| score.node.as_str())
+                .collect::<Vec<_>>(),
+            graph.nodes_ordered()
+        );
+    }
+
+    #[test]
+    fn personalized_pagerank_rejects_malformed_inputs() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        assert_eq!(
+            super::personalized_pagerank(&graph, 0.85, 100, 1.0e-6, None, &[("missing", 1.0)]),
+            Err(super::PersonalizedPageRankError::UnknownSeedNode(
+                "missing".to_owned()
+            ))
+        );
+        assert!(matches!(
+            super::personalized_pagerank(&graph, 0.85, 100, 1.0e-6, None, &[("a", -1.0)]),
+            Err(super::PersonalizedPageRankError::InvalidSeedWeight { .. })
+        ));
+        assert_eq!(
+            super::personalized_pagerank(&graph, 0.85, 100, 1.0e-6, None, &[("a", 0.0)]),
+            Err(super::PersonalizedPageRankError::ZeroSeedWeightSum)
+        );
+        assert!(matches!(
+            super::personalized_pagerank(&graph, 1.0, 100, 1.0e-6, None, &[("a", 1.0)]),
+            Err(super::PersonalizedPageRankError::InvalidParameter(_))
+        ));
+        weighted_edge(&mut graph, "b", "a", -2.0);
+        assert!(matches!(
+            super::personalized_pagerank(
+                &graph,
+                0.85,
+                100,
+                1.0e-6,
+                Some("weight"),
+                &[("a", 1.0)]
+            ),
+            Err(super::PersonalizedPageRankError::NegativeEdgeWeight { .. })
+        ));
+    }
+
+    #[test]
+    fn personalized_pagerank_cancellation_stops_before_the_budget() {
+        let mut graph = DiGraph::strict();
+        graph.add_edge("a", "b").expect("edge add should succeed");
+        graph.add_edge("b", "a").expect("edge add should succeed");
+        let mut calls = 0usize;
+        let result = super::personalized_pagerank_with_control(
+            &graph,
+            0.85,
+            100,
+            1.0e-15,
+            None,
+            &[("a", 1.0)],
+            || {
+                calls += 1;
+                calls > 2
+            },
+        )
+        .expect("cancelled PPR should still return scores");
+        assert!(result.cancelled);
+        assert!(!result.converged);
+        assert_eq!(result.witness.nodes_touched, 2 * 2);
+        assert_eq!(result.scores.len(), 2);
     }
 
     #[test]
