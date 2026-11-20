@@ -377,6 +377,13 @@ def _katz_centrality_plain_parameters(alpha, beta, max_iter, tol, normalized):
             _spectral_centrality_plain_value(beta)
             or (
                 type(beta) is dict
+                # Domain validation and per-iteration lookups can invoke key
+                # equality. Those callbacks must run before the live edge
+                # reads, not after a sparse matrix has frozen the graph.
+                and all(
+                    type(node) in (str, int, float, bool, bytes, type(None))
+                    for node in beta
+                )
                 and all(_spectral_centrality_plain_value(v) for v in beta.values())
             )
         )

@@ -577,8 +577,13 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
     # of an assigned edge provider which the power iteration never uses.
     if not _greedy_color_native_graph(G):
         return False
+    # A custom start key can change edges or raise when hashed. Inspect its
+    # type before a sparse-domain membership probe moves that callback ahead
+    # of initial-vector validation. Iterating dict keys invokes no key hooks.
+    plain_keys = (str, int, float, bool, bytes, type(None))
     if nstart is not None and (
         type(nstart) is not dict
+        or any(type(node) not in plain_keys for node in nstart)
         or len(nstart) != len(G)
         or not all(node in G for node in nstart)
         or not all(_spectral_centrality_plain_value(v) for v in nstart.values())

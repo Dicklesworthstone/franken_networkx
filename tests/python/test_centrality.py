@@ -445,6 +445,62 @@ def test_iterative_centrality_vectors_mutate_the_live_graph(fnx, nx, algorithm, 
     assert actual_edges == expected_edges
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("normalized", [False, True])
+def test_katz_beta_key_equality_precedes_live_edge_reads(fnx, nx, graph_type, normalized):
+    def outcome(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 0)])
+        edge = graph[0][1]
+        events = []
+        armed = False
+
+        class Key(int):
+            __hash__ = int.__hash__
+
+            def __eq__(self, other):
+                if armed:
+                    events.append(int(self))
+                    edge["weight"] = 4.0
+                return int.__eq__(self, other)
+
+        beta = {Key(node): float(node + 1) for node in range(3)}
+        armed = True
+        scores = module.katz_centrality(
+            graph, beta=beta, alpha=0.05, weight="weight",
+            tol=1e-12, normalized=normalized,
+        )
+        return scores, events, edge["weight"]
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    # A matrix built before validating beta reads the old unit weight. Keep
+    # both the resulting scores and every subsequent beta-key lookup live.
+    assert actual == expected
+    assert expected[1]
+    assert expected[2] == 4.0
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_eigenvector_zero_start_precedes_custom_key_hashing(fnx, nx, graph_type):
+    def outcome(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 0)])
+        armed = False
+
+        class Key(int):
+            def __hash__(self):
+                if armed:
+                    raise AssertionError("an all-zero start does not hash its keys")
+                return int.__hash__(self)
+
+        start = {Key(node): 0.0 for node in range(3)}
+        armed = True
+        with pytest.raises(module.NetworkXError, match="all zero") as error:
+            module.eigenvector_centrality(graph, nstart=start, weight="weight")
+        return error.value.args
+
+    assert outcome(fnx) == outcome(nx)
+
+
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("weight", [None, "weight"])
