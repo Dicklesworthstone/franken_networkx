@@ -778,6 +778,7 @@ def _graph_shallowcopy(self):
 
     cls = type(self)
     result = cls.__new__(cls)
+    _graph_copy_native_policy(self, result)
     src_storage = self.__dict__
     dst_storage = result.__dict__
     root = src_storage.get(_SHARED_STORAGE_SOURCE, self)

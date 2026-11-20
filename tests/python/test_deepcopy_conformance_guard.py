@@ -472,6 +472,38 @@ def test_deepcopy_complex_graph_still_runs_weighted_algorithms(fcls, ncls):
         assert library.shortest_path_length(graph, 0, 2, weight="weight") == 6
 
 
+@pytest.mark.parametrize("fcls,ncls", _TYPES)
+@pytest.mark.parametrize("mode", ("strict", "hardened"))
+def test_deepcopy_preserves_native_mode_without_changing_callback_context(fcls, ncls, mode):
+    calls = []
+
+    class ObservedGraph(fcls):
+        def __new__(cls, *args, **kwargs):
+            calls.append(("new", fnx.get_compatibility_mode()))
+            return super().__new__(cls, *args, **kwargs)
+
+    class Payload:
+        def __deepcopy__(self, memo):
+            calls.append(("payload", fnx.get_compatibility_mode()))
+            return ["copied"]
+
+    with fnx.compatibility_mode(mode):
+        graph = ObservedGraph([(0, 1)])
+        graph.graph["payload"] = Payload()
+        fresh_policy = fcls.__getstate__(fcls())["runtime_policy"]
+    calls.clear()
+    ambient = "hardened" if mode == "strict" else "strict"
+    with fnx.compatibility_mode(ambient):
+        copied = copy.deepcopy(graph)
+        assert fnx.get_compatibility_mode() == ambient
+    assert calls == [("new", ambient), ("payload", ambient)]
+    assert type(copied) is ObservedGraph
+    assert copied.graph["payload"] == ["copied"]
+    state = fcls.__getstate__(copied)
+    assert state["mode"] == mode
+    assert state["runtime_policy"] == fresh_policy
+
+
 _SNAPSHOT_VIEW_CASES = [
     (fcls, ncls, kind)
     for fcls, ncls in _TYPES

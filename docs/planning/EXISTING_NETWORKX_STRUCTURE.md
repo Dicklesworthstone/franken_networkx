@@ -1352,6 +1352,11 @@ exceptions raised by a user object's `__deepcopy__` propagate unchanged.
 Canonical cached graph views referenced by attributes remain bound to the
 copied graph and retain live access to its copied stores.
 
+Concrete shallow and deep copies retain the source graph's compatibility
+mode, independent of the ambient mode during copying. Their decision history
+starts fresh, as on the native copy route. User copy callbacks still observe
+the ambient mode; constructing the copy must not change their context.
+
 Filtered, reverse, and directed/undirected conversion views use the same
 memo-aware object-copy boundary. Allocate and register the concrete snapshot
 before copying the original view's logical stores or user attributes. A
@@ -1361,6 +1366,9 @@ container. The snapshot retains frozen state, visible topology, neighbor/key
 order, and directed successor/predecessor sharing. An undirected conversion
 view can expose distinct attributes in reciprocal rows; copying preserves
 those rows instead of merging them through a structural `copy()` operation.
+User instance state, including private and non-string attribute names and
+replaced cached readers, survives both deepcopy and pickle snapshots. Only
+the view's own parent, filter machinery, and generated readers are excluded.
 
 The ordinary native route is eligible only when its inputs cannot require
 object remapping or observable copy callbacks. General Python object graphs

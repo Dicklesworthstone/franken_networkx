@@ -13,6 +13,7 @@ original.
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 import networkx as nx
@@ -56,6 +57,39 @@ def test_copy_creates_fresh_attr_dicts_sharing_values():
 def test_deepcopy_is_fully_independent():
     assert _deepcopy_behavior(fnx) == _deepcopy_behavior(nx)
     assert _deepcopy_behavior(fnx) == (False, False)
+
+
+@pytest.mark.parametrize("name", ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph"))
+@pytest.mark.parametrize("mode", ("strict", "hardened"))
+@pytest.mark.parametrize("copy_graph", (copy.copy, copy.deepcopy), ids=("shallow", "deep"))
+def test_copy_preserves_native_mode_and_fresh_policy(name, mode, copy_graph):
+    cls = getattr(fnx, name)
+    ambient = "hardened" if mode == "strict" else "strict"
+    with fnx.compatibility_mode(mode):
+        graph = cls([(0, 1)])
+        fresh_policy = cls.__getstate__(cls())["runtime_policy"]
+    graph.graph["items"] = [1]  # Exercise deepcopy's general object-graph route.
+    source_policy = cls.__getstate__(graph)["runtime_policy"]
+    assert json.loads(source_policy)["decision_log"]["records"]
+
+    with fnx.compatibility_mode(ambient):
+        copied = copy_graph(graph)
+        assert fnx.get_compatibility_mode() == ambient
+    state = cls.__getstate__(copied)
+    assert state["mode"] == copied.mode == mode
+    assert state["runtime_policy"] == fresh_policy
+    assert list(copied.edges) == list(graph.edges)
+
+    # Exercise the native policy carrier, not a Python mode property. Readers
+    # use this native recorder to attach their decisions to a returned graph.
+    copied._fnx_record_recovery("copy_policy_probe", "native copied policy")
+    record, = copied.decision_records()
+    assert (record["operation"], record["mode"], record["action"]) == (
+        "copy_policy_probe", mode, "full_validate",
+    )
+    assert cls.__getstate__(graph)["runtime_policy"] == source_policy
+    copied.graph["items"].append(2)
+    assert graph.graph["items"] == ([1, 2] if copy_graph is copy.copy else [1])
 
 
 def test_subgraph_copy_is_independent():

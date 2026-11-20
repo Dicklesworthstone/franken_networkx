@@ -137,6 +137,21 @@ def _graph_view_snapshot_instance_items(graph):
     return result
 
 
+_GRAPH_COPY_POLICY_CLASS, _GRAPH_COPY_POLICY_ALLOCATOR = Graph, Graph.__new__
+
+
+def _graph_copy_native_policy(source, target):
+    """Retain source mode with fresh native decision history, as native copies do."""
+    native_class = _graph_pickle_native_class(source)
+    mode = native_class.mode.__get__(source, type(source))
+    # Only native allocation observes the source mode. Subclass __new__ and
+    # user deepcopy hooks still run in the caller's ambient context. Transfer
+    # the empty carrier's policy without rebuilding either graph's storage.
+    with compatibility_mode(mode):
+        carrier = _GRAPH_COPY_POLICY_ALLOCATOR(_GRAPH_COPY_POLICY_CLASS)
+    _fnx.copy_readwrite_policy(carrier, target)
+
+
 def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
     """Copy the complete object graph with one memo, including node identities."""
     from copy import _keep_alive, deepcopy as _dc
@@ -283,6 +298,7 @@ def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
         output_class = type(self) if snapshot_class is None else snapshot_class
         out = output_class.__new__(output_class)
         memo[id(self)] = out
+        _graph_copy_native_policy(self, out)
         prepared = []
         prepared_ids = set()
 
