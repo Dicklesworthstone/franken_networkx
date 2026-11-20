@@ -628,3 +628,64 @@ def test_deepcopy_view_reverse_preserves_parent_subclass(fcls, ncls):
         assert copied.graph["owner"] is copied
         assert copied.frozen
         assert list(copied.edges()) == [(1, 0)]
+
+
+@pytest.mark.parametrize("fcls,ncls,kind", _SNAPSHOT_VIEW_CASES)
+def test_deepcopy_view_preserves_user_instance_state_and_aliases(fcls, ncls, kind):
+    for cls in (ncls, fcls):
+        graph = cls([(0, 1), (1, 2), (2, 0), (2, 3)])
+        view = _snapshot_view(graph, kind)
+        payload = {
+            "owner": view,
+            "graph": view.graph,
+            "node": _snapshot_view_attrs(view, "node"),
+            "edge": _snapshot_view_attrs(view, "edge"),
+            "items": [1],
+        }
+        view.payload = payload
+        view._private_payload = payload
+        vars(view)[7] = payload
+        view.graph["payload"] = payload
+
+        copied, copied_payload = copy.deepcopy([view, payload])
+        assert copied.payload is copied_payload
+        assert copied._private_payload is copied_payload
+        assert vars(copied)[7] is copied_payload
+        assert copied.graph["payload"] is copied_payload
+        assert copied_payload["owner"] is copied
+        assert copied_payload["graph"] is copied.graph
+        assert copied_payload["node"] is _snapshot_view_attrs(copied, "node")
+        assert copied_payload["edge"] is _snapshot_view_attrs(copied, "edge")
+        copied_payload["items"].append(2)
+        assert payload["items"] == [1]
+        assert copied.frozen
+
+
+@pytest.mark.parametrize("fcls,ncls,kind", _SNAPSHOT_VIEW_CASES)
+def test_deepcopy_view_propagates_user_instance_copy_errors(fcls, ncls, kind):
+    for cls in (ncls, fcls):
+        graph = cls([(0, 1), (1, 2)])
+        view = _snapshot_view(graph, kind)
+        view.payload = _Uncopyable()
+        with pytest.raises(ValueError, match="^cannot copy payload$"):
+            copy.deepcopy(view)
+
+
+@pytest.mark.parametrize("fcls,ncls", _TYPES)
+@pytest.mark.parametrize("through_dict", [False, True])
+def test_deepcopy_view_keeps_replaced_cached_reader(fcls, ncls, through_dict):
+    for cls in (ncls, fcls):
+        view = cls([(0, 1), (1, 2)]).subgraph([0, 1])
+        _ = view.degree
+        payload = {"owner": view, "items": [1]}
+        if through_dict:
+            # This intentionally bypasses __setattr__ and its cache marker.
+            vars(view)["degree"] = payload
+        else:
+            view.degree = payload
+        assert view.degree is payload
+        copied = copy.deepcopy(view)
+        assert copied.degree["owner"] is copied
+        assert copied.degree["items"] == [1]
+        assert copied.degree["items"] is not payload["items"]
+        assert list(copied) == [0, 1]

@@ -89,6 +89,54 @@ for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
     _cls.name = property(_graph_name_get, _graph_name_set)
 
 
+def _graph_view_snapshot_instance_items(graph):
+    """Retain user state without carrying a view's parent or filter machinery."""
+    storage = vars(graph)
+    shadows = storage.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
+    internal_names = {
+        "_graph", "_filter_node", "_filter_edge",
+        "_filter_node_is_default", "_filter_edge_is_default",
+        "_nodes_view", "_edges_view", "_adj_view", "_succ_view", "_pred_view",
+    }
+    public_views = {
+        "nodes", "edges", "degree", "adj", "succ", "pred",
+        "in_degree", "out_degree", "in_edges", "out_edges",
+    }
+    result = []
+    for key, value in storage.items():
+        if isinstance(key, str) and (key.startswith("_fnx_") or key in internal_names):
+            continue
+        if key in shadows and value is shadows[key]:
+            continue
+        if key in public_views:
+            # Conversion views keep their generated public readers in explicit
+            # slots; filtered views install their NodeView directly. Exclude
+            # those readers by identity, preserving a user's replacement.
+            if any(
+                name in storage and value is storage[name]
+                for name in (
+                    f"_{key}_view", f"_fnx_view_{key}",
+                    f"_fnx_view_{key}_assigned", f"_fnx_private_{key}_override",
+                )
+            ):
+                continue
+            if key == "nodes" and type(value) is NodeView and value._view is graph:
+                continue
+            if (
+                key == "edges"
+                and type(value) in (_ReverseOutEdgeView, _ReverseOutMultiEdgeView)
+                and value._view is graph
+            ):
+                continue
+            if (
+                type(value) in (_InEdgeView, _OutEdgeView, _InMultiEdgeView, _OutMultiEdgeView)
+                and value._graph is graph
+            ):
+                continue
+        result.append((key, value))
+    return result
+
+
 def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
     """Copy the complete object graph with one memo, including node identities."""
     from copy import _keep_alive, deepcopy as _dc
@@ -101,7 +149,7 @@ def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
     src_dict = vars(self)
     descriptor_cached = src_dict.get(_DESCRIPTOR_CACHED_VIEWS) or ()
     private_method_shadows = src_dict.get(_PRIVATE_NODE_METHOD_SHADOWS) or {}
-    instance_items = [] if snapshot_class is not None else [
+    instance_items = _graph_view_snapshot_instance_items(self) if snapshot_class is not None else [
         (key, value)
         for key, value in src_dict.items()
         if not (isinstance(key, str) and key.startswith("_fnx_"))
@@ -184,7 +232,13 @@ def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
                         yield name, storage[key]
                         break
 
-    source_views = list(cached_views(self))
+    instance_view_names = (
+        {name for name, _ in instance_items} if snapshot_class is not None else set()
+    )
+    source_views = [
+        (name, view) for name, view in cached_views(self)
+        if name not in instance_view_names
+    ]
     copied_views = []
     store_source_ids = set()
 

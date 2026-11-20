@@ -463,6 +463,61 @@ def test_pickle_view_snapshot_reverse_preserves_parent_class_without_init(name):
     assert fnx.is_frozen(restored)
 
 
+@pytest.mark.parametrize("name,kind", _PICKLE_VIEW_CASES)
+@pytest.mark.parametrize("protocol", (2, pickle.HIGHEST_PROTOCOL))
+def test_pickle_view_snapshot_preserves_user_instance_state(name, kind, protocol):
+    graph = getattr(fnx, name)([(0, 1), (1, 2), (2, 0), (2, 3)])
+    view = _pickle_snapshot_view(graph, kind)
+    layers = _pickle_view_layers(view)
+    payload = {"owner": view, "layers": layers, "items": [1]}
+    view.payload = payload
+    view._private_payload = payload
+    vars(view)[7] = payload
+    view.graph["payload"] = payload
+
+    restored, copied_payload = _round_trip([view, payload], protocol)
+    assert restored.payload is copied_payload
+    assert restored._private_payload is copied_payload
+    assert vars(restored)[7] is copied_payload
+    assert restored.graph["payload"] is copied_payload
+    assert copied_payload["owner"] is restored
+    for actual, expected in zip(copied_payload["layers"], _pickle_view_layers(restored)):
+        assert actual is expected
+    copied_payload["items"].append(2)
+    assert payload["items"] == [1]
+    graph.add_node(99)
+    assert 99 not in restored
+    assert fnx.is_frozen(restored)
+
+
+@pytest.mark.parametrize("name,kind", _PICKLE_VIEW_CASES)
+def test_pickle_view_snapshot_propagates_user_instance_errors(name, kind):
+    graph = getattr(fnx, name)([(0, 1), (1, 2)])
+    view = _pickle_snapshot_view(graph, kind)
+    view.payload = _Unpicklable()
+    with pytest.raises(ValueError, match="^cannot serialize payload$"):
+        pickle.dumps(view)
+
+
+@pytest.mark.parametrize("name", _CLASSES)
+@pytest.mark.parametrize("through_dict", [False, True])
+@pytest.mark.parametrize("protocol", (2, pickle.HIGHEST_PROTOCOL))
+def test_pickle_view_snapshot_keeps_replaced_cached_reader(name, through_dict, protocol):
+    view = getattr(fnx, name)([(0, 1), (1, 2)]).subgraph([0, 1])
+    _ = view.degree
+    payload = {"owner": view, "items": [1]}
+    if through_dict:
+        vars(view)["degree"] = payload
+    else:
+        view.degree = payload
+    assert view.degree is payload
+    restored = _round_trip(view, protocol)
+    assert restored.degree["owner"] is restored
+    assert restored.degree["items"] == [1]
+    assert restored.degree["items"] is not payload["items"]
+    assert list(restored) == [0, 1]
+
+
 def _custom_frozen_override(*args, **kwargs):
     return "custom"
 

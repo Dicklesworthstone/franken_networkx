@@ -973,7 +973,7 @@ def _graph_pickle_view_reduce(graph, graph_class):
         },
         "graph": graph.graph,
         "stores": _graph_pickle_stores(graph, snapshot=True),
-        "instance": {},
+        "instance": dict(_graph_view_snapshot_instance_items(graph)),
         "slots": [],
         "frozen": bool(getattr(graph, "frozen", False)),
     }
