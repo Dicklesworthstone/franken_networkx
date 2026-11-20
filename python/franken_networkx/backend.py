@@ -207,6 +207,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "shortest_path",
         "shortest_path_length",
         "bidirectional_shortest_path",
+        "find_cycle",
         "all_shortest_paths",
         "average_shortest_path_length",
         "single_source_shortest_path_length",
@@ -355,6 +356,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
         "harmonic_diameter",
         "single_source_shortest_path_length", "predecessor", "bidirectional_shortest_path",
+        "find_cycle",
         "average_degree_connectivity", "average_neighbor_degree",
         "minimum_cycle_basis", "min_edge_cover",
         "group_betweenness_centrality", "group_closeness_centrality",
@@ -374,6 +376,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "find_cycle":
+        # Source enumeration and edge readers own the traversal's snapshot
+        # boundary. The algorithm admits ordinary native storage itself.
+        return True
     if name == "bidirectional_shortest_path":
         return fnx._weighted_query_uses_live_python_rows(graph, None)
     if name == "harmonic_diameter":

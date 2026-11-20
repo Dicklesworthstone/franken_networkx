@@ -218,6 +218,122 @@ def test_find_cycle_directed_with_source_matches_networkx(
     assert fr == nr, f"{name}: fnx={fr} nx={nr}"
 
 
+def _cycle_outcome(function, graph, **kwargs):
+    try:
+        return ("cycle", function(graph, **kwargs))
+    except (nx.NetworkXNoCycle, fnx.NetworkXNoCycle) as exc:
+        return ("no-cycle", str(exc))
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("logical_cycle", [False, True])
+@pytest.mark.parametrize("orientation", [None, "original", "reverse", "ignore"])
+def test_find_cycle_reads_replaced_adjacency(graph_type, logical_cycle, orientation):
+    """The logical graph can disagree with its original native topology."""
+    outcomes = []
+    for library in (nx, fnx):
+        graph = getattr(library, graph_type)()
+        graph.add_edges_from([(0, 1), (1, 2)])
+        if not logical_cycle:
+            graph.add_edge(2, 0)
+        logical = getattr(nx, graph_type)()
+        logical.add_nodes_from(range(3))
+        logical.add_edges_from([(0, 1), (1, 2)])
+        if logical_cycle:
+            logical.add_edge(2, 0)
+        graph._adj = logical._adj
+        if graph.is_directed():
+            graph._pred = logical._pred
+        outcomes.append(_cycle_outcome(library.find_cycle, graph, orientation=orientation))
+    assert outcomes[1] == outcomes[0]
+    assert (outcomes[0][0] == "cycle") is logical_cycle
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native", "foreign", "backend-cold", "backend-warm"])
+def test_find_cycle_source_iteration_can_close_cycle(graph_type, route):
+    """Source enumeration must precede searches on the same live graph."""
+    def run(reference):
+        library = fnx if route == "native" and not reference else nx
+        graph = getattr(library, graph_type)()
+        graph.add_edges_from([(0, 1), (1, 2)])
+        if route == "backend-warm" and not reference:
+            assert nx.dijkstra_path_length(
+                graph, 0, 2, backend="franken_networkx"
+            ) == 2
+            assert graph.__networkx_cache__.get("backends")
+        events = []
+
+        def sources():
+            events.append("source")
+            graph.add_edge(2, 0)
+            # Attribute writes made by this provider must also invalidate a
+            # conversion populated by a previous weighted backend call.
+            if graph.is_multigraph():
+                graph[0][1][0]["weight"] = 7
+            else:
+                graph[0][1]["weight"] = 7
+            yield 0
+
+        function = nx.find_cycle if reference or route.startswith("backend") else fnx.find_cycle
+        kwargs = {"backend": "franken_networkx"} if route.startswith("backend") and not reference else {}
+        result = _cycle_outcome(function, graph, source=sources(), **kwargs)
+        length = (
+            nx.dijkstra_path_length(graph, 0, 1, backend="franken_networkx")
+            if route.startswith("backend") and not reference else
+            library.dijkstra_path_length(graph, 0, 1)
+        )
+        return result, events, length
+
+    assert run(False) == run(True)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_find_cycle_honors_assigned_node_provider(graph_type):
+    outcomes = []
+    for library in (nx, fnx):
+        graph = getattr(library, graph_type)()
+        graph.add_edges_from([(0, 1), (1, 2)])
+        original = graph.nbunch_iter
+        events = []
+
+        def nbunch_iter(nbunch=None):
+            events.append(nbunch)
+            graph.add_edge(2, 0)
+            yield from original(nbunch)
+
+        graph.nbunch_iter = nbunch_iter
+        outcomes.append((_cycle_outcome(library.find_cycle, graph), events))
+    assert outcomes[1] == outcomes[0]
+    assert outcomes[0][0][0] == "cycle"
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_find_cycle_ordinary_native_graph_keeps_rust_search(graph_type, monkeypatch):
+    graph = getattr(fnx, graph_type)()
+    reference = getattr(nx, graph_type)()
+    for candidate in (graph, reference):
+        candidate.add_edges_from([(0, 1), (1, 2), (2, 0)])
+    namespace = fnx.find_cycle.__globals__
+    name = "_raw_find_cycle_multigraph_simple" if graph.is_multigraph() else "_raw_find_cycle_simple"
+    original = namespace[name]
+    calls = []
+
+    def native(candidate):
+        calls.append(candidate)
+        return original(candidate)
+
+    def unexpected_snapshot(*args, **kwargs):
+        pytest.fail("cycle detection copied its input or invoked NetworkX")
+
+    expected = nx.find_cycle(reference)
+    monkeypatch.setitem(namespace, name, native)
+    monkeypatch.setitem(namespace, "_coerce_arg_to_fnx_graph", unexpected_snapshot)
+    monkeypatch.setattr(nx, "find_cycle", unexpected_snapshot)
+    assert fnx.find_cycle(graph) == expected
+    assert calls == [graph]
+
+
 # ---------------------------------------------------------------------------
 # simple_cycles (directed)
 # ---------------------------------------------------------------------------

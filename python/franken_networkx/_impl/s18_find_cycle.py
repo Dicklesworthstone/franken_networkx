@@ -1,27 +1,49 @@
+_FIND_CYCLE_NATIVE_METHODS = {
+    graph_type: {
+        name: getattr(graph_type, name)
+        for name in ("nbunch_iter", "is_directed", "is_multigraph")
+    }
+    for graph_type in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
 
 
 def find_cycle(G, source=None, orientation=None):
     """Find a cycle reachable from a source node.
 
-    br-r37-c1-fcyclnative: run nx's edge_dfs + find_cycle algorithm directly on
-    fnx graph views (``_fnx_find_cycle``) for BOTH directed and undirected,
-    instead of paying a full fnx->nx conversion for a function that early-exits
-    on the first cycle. The old undirected delegation (br-r37-c1-2hrfs) existed
-    only because the Rust binding emitted algorithm-canonical orientation; the
-    Python port emits edges in nx's DFS-traversal direction via ``_fnx_edge_dfs``
-    (whose adjacency order matches nx), so the cycle edge tuples + orientation
-    match exactly (verified 0/800 over directed/undirected x multigraph x all
-    orientation modes x sources).
+    Concrete native storage uses the Rust traversal. Views, supplied source
+    collections and graph providers retain their original rows throughout the
+    owned depth-first search, including mutations made while resolving sources.
     """
-    # br-r37-c1-nwkg0: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    if (
+        type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or source is not None
+        or orientation is not None
+        or _has_networkx_private_storage(G)
+        or not G.__dict__.keys().isdisjoint(
+            ("nbunch_iter", "is_directed", "is_multigraph")
+        )
+        or (
+            "edges" in G.__dict__
+            and G.__dict__["edges"] is not G.__dict__.get("_fnx_view_edges")
+        )
+        or any(
+            getattr(type(G), name) is not method
+            for name, method in _FIND_CYCLE_NATIVE_METHODS[type(G)].items()
+        )
+        or type(type(G).__dict__.get("edges")) is not _CachedViewDescriptor
+    ):
+        # Neither conversion nor a native traversal can replace the caller's
+        # nbunch/edge providers. In particular, a source iterator may close a
+        # cycle after conversion, and assigned private rows may describe a
+        # different graph from the native store.
+        return _fnx_find_cycle(G, source, orientation)
     # br-r37-c1-7yn51: native fast path for the common case (orientation=None,
     # source=None, simple graph) — a faithful port of nx's edge_dfs+find_cycle
     # that does the whole DFS in Rust instead of per-node fnx EdgeView crossings
     # (~3-4x faster on cycle-dominated graphs; no early-exit regression since the
     # kernel returns the moment a cycle is found). Multigraph / explicit source /
     # non-None orientation keep the verbatim Python port below.
-    if source is None and orientation is None and not G.is_multigraph():
+    if not G.is_multigraph():
         cycle = _raw_find_cycle_simple(G)
         if cycle is None:
             raise NetworkXNoCycle("No cycle found.")
@@ -31,12 +53,10 @@ def find_cycle(G, source=None, orientation=None):
     # visited node (~14x nx); the kernel runs the keyed DFS entirely in Rust and
     # returns (u, v, key) triples with user-facing key objects, early-exiting on
     # the first cycle. Explicit source / non-None orientation keep the Python port.
-    if source is None and orientation is None and G.is_multigraph():
-        cycle = _raw_find_cycle_multigraph_simple(G)
-        if cycle is None:
-            raise NetworkXNoCycle("No cycle found.")
-        return cycle
-    return _fnx_find_cycle(G, source, orientation)
+    cycle = _raw_find_cycle_multigraph_simple(G)
+    if cycle is None:
+        raise NetworkXNoCycle("No cycle found.")
+    return cycle
 
 
 _FC_FORWARD = "forward"
@@ -55,29 +75,61 @@ def _fnx_edge_dfs(G, source=None, orientation=None):
     if G.is_multigraph() is True:
         kwds["keys"] = True
 
+    def live_edges(node, *, reverse=False):
+        view = G.in_edges if reverse else G.edges
+        name = "in_edges" if reverse else "edges"
+        if type(G) in _CONCRETE_FNX_GRAPH_TYPES and (
+            view is G.__dict__.get(f"_fnx_view_{name}")
+            or view is G.__dict__.get(f"_fnx_view_{name}_assigned")
+        ):
+            # A builtin edge view resolves nbunch once when it is called, then
+            # walks its captured adjacency lazily. The native materialized
+            # edge-call routes can skip or repeat a supplied nbunch provider.
+            # Preserve that provider boundary here without changing user edge
+            # readers or creating a topology snapshot.
+            rows = G._pred if reverse else G._adj
+            selected = dict.fromkeys(G.nbunch_iter(node))
+
+            def iterate():
+                seen = set()
+                for u in selected:
+                    for v, edge_data in rows[u].items():
+                        if not directed and v in seen:
+                            continue
+                        endpoints = (v, u) if reverse else (u, v)
+                        if kwds.get("keys"):
+                            for key in edge_data:
+                                yield endpoints + (key,)
+                        else:
+                            yield endpoints
+                    seen.add(u)
+
+            return iterate()
+        return iter(view(node, **kwds))
+
     if orientation is None:
 
         def edges_from(node):
-            return iter(G.edges(node, **kwds))
+            return live_edges(node)
 
     elif not directed or orientation == "original":
 
         def edges_from(node):
-            for e in G.edges(node, **kwds):
+            for e in live_edges(node):
                 yield e + (_FC_FORWARD,)
 
     elif orientation == "reverse":
 
         def edges_from(node):
-            for e in G.in_edges(node, **kwds):
+            for e in live_edges(node, reverse=True):
                 yield e + (_FC_REVERSE,)
 
     elif orientation == "ignore":
 
         def edges_from(node):
-            for e in G.edges(node, **kwds):
+            for e in live_edges(node):
                 yield e + (_FC_FORWARD,)
-            for e in G.in_edges(node, **kwds):
+            for e in live_edges(node, reverse=True):
                 yield e + (_FC_REVERSE,)
 
     else:
