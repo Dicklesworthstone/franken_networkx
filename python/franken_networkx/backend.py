@@ -206,6 +206,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "dfs_successors",
         "shortest_path",
         "shortest_path_length",
+        "bidirectional_shortest_path",
         "all_shortest_paths",
         "average_shortest_path_length",
         "single_source_shortest_path_length",
@@ -353,7 +354,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
         "harmonic_diameter",
-        "single_source_shortest_path_length", "predecessor",
+        "single_source_shortest_path_length", "predecessor", "bidirectional_shortest_path",
         "average_degree_connectivity", "average_neighbor_degree",
         "minimum_cycle_basis", "min_edge_cover",
         "group_betweenness_centrality", "group_closeness_centrality",
@@ -373,6 +374,8 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "bidirectional_shortest_path":
+        return fnx._weighted_query_uses_live_python_rows(graph, None)
     if name == "harmonic_diameter":
         # Supplied distances bypass topology entirely. Otherwise each source
         # search must see the original graph's live weights and node order,

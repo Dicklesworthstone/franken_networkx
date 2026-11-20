@@ -750,8 +750,8 @@ def bidirectional_shortest_path(G, source, target):
     reverse-frontier tie-break (br-r37-c1-w7nn3) — and it paid the
     conversion tax on every call.
     """
-    private_rows = _point_query_uses_private_rows(G)
-    if not private_rows:
+    live_rows = _weighted_query_uses_live_python_rows(G, None)
+    if not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-qmu8x: validate membership up front with nx's exact wording.
     # The native binding otherwise leaks a repr-quoted "Source 'x' is not in G"
@@ -760,14 +760,16 @@ def bidirectional_shortest_path(G, source, target):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
-    if private_rows:
+    if live_rows:
         # The caller's live mappings, not the hidden native topology, own
         # these rows. Forward-only BFS is insufficient: NetworkX expands
         # the smaller frontier and uses predecessor order for reverse ties.
         if target == source:
             return [source]
-        forward_adj = G._succ if G.is_directed() else G._adj
-        reverse_adj = G._pred if G.is_directed() else G._adj
+        if G.is_directed():
+            forward_adj, reverse_adj = G._succ, G._pred
+        else:
+            forward_adj = reverse_adj = G._adj
         pred, succ = {source: None}, {target: None}
         forward, reverse = [source], [target]
 
