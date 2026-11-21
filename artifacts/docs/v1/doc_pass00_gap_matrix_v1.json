@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "report_id": "doc-pass-00-gap-matrix-v1",
-  "generated_at_utc": "2026-11-11T21:26:37.999893+00:00",
+  "generated_at_utc": "2026-11-21T15:42:03.903439+00:00",
   "baseline_comparator": "legacy_networkx/main@python3.12",
   "target_docs": [
     {
@@ -10,17 +10,17 @@
     },
     {
       "path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "source_hash": "sha256:71f5ed59baab6a65bad2d4d71d855645d72c713f67e0da944d162d0b8f6f5557"
+      "source_hash": "sha256:abfe749ec12ff6965c6b9579e30b7749ccdfd8eda9e5b3bceba84d91e5d1857d"
     }
   ],
   "summary": {
-    "section_count": 215,
-    "high_risk_count": 153,
-    "medium_risk_count": 52,
+    "section_count": 233,
+    "high_risk_count": 163,
+    "medium_risk_count": 60,
     "low_risk_count": 10,
-    "average_expansion_multiplier": 6.077,
-    "total_current_words": 26646,
-    "total_target_words": 141321
+    "average_expansion_multiplier": 6.039,
+    "total_current_words": 34053,
+    "total_target_words": 181691
   },
   "alien_uplift_contract_card": {
     "ev_score": 2.55,
@@ -427,12 +427,12 @@
       "priority_rank": 14
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:167:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:168:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 13. Error Taxonomy and Recovery Operations (DOC-PASS-07)",
       "heading_level": 2,
-      "start_line": 167,
-      "end_line": 168,
+      "start_line": 168,
+      "end_line": 169,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -449,16 +449,16 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L167",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L168",
       "priority_rank": 15
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:224:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:225:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 15. Reliability Gate Operations (bd-315.23 baseline)",
       "heading_level": 2,
-      "start_line": 224,
-      "end_line": 225,
+      "start_line": 225,
+      "end_line": 226,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -475,16 +475,16 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L224",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L225",
       "priority_rank": 16
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:270:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:271:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 17. Concurrency/Lifecycle Semantics and Ordering Guarantees (DOC-PASS-06)",
       "heading_level": 2,
-      "start_line": 270,
-      "end_line": 271,
+      "start_line": 271,
+      "end_line": 272,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -501,16 +501,16 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L270",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L271",
       "priority_rank": 17
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:299:existing-networkx-structure-18-security-compatibility-edge-cases-and-undefined-zones-doc-pass-08",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:306:existing-networkx-structure-18-security-compatibility-edge-cases-and-undefined-zones-doc-pass-08",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 18. Security/Compatibility Edge Cases and Undefined Zones (DOC-PASS-08)",
       "heading_level": 2,
-      "start_line": 299,
-      "end_line": 300,
+      "start_line": 306,
+      "end_line": 307,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -527,16 +527,16 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L299",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L306",
       "priority_rank": 18
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:318:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:325:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 19. Pass-A Topology and Ownership Closure Map",
       "heading_level": 2,
-      "start_line": 318,
-      "end_line": 319,
+      "start_line": 325,
+      "end_line": 326,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -553,16 +553,16 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L318",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L325",
       "priority_rank": 19
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:350:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:357:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 20. Structure Specialist Review Artifact (bd-315.24.15)",
       "heading_level": 2,
-      "start_line": 350,
-      "end_line": 351,
+      "start_line": 357,
+      "end_line": 358,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -579,16 +579,16 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L350",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L357",
       "priority_rank": 20
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:374:existing-networkx-structure-21-final-integrated-consistency-sweep-and-sign-off-doc-pass-13",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:381:existing-networkx-structure-21-final-integrated-consistency-sweep-and-sign-off-doc-pass-13",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 21. Final Integrated Consistency Sweep and Sign-off (DOC-PASS-13)",
       "heading_level": 2,
-      "start_line": 374,
-      "end_line": 375,
+      "start_line": 381,
+      "end_line": 382,
       "current_word_count": 0,
       "current_line_count": 1,
       "coverage_ratio": 0.0,
@@ -605,7 +605,7 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 60,
       "priority_score": 21.85,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L374",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L381",
       "priority_rank": 21
     },
     {
@@ -712,12 +712,12 @@
       "priority_rank": 25
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:199:existing-networkx-structure-14-verification-crosswalk-index-doc-pass-09",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:200:existing-networkx-structure-14-verification-crosswalk-index-doc-pass-09",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 14. Verification Crosswalk Index (DOC-PASS-09)",
       "heading_level": 2,
-      "start_line": 199,
-      "end_line": 203,
+      "start_line": 200,
+      "end_line": 204,
       "current_word_count": 12,
       "current_line_count": 4,
       "coverage_ratio": 0.1429,
@@ -733,7 +733,7 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 90,
       "priority_score": 20.178,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L199",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L200",
       "priority_rank": 26
     },
     {
@@ -787,6 +787,32 @@
       "priority_rank": 28
     },
     {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2780:existing-networkx-structure-88-graph-resilience-backend-contract",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 88. Graph Resilience Backend Contract",
+      "heading_level": 2,
+      "start_line": 2780,
+      "end_line": 2792,
+      "current_word_count": 86,
+      "current_line_count": 12,
+      "coverage_ratio": 0.0,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 559,
+      "priority_score": 19.7,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2780",
+      "priority_rank": 29
+    },
+    {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:693:exhaustive-legacy-analysis-md-frankennetworkx-25-pass-b-expansion-source-anchored-behavioral-contract-and-risk-topology-doc-pass-11",
       "doc_path": "EXHAUSTIVE_LEGACY_ANALYSIS.md",
       "heading_path": "EXHAUSTIVE_LEGACY_ANALYSIS.md \u2014 FrankenNetworkX > 25. Pass-B Expansion: Source-Anchored Behavioral Contract and Risk Topology (DOC-PASS-11)",
@@ -809,15 +835,15 @@
       "target_min_words": 270,
       "priority_score": 19.578,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L693",
-      "priority_rank": 29
+      "priority_rank": 30
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2264:existing-networkx-structure-82-core-decomposition-backend-availability",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2650:existing-networkx-structure-82-core-decomposition-backend-availability",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 82. Core Decomposition Backend Availability",
       "heading_level": 2,
-      "start_line": 2264,
-      "end_line": 2279,
+      "start_line": 2650,
+      "end_line": 2665,
       "current_word_count": 91,
       "current_line_count": 15,
       "coverage_ratio": 0.0,
@@ -834,8 +860,8 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 592,
       "priority_score": 19.575,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2264",
-      "priority_rank": 30
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2650",
+      "priority_rank": 31
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:799:exhaustive-legacy-analysis-md-frankennetworkx-28-doc-pass-16-risk-perf-test-specialist-deep-pass-log-bd-315-24-17-28-2-missing-mapping-resolution-no-orphan-critical-surfaces",
@@ -861,7 +887,7 @@
       "target_min_words": 434,
       "priority_score": 19.55,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L799",
-      "priority_rank": 31
+      "priority_rank": 32
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:1:exhaustive-legacy-analysis-md-frankennetworkx",
@@ -885,41 +911,15 @@
       "target_min_words": 113,
       "priority_score": 19.482,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L1",
-      "priority_rank": 32
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2022:existing-networkx-structure-70-dataframe-export-from-authoritative-graph-storage",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 70. DataFrame Export from Authoritative Graph Storage",
-      "heading_level": 2,
-      "start_line": 2022,
-      "end_line": 2034,
-      "current_word_count": 95,
-      "current_line_count": 12,
-      "coverage_ratio": 0.0,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "behavioral_invariants",
-        "strict_hardened_split",
-        "verification_coverage",
-        "performance_evidence",
-        "durability_forensics",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "high",
-      "expansion_multiplier": 6.5,
-      "target_min_words": 618,
-      "priority_score": 19.475,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2022",
       "priority_rank": 33
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2118:existing-networkx-structure-75-negative-weight-predecessor-queries",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2447:existing-networkx-structure-75-negative-weight-predecessor-queries",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 75. Negative-Weight Predecessor Queries",
       "heading_level": 2,
-      "start_line": 2118,
-      "end_line": 2132,
+      "start_line": 2447,
+      "end_line": 2461,
       "current_word_count": 95,
       "current_line_count": 14,
       "coverage_ratio": 0.0,
@@ -936,16 +936,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 618,
       "priority_score": 19.475,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2118",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2447",
       "priority_rank": 34
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2105:existing-networkx-structure-74-harmonic-centrality-selector-boundaries",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2434:existing-networkx-structure-74-harmonic-centrality-selector-boundaries",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 74. Harmonic Centrality Selector Boundaries",
       "heading_level": 2,
-      "start_line": 2105,
-      "end_line": 2117,
+      "start_line": 2434,
+      "end_line": 2446,
       "current_word_count": 98,
       "current_line_count": 12,
       "coverage_ratio": 0.0,
@@ -962,7 +962,7 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 637,
       "priority_score": 19.4,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2105",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2434",
       "priority_rank": 35
     },
     {
@@ -1015,12 +1015,12 @@
       "priority_rank": 37
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:250:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline-15-3-command-discipline",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:251:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline-15-3-command-discipline",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 15. Reliability Gate Operations (bd-315.23 baseline) > 15.3 Command discipline",
       "heading_level": 3,
-      "start_line": 250,
-      "end_line": 256,
+      "start_line": 251,
+      "end_line": 257,
       "current_word_count": 38,
       "current_line_count": 6,
       "coverage_ratio": 0.1429,
@@ -1036,7 +1036,7 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 266,
       "priority_score": 18.778,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L250",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L251",
       "priority_rank": 38
     },
     {
@@ -1090,12 +1090,12 @@
       "priority_rank": 40
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1858:existing-networkx-structure-62-owned-structural-hole-centrality",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2148:existing-networkx-structure-62-owned-structural-hole-centrality",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 62. Owned Structural-Hole Centrality",
       "heading_level": 2,
-      "start_line": 1858,
-      "end_line": 1874,
+      "start_line": 2148,
+      "end_line": 2164,
       "current_word_count": 125,
       "current_line_count": 16,
       "coverage_ratio": 0.0,
@@ -1112,8 +1112,34 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 813,
       "priority_score": 18.725,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1858",
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2148",
       "priority_rank": 41
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2721:existing-networkx-structure-85-live-collider-and-v-structure-iteration",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 85. Live Collider and V-Structure Iteration",
+      "heading_level": 2,
+      "start_line": 2721,
+      "end_line": 2736,
+      "current_word_count": 126,
+      "current_line_count": 15,
+      "coverage_ratio": 0.0,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 819,
+      "priority_score": 18.7,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2721",
+      "priority_rank": 42
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:615:exhaustive-legacy-analysis-md-frankennetworkx-24-complexity-performance-memory-characterization-contract-doc-pass-05",
@@ -1137,7 +1163,7 @@
       "target_min_words": 173,
       "priority_score": 18.532,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L615",
-      "priority_rank": 42
+      "priority_rank": 43
     },
     {
       "section_id": "EXISTING_NETWORKX_STRUCTURE.md:48:existing-networkx-structure-4-compatibility-critical-behaviors",
@@ -1161,7 +1187,7 @@
       "target_min_words": 210,
       "priority_score": 18.407,
       "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L48",
-      "priority_rank": 43
+      "priority_rank": 44
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:559:exhaustive-legacy-analysis-md-frankennetworkx-22-ci-gate-topology-contract-matrix-bd-315-10-1-22-1-deterministic-gate-order-and-fail-closed-short-circuit",
@@ -1186,15 +1212,15 @@
       "target_min_words": 378,
       "priority_score": 18.378,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L559",
-      "priority_rank": 44
+      "priority_rank": 45
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1686:existing-networkx-structure-55-single-minimum-cost-flow-solve-boundary",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1961:existing-networkx-structure-55-single-minimum-cost-flow-solve-boundary",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 55. Single Minimum-Cost Flow Solve Boundary",
       "heading_level": 2,
-      "start_line": 1686,
-      "end_line": 1704,
+      "start_line": 1961,
+      "end_line": 1979,
       "current_word_count": 148,
       "current_line_count": 18,
       "coverage_ratio": 0.0,
@@ -1211,16 +1237,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 962,
       "priority_score": 18.35,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1686",
-      "priority_rank": 45
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1961",
+      "priority_rank": 46
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1794:existing-networkx-structure-59-flow-hierarchy-arithmetic-and-graph-providers",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2084:existing-networkx-structure-59-flow-hierarchy-arithmetic-and-graph-providers",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 59. Flow Hierarchy Arithmetic and Graph Providers",
       "heading_level": 2,
-      "start_line": 1794,
-      "end_line": 1816,
+      "start_line": 2084,
+      "end_line": 2106,
       "current_word_count": 181,
       "current_line_count": 22,
       "coverage_ratio": 0.0,
@@ -1237,16 +1263,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1177,
       "priority_score": 18.35,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1794",
-      "priority_rank": 46
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2084",
+      "priority_rank": 47
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1817:existing-networkx-structure-60-quotient-graph-aggregation-and-source-views",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2107:existing-networkx-structure-60-quotient-graph-aggregation-and-source-views",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 60. Quotient Graph Aggregation and Source Views",
       "heading_level": 2,
-      "start_line": 1817,
-      "end_line": 1842,
+      "start_line": 2107,
+      "end_line": 2132,
       "current_word_count": 218,
       "current_line_count": 25,
       "coverage_ratio": 0.0,
@@ -1263,16 +1289,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1417,
       "priority_score": 18.35,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1817",
-      "priority_rank": 47
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2107",
+      "priority_rank": 48
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1939:existing-networkx-structure-66-incremental-multigraph-spanning-trees",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2241:existing-networkx-structure-66-incremental-multigraph-spanning-trees",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 66. Incremental Multigraph Spanning Trees",
       "heading_level": 2,
-      "start_line": 1939,
-      "end_line": 1956,
+      "start_line": 2241,
+      "end_line": 2258,
       "current_word_count": 141,
       "current_line_count": 17,
       "coverage_ratio": 0.0,
@@ -1289,16 +1315,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 917,
       "priority_score": 18.35,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1939",
-      "priority_rank": 48
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2241",
+      "priority_rank": 49
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1980:existing-networkx-structure-68-floyd-warshall-numeric-and-provider-domains",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2282:existing-networkx-structure-68-floyd-warshall-numeric-and-provider-domains",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 68. Floyd-Warshall Numeric and Provider Domains",
       "heading_level": 2,
-      "start_line": 1980,
-      "end_line": 1999,
+      "start_line": 2282,
+      "end_line": 2301,
       "current_word_count": 151,
       "current_line_count": 19,
       "coverage_ratio": 0.0,
@@ -1315,18 +1341,18 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 982,
       "priority_score": 18.35,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1980",
-      "priority_rank": 49
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2282",
+      "priority_rank": 50
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2238:existing-networkx-structure-81-weighted-degree-connectivity-and-backend-inputs",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2613:existing-networkx-structure-81-weighted-degree-connectivity-and-backend-inputs",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 81. Weighted Degree Connectivity and Backend Inputs",
       "heading_level": 2,
-      "start_line": 2238,
-      "end_line": 2263,
-      "current_word_count": 183,
-      "current_line_count": 25,
+      "start_line": 2613,
+      "end_line": 2649,
+      "current_word_count": 267,
+      "current_line_count": 36,
       "coverage_ratio": 0.0,
       "missing_topics": [
         "legacy_anchor_specificity",
@@ -1339,18 +1365,44 @@
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 1190,
+      "target_min_words": 1736,
       "priority_score": 18.35,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2238",
-      "priority_rank": 50
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2613",
+      "priority_rank": 51
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:574:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-7-negative-cycle-witnesses-over-live-weighted-rows",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2737:existing-networkx-structure-86-dag-transitive-closure-copy-and-ordering",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 86. DAG Transitive Closure Copy and Ordering",
+      "heading_level": 2,
+      "start_line": 2737,
+      "end_line": 2757,
+      "current_word_count": 158,
+      "current_line_count": 20,
+      "coverage_ratio": 0.0,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 1027,
+      "priority_score": 18.35,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2737",
+      "priority_rank": 52
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:591:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-7-negative-cycle-witnesses-over-live-weighted-rows",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.7 Negative-cycle witnesses over live weighted rows",
       "heading_level": 3,
-      "start_line": 574,
-      "end_line": 590,
+      "start_line": 591,
+      "end_line": 607,
       "current_word_count": 123,
       "current_line_count": 16,
       "coverage_ratio": 0.0,
@@ -1367,33 +1419,8 @@
       "expansion_multiplier": 6.0,
       "target_min_words": 738,
       "priority_score": 18.025,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L574",
-      "priority_rank": 51
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:891:existing-networkx-structure-31-directed-multigraph-view-attribute-identity",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 31. Directed Multigraph View Attribute Identity",
-      "heading_level": 2,
-      "start_line": 891,
-      "end_line": 905,
-      "current_word_count": 99,
-      "current_line_count": 14,
-      "coverage_ratio": 0.1429,
-      "missing_topics": [
-        "behavioral_invariants",
-        "strict_hardened_split",
-        "verification_coverage",
-        "performance_evidence",
-        "durability_forensics",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "high",
-      "expansion_multiplier": 6.5,
-      "target_min_words": 644,
-      "priority_score": 18.003,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L891",
-      "priority_rank": 52
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L591",
+      "priority_rank": 53
     },
     {
       "section_id": "EXISTING_NETWORKX_STRUCTURE.md:29:existing-networkx-structure-2-subsystem-map",
@@ -1417,7 +1444,7 @@
       "target_min_words": 353,
       "priority_score": 17.932,
       "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L29",
-      "priority_rank": 53
+      "priority_rank": 54
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:758:exhaustive-legacy-analysis-md-frankennetworkx-26-doc-pass-12-red-team-contradiction-and-completeness-log-bd-315-24-13-26-2-bounded-residual-uncertainty-explicit",
@@ -1442,7 +1469,7 @@
       "target_min_words": 518,
       "priority_score": 17.878,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L758",
-      "priority_rank": 54
+      "priority_rank": 55
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:108:exhaustive-legacy-analysis-md-frankennetworkx-7-conformance-program-exhaustive-first-wave-7-2-differential-harness-outputs-fnx-conformance",
@@ -1466,15 +1493,15 @@
       "target_min_words": 147,
       "priority_score": 17.832,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L108",
-      "priority_rank": 55
+      "priority_rank": 56
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:369:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15-20-3-residual-structural-risks-for-next-pass",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:376:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15-20-3-residual-structural-risks-for-next-pass",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 20. Structure Specialist Review Artifact (bd-315.24.15) > 20.3 Residual structural risks for next pass",
       "heading_level": 3,
-      "start_line": 369,
-      "end_line": 373,
+      "start_line": 376,
+      "end_line": 380,
       "current_word_count": 23,
       "current_line_count": 4,
       "coverage_ratio": 0.2857,
@@ -1489,16 +1516,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 161,
       "priority_score": 17.782,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L369",
-      "priority_rank": 56
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L376",
+      "priority_rank": 57
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1900:existing-networkx-structure-64-community-detection-through-backend-dispatch",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2196:existing-networkx-structure-64-community-detection-through-backend-dispatch",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 64. Community Detection Through Backend Dispatch",
       "heading_level": 2,
-      "start_line": 1900,
-      "end_line": 1916,
+      "start_line": 2196,
+      "end_line": 2212,
       "current_word_count": 108,
       "current_line_count": 16,
       "coverage_ratio": 0.1429,
@@ -1514,8 +1541,8 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 702,
       "priority_score": 17.778,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1900",
-      "priority_rank": 57
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2196",
+      "priority_rank": 58
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:268:exhaustive-legacy-analysis-md-frankennetworkx-17-phase-2c-exit-checklist-operational",
@@ -1539,7 +1566,32 @@
       "target_min_words": 405,
       "priority_score": 17.757,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L268",
-      "priority_rank": 58
+      "priority_rank": 59
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3011:existing-networkx-structure-94-live-chordless-cycle-enumeration",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 94. Live Chordless-Cycle Enumeration",
+      "heading_level": 2,
+      "start_line": 3011,
+      "end_line": 3025,
+      "current_word_count": 111,
+      "current_line_count": 14,
+      "coverage_ratio": 0.1429,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 722,
+      "priority_score": 17.703,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3011",
+      "priority_rank": 60
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:943:exhaustive-legacy-analysis-md-frankennetworkx-31-fnx-p2c-001-security-compatibility-threat-model-bd-315-12-3-31-5-fnx-p2c-001-c-completion-verdict",
@@ -1563,7 +1615,7 @@
       "target_min_words": 203,
       "priority_score": 17.632,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L943",
-      "priority_rank": 59
+      "priority_rank": 61
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:98:exhaustive-legacy-analysis-md-frankennetworkx-7-conformance-program-exhaustive-first-wave-7-1-fixture-families",
@@ -1587,7 +1639,7 @@
       "target_min_words": 231,
       "priority_score": 17.532,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L98",
-      "priority_rank": 60
+      "priority_rank": 62
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:781:exhaustive-legacy-analysis-md-frankennetworkx-27-doc-pass-15-behavior-specialist-deep-pass-log-bd-315-24-16-27-3-residual-bounded-uncertainty",
@@ -1611,7 +1663,7 @@
       "target_min_words": 252,
       "priority_score": 17.457,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L781",
-      "priority_rank": 61
+      "priority_rank": 63
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:60:exhaustive-legacy-analysis-md-frankennetworkx-4-alien-artifact-invariant-ledger-formal-obligations",
@@ -1635,15 +1687,15 @@
       "target_min_words": 563,
       "priority_score": 17.232,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L60",
-      "priority_rank": 62
+      "priority_rank": 64
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2280:existing-networkx-structure-83-bipartite-matching-backend-availability-and-live-inputs",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2666:existing-networkx-structure-83-bipartite-matching-backend-availability-and-live-inputs",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 83. Bipartite Matching Backend Availability and Live Inputs",
       "heading_level": 2,
-      "start_line": 2280,
-      "end_line": 2300,
+      "start_line": 2666,
+      "end_line": 2686,
       "current_word_count": 132,
       "current_line_count": 20,
       "coverage_ratio": 0.1429,
@@ -1659,8 +1711,8 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 858,
       "priority_score": 17.178,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2280",
-      "priority_rank": 63
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2666",
+      "priority_rank": 65
     },
     {
       "section_id": "EXISTING_NETWORKX_STRUCTURE.md:78:existing-networkx-structure-8-extraction-notes-for-rust-spec",
@@ -1683,7 +1735,32 @@
       "target_min_words": 180,
       "priority_score": 17.136,
       "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L78",
-      "priority_rank": 64
+      "priority_rank": 66
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3044:existing-networkx-structure-96-graph-product-input-providers",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 96. Graph Product Input Providers",
+      "heading_level": 2,
+      "start_line": 3044,
+      "end_line": 3061,
+      "current_word_count": 134,
+      "current_line_count": 17,
+      "coverage_ratio": 0.1429,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 871,
+      "priority_score": 17.128,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3044",
+      "priority_rank": 67
     },
     {
       "section_id": "EXISTING_NETWORKX_STRUCTURE.md:70:existing-networkx-structure-7-high-value-conformance-fixture-families",
@@ -1706,15 +1783,15 @@
       "target_min_words": 218,
       "priority_score": 17.011,
       "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L70",
-      "priority_rank": 65
+      "priority_rank": 68
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:695:existing-networkx-structure-24-bethe-hessian-matrix-selection-contract",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:735:existing-networkx-structure-24-bethe-hessian-matrix-selection-contract",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 24. Bethe Hessian Matrix Selection Contract",
       "heading_level": 2,
-      "start_line": 695,
-      "end_line": 717,
+      "start_line": 735,
+      "end_line": 757,
       "current_word_count": 156,
       "current_line_count": 22,
       "coverage_ratio": 0.1429,
@@ -1730,16 +1807,41 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1014,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L695",
-      "priority_rank": 66
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L735",
+      "priority_rank": 69
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:971:existing-networkx-structure-35-incremental-traversal-and-live-row-cursors",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:982:existing-networkx-structure-31-directed-multigraph-view-attribute-identity",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 31. Directed Multigraph View Attribute Identity",
+      "heading_level": 2,
+      "start_line": 982,
+      "end_line": 1033,
+      "current_word_count": 439,
+      "current_line_count": 51,
+      "coverage_ratio": 0.1429,
+      "missing_topics": [
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 2854,
+      "priority_score": 16.978,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L982",
+      "priority_rank": 70
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1107:existing-networkx-structure-35-incremental-traversal-and-live-row-cursors",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 35. Incremental Traversal and Live Row Cursors",
       "heading_level": 2,
-      "start_line": 971,
-      "end_line": 1010,
+      "start_line": 1107,
+      "end_line": 1146,
       "current_word_count": 377,
       "current_line_count": 39,
       "coverage_ratio": 0.1429,
@@ -1755,18 +1857,18 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 2451,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L971",
-      "priority_rank": 67
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1107",
+      "priority_rank": 71
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1580:existing-networkx-structure-51-live-weighted-betweenness-queries",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1848:existing-networkx-structure-51-live-weighted-betweenness-queries",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 51. Live Weighted Betweenness Queries",
       "heading_level": 2,
-      "start_line": 1580,
-      "end_line": 1597,
-      "current_word_count": 140,
-      "current_line_count": 17,
+      "start_line": 1848,
+      "end_line": 1872,
+      "current_word_count": 194,
+      "current_line_count": 24,
       "coverage_ratio": 0.1429,
       "missing_topics": [
         "legacy_anchor_specificity",
@@ -1778,18 +1880,18 @@
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 910,
+      "target_min_words": 1261,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1580",
-      "priority_rank": 68
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1848",
+      "priority_rank": 72
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1763:existing-networkx-structure-58-constructor-copies-of-authoritative-graph-storage",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2053:existing-networkx-structure-58-constructor-copies-of-authoritative-graph-storage",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 58. Constructor Copies of Authoritative Graph Storage",
       "heading_level": 2,
-      "start_line": 1763,
-      "end_line": 1793,
+      "start_line": 2053,
+      "end_line": 2083,
       "current_word_count": 233,
       "current_line_count": 30,
       "coverage_ratio": 0.1429,
@@ -1805,21 +1907,21 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1515,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1763",
-      "priority_rank": 69
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2053",
+      "priority_rank": 73
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1875:existing-networkx-structure-63-backend-flow-solvers-and-residual-ownership",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2324:existing-networkx-structure-70-dataframe-export-from-authoritative-graph-storage",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 63. Backend Flow Solvers and Residual Ownership",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 70. DataFrame Export from Authoritative Graph Storage",
       "heading_level": 2,
-      "start_line": 1875,
-      "end_line": 1899,
-      "current_word_count": 192,
-      "current_line_count": 24,
+      "start_line": 2324,
+      "end_line": 2345,
+      "current_word_count": 173,
+      "current_line_count": 21,
       "coverage_ratio": 0.1429,
       "missing_topics": [
-        "legacy_anchor_specificity",
+        "behavioral_invariants",
         "strict_hardened_split",
         "verification_coverage",
         "performance_evidence",
@@ -1828,18 +1930,18 @@
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 1248,
+      "target_min_words": 1125,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1875",
-      "priority_rank": 70
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2324",
+      "priority_rank": 74
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2035:existing-networkx-structure-71-owned-greedy-coloring-and-strategy-protocols",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2346:existing-networkx-structure-71-owned-greedy-coloring-and-strategy-protocols",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 71. Owned Greedy Coloring and Strategy Protocols",
       "heading_level": 2,
-      "start_line": 2035,
-      "end_line": 2067,
+      "start_line": 2346,
+      "end_line": 2378,
       "current_word_count": 277,
       "current_line_count": 32,
       "coverage_ratio": 0.1429,
@@ -1855,21 +1957,21 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1801,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2035",
-      "priority_rank": 71
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2346",
+      "priority_rank": 75
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2068:existing-networkx-structure-72-incremental-directed-arborescence-scheduling",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3026:existing-networkx-structure-95-directed-growth-generators-and-caller-protocols",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 72. Incremental Directed Arborescence Scheduling",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 95. Directed Growth Generators and Caller Protocols",
       "heading_level": 2,
-      "start_line": 2068,
-      "end_line": 2091,
-      "current_word_count": 187,
-      "current_line_count": 23,
+      "start_line": 3026,
+      "end_line": 3043,
+      "current_word_count": 148,
+      "current_line_count": 17,
       "coverage_ratio": 0.1429,
       "missing_topics": [
-        "legacy_anchor_specificity",
+        "behavioral_invariants",
         "strict_hardened_split",
         "verification_coverage",
         "performance_evidence",
@@ -1878,18 +1980,43 @@
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 1216,
+      "target_min_words": 962,
       "priority_score": 16.978,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2068",
-      "priority_rank": 72
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3026",
+      "priority_rank": 76
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2092:existing-networkx-structure-73-streaming-dictionary-of-lists-imports",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3088:existing-networkx-structure-98-graph-combination-backend-dispatch",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 98. Graph Combination Backend Dispatch",
+      "heading_level": 2,
+      "start_line": 3088,
+      "end_line": 3109,
+      "current_word_count": 151,
+      "current_line_count": 21,
+      "coverage_ratio": 0.1429,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 982,
+      "priority_score": 16.978,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3088",
+      "priority_rank": 77
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2421:existing-networkx-structure-73-streaming-dictionary-of-lists-imports",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 73. Streaming Dictionary-of-Lists Imports",
       "heading_level": 2,
-      "start_line": 2092,
-      "end_line": 2104,
+      "start_line": 2421,
+      "end_line": 2433,
       "current_word_count": 87,
       "current_line_count": 12,
       "coverage_ratio": 0.2857,
@@ -1904,8 +2031,8 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 566,
       "priority_score": 16.932,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2092",
-      "priority_rank": 73
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2421",
+      "priority_rank": 78
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:220:exhaustive-legacy-analysis-md-frankennetworkx-14-strict-hardened-compatibility-drift-budgets",
@@ -1928,7 +2055,7 @@
       "target_min_words": 255,
       "priority_score": 16.886,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L220",
-      "priority_rank": 74
+      "priority_rank": 79
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:379:exhaustive-legacy-analysis-md-frankennetworkx-19-error-taxonomy-failure-modes-and-recovery-semantics-doc-pass-07-19-1-decision-boundary-and-fail-closed-law",
@@ -1952,7 +2079,7 @@
       "target_min_words": 427,
       "priority_score": 16.832,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L379",
-      "priority_rank": 75
+      "priority_rank": 80
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:872:exhaustive-legacy-analysis-md-frankennetworkx-30-fnx-p2c-001-contract-table-strict-hardened-invariant-spec-bd-315-12-2-30-2-explicit-allowlisted-divergence-classes",
@@ -1976,15 +2103,15 @@
       "target_min_words": 434,
       "priority_score": 16.807,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L872",
-      "priority_rank": 76
+      "priority_rank": 81
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:636:existing-networkx-structure-23-initial-flow-contract-p2c005-extension-23-1-python-custom-flow-solver-boundary",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:676:existing-networkx-structure-23-initial-flow-contract-p2c005-extension-23-1-python-custom-flow-solver-boundary",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 23. Initial Flow Contract (P2C005 Extension) > 23.1 Python custom-flow solver boundary",
       "heading_level": 3,
-      "start_line": 636,
-      "end_line": 657,
+      "start_line": 676,
+      "end_line": 697,
       "current_word_count": 117,
       "current_line_count": 21,
       "coverage_ratio": 0.1429,
@@ -2000,8 +2127,8 @@
       "expansion_multiplier": 6.0,
       "target_min_words": 702,
       "priority_score": 16.803,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L636",
-      "priority_rank": 77
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L676",
+      "priority_rank": 82
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:174:exhaustive-legacy-analysis-md-frankennetworkx-11-residual-gaps-and-risks",
@@ -2024,15 +2151,15 @@
       "target_min_words": 285,
       "priority_score": 16.786,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L174",
-      "priority_rank": 78
+      "priority_rank": 83
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:181:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07-13-2-user-visible-error-contract",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:182:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07-13-2-user-visible-error-contract",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 13. Error Taxonomy and Recovery Operations (DOC-PASS-07) > 13.2 User-visible error contract",
       "heading_level": 3,
-      "start_line": 181,
-      "end_line": 191,
+      "start_line": 182,
+      "end_line": 192,
       "current_word_count": 63,
       "current_line_count": 10,
       "coverage_ratio": 0.2857,
@@ -2047,16 +2174,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 441,
       "priority_score": 16.782,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L181",
-      "priority_rank": 79
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L182",
+      "priority_rank": 84
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:483:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-3-metric-closure-weight-domain",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:500:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-3-metric-closure-weight-domain",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.3 Metric-closure weight domain",
       "heading_level": 3,
-      "start_line": 483,
-      "end_line": 491,
+      "start_line": 500,
+      "end_line": 508,
       "current_word_count": 65,
       "current_line_count": 8,
       "coverage_ratio": 0.2857,
@@ -2071,16 +2198,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 455,
       "priority_score": 16.732,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L483",
-      "priority_rank": 80
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L500",
+      "priority_rank": 85
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:492:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-4-native-shortest-simple-path-discovery",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:509:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-4-native-shortest-simple-path-discovery",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.4 Native shortest-simple-path discovery",
       "heading_level": 3,
-      "start_line": 492,
-      "end_line": 500,
+      "start_line": 509,
+      "end_line": 517,
       "current_word_count": 66,
       "current_line_count": 8,
       "coverage_ratio": 0.2857,
@@ -2095,16 +2222,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 462,
       "priority_score": 16.707,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L492",
-      "priority_rank": 81
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L509",
+      "priority_rank": 86
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1843:existing-networkx-structure-61-implicit-unit-weights-and-exact-shortest-paths",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2133:existing-networkx-structure-61-implicit-unit-weights-and-exact-shortest-paths",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 61. Implicit Unit Weights and Exact Shortest Paths",
       "heading_level": 2,
-      "start_line": 1843,
-      "end_line": 1857,
+      "start_line": 2133,
+      "end_line": 2147,
       "current_word_count": 112,
       "current_line_count": 14,
       "coverage_ratio": 0.2857,
@@ -2119,8 +2246,8 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 728,
       "priority_score": 16.307,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1843",
-      "priority_rank": 82
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2133",
+      "priority_rank": 87
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:892:exhaustive-legacy-analysis-md-frankennetworkx-30-fnx-p2c-001-contract-table-strict-hardened-invariant-spec-bd-315-12-2-30-4-fnx-p2c-001-b-completion-verdict",
@@ -2143,7 +2270,7 @@
       "target_min_words": 196,
       "priority_score": 16.286,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L892",
-      "priority_rank": 83
+      "priority_rank": 88
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:853:exhaustive-legacy-analysis-md-frankennetworkx-29-fnx-p2c-001-legacy-anchor-map-extraction-ledger-bd-315-12-1-29-4-fnx-p2c-001-completion-criterion-verdict",
@@ -2166,7 +2293,7 @@
       "target_min_words": 203,
       "priority_score": 16.261,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L853",
-      "priority_rank": 84
+      "priority_rank": 89
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:494:exhaustive-legacy-analysis-md-frankennetworkx-20-unit-e2e-test-corpus-and-logging-evidence-crosswalk-doc-pass-09-20-4-canonical-replay-command-templates",
@@ -2189,7 +2316,7 @@
       "target_min_words": 245,
       "priority_score": 16.111,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L494",
-      "priority_rank": 85
+      "priority_rank": 90
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:814:exhaustive-legacy-analysis-md-frankennetworkx-28-doc-pass-16-risk-perf-test-specialist-deep-pass-log-bd-315-24-17-28-4-specialist-pass-verdict",
@@ -2212,7 +2339,7 @@
       "target_min_words": 259,
       "priority_score": 16.061,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L814",
-      "priority_rank": 86
+      "priority_rank": 91
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:118:exhaustive-legacy-analysis-md-frankennetworkx-8-extreme-optimization-program",
@@ -2235,15 +2362,15 @@
       "target_min_words": 525,
       "priority_score": 15.986,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L118",
-      "priority_rank": 87
+      "priority_rank": 92
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2133:existing-networkx-structure-76-weighted-query-validation-and-average-distance-dispatch",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2462:existing-networkx-structure-76-weighted-query-validation-and-average-distance-dispatch",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 76. Weighted Query Validation and Average-Distance Dispatch",
       "heading_level": 2,
-      "start_line": 2133,
-      "end_line": 2150,
+      "start_line": 2462,
+      "end_line": 2479,
       "current_word_count": 131,
       "current_line_count": 17,
       "coverage_ratio": 0.2857,
@@ -2258,8 +2385,8 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 852,
       "priority_score": 15.832,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2133",
-      "priority_rank": 88
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2462",
+      "priority_rank": 93
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:180:exhaustive-legacy-analysis-md-frankennetworkx-12-deep-pass-hotspot-inventory-measured",
@@ -2282,15 +2409,15 @@
       "target_min_words": 585,
       "priority_score": 15.786,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L180",
-      "priority_rank": 89
+      "priority_rank": 94
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:312:existing-networkx-structure-18-security-compatibility-edge-cases-and-undefined-zones-doc-pass-08-18-2-hardened-mode-rationale-non-negotiable",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:319:existing-networkx-structure-18-security-compatibility-edge-cases-and-undefined-zones-doc-pass-08-18-2-hardened-mode-rationale-non-negotiable",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 18. Security/Compatibility Edge Cases and Undefined Zones (DOC-PASS-08) > 18.2 Hardened-mode rationale (non-negotiable)",
       "heading_level": 3,
-      "start_line": 312,
-      "end_line": 317,
+      "start_line": 319,
+      "end_line": 324,
       "current_word_count": 48,
       "current_line_count": 5,
       "coverage_ratio": 0.4286,
@@ -2304,16 +2431,40 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 336,
       "priority_score": 15.786,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L312",
-      "priority_rank": 90
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L319",
+      "priority_rank": 95
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:789:existing-networkx-structure-27-a-python-callback-and-priority-contract",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2758:existing-networkx-structure-87-bipartite-projection-backend-availability-and-metadata",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 87. Bipartite Projection Backend Availability and Metadata",
+      "heading_level": 2,
+      "start_line": 2758,
+      "end_line": 2779,
+      "current_word_count": 138,
+      "current_line_count": 21,
+      "coverage_ratio": 0.2857,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 897,
+      "priority_score": 15.657,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2758",
+      "priority_rank": 96
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:829:existing-networkx-structure-27-a-python-callback-and-priority-contract",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 27. A* Python Callback and Priority Contract",
       "heading_level": 2,
-      "start_line": 789,
-      "end_line": 810,
+      "start_line": 829,
+      "end_line": 850,
       "current_word_count": 161,
       "current_line_count": 21,
       "coverage_ratio": 0.2857,
@@ -2328,40 +2479,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1047,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L789",
-      "priority_rank": 91
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L829",
+      "priority_rank": 97
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:811:existing-networkx-structure-28-spectral-centrality-solver-contract",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 28. Spectral Centrality Solver Contract",
-      "heading_level": 2,
-      "start_line": 811,
-      "end_line": 853,
-      "current_word_count": 313,
-      "current_line_count": 42,
-      "coverage_ratio": 0.2857,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "behavioral_invariants",
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics"
-      ],
-      "risk_tier": "high",
-      "expansion_multiplier": 6.5,
-      "target_min_words": 2035,
-      "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L811",
-      "priority_rank": 92
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:872:existing-networkx-structure-30-renamed-graph-union",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:963:existing-networkx-structure-30-renamed-graph-union",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 30. Renamed Graph Union",
       "heading_level": 2,
-      "start_line": 872,
-      "end_line": 890,
+      "start_line": 963,
+      "end_line": 981,
       "current_word_count": 141,
       "current_line_count": 18,
       "coverage_ratio": 0.2857,
@@ -2376,16 +2503,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 917,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L872",
-      "priority_rank": 93
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L963",
+      "priority_rank": 98
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1054:existing-networkx-structure-37-live-simple-path-enumeration",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1210:existing-networkx-structure-37-live-simple-path-enumeration",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 37. Live Simple-Path Enumeration",
       "heading_level": 2,
-      "start_line": 1054,
-      "end_line": 1077,
+      "start_line": 1210,
+      "end_line": 1233,
       "current_word_count": 205,
       "current_line_count": 23,
       "coverage_ratio": 0.2857,
@@ -2400,64 +2527,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1333,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1054",
-      "priority_rank": 94
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1210",
+      "priority_rank": 99
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1252:existing-networkx-structure-42-native-eligibility-with-logical-python-storage",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 42. Native Eligibility with Logical Python Storage",
-      "heading_level": 2,
-      "start_line": 1252,
-      "end_line": 1279,
-      "current_word_count": 228,
-      "current_line_count": 27,
-      "coverage_ratio": 0.2857,
-      "missing_topics": [
-        "behavioral_invariants",
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "high",
-      "expansion_multiplier": 6.5,
-      "target_min_words": 1482,
-      "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1252",
-      "priority_rank": 95
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1280:existing-networkx-structure-43-graph-pickle-persistence-and-object-identity",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 43. Graph Pickle Persistence and Object Identity",
-      "heading_level": 2,
-      "start_line": 1280,
-      "end_line": 1305,
-      "current_word_count": 222,
-      "current_line_count": 25,
-      "coverage_ratio": 0.2857,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "behavioral_invariants",
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics"
-      ],
-      "risk_tier": "high",
-      "expansion_multiplier": 6.5,
-      "target_min_words": 1443,
-      "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1280",
-      "priority_rank": 96
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1549:existing-networkx-structure-50-connectivity-queries-with-custom-flow-solvers-and-cutoffs",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1817:existing-networkx-structure-50-connectivity-queries-with-custom-flow-solvers-and-cutoffs",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 50. Connectivity Queries with Custom Flow Solvers and Cutoffs",
       "heading_level": 2,
-      "start_line": 1549,
-      "end_line": 1579,
+      "start_line": 1817,
+      "end_line": 1847,
       "current_word_count": 247,
       "current_line_count": 30,
       "coverage_ratio": 0.2857,
@@ -2472,16 +2551,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1606,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1549",
-      "priority_rank": 97
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1817",
+      "priority_rank": 100
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1598:existing-networkx-structure-52-flow-solvers-over-caller-graphs-and-residuals",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1873:existing-networkx-structure-52-flow-solvers-over-caller-graphs-and-residuals",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 52. Flow Solvers over Caller Graphs and Residuals",
       "heading_level": 2,
-      "start_line": 1598,
-      "end_line": 1629,
+      "start_line": 1873,
+      "end_line": 1904,
       "current_word_count": 237,
       "current_line_count": 31,
       "coverage_ratio": 0.2857,
@@ -2496,16 +2575,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1541,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1598",
-      "priority_rank": 98
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1873",
+      "priority_rank": 101
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1630:existing-networkx-structure-53-complete-gexf-decoding",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1905:existing-networkx-structure-53-complete-gexf-decoding",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 53. Complete GEXF Decoding",
       "heading_level": 2,
-      "start_line": 1630,
-      "end_line": 1660,
+      "start_line": 1905,
+      "end_line": 1935,
       "current_word_count": 256,
       "current_line_count": 30,
       "coverage_ratio": 0.2857,
@@ -2520,18 +2599,18 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1664,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1630",
-      "priority_rank": 99
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1905",
+      "priority_rank": 102
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1917:existing-networkx-structure-65-weighted-query-dispatch-and-live-source-collections",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2213:existing-networkx-structure-65-weighted-query-dispatch-and-live-source-collections",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 65. Weighted Query Dispatch and Live Source Collections",
       "heading_level": 2,
-      "start_line": 1917,
-      "end_line": 1938,
-      "current_word_count": 161,
-      "current_line_count": 21,
+      "start_line": 2213,
+      "end_line": 2240,
+      "current_word_count": 207,
+      "current_line_count": 27,
       "coverage_ratio": 0.2857,
       "missing_topics": [
         "behavioral_invariants",
@@ -2542,18 +2621,18 @@
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 1047,
+      "target_min_words": 1346,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1917",
-      "priority_rank": 100
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2213",
+      "priority_rank": 103
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1957:existing-networkx-structure-67-owned-greedy-modularity-communities",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2259:existing-networkx-structure-67-owned-greedy-modularity-communities",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 67. Owned Greedy Modularity Communities",
       "heading_level": 2,
-      "start_line": 1957,
-      "end_line": 1979,
+      "start_line": 2259,
+      "end_line": 2281,
       "current_word_count": 180,
       "current_line_count": 22,
       "coverage_ratio": 0.2857,
@@ -2568,16 +2647,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1170,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1957",
-      "priority_rank": 101
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2259",
+      "priority_rank": 104
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2000:existing-networkx-structure-69-pagerank-matrix-and-provider-boundaries",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2302:existing-networkx-structure-69-pagerank-matrix-and-provider-boundaries",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 69. PageRank Matrix and Provider Boundaries",
       "heading_level": 2,
-      "start_line": 2000,
-      "end_line": 2021,
+      "start_line": 2302,
+      "end_line": 2323,
       "current_word_count": 167,
       "current_line_count": 21,
       "coverage_ratio": 0.2857,
@@ -2592,18 +2671,42 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1086,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2000",
-      "priority_rank": 102
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2302",
+      "priority_rank": 105
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2207:existing-networkx-structure-80-node-link-round-trips-and-metadata-aliases",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2379:existing-networkx-structure-72-incremental-directed-arborescence-scheduling",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 72. Incremental Directed Arborescence Scheduling",
+      "heading_level": 2,
+      "start_line": 2379,
+      "end_line": 2420,
+      "current_word_count": 349,
+      "current_line_count": 41,
+      "coverage_ratio": 0.2857,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 2269,
+      "priority_score": 15.607,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2379",
+      "priority_rank": 106
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2572:existing-networkx-structure-80-node-link-round-trips-and-metadata-aliases",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 80. Node-Link Round Trips and Metadata Aliases",
       "heading_level": 2,
-      "start_line": 2207,
-      "end_line": 2237,
-      "current_word_count": 250,
-      "current_line_count": 30,
+      "start_line": 2572,
+      "end_line": 2612,
+      "current_word_count": 347,
+      "current_line_count": 40,
       "coverage_ratio": 0.2857,
       "missing_topics": [
         "behavioral_invariants",
@@ -2614,20 +2717,20 @@
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 1625,
+      "target_min_words": 2256,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2207",
-      "priority_rank": 103
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2572",
+      "priority_rank": 107
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2301:existing-networkx-structure-84-global-minimum-cut-backend-availability-and-weight-reads",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2687:existing-networkx-structure-84-global-minimum-cut-backend-availability-and-weight-reads",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 84. Global Minimum Cut Backend Availability and Weight Reads",
       "heading_level": 2,
-      "start_line": 2301,
-      "end_line": 2333,
+      "start_line": 2687,
+      "end_line": 2720,
       "current_word_count": 260,
-      "current_line_count": 32,
+      "current_line_count": 33,
       "coverage_ratio": 0.2857,
       "missing_topics": [
         "legacy_anchor_specificity",
@@ -2640,8 +2743,80 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1690,
       "priority_score": 15.607,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2301",
-      "priority_rank": 104
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2687",
+      "priority_rank": 108
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2856:existing-networkx-structure-90-public-row-source-distances-and-distance-centrality",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 90. Public-Row Source Distances and Distance Centrality",
+      "heading_level": 2,
+      "start_line": 2856,
+      "end_line": 2907,
+      "current_word_count": 462,
+      "current_line_count": 51,
+      "coverage_ratio": 0.2857,
+      "missing_topics": [
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 3003,
+      "priority_score": 15.607,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2856",
+      "priority_rank": 109
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2908:existing-networkx-structure-91-matrix-import-storage-and-construction-contract",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 91. Matrix Import Storage and Construction Contract",
+      "heading_level": 2,
+      "start_line": 2908,
+      "end_line": 2942,
+      "current_word_count": 268,
+      "current_line_count": 34,
+      "coverage_ratio": 0.2857,
+      "missing_topics": [
+        "strict_hardened_split",
+        "verification_coverage",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 1742,
+      "priority_score": 15.607,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2908",
+      "priority_rank": 110
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2977:existing-networkx-structure-93-factories-for-complete-assigned-graph-storage",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 93. Factories for Complete Assigned Graph Storage",
+      "heading_level": 2,
+      "start_line": 2977,
+      "end_line": 3010,
+      "current_word_count": 272,
+      "current_line_count": 33,
+      "coverage_ratio": 0.2857,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 1768,
+      "priority_score": 15.607,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2977",
+      "priority_rank": 111
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:526:exhaustive-legacy-analysis-md-frankennetworkx-21-coverage-flake-budgets-and-reliability-gate-baseline-bd-315-23-21-3-ci-failure-envelope-contract-budget-specific-remediation",
@@ -2664,7 +2839,7 @@
       "target_min_words": 392,
       "priority_score": 15.586,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L526",
-      "priority_rank": 105
+      "priority_rank": 112
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:544:exhaustive-legacy-analysis-md-frankennetworkx-21-coverage-flake-budgets-and-reliability-gate-baseline-bd-315-23-21-4-closure-linkage-for-bd-315-23-dependents",
@@ -2688,15 +2863,15 @@
       "target_min_words": 666,
       "priority_score": 15.582,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L544",
-      "priority_rank": 106
+      "priority_rank": 113
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:386:existing-networkx-structure-21-final-integrated-consistency-sweep-and-sign-off-doc-pass-13-21-2-final-sign-off-assertions-for-doc-pass-13",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:393:existing-networkx-structure-21-final-integrated-consistency-sweep-and-sign-off-doc-pass-13-21-2-final-sign-off-assertions-for-doc-pass-13",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 21. Final Integrated Consistency Sweep and Sign-off (DOC-PASS-13) > 21.2 Final sign-off assertions for DOC-PASS-13",
       "heading_level": 3,
-      "start_line": 386,
-      "end_line": 392,
+      "start_line": 393,
+      "end_line": 399,
       "current_word_count": 59,
       "current_line_count": 6,
       "coverage_ratio": 0.4286,
@@ -2710,8 +2885,8 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 413,
       "priority_score": 15.511,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L386",
-      "priority_rank": 107
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L393",
+      "priority_rank": 114
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:908:exhaustive-legacy-analysis-md-frankennetworkx-31-fnx-p2c-001-security-compatibility-threat-model-bd-315-12-3-31-2-hardened-mode-allowlist-ad-hoc-deviations-forbidden",
@@ -2734,7 +2909,7 @@
       "target_min_words": 434,
       "priority_score": 15.436,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L908",
-      "priority_rank": 108
+      "priority_rank": 115
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:808:exhaustive-legacy-analysis-md-frankennetworkx-28-doc-pass-16-risk-perf-test-specialist-deep-pass-log-bd-315-24-17-28-3-risk-taxonomy-tightening-specialist-corrections",
@@ -2757,7 +2932,7 @@
       "target_min_words": 441,
       "priority_score": 15.411,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L808",
-      "priority_rank": 109
+      "priority_rank": 116
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:252:exhaustive-legacy-analysis-md-frankennetworkx-16-raptorq-evidence-topology-and-recovery-drills",
@@ -2779,7 +2954,7 @@
       "target_min_words": 315,
       "priority_score": 15.314,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L252",
-      "priority_rank": 110
+      "priority_rank": 117
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:15:exhaustive-legacy-analysis-md-frankennetworkx-1-source-of-truth-crosswalk",
@@ -2801,7 +2976,7 @@
       "target_min_words": 330,
       "priority_score": 15.264,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L15",
-      "priority_rank": 111
+      "priority_rank": 118
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:681:exhaustive-legacy-analysis-md-frankennetworkx-24-complexity-performance-memory-characterization-contract-doc-pass-05-24-4-verification-and-gate-linkage",
@@ -2824,7 +2999,7 @@
       "target_min_words": 483,
       "priority_score": 15.261,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L681",
-      "priority_rank": 112
+      "priority_rank": 119
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:453:exhaustive-legacy-analysis-md-frankennetworkx-20-unit-e2e-test-corpus-and-logging-evidence-crosswalk-doc-pass-09-20-1-canonical-crosswalk-schema",
@@ -2846,7 +3021,7 @@
       "target_min_words": 119,
       "priority_score": 15.189,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L453",
-      "priority_rank": 113
+      "priority_rank": 120
     },
     {
       "section_id": "EXISTING_NETWORKX_STRUCTURE.md:8:existing-networkx-structure-1-1-spec-first-contract",
@@ -2868,7 +3043,7 @@
       "target_min_words": 390,
       "priority_score": 15.064,
       "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L8",
-      "priority_rank": 114
+      "priority_rank": 121
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:627:exhaustive-legacy-analysis-md-frankennetworkx-24-complexity-performance-memory-characterization-contract-doc-pass-05-24-1-family-level-envelope-summary",
@@ -2892,15 +3067,15 @@
       "target_min_words": 858,
       "priority_score": 14.857,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L627",
-      "priority_rank": 115
+      "priority_rank": 122
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:427:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-1-python-dijkstra-overflow-reachability",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:444:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-1-python-dijkstra-overflow-reachability",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.1 Python Dijkstra overflow reachability",
       "heading_level": 3,
-      "start_line": 427,
-      "end_line": 454,
+      "start_line": 444,
+      "end_line": 471,
       "current_word_count": 225,
       "current_line_count": 27,
       "coverage_ratio": 0.2857,
@@ -2915,16 +3090,16 @@
       "expansion_multiplier": 6.0,
       "target_min_words": 1350,
       "priority_score": 14.857,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L427",
-      "priority_rank": 116
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L444",
+      "priority_rank": 123
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:545:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-6-bellman-ford-predecessor-modes-and-targets",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:562:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-6-bellman-ford-predecessor-modes-and-targets",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.6 Bellman-Ford predecessor modes and targets",
       "heading_level": 3,
-      "start_line": 545,
-      "end_line": 573,
+      "start_line": 562,
+      "end_line": 590,
       "current_word_count": 231,
       "current_line_count": 28,
       "coverage_ratio": 0.2857,
@@ -2939,8 +3114,8 @@
       "expansion_multiplier": 6.0,
       "target_min_words": 1386,
       "priority_score": 14.857,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L545",
-      "priority_rank": 117
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L562",
+      "priority_rank": 124
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:311:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-3-invariant-violation-matrix-and-recovery-policy",
@@ -2963,15 +3138,15 @@
       "target_min_words": 534,
       "priority_score": 14.761,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L311",
-      "priority_rank": 118
+      "priority_rank": 125
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:114:existing-networkx-structure-11-invariant-violation-and-recovery-policy",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:115:existing-networkx-structure-11-invariant-violation-and-recovery-policy",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 11. Invariant Violation and Recovery Policy",
       "heading_level": 2,
-      "start_line": 114,
-      "end_line": 123,
+      "start_line": 115,
+      "end_line": 124,
       "current_word_count": 77,
       "current_line_count": 9,
       "coverage_ratio": 0.5714,
@@ -2984,8 +3159,8 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 578,
       "priority_score": 14.439,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L114",
-      "priority_rank": 119
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L115",
+      "priority_rank": 126
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:141:exhaustive-legacy-analysis-md-frankennetworkx-9-raptorq-everywhere-artifact-contract",
@@ -3006,15 +3181,15 @@
       "target_min_words": 188,
       "priority_score": 14.368,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L141",
-      "priority_rank": 120
+      "priority_rank": 127
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:343:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map-19-3-reviewer-traceability-checklist",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:350:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map-19-3-reviewer-traceability-checklist",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 19. Pass-A Topology and Ownership Closure Map > 19.3 Reviewer traceability checklist",
       "heading_level": 3,
-      "start_line": 343,
-      "end_line": 349,
+      "start_line": 350,
+      "end_line": 356,
       "current_word_count": 52,
       "current_line_count": 6,
       "coverage_ratio": 0.5714,
@@ -3027,16 +3202,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 364,
       "priority_score": 14.314,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L343",
-      "priority_rank": 121
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L350",
+      "priority_rank": 128
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:192:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07-13-3-deterministic-escalation-and-containment",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:193:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07-13-3-deterministic-escalation-and-containment",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 13. Error Taxonomy and Recovery Operations (DOC-PASS-07) > 13.3 Deterministic escalation and containment",
       "heading_level": 3,
-      "start_line": 192,
-      "end_line": 198,
+      "start_line": 193,
+      "end_line": 199,
       "current_word_count": 55,
       "current_line_count": 6,
       "coverage_ratio": 0.5714,
@@ -3049,8 +3224,31 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 385,
       "priority_score": 14.239,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L192",
-      "priority_rank": 122
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L193",
+      "priority_rank": 129
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2943:existing-networkx-structure-92-load-and-percolation-centrality-input-contracts",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 92. Load and Percolation Centrality Input Contracts",
+      "heading_level": 2,
+      "start_line": 2943,
+      "end_line": 2976,
+      "current_word_count": 286,
+      "current_line_count": 33,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 1859,
+      "priority_score": 14.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2943",
+      "priority_rank": 130
     },
     {
       "section_id": "EXISTING_NETWORKX_STRUCTURE.md:18:existing-networkx-structure-1-2-extraction-coverage-matrix",
@@ -3072,15 +3270,15 @@
       "target_min_words": 559,
       "priority_score": 14.214,
       "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L18",
-      "priority_rank": 123
+      "priority_rank": 131
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:352:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15-20-1-corrections-and-enrichments-applied",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:359:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15-20-1-corrections-and-enrichments-applied",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 20. Structure Specialist Review Artifact (bd-315.24.15) > 20.1 Corrections and enrichments applied",
       "heading_level": 3,
-      "start_line": 352,
-      "end_line": 357,
+      "start_line": 359,
+      "end_line": 364,
       "current_word_count": 56,
       "current_line_count": 5,
       "coverage_ratio": 0.5714,
@@ -3093,16 +3291,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 392,
       "priority_score": 14.214,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L352",
-      "priority_rank": 124
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L359",
+      "priority_rank": 132
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:291:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06-17-3-mandatory-parity-assertions-for-this-pass",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:298:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06-17-3-mandatory-parity-assertions-for-this-pass",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 17. Concurrency/Lifecycle Semantics and Ordering Guarantees (DOC-PASS-06) > 17.3 Mandatory parity assertions for this pass",
       "heading_level": 3,
-      "start_line": 291,
-      "end_line": 298,
+      "start_line": 298,
+      "end_line": 305,
       "current_word_count": 60,
       "current_line_count": 7,
       "coverage_ratio": 0.5714,
@@ -3115,8 +3313,8 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 420,
       "priority_score": 14.114,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L291",
-      "priority_rank": 125
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L298",
+      "priority_rank": 133
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:362:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-7-required-lifecycle-and-ordering-parity-checks",
@@ -3139,7 +3337,7 @@
       "target_min_words": 708,
       "priority_score": 14.036,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L362",
-      "priority_rank": 126
+      "priority_rank": 134
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:6:exhaustive-legacy-analysis-md-frankennetworkx-0-mission-and-completion-criteria",
@@ -3160,15 +3358,15 @@
       "target_min_words": 293,
       "priority_score": 14.018,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L6",
-      "priority_rank": 127
+      "priority_rank": 135
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:237:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline-15-2-flake-quarantine-state-machine-operational",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:238:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline-15-2-flake-quarantine-state-machine-operational",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 15. Reliability Gate Operations (bd-315.23 baseline) > 15.2 Flake/quarantine state machine (operational)",
       "heading_level": 3,
-      "start_line": 237,
-      "end_line": 249,
+      "start_line": 238,
+      "end_line": 250,
       "current_word_count": 64,
       "current_line_count": 12,
       "coverage_ratio": 0.5714,
@@ -3181,8 +3379,8 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 448,
       "priority_score": 14.014,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L237",
-      "priority_rank": 128
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L238",
+      "priority_rank": 136
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:235:exhaustive-legacy-analysis-md-frankennetworkx-15-extreme-software-optimization-execution-law",
@@ -3203,7 +3401,7 @@
       "target_min_words": 338,
       "priority_score": 13.868,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L235",
-      "priority_rank": 129
+      "priority_rank": 137
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:413:exhaustive-legacy-analysis-md-frankennetworkx-19-error-taxonomy-failure-modes-and-recovery-semantics-doc-pass-07-19-4-recovery-escalation-workflow-deterministic",
@@ -3225,15 +3423,15 @@
       "target_min_words": 490,
       "priority_score": 13.864,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L413",
-      "priority_rank": 130
+      "priority_rank": 138
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:334:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map-19-2-dependency-narrative-ordered-and-explicit",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:341:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map-19-2-dependency-narrative-ordered-and-explicit",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 19. Pass-A Topology and Ownership Closure Map > 19.2 Dependency narrative (ordered and explicit)",
       "heading_level": 3,
-      "start_line": 334,
-      "end_line": 342,
+      "start_line": 341,
+      "end_line": 349,
       "current_word_count": 74,
       "current_line_count": 8,
       "coverage_ratio": 0.5714,
@@ -3246,16 +3444,16 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 518,
       "priority_score": 13.764,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L334",
-      "priority_rank": 131
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L341",
+      "priority_rank": 139
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:204:existing-networkx-structure-14-verification-crosswalk-index-doc-pass-09-14-1-fast-index-by-subsystem",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:205:existing-networkx-structure-14-verification-crosswalk-index-doc-pass-09-14-1-fast-index-by-subsystem",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 14. Verification Crosswalk Index (DOC-PASS-09) > 14.1 Fast index by subsystem",
       "heading_level": 3,
-      "start_line": 204,
-      "end_line": 213,
+      "start_line": 205,
+      "end_line": 214,
       "current_word_count": 78,
       "current_line_count": 9,
       "coverage_ratio": 0.5714,
@@ -3268,8 +3466,8 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 546,
       "priority_score": 13.664,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L204",
-      "priority_rank": 132
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L205",
+      "priority_rank": 140
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:923:exhaustive-legacy-analysis-md-frankennetworkx-31-fnx-p2c-001-security-compatibility-threat-model-bd-315-12-3-31-3-compatibility-boundary-matrix-strict-obligations-vs-hardened-allowlisted-deviations",
@@ -3291,7 +3489,7 @@
       "target_min_words": 553,
       "priority_score": 13.639,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L923",
-      "priority_rank": 133
+      "priority_rank": 141
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:199:exhaustive-legacy-analysis-md-frankennetworkx-13-phase-2c-extraction-payload-contract-per-ticket",
@@ -3312,15 +3510,15 @@
       "target_min_words": 473,
       "priority_score": 13.418,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L199",
-      "priority_rank": 134
+      "priority_rank": 142
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:257:existing-networkx-structure-16-ci-gate-topology-contract-index-bd-315-10-1",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:258:existing-networkx-structure-16-ci-gate-topology-contract-index-bd-315-10-1",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 16. CI Gate Topology Contract Index (bd-315.10.1)",
       "heading_level": 2,
-      "start_line": 257,
-      "end_line": 269,
+      "start_line": 258,
+      "end_line": 270,
       "current_word_count": 64,
       "current_line_count": 12,
       "coverage_ratio": 0.7143,
@@ -3332,8 +3530,8 @@
       "expansion_multiplier": 7.5,
       "target_min_words": 480,
       "priority_score": 13.393,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L257",
-      "priority_rank": 135
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L258",
+      "priority_rank": 143
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:665:exhaustive-legacy-analysis-md-frankennetworkx-24-complexity-performance-memory-characterization-contract-doc-pass-05-24-3-optimization-risk-note-binding-to-parity-constraints",
@@ -3355,7 +3553,7 @@
       "target_min_words": 630,
       "priority_score": 12.989,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L665",
-      "priority_rank": 136
+      "priority_rank": 144
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:566:exhaustive-legacy-analysis-md-frankennetworkx-22-ci-gate-topology-contract-matrix-bd-315-10-1-22-2-compatibility-security-drift-policy-ids",
@@ -3376,7 +3574,7 @@
       "target_min_words": 371,
       "priority_score": 12.918,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L566",
-      "priority_rank": 137
+      "priority_rank": 145
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:882:exhaustive-legacy-analysis-md-frankennetworkx-30-fnx-p2c-001-contract-table-strict-hardened-invariant-spec-bd-315-12-2-30-3-contract-to-validation-bindings-forward-backward-traceability",
@@ -3397,7 +3595,51 @@
       "target_min_words": 385,
       "priority_score": 12.868,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L882",
-      "priority_rank": 138
+      "priority_rank": 146
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:851:existing-networkx-structure-28-spectral-centrality-solver-contract",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 28. Spectral Centrality Solver Contract",
+      "heading_level": 2,
+      "start_line": 851,
+      "end_line": 944,
+      "current_word_count": 778,
+      "current_line_count": 93,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 5057,
+      "priority_score": 12.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L851",
+      "priority_rank": 147
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2793:existing-networkx-structure-89-owned-leiden-community-detection-contract",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 89. Owned Leiden Community Detection Contract",
+      "heading_level": 2,
+      "start_line": 2793,
+      "end_line": 2855,
+      "current_word_count": 601,
+      "current_line_count": 62,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "high",
+      "expansion_multiplier": 6.5,
+      "target_min_words": 3907,
+      "priority_score": 12.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2793",
+      "priority_rank": 148
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:723:exhaustive-legacy-analysis-md-frankennetworkx-25-pass-b-expansion-source-anchored-behavioral-contract-and-risk-topology-doc-pass-11-25-3-explicit-pass-b-parity-gap-register-current-code-vs-required-full-overlap",
@@ -3419,15 +3661,15 @@
       "target_min_words": 750,
       "priority_score": 12.489,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L723",
-      "priority_rank": 139
+      "priority_rank": 149
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:214:existing-networkx-structure-14-verification-crosswalk-index-doc-pass-09-14-2-priority-gap-queue-linked-to-beads",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:215:existing-networkx-structure-14-verification-crosswalk-index-doc-pass-09-14-2-priority-gap-queue-linked-to-beads",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 14. Verification Crosswalk Index (DOC-PASS-09) > 14.2 Priority gap queue (linked to beads)",
       "heading_level": 3,
-      "start_line": 214,
-      "end_line": 223,
+      "start_line": 215,
+      "end_line": 224,
       "current_word_count": 78,
       "current_line_count": 9,
       "coverage_ratio": 0.7143,
@@ -3439,8 +3681,8 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 546,
       "priority_score": 12.293,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L214",
-      "priority_rank": 140
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L215",
+      "priority_rank": 150
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:321:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-4-method-stack-evidence-bindings",
@@ -3460,7 +3702,7 @@
       "target_min_words": 315,
       "priority_score": 11.747,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L321",
-      "priority_rank": 141
+      "priority_rank": 151
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:83:exhaustive-legacy-analysis-md-frankennetworkx-6-compatibility-and-security-doctrine-mode-split",
@@ -3480,7 +3722,7 @@
       "target_min_words": 570,
       "priority_score": 11.722,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L83",
-      "priority_rank": 142
+      "priority_rank": 152
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:576:exhaustive-legacy-analysis-md-frankennetworkx-22-ci-gate-topology-contract-matrix-bd-315-10-1-22-3-gate-i-o-contract-summary",
@@ -3501,7 +3743,7 @@
       "target_min_words": 642,
       "priority_score": 11.568,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L576",
-      "priority_rank": 143
+      "priority_rank": 153
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:591:exhaustive-legacy-analysis-md-frankennetworkx-23-structure-specialist-review-artifact-bd-315-24-15-23-1-review-scope-and-correction-log",
@@ -3521,7 +3763,7 @@
       "target_min_words": 483,
       "priority_score": 11.147,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L591",
-      "priority_rank": 144
+      "priority_rank": 154
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:898:exhaustive-legacy-analysis-md-frankennetworkx-31-fnx-p2c-001-security-compatibility-threat-model-bd-315-12-3-31-1-packet-boundary-threat-matrix",
@@ -3542,7 +3784,7 @@
       "target_min_words": 1224,
       "priority_score": 10.743,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L898",
-      "priority_rank": 145
+      "priority_rank": 155
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:843:exhaustive-legacy-analysis-md-frankennetworkx-29-fnx-p2c-001-legacy-anchor-map-extraction-ledger-bd-315-12-1-29-3-extraction-ledger-behavior-region-contract-rows-oracle-tests",
@@ -3562,35 +3804,35 @@
       "target_min_words": 534,
       "priority_score": 10.647,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L843",
-      "priority_rank": 146
+      "priority_rank": 156
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:393:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:400:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension)",
       "heading_level": 2,
-      "start_line": 393,
-      "end_line": 426,
-      "current_word_count": 158,
-      "current_line_count": 33,
+      "start_line": 400,
+      "end_line": 443,
+      "current_word_count": 238,
+      "current_line_count": 43,
       "coverage_ratio": 0.8571,
       "missing_topics": [
         "performance_evidence"
       ],
       "risk_tier": "high",
       "expansion_multiplier": 6.5,
-      "target_min_words": 1027,
+      "target_min_words": 1547,
       "priority_score": 10.122,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L393",
-      "priority_rank": 147
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L400",
+      "priority_rank": 157
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:591:existing-networkx-structure-23-initial-flow-contract-p2c005-extension",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:631:existing-networkx-structure-23-initial-flow-contract-p2c005-extension",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 23. Initial Flow Contract (P2C005 Extension)",
       "heading_level": 2,
-      "start_line": 591,
-      "end_line": 635,
+      "start_line": 631,
+      "end_line": 675,
       "current_word_count": 217,
       "current_line_count": 44,
       "coverage_ratio": 0.8571,
@@ -3601,16 +3843,16 @@
       "expansion_multiplier": 6.5,
       "target_min_words": 1411,
       "priority_score": 10.122,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L591",
-      "priority_rank": 148
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L631",
+      "priority_rank": 158
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:226:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline-15-1-budget-keys-to-enforce-in-ci",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:227:existing-networkx-structure-15-reliability-gate-operations-bd-315-23-baseline-15-1-budget-keys-to-enforce-in-ci",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 15. Reliability Gate Operations (bd-315.23 baseline) > 15.1 Budget keys to enforce in CI",
       "heading_level": 3,
-      "start_line": 226,
-      "end_line": 236,
+      "start_line": 227,
+      "end_line": 237,
       "current_word_count": 72,
       "current_line_count": 10,
       "coverage_ratio": 1.0,
@@ -3619,8 +3861,8 @@
       "expansion_multiplier": 7.0,
       "target_min_words": 504,
       "priority_score": 9.7,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L226",
-      "priority_rank": 149
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L227",
+      "priority_rank": 159
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:351:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-6-concurrency-lifecycle-hazard-register-for-rust-parity",
@@ -3640,7 +3882,7 @@
       "target_min_words": 1494,
       "priority_score": 9.372,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L351",
-      "priority_rank": 150
+      "priority_rank": 160
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:425:exhaustive-legacy-analysis-md-frankennetworkx-19-error-taxonomy-failure-modes-and-recovery-semantics-doc-pass-07-19-5-security-compatibility-undefined-zone-register-doc-pass-08",
@@ -3660,7 +3902,7 @@
       "target_min_words": 1788,
       "priority_score": 9.372,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L425",
-      "priority_rank": 151
+      "priority_rank": 161
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:712:exhaustive-legacy-analysis-md-frankennetworkx-25-pass-b-expansion-source-anchored-behavioral-contract-and-risk-topology-doc-pass-11-25-2-behavior-risk-matrix-normal-edge-adversarial-pathways",
@@ -3680,7 +3922,7 @@
       "target_min_words": 1146,
       "priority_score": 9.372,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L712",
-      "priority_rank": 152
+      "priority_rank": 162
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:859:exhaustive-legacy-analysis-md-frankennetworkx-30-fnx-p2c-001-contract-table-strict-hardened-invariant-spec-bd-315-12-2-30-1-machine-checkable-contract-table",
@@ -3700,61 +3942,15 @@
       "target_min_words": 2004,
       "priority_score": 9.372,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L859",
-      "priority_rank": 153
+      "priority_rank": 163
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2151:existing-networkx-structure-77-checked-group-betweenness-path-counts",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 77. Checked Group Betweenness Path Counts",
-      "heading_level": 2,
-      "start_line": 2151,
-      "end_line": 2164,
-      "current_word_count": 98,
-      "current_line_count": 13,
-      "coverage_ratio": 0.4286,
-      "missing_topics": [
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "medium",
-      "expansion_multiplier": 4.5,
-      "target_min_words": 441,
-      "priority_score": 12.286,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2151",
-      "priority_rank": 154
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:94:existing-networkx-structure-10-critical-state-machine-transitions",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 10. Critical State Machine Transitions",
-      "heading_level": 2,
-      "start_line": 94,
-      "end_line": 113,
-      "current_word_count": 116,
-      "current_line_count": 19,
-      "coverage_ratio": 0.4286,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "verification_coverage",
-        "performance_evidence",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "medium",
-      "expansion_multiplier": 4.5,
-      "target_min_words": 522,
-      "priority_score": 11.836,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L94",
-      "priority_rank": 155
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:854:existing-networkx-structure-29-lazy-shortest-simple-path-input-lifetime",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:945:existing-networkx-structure-29-lazy-shortest-simple-path-input-lifetime",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 29. Lazy Shortest-Simple-Path Input Lifetime",
       "heading_level": 2,
-      "start_line": 854,
-      "end_line": 871,
+      "start_line": 945,
+      "end_line": 962,
       "current_word_count": 126,
       "current_line_count": 17,
       "coverage_ratio": 0.4286,
@@ -3768,16 +3964,16 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 567,
       "priority_score": 11.586,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L854",
-      "priority_rank": 156
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L945",
+      "priority_rank": 164
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:927:existing-networkx-structure-33-live-distance-measures-and-barycenter-writes",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1063:existing-networkx-structure-33-live-distance-measures-and-barycenter-writes",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 33. Live Distance Measures and Barycenter Writes",
       "heading_level": 2,
-      "start_line": 927,
-      "end_line": 944,
+      "start_line": 1063,
+      "end_line": 1080,
       "current_word_count": 129,
       "current_line_count": 17,
       "coverage_ratio": 0.4286,
@@ -3791,16 +3987,16 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 581,
       "priority_score": 11.511,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L927",
-      "priority_rank": 157
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1063",
+      "priority_rank": 165
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:301:existing-networkx-structure-18-security-compatibility-edge-cases-and-undefined-zones-doc-pass-08-18-1-undefined-zone-inventory",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:308:existing-networkx-structure-18-security-compatibility-edge-cases-and-undefined-zones-doc-pass-08-18-1-undefined-zone-inventory",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 18. Security/Compatibility Edge Cases and Undefined Zones (DOC-PASS-08) > 18.1 Undefined-zone inventory",
       "heading_level": 3,
-      "start_line": 301,
-      "end_line": 311,
+      "start_line": 308,
+      "end_line": 318,
       "current_word_count": 108,
       "current_line_count": 10,
       "coverage_ratio": 0.4286,
@@ -3814,39 +4010,16 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 432,
       "priority_score": 11.286,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L301",
-      "priority_rank": 158
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L308",
+      "priority_rank": 166
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:272:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06-17-1-legacy-anchor-points-to-preserve",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 17. Concurrency/Lifecycle Semantics and Ordering Guarantees (DOC-PASS-06) > 17.1 Legacy anchor points to preserve",
-      "heading_level": 3,
-      "start_line": 272,
-      "end_line": 280,
-      "current_word_count": 110,
-      "current_line_count": 8,
-      "coverage_ratio": 0.4286,
-      "missing_topics": [
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "medium",
-      "expansion_multiplier": 4.0,
-      "target_min_words": 440,
-      "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L272",
-      "priority_rank": 159
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:768:existing-networkx-structure-26-relabeling-with-colliding-node-labels",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:808:existing-networkx-structure-26-relabeling-with-colliding-node-labels",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 26. Relabeling with Colliding Node Labels",
       "heading_level": 2,
-      "start_line": 768,
-      "end_line": 788,
+      "start_line": 808,
+      "end_line": 828,
       "current_word_count": 144,
       "current_line_count": 20,
       "coverage_ratio": 0.4286,
@@ -3860,18 +4033,18 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 648,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L768",
-      "priority_rank": 160
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L808",
+      "priority_rank": 167
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:906:existing-networkx-structure-32-live-weighted-shortest-path-queries",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1034:existing-networkx-structure-32-live-weighted-shortest-path-queries",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 32. Live Weighted Shortest-Path Queries",
       "heading_level": 2,
-      "start_line": 906,
-      "end_line": 926,
-      "current_word_count": 152,
-      "current_line_count": 20,
+      "start_line": 1034,
+      "end_line": 1062,
+      "current_word_count": 226,
+      "current_line_count": 28,
       "coverage_ratio": 0.4286,
       "missing_topics": [
         "behavioral_invariants",
@@ -3881,41 +4054,18 @@
       ],
       "risk_tier": "medium",
       "expansion_multiplier": 4.5,
-      "target_min_words": 684,
+      "target_min_words": 1017,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L906",
-      "priority_rank": 161
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1034",
+      "priority_rank": 168
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1011:existing-networkx-structure-36-label-constrained-isomorphism-search",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 36. Label-Constrained Isomorphism Search",
-      "heading_level": 2,
-      "start_line": 1011,
-      "end_line": 1053,
-      "current_word_count": 341,
-      "current_line_count": 42,
-      "coverage_ratio": 0.4286,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics"
-      ],
-      "risk_tier": "medium",
-      "expansion_multiplier": 4.5,
-      "target_min_words": 1535,
-      "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1011",
-      "priority_rank": 162
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1078:existing-networkx-structure-38-backend-dispatch-preserves-live-inputs",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1234:existing-networkx-structure-38-backend-dispatch-preserves-live-inputs",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 38. Backend Dispatch Preserves Live Inputs",
       "heading_level": 2,
-      "start_line": 1078,
-      "end_line": 1144,
+      "start_line": 1234,
+      "end_line": 1300,
       "current_word_count": 584,
       "current_line_count": 66,
       "coverage_ratio": 0.4286,
@@ -3929,39 +4079,16 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 2628,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1078",
-      "priority_rank": 163
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1234",
+      "priority_rank": 169
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1194:existing-networkx-structure-40-graph-deepcopy-object-identity",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 40. Graph Deepcopy Object Identity",
-      "heading_level": 2,
-      "start_line": 1194,
-      "end_line": 1219,
-      "current_word_count": 217,
-      "current_line_count": 25,
-      "coverage_ratio": 0.4286,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "strict_hardened_split",
-        "performance_evidence",
-        "durability_forensics"
-      ],
-      "risk_tier": "medium",
-      "expansion_multiplier": 4.5,
-      "target_min_words": 977,
-      "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1194",
-      "priority_rank": 164
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1220:existing-networkx-structure-41-disjoint-paths-across-graph-inputs-and-backend-dispatch",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1402:existing-networkx-structure-41-disjoint-paths-across-graph-inputs-and-backend-dispatch",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 41. Disjoint Paths Across Graph Inputs and Backend Dispatch",
       "heading_level": 2,
-      "start_line": 1220,
-      "end_line": 1251,
+      "start_line": 1402,
+      "end_line": 1433,
       "current_word_count": 254,
       "current_line_count": 31,
       "coverage_ratio": 0.4286,
@@ -3975,18 +4102,64 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 1143,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1220",
-      "priority_rank": 165
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1402",
+      "priority_rank": 170
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1341:existing-networkx-structure-45-incremental-component-decomposition",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1434:existing-networkx-structure-42-native-eligibility-with-logical-python-storage",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 42. Native Eligibility with Logical Python Storage",
+      "heading_level": 2,
+      "start_line": 1434,
+      "end_line": 1475,
+      "current_word_count": 360,
+      "current_line_count": 41,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 1620,
+      "priority_score": 11.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1434",
+      "priority_rank": 171
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1476:existing-networkx-structure-43-graph-pickle-persistence-and-object-identity",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 43. Graph Pickle Persistence and Object Identity",
+      "heading_level": 2,
+      "start_line": 1476,
+      "end_line": 1539,
+      "current_word_count": 579,
+      "current_line_count": 63,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 2606,
+      "priority_score": 11.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1476",
+      "priority_rank": 172
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1585:existing-networkx-structure-45-incremental-component-decomposition",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 45. Incremental Component Decomposition",
       "heading_level": 2,
-      "start_line": 1341,
-      "end_line": 1382,
-      "current_word_count": 356,
-      "current_line_count": 41,
+      "start_line": 1585,
+      "end_line": 1631,
+      "current_word_count": 409,
+      "current_line_count": 46,
       "coverage_ratio": 0.4286,
       "missing_topics": [
         "legacy_anchor_specificity",
@@ -3996,18 +4169,18 @@
       ],
       "risk_tier": "medium",
       "expansion_multiplier": 4.5,
-      "target_min_words": 1602,
+      "target_min_words": 1841,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1341",
-      "priority_rank": 166
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1585",
+      "priority_rank": 173
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1383:existing-networkx-structure-46-target-shortest-paths-on-public-graph-inputs",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1632:existing-networkx-structure-46-target-shortest-paths-on-public-graph-inputs",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 46. Target Shortest Paths on Public Graph Inputs",
       "heading_level": 2,
-      "start_line": 1383,
-      "end_line": 1399,
+      "start_line": 1632,
+      "end_line": 1648,
       "current_word_count": 140,
       "current_line_count": 16,
       "coverage_ratio": 0.4286,
@@ -4021,16 +4194,16 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 630,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1383",
-      "priority_rank": 167
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1632",
+      "priority_rank": 174
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1661:existing-networkx-structure-54-complete-gml-decoding",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1936:existing-networkx-structure-54-complete-gml-decoding",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 54. Complete GML Decoding",
       "heading_level": 2,
-      "start_line": 1661,
-      "end_line": 1685,
+      "start_line": 1936,
+      "end_line": 1960,
       "current_word_count": 191,
       "current_line_count": 24,
       "coverage_ratio": 0.4286,
@@ -4044,16 +4217,16 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 860,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1661",
-      "priority_rank": 168
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1936",
+      "priority_rank": 175
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1705:existing-networkx-structure-56-weighted-label-propagation-state",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1980:existing-networkx-structure-56-weighted-label-propagation-state",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 56. Weighted Label Propagation State",
       "heading_level": 2,
-      "start_line": 1705,
-      "end_line": 1724,
+      "start_line": 1980,
+      "end_line": 1999,
       "current_word_count": 153,
       "current_line_count": 19,
       "coverage_ratio": 0.4286,
@@ -4067,16 +4240,62 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 689,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1705",
-      "priority_rank": 169
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1980",
+      "priority_rank": 176
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2165:existing-networkx-structure-78-live-attribute-protocols-during-graph-conversion",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2165:existing-networkx-structure-63-backend-flow-solvers-and-residual-ownership",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 63. Backend Flow Solvers and Residual Ownership",
+      "heading_level": 2,
+      "start_line": 2165,
+      "end_line": 2195,
+      "current_word_count": 234,
+      "current_line_count": 30,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 1053,
+      "priority_score": 11.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2165",
+      "priority_rank": 177
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2480:existing-networkx-structure-77-checked-group-betweenness-path-counts",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 77. Checked Group Betweenness Path Counts",
+      "heading_level": 2,
+      "start_line": 2480,
+      "end_line": 2515,
+      "current_word_count": 307,
+      "current_line_count": 35,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 1382,
+      "priority_score": 11.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2480",
+      "priority_rank": 178
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2516:existing-networkx-structure-78-live-attribute-protocols-during-graph-conversion",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 78. Live Attribute Protocols During Graph Conversion",
       "heading_level": 2,
-      "start_line": 2165,
-      "end_line": 2184,
+      "start_line": 2516,
+      "end_line": 2535,
       "current_word_count": 146,
       "current_line_count": 19,
       "coverage_ratio": 0.4286,
@@ -4090,18 +4309,18 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 657,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2165",
-      "priority_rank": 170
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2516",
+      "priority_rank": 179
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2185:existing-networkx-structure-79-structural-iterator-dispatch-and-bridge-spans",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2536:existing-networkx-structure-79-structural-iterator-dispatch-and-bridge-spans",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 79. Structural Iterator Dispatch and Bridge Spans",
       "heading_level": 2,
-      "start_line": 2185,
-      "end_line": 2206,
-      "current_word_count": 151,
-      "current_line_count": 21,
+      "start_line": 2536,
+      "end_line": 2571,
+      "current_word_count": 275,
+      "current_line_count": 35,
       "coverage_ratio": 0.4286,
       "missing_topics": [
         "behavioral_invariants",
@@ -4111,10 +4330,56 @@
       ],
       "risk_tier": "medium",
       "expansion_multiplier": 4.5,
-      "target_min_words": 680,
+      "target_min_words": 1238,
       "priority_score": 11.236,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2185",
-      "priority_rank": 171
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2536",
+      "priority_rank": 180
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3062:existing-networkx-structure-97-graph-combination-read-and-construction-boundaries",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 97. Graph Combination Read and Construction Boundaries",
+      "heading_level": 2,
+      "start_line": 3062,
+      "end_line": 3087,
+      "current_word_count": 195,
+      "current_line_count": 25,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 878,
+      "priority_score": 11.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3062",
+      "priority_rank": 181
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3183:existing-networkx-structure-101-in-place-graph-mutation-utilities",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 101. In-Place Graph Mutation Utilities",
+      "heading_level": 2,
+      "start_line": 3183,
+      "end_line": 3215,
+      "current_word_count": 244,
+      "current_line_count": 32,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "behavioral_invariants",
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 1098,
+      "priority_score": 11.236,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3183",
+      "priority_rank": 182
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:290:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-2-critical-state-transitions-explicit",
@@ -4137,7 +4402,7 @@
       "target_min_words": 448,
       "priority_score": 11.186,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L290",
-      "priority_rank": 172
+      "priority_rank": 183
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:766:exhaustive-legacy-analysis-md-frankennetworkx-27-doc-pass-15-behavior-specialist-deep-pass-log-bd-315-24-16-27-1-findings-and-applied-clarifications",
@@ -4160,7 +4425,7 @@
       "target_min_words": 480,
       "priority_score": 10.986,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L766",
-      "priority_rank": 173
+      "priority_rank": 184
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:749:exhaustive-legacy-analysis-md-frankennetworkx-26-doc-pass-12-red-team-contradiction-and-completeness-log-bd-315-24-13-26-1-findings-and-resolutions",
@@ -4183,15 +4448,15 @@
       "target_min_words": 504,
       "priority_score": 10.836,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L749",
-      "priority_rank": 174
+      "priority_rank": 185
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:169:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07-13-1-operational-failure-matrix",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:170:existing-networkx-structure-13-error-taxonomy-and-recovery-operations-doc-pass-07-13-1-operational-failure-matrix",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 13. Error Taxonomy and Recovery Operations (DOC-PASS-07) > 13.1 Operational failure matrix",
       "heading_level": 3,
-      "start_line": 169,
-      "end_line": 180,
+      "start_line": 170,
+      "end_line": 181,
       "current_word_count": 134,
       "current_line_count": 11,
       "coverage_ratio": 0.4286,
@@ -4205,30 +4470,8 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 536,
       "priority_score": 10.636,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L169",
-      "priority_rank": 175
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:84:existing-networkx-structure-9-data-models-and-mutability-boundaries-doc-pass-03",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 9. Data Models and Mutability Boundaries (DOC-PASS-03)",
-      "heading_level": 2,
-      "start_line": 84,
-      "end_line": 93,
-      "current_word_count": 113,
-      "current_line_count": 9,
-      "coverage_ratio": 0.5714,
-      "missing_topics": [
-        "legacy_anchor_specificity",
-        "verification_coverage",
-        "performance_evidence"
-      ],
-      "risk_tier": "medium",
-      "expansion_multiplier": 4.5,
-      "target_min_words": 509,
-      "priority_score": 10.539,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L84",
-      "priority_rank": 176
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L170",
+      "priority_rank": 186
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:401:exhaustive-legacy-analysis-md-frankennetworkx-19-error-taxonomy-failure-modes-and-recovery-semantics-doc-pass-07-19-3-user-facing-error-semantics-by-crate-boundary",
@@ -4251,15 +4494,38 @@
       "target_min_words": 736,
       "priority_score": 10.486,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L401",
-      "priority_rank": 177
+      "priority_rank": 187
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:455:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-2-weighted-centrality-consumers",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:273:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06-17-1-legacy-anchor-points-to-preserve",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 17. Concurrency/Lifecycle Semantics and Ordering Guarantees (DOC-PASS-06) > 17.1 Legacy anchor points to preserve",
+      "heading_level": 3,
+      "start_line": 273,
+      "end_line": 287,
+      "current_word_count": 171,
+      "current_line_count": 14,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.0,
+      "target_min_words": 684,
+      "priority_score": 10.486,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L273",
+      "priority_rank": 188
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:472:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-2-weighted-centrality-consumers",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.2 Weighted centrality consumers",
       "heading_level": 3,
-      "start_line": 455,
-      "end_line": 482,
+      "start_line": 472,
+      "end_line": 499,
       "current_word_count": 242,
       "current_line_count": 27,
       "coverage_ratio": 0.4286,
@@ -4273,16 +4539,39 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 968,
       "priority_score": 10.486,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L455",
-      "priority_rank": 178
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L472",
+      "priority_rank": 189
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:658:existing-networkx-structure-23-initial-flow-contract-p2c005-extension-23-2-capacity-scaling-minimum-cost-flow",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:608:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-8-bellman-ford-overflow-and-bounded-path-reconstruction",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.8 Bellman-Ford overflow and bounded path reconstruction",
+      "heading_level": 3,
+      "start_line": 608,
+      "end_line": 630,
+      "current_word_count": 186,
+      "current_line_count": 22,
+      "coverage_ratio": 0.4286,
+      "missing_topics": [
+        "behavioral_invariants",
+        "performance_evidence",
+        "durability_forensics",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.0,
+      "target_min_words": 744,
+      "priority_score": 10.486,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L608",
+      "priority_rank": 190
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:698:existing-networkx-structure-23-initial-flow-contract-p2c005-extension-23-2-capacity-scaling-minimum-cost-flow",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 23. Initial Flow Contract (P2C005 Extension) > 23.2 Capacity-scaling minimum-cost flow",
       "heading_level": 3,
-      "start_line": 658,
-      "end_line": 694,
+      "start_line": 698,
+      "end_line": 734,
       "current_word_count": 290,
       "current_line_count": 36,
       "coverage_ratio": 0.4286,
@@ -4296,8 +4585,30 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 1160,
       "priority_score": 10.486,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L658",
-      "priority_rank": 179
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L698",
+      "priority_rank": 191
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:84:existing-networkx-structure-9-data-models-and-mutability-boundaries-doc-pass-03",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 9. Data Models and Mutability Boundaries (DOC-PASS-03)",
+      "heading_level": 2,
+      "start_line": 84,
+      "end_line": 93,
+      "current_word_count": 117,
+      "current_line_count": 9,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "verification_coverage",
+        "performance_evidence"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 527,
+      "priority_score": 10.439,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L84",
+      "priority_rank": 192
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:983:exhaustive-legacy-analysis-md-frankennetworkx-32-fnx-p2c-001-rust-implementation-plan-module-boundary-skeleton-bd-315-12-4-32-4-public-internal-api-boundary-and-state-ownership-transitions",
@@ -4319,15 +4630,37 @@
       "target_min_words": 412,
       "priority_score": 10.039,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L983",
-      "priority_rank": 180
+      "priority_rank": 193
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:945:existing-networkx-structure-34-shared-extrema-bounding",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:94:existing-networkx-structure-10-critical-state-machine-transitions",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 10. Critical State Machine Transitions",
+      "heading_level": 2,
+      "start_line": 94,
+      "end_line": 114,
+      "current_word_count": 164,
+      "current_line_count": 20,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "performance_evidence",
+        "drop_in_parity_claims"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 738,
+      "priority_score": 9.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L94",
+      "priority_rank": 194
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1081:existing-networkx-structure-34-shared-extrema-bounding",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 34. Shared Extrema Bounding",
       "heading_level": 2,
-      "start_line": 945,
-      "end_line": 970,
+      "start_line": 1081,
+      "end_line": 1106,
       "current_word_count": 207,
       "current_line_count": 25,
       "coverage_ratio": 0.5714,
@@ -4340,16 +4673,38 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 932,
       "priority_score": 9.864,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L945",
-      "priority_rank": 181
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1081",
+      "priority_rank": 195
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1145:existing-networkx-structure-39-incremental-graph-edit-search",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1147:existing-networkx-structure-36-label-constrained-isomorphism-search",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 36. Label-Constrained Isomorphism Search",
+      "heading_level": 2,
+      "start_line": 1147,
+      "end_line": 1209,
+      "current_word_count": 519,
+      "current_line_count": 62,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 2336,
+      "priority_score": 9.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1147",
+      "priority_rank": 196
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1301:existing-networkx-structure-39-incremental-graph-edit-search",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 39. Incremental Graph Edit Search",
       "heading_level": 2,
-      "start_line": 1145,
-      "end_line": 1193,
+      "start_line": 1301,
+      "end_line": 1349,
       "current_word_count": 418,
       "current_line_count": 48,
       "coverage_ratio": 0.5714,
@@ -4362,18 +4717,40 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 1881,
       "priority_score": 9.864,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1145",
-      "priority_rank": 182
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1301",
+      "priority_rank": 197
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1306:existing-networkx-structure-44-multigraph-edit-distance-and-keyed-edit-scripts",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1350:existing-networkx-structure-40-graph-deepcopy-object-identity",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 40. Graph Deepcopy Object Identity",
+      "heading_level": 2,
+      "start_line": 1350,
+      "end_line": 1401,
+      "current_word_count": 460,
+      "current_line_count": 51,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "legacy_anchor_specificity",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 2070,
+      "priority_score": 9.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1350",
+      "priority_rank": 198
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1540:existing-networkx-structure-44-multigraph-edit-distance-and-keyed-edit-scripts",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 44. Multigraph Edit Distance and Keyed Edit Scripts",
       "heading_level": 2,
-      "start_line": 1306,
-      "end_line": 1340,
-      "current_word_count": 308,
-      "current_line_count": 34,
+      "start_line": 1540,
+      "end_line": 1584,
+      "current_word_count": 405,
+      "current_line_count": 44,
       "coverage_ratio": 0.5714,
       "missing_topics": [
         "strict_hardened_split",
@@ -4382,18 +4759,18 @@
       ],
       "risk_tier": "medium",
       "expansion_multiplier": 4.5,
-      "target_min_words": 1386,
+      "target_min_words": 1823,
       "priority_score": 9.864,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1306",
-      "priority_rank": 183
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1540",
+      "priority_rank": 199
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1400:existing-networkx-structure-47-owned-louvain-levels-and-random-source-protocol",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1649:existing-networkx-structure-47-owned-louvain-levels-and-random-source-protocol",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 47. Owned Louvain Levels and Random-Source Protocol",
       "heading_level": 2,
-      "start_line": 1400,
-      "end_line": 1471,
+      "start_line": 1649,
+      "end_line": 1720,
       "current_word_count": 624,
       "current_line_count": 71,
       "coverage_ratio": 0.5714,
@@ -4406,18 +4783,18 @@
       "expansion_multiplier": 4.5,
       "target_min_words": 2808,
       "priority_score": 9.864,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1400",
-      "priority_rank": 184
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1649",
+      "priority_rank": 200
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1725:existing-networkx-structure-57-live-weighted-distance-and-spanning-inputs",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:2000:existing-networkx-structure-57-live-weighted-distance-and-spanning-inputs",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 57. Live Weighted Distance and Spanning Inputs",
       "heading_level": 2,
-      "start_line": 1725,
-      "end_line": 1762,
-      "current_word_count": 300,
-      "current_line_count": 37,
+      "start_line": 2000,
+      "end_line": 2052,
+      "current_word_count": 422,
+      "current_line_count": 52,
       "coverage_ratio": 0.5714,
       "missing_topics": [
         "performance_evidence",
@@ -4426,18 +4803,62 @@
       ],
       "risk_tier": "medium",
       "expansion_multiplier": 4.5,
-      "target_min_words": 1350,
+      "target_min_words": 1899,
       "priority_score": 9.864,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1725",
-      "priority_rank": 185
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L2000",
+      "priority_rank": 201
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:376:existing-networkx-structure-21-final-integrated-consistency-sweep-and-sign-off-doc-pass-13-21-1-cross-document-synchronization-ledger",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3110:existing-networkx-structure-99-minimum-edge-cover-matching-callbacks",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 99. Minimum Edge Cover Matching Callbacks",
+      "heading_level": 2,
+      "start_line": 3110,
+      "end_line": 3151,
+      "current_word_count": 291,
+      "current_line_count": 41,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 1310,
+      "priority_score": 9.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3110",
+      "priority_rank": 202
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:3152:existing-networkx-structure-100-unweighted-distance-measures-on-live-adjacency",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 100. Unweighted Distance Measures on Live Adjacency",
+      "heading_level": 2,
+      "start_line": 3152,
+      "end_line": 3182,
+      "current_word_count": 232,
+      "current_line_count": 30,
+      "coverage_ratio": 0.5714,
+      "missing_topics": [
+        "strict_hardened_split",
+        "performance_evidence",
+        "durability_forensics"
+      ],
+      "risk_tier": "medium",
+      "expansion_multiplier": 4.5,
+      "target_min_words": 1044,
+      "priority_score": 9.864,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L3152",
+      "priority_rank": 203
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:383:existing-networkx-structure-21-final-integrated-consistency-sweep-and-sign-off-doc-pass-13-21-1-cross-document-synchronization-ledger",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 21. Final Integrated Consistency Sweep and Sign-off (DOC-PASS-13) > 21.1 Cross-document synchronization ledger",
       "heading_level": 3,
-      "start_line": 376,
-      "end_line": 385,
+      "start_line": 383,
+      "end_line": 392,
       "current_word_count": 119,
       "current_line_count": 9,
       "coverage_ratio": 0.5714,
@@ -4450,8 +4871,8 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 476,
       "priority_score": 9.639,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L376",
-      "priority_rank": 186
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L383",
+      "priority_rank": 204
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:484:exhaustive-legacy-analysis-md-frankennetworkx-20-unit-e2e-test-corpus-and-logging-evidence-crosswalk-doc-pass-09-20-3-explicit-coverage-gaps-priority-and-closure-mapping",
@@ -4473,7 +4894,7 @@
       "target_min_words": 516,
       "priority_score": 9.389,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L484",
-      "priority_rank": 187
+      "priority_rank": 205
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:833:exhaustive-legacy-analysis-md-frankennetworkx-29-fnx-p2c-001-legacy-anchor-map-extraction-ledger-bd-315-12-1-29-2-ambiguous-undefined-legacy-behavior-decisions-explicitly-bounded",
@@ -4495,7 +4916,7 @@
       "target_min_words": 536,
       "priority_score": 9.264,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L833",
-      "priority_rank": 188
+      "priority_rank": 206
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:340:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-5-legacy-concurrency-and-ordering-anchors-doc-pass-06",
@@ -4517,15 +4938,15 @@
       "target_min_words": 676,
       "priority_score": 9.114,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L340",
-      "priority_rank": 189
+      "priority_rank": 207
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:501:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-5-negative-cycle-predicate-arithmetic-and-callbacks",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:518:existing-networkx-structure-22-weighted-shortest-path-contract-p2c005-extension-22-5-negative-cycle-predicate-arithmetic-and-callbacks",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 22. Weighted Shortest-Path Contract (P2C005 Extension) > 22.5 Negative-cycle predicate arithmetic and callbacks",
       "heading_level": 3,
-      "start_line": 501,
-      "end_line": 544,
+      "start_line": 518,
+      "end_line": 561,
       "current_word_count": 379,
       "current_line_count": 43,
       "coverage_ratio": 0.5714,
@@ -4538,8 +4959,8 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 1516,
       "priority_score": 9.114,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L501",
-      "priority_rank": 190
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L518",
+      "priority_rank": 208
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:974:exhaustive-legacy-analysis-md-frankennetworkx-32-fnx-p2c-001-rust-implementation-plan-module-boundary-skeleton-bd-315-12-4-32-3-instrumentation-hooks-and-verification-stage-map",
@@ -4560,15 +4981,15 @@
       "target_min_words": 380,
       "priority_score": 8.868,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L974",
-      "priority_rank": 191
+      "priority_rank": 209
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:281:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06-17-2-rust-port-hazard-matrix-and-containment",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:288:existing-networkx-structure-17-concurrency-lifecycle-semantics-and-ordering-guarantees-doc-pass-06-17-2-rust-port-hazard-matrix-and-containment",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 17. Concurrency/Lifecycle Semantics and Ordering Guarantees (DOC-PASS-06) > 17.2 Rust-port hazard matrix and containment",
       "heading_level": 3,
-      "start_line": 281,
-      "end_line": 290,
+      "start_line": 288,
+      "end_line": 297,
       "current_word_count": 98,
       "current_line_count": 9,
       "coverage_ratio": 0.7143,
@@ -4580,8 +5001,8 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 392,
       "priority_score": 8.793,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L281",
-      "priority_rank": 192
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L288",
+      "priority_rank": 210
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:438:exhaustive-legacy-analysis-md-frankennetworkx-19-error-taxonomy-failure-modes-and-recovery-semantics-doc-pass-07-19-6-hardened-mode-rationale-boundaries",
@@ -4602,7 +5023,7 @@
       "target_min_words": 408,
       "priority_score": 8.693,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L438",
-      "priority_rank": 193
+      "priority_rank": 211
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:44:exhaustive-legacy-analysis-md-frankennetworkx-3-subsystem-extraction-matrix-legacy-rust",
@@ -4623,7 +5044,7 @@
       "target_min_words": 779,
       "priority_score": 8.493,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L44",
-      "priority_rank": 194
+      "priority_rank": 212
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:733:exhaustive-legacy-analysis-md-frankennetworkx-25-pass-b-expansion-source-anchored-behavioral-contract-and-risk-topology-doc-pass-11-25-4-pass-b-closure-binding-to-downstream-review-beads",
@@ -4644,7 +5065,7 @@
       "target_min_words": 476,
       "priority_score": 8.268,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L733",
-      "priority_rank": 195
+      "priority_rank": 213
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:648:exhaustive-legacy-analysis-md-frankennetworkx-24-complexity-performance-memory-characterization-contract-doc-pass-05-24-2-hotspot-hypotheses-explicit-testable",
@@ -4665,7 +5086,7 @@
       "target_min_words": 532,
       "priority_score": 7.918,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L648",
-      "priority_rank": 196
+      "priority_rank": 214
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:516:exhaustive-legacy-analysis-md-frankennetworkx-21-coverage-flake-budgets-and-reliability-gate-baseline-bd-315-23-21-2-flake-detection-and-quarantine-policy",
@@ -4686,7 +5107,7 @@
       "target_min_words": 540,
       "priority_score": 7.868,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L516",
-      "priority_rank": 197
+      "priority_rank": 215
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:154:exhaustive-legacy-analysis-md-frankennetworkx-10-phase-2-execution-backlog-concrete",
@@ -4706,7 +5127,7 @@
       "target_min_words": 504,
       "priority_score": 7.822,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L154",
-      "priority_rank": 198
+      "priority_rank": 216
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:788:exhaustive-legacy-analysis-md-frankennetworkx-28-doc-pass-16-risk-perf-test-specialist-deep-pass-log-bd-315-24-17-28-1-critical-behavior-surface-coverage-audit",
@@ -4727,7 +5148,7 @@
       "target_min_words": 660,
       "priority_score": 7.743,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L788",
-      "priority_rank": 199
+      "priority_rank": 217
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:964:exhaustive-legacy-analysis-md-frankennetworkx-32-fnx-p2c-001-rust-implementation-plan-module-boundary-skeleton-bd-315-12-4-32-2-dependency-aware-implementation-sequence-and-checkpoints",
@@ -4748,7 +5169,7 @@
       "target_min_words": 656,
       "priority_score": 7.743,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L964",
-      "priority_rank": 200
+      "priority_rank": 218
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:600:exhaustive-legacy-analysis-md-frankennetworkx-23-structure-specialist-review-artifact-bd-315-24-15-23-2-section-level-confidence-annotations",
@@ -4768,7 +5189,7 @@
       "target_min_words": 364,
       "priority_score": 7.597,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L600",
-      "priority_rank": 201
+      "priority_rank": 219
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:280:exhaustive-legacy-analysis-md-frankennetworkx-18-data-model-and-state-transition-ledger-doc-pass-03-18-1-canonical-component-state-models",
@@ -4788,7 +5209,7 @@
       "target_min_words": 396,
       "priority_score": 7.397,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L280",
-      "priority_rank": 202
+      "priority_rank": 220
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:933:exhaustive-legacy-analysis-md-frankennetworkx-31-fnx-p2c-001-security-compatibility-threat-model-bd-315-12-3-31-4-adversarial-fixture-fuzz-crash-triage-mapping",
@@ -4808,15 +5229,15 @@
       "target_min_words": 416,
       "priority_score": 7.272,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L933",
-      "priority_rank": 203
+      "priority_rank": 221
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:358:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15-20-2-section-level-confidence-annotations",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:365:existing-networkx-structure-20-structure-specialist-review-artifact-bd-315-24-15-20-2-section-level-confidence-annotations",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 20. Structure Specialist Review Artifact (bd-315.24.15) > 20.2 Section-level confidence annotations",
       "heading_level": 3,
-      "start_line": 358,
-      "end_line": 368,
+      "start_line": 365,
+      "end_line": 375,
       "current_word_count": 118,
       "current_line_count": 10,
       "coverage_ratio": 0.8571,
@@ -4827,16 +5248,16 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 472,
       "priority_score": 6.922,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L358",
-      "priority_rank": 204
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L365",
+      "priority_rank": 222
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:320:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map-19-1-subsystem-ownership-matrix-legacy-rust-evidence",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:327:existing-networkx-structure-19-pass-a-topology-and-ownership-closure-map-19-1-subsystem-ownership-matrix-legacy-rust-evidence",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 19. Pass-A Topology and Ownership Closure Map > 19.1 Subsystem ownership matrix (legacy -> Rust -> evidence)",
       "heading_level": 3,
-      "start_line": 320,
-      "end_line": 333,
+      "start_line": 327,
+      "end_line": 340,
       "current_word_count": 147,
       "current_line_count": 13,
       "coverage_ratio": 0.8571,
@@ -4847,16 +5268,16 @@
       "expansion_multiplier": 4.0,
       "target_min_words": 588,
       "priority_score": 6.372,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L320",
-      "priority_rank": 205
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L327",
+      "priority_rank": 223
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:718:existing-networkx-structure-25-minimum-cycle-basis-with-exact-and-overflowing-weights",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:758:existing-networkx-structure-25-minimum-cycle-basis-with-exact-and-overflowing-weights",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 25. Minimum Cycle Basis with Exact and Overflowing Weights",
       "heading_level": 2,
-      "start_line": 718,
-      "end_line": 767,
+      "start_line": 758,
+      "end_line": 807,
       "current_word_count": 407,
       "current_line_count": 49,
       "coverage_ratio": 0.7143,
@@ -4868,37 +5289,16 @@
       "expansion_multiplier": 3.0,
       "target_min_words": 1221,
       "priority_score": 5.993,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L718",
-      "priority_rank": 206
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L758",
+      "priority_rank": 224
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1513:existing-networkx-structure-49-configurable-graphml-decoding",
-      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
-      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 49. Configurable GraphML Decoding",
-      "heading_level": 2,
-      "start_line": 1513,
-      "end_line": 1548,
-      "current_word_count": 295,
-      "current_line_count": 35,
-      "coverage_ratio": 0.7143,
-      "missing_topics": [
-        "performance_evidence",
-        "drop_in_parity_claims"
-      ],
-      "risk_tier": "low",
-      "expansion_multiplier": 3.0,
-      "target_min_words": 885,
-      "priority_score": 5.993,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1513",
-      "priority_rank": 207
-    },
-    {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:124:existing-networkx-structure-12-machine-auditable-artifact-link",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:125:existing-networkx-structure-12-machine-auditable-artifact-link",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 12. Machine-Auditable Artifact Link",
       "heading_level": 2,
-      "start_line": 124,
-      "end_line": 166,
+      "start_line": 125,
+      "end_line": 167,
       "current_word_count": 308,
       "current_line_count": 42,
       "coverage_ratio": 0.8571,
@@ -4909,16 +5309,16 @@
       "expansion_multiplier": 3.0,
       "target_min_words": 924,
       "priority_score": 4.622,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L124",
-      "priority_rank": 208
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L125",
+      "priority_rank": 225
     },
     {
-      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1472:existing-networkx-structure-48-streaming-line-based-graph-i-o",
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1721:existing-networkx-structure-48-streaming-line-based-graph-i-o",
       "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
       "heading_path": "EXISTING_NETWORKX_STRUCTURE > 48. Streaming Line-Based Graph I/O",
       "heading_level": 2,
-      "start_line": 1472,
-      "end_line": 1512,
+      "start_line": 1721,
+      "end_line": 1761,
       "current_word_count": 327,
       "current_line_count": 40,
       "coverage_ratio": 0.8571,
@@ -4929,8 +5329,28 @@
       "expansion_multiplier": 3.0,
       "target_min_words": 981,
       "priority_score": 4.622,
-      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1472",
-      "priority_rank": 209
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1721",
+      "priority_rank": 226
+    },
+    {
+      "section_id": "EXISTING_NETWORKX_STRUCTURE.md:1762:existing-networkx-structure-49-configurable-graphml-decoding",
+      "doc_path": "EXISTING_NETWORKX_STRUCTURE.md",
+      "heading_path": "EXISTING_NETWORKX_STRUCTURE > 49. Configurable GraphML Decoding",
+      "heading_level": 2,
+      "start_line": 1762,
+      "end_line": 1816,
+      "current_word_count": 463,
+      "current_line_count": 54,
+      "coverage_ratio": 0.8571,
+      "missing_topics": [
+        "performance_evidence"
+      ],
+      "risk_tier": "low",
+      "expansion_multiplier": 3.0,
+      "target_min_words": 1389,
+      "priority_score": 4.622,
+      "evidence_ref": "EXISTING_NETWORKX_STRUCTURE.md#L1762",
+      "priority_rank": 227
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:387:exhaustive-legacy-analysis-md-frankennetworkx-19-error-taxonomy-failure-modes-and-recovery-semantics-doc-pass-07-19-2-failure-taxonomy-matrix-trigger-impact-recovery",
@@ -4950,7 +5370,7 @@
       "target_min_words": 1025,
       "priority_score": 3.872,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L387",
-      "priority_rank": 210
+      "priority_rank": 228
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:468:exhaustive-legacy-analysis-md-frankennetworkx-20-unit-e2e-test-corpus-and-logging-evidence-crosswalk-doc-pass-09-20-2-machine-parsable-behavior-to-verification-matrix",
@@ -4970,7 +5390,7 @@
       "target_min_words": 1380,
       "priority_score": 3.872,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L468",
-      "priority_rank": 211
+      "priority_rank": 229
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:505:exhaustive-legacy-analysis-md-frankennetworkx-21-coverage-flake-budgets-and-reliability-gate-baseline-bd-315-23-21-1-reliability-budget-matrix-packet-family-slos",
@@ -4990,7 +5410,7 @@
       "target_min_words": 508,
       "priority_score": 3.872,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L505",
-      "priority_rank": 212
+      "priority_rank": 230
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:697:exhaustive-legacy-analysis-md-frankennetworkx-25-pass-b-expansion-source-anchored-behavioral-contract-and-risk-topology-doc-pass-11-25-1-crate-execution-map-source-anchored",
@@ -5010,7 +5430,7 @@
       "target_min_words": 1005,
       "priority_score": 3.872,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L697",
-      "priority_rank": 213
+      "priority_rank": 231
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:820:exhaustive-legacy-analysis-md-frankennetworkx-29-fnx-p2c-001-legacy-anchor-map-extraction-ledger-bd-315-12-1-29-1-legacy-anchor-map-normal-edge-adversarial-pathways",
@@ -5030,7 +5450,7 @@
       "target_min_words": 680,
       "priority_score": 3.872,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L820",
-      "priority_rank": 214
+      "priority_rank": 232
     },
     {
       "section_id": "EXHAUSTIVE_LEGACY_ANALYSIS.md:949:exhaustive-legacy-analysis-md-frankennetworkx-32-fnx-p2c-001-rust-implementation-plan-module-boundary-skeleton-bd-315-12-4-32-1-compile-checkable-module-boundary-skeleton",
@@ -5050,7 +5470,7 @@
       "target_min_words": 603,
       "priority_score": 3.872,
       "evidence_ref": "EXHAUSTIVE_LEGACY_ANALYSIS.md#L949",
-      "priority_rank": 215
+      "priority_rank": 233
     }
   ]
 }
