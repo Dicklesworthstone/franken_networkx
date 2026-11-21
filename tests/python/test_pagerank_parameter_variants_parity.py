@@ -134,6 +134,191 @@ def test_pagerank_many_rejects_zero_sum_personalization_and_bad_workers():
         fnx.pagerank_many(graph, [{0: 1.0}], workers=0)
 
 
+@pytest.mark.parametrize("workers", [1, 3])
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_pagerank_many_consumes_queries_between_completed_solves(workers, graph_name):
+    def run(module, batched):
+        graph = getattr(module, graph_name)([(0, 1), (1, 2), (2, 0)])
+
+        def queries():
+            yield {0: 1.0}
+            graph.add_edge(0, 3, weight=7.0)
+            yield {3: 1.0}
+            graph.remove_edge(1, 2)
+            yield None
+
+        if batched:
+            return fnx.pagerank_many(graph, queries(), workers=workers)
+        return [module.pagerank(graph, personalization=p) for p in queries()]
+
+    expected = run(nx, False)
+    assert run(fnx, True) == expected
+    assert 3 not in expected[0] and 3 in expected[1]
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_pagerank_many_mapping_mutations_affect_later_queries(workers, graph_name):
+    def run(module, batched):
+        graph = getattr(module, graph_name)([(0, 1), (1, 2), (2, 0)])
+        events = []
+
+        class Personalization(dict):
+            def get(self, node, default=None):
+                events.append(node)
+                if len(events) == 1:
+                    graph.add_edge(0, 3, weight=7.0)
+                return super().get(node, default)
+
+        queries = [Personalization({0: 1.0}), {3: 1.0}, None]
+        if batched:
+            answers = fnx.pagerank_many(graph, queries, workers=workers)
+        else:
+            answers = [module.pagerank(graph, personalization=p) for p in queries]
+        return answers, events, list(graph.edges())
+
+    assert run(fnx, True) == run(nx, False)
+
+
+@pytest.mark.parametrize("workers", [1, 3])
+def test_pagerank_many_first_query_error_precedes_later_iterator_error(workers):
+    graph = fnx.path_graph(3, create_using=fnx.DiGraph)
+    advanced = []
+
+    def queries():
+        yield {}
+        advanced.append(True)
+        raise RuntimeError("later query must remain unread")
+
+    with pytest.raises(ZeroDivisionError):
+        fnx.pagerank_many(graph, queries(), workers=workers)
+    assert advanced == []
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_pagerank_many_does_not_reinitialize_the_query_iterator(wrapped):
+    def run(module, batched):
+        graph = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        events = []
+
+        class Queries:
+            def __init__(self):
+                self.position = 0
+
+            def __iter__(self):
+                events.append("iterator")
+                if wrapped or events.count("iterator") != 1:
+                    raise RuntimeError("query iterator was initialized again")
+                return self
+
+            def __next__(self):
+                events.append(self.position)
+                if self.position == 2:
+                    raise StopIteration
+                self.position += 1
+                return {self.position - 1: 1.0}
+
+        cursor = Queries()
+
+        class Container:
+            def __iter__(self):
+                events.append("container")
+                return cursor
+
+        source = Container() if wrapped else cursor
+        if batched:
+            answers = fnx.pagerank_many(graph, source, workers=2)
+        else:
+            answers = [module.pagerank(graph, personalization=p) for p in source]
+        return answers, events
+
+    assert run(fnx, True) == run(nx, False)
+
+
+@pytest.mark.parametrize("queries", [[], (), iter(())])
+def test_pagerank_many_empty_batch_does_not_inspect_graph_or_parameters(queries):
+    assert fnx.pagerank_many(object(), queries, max_iter=object(), workers=0) == []
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_pagerank_many_literal_none_weight_matches_separate_calls(graph_name):
+    fg = getattr(fnx, graph_name)([(0, 1), (0, 2), (1, 2), (2, 0)])
+    ng = getattr(nx, graph_name)([(0, 1), (0, 2), (1, 2), (2, 0)])
+    for graph in (fg, ng):
+        attrs = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+        attrs[None] = 9.0
+    queries = [None, {0: 1.0}, {2: 1.0}]
+    expected = [nx.pagerank(ng, personalization=p, weight=None) for p in queries]
+    assert fnx.pagerank_many(fg, queries, weight=None, workers=2) == expected
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("workers", [1, 3])
+def test_pagerank_many_plain_batches_share_the_single_query_matrix(
+    graph_name, workers, monkeypatch
+):
+    fg, ng = _matrix_pair(graph_name)
+    queries = [None, {"sink": 2.0}, {7: 1.0, ("isolated",): 0.5}]
+    expected = [nx.pagerank(ng, personalization=p) for p in queries]
+    producer = fnx._pagerank_scipy_matrix
+    captures = []
+
+    def capture(graph, weight):
+        captures.append((graph, weight))
+        return producer(graph, weight)
+
+    monkeypatch.setattr(fnx, "_pagerank_scipy_matrix", capture)
+    actual = fnx.pagerank_many(fg, queries, workers=workers)
+    assert actual == expected
+    assert captures == [(fg, "weight")]
+    actual[0].clear()
+    assert actual[1] == expected[1]
+
+
+@pytest.mark.parametrize("graph_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_pagerank_many_dangling_nodes_match_default_and_networkx(graph_name):
+    rng = random.Random(9182)
+    fg = getattr(fnx, graph_name)()
+    ng = getattr(nx, graph_name)()
+    edges = [
+        (u, rng.randrange(40, 110), {"weight": rng.random() + 0.01})
+        for u in range(25)
+        for _ in range(3)
+    ]
+    for graph in (fg, ng):
+        graph.add_nodes_from(range(256))
+        graph.add_edges_from(edges)
+    queries = [None, {0: 1.0, 130: 0.7}, None]
+    kwargs = {"tol": 1e-12, "max_iter": 500}
+    expected = [nx.pagerank(ng, personalization=p, **kwargs) for p in queries]
+    assert fnx.pagerank_many(fg, queries, workers=2, **kwargs) == expected
+    assert [fnx.pagerank(fg, personalization=p, **kwargs) for p in queries] == expected
+
+
+@pytest.mark.parametrize("input_kind", ["foreign", "filtered", "reverse"])
+def test_pagerank_many_keeps_the_callers_live_graph(input_kind):
+    def run(module, batched):
+        parent = module.DiGraph([(0, 1), (1, 2), (2, 0)])
+        if input_kind == "filtered":
+            graph = module.subgraph_view(parent, filter_node=lambda node: node != 4)
+        elif input_kind == "reverse":
+            graph = parent.reverse(copy=False)
+        else:
+            graph = parent
+
+        def queries():
+            yield {0: 1.0}
+            parent.add_edge(0, 3, weight=5.0)
+            yield {3: 1.0}
+
+        if batched:
+            return fnx.pagerank_many(graph, queries(), workers=2)
+        return [module.pagerank(graph, personalization=p) for p in queries()]
+
+    source = nx if input_kind == "foreign" else fnx
+    assert run(source, True) == run(nx, False)
+
+
 # br-r37-c1-mub4s: optional vectors must consume the existing native matrix
 # builder/cache, without changing NetworkX's floating-point association order.
 def _matrix_pair(graph_name):

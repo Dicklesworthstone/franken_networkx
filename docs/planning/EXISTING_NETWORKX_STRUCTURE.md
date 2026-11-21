@@ -2333,6 +2333,18 @@ admission probes, so an early direction callback cannot mutate the graph
 before its intended edge snapshot. Both successful and failing provider calls
 invalidate conversion caches before subsequent ordinary queries.
 
+`pagerank_many` preserves the ordered semantics of repeated single-query
+PageRank calls. Query iterators advance only after the previous solve completes;
+mapping, numeric and graph-provider callbacks run on the caller's original
+graph, and their mutations affect later snapshots. The first failing query
+leaves later iterator elements unread. Empty batches do not inspect the graph
+or algorithm parameters. Plain numeric lists and tuples on ordinary native
+graphs share the single-query transition-matrix producer and power iteration,
+including its cache invalidation and literal weight-key rules. Each worker owns
+its rank vector and results retain query order. Default, personalized and batch
+queries all use the reference's ordered dangling-rank sum, including on graphs
+with many sinks or isolated nodes.
+
 ## 70. DataFrame Export from Authoritative Graph Storage
 
 `to_pandas_edgelist` exports the graph's visible edges and attribute dictionaries,

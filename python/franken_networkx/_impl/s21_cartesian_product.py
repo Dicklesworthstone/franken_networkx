@@ -1170,22 +1170,15 @@ def _pagerank_scipy(G, alpha, max_iter, tol, weight):
     (no personalization/nstart/dangling). Uses BLAS-backed matvec
     instead of pure-Rust scalar iteration — 2-3× faster on dense graphs.
     """
-    import numpy as np
-
-    N = len(G)
-    if N == 0:
+    if len(G) == 0:
         return {}
     nodelist, A, is_dangling = _pagerank_scipy_matrix(G, weight)
-    x = np.full(N, 1.0 / N)
-    p = np.full(N, 1.0 / N)
-
-    for _ in range(max_iter):
-        xlast = x
-        x = alpha * (x @ A + x[is_dangling].sum() * p) + (1 - alpha) * p
-        err = np.abs(x - xlast).sum()
-        if err < N * tol:
-            return dict(zip(nodelist, map(float, x)))
-    raise PowerIterationFailedConvergence(max_iter)
+    # Share the ordered dangling-rank reduction with personalized and batch
+    # queries. NumPy's tree reduction changed the reference's last bits for
+    # graphs with many dangling nodes, even with identical sparse matrices.
+    return _pagerank_power_iteration(
+        nodelist, A, is_dangling, alpha, None, max_iter, tol, None, None
+    )
 
 
 def _pagerank_scipy_personalized(
@@ -1264,74 +1257,117 @@ def pagerank_many(
 
         [pagerank(G, personalization=p, ...) for p in personalizations]
 
-    The graph-to-CSR conversion and row normalization happen once.  Independent
-    power iterations then run on a persistent worker pool; each worker owns one
-    rank vector and therefore preserves NetworkX's exact floating-point
-    association order.  Results are returned in personalization input order.
+    Plain numeric lists or tuples on ordinary concrete graphs share the
+    single-query transition matrix and power-iteration implementation. Each
+    worker owns its rank vector; results retain personalization input order.
+    Query iterators, live graph providers and custom mappings or scalars use
+    ordered single-query execution. Their mutations and failures are observed
+    between completed queries, before the next graph snapshot is captured.
 
     ``workers=None`` uses two workers when the batch has at least two queries;
     sparse matvec is memory-bandwidth-bound, so this measured default avoids
     oversubscribing the shared matrix.  Pass an explicit worker count to tune a
     dedicated host, or ``workers=1`` for deterministic single-worker scheduling.
     """
-    import concurrent.futures as _concurrent_futures
+    plain_queries = type(personalizations) in (list, tuple)
+    if plain_queries:
+        queries = personalizations
+        if not queries:
+            return []
+    else:
+        iterator = iter(personalizations)
+        try:
+            first = next(iterator)
+        except StopIteration:
+            return []
 
-    import numpy as _np
-    import scipy.sparse as _sp
+        def _remaining_queries():
+            yield first
+            while True:
+                try:
+                    personalization = next(iterator)
+                except StopIteration:
+                    return
+                yield personalization
 
-    G = _coerce_arg_to_fnx_graph(G)
-    max_iter = _coerce_index_arg(max_iter, "max_iter")
-    queries = list(personalizations)
-    if not queries:
-        return []
+        queries = _remaining_queries()
 
-    N = len(G)
-    if N == 0:
+    worker_limit = 2 if workers is None else _coerce_index_arg(workers, "workers")
+    if worker_limit < 1:
+        raise ValueError("workers must be greater than 0")
+
+    def _solve_queries():
+        return [
+            pagerank(
+                G, personalization=p, alpha=alpha, max_iter=max_iter,
+                tol=tol, weight=weight,
+            )
+            for p in queries
+        ]
+
+    # Admission must not execute the protocols whose presence rules out a
+    # shared snapshot. In particular, do not copy foreign graphs or views,
+    # consume a query iterator, or hash custom labels before the first solve.
+    if (
+        not plain_queries
+        or type(G) not in _CONCRETE_FNX_GRAPH_TYPES
+        or _has_networkx_private_storage(G)
+        or type(max_iter) not in (int, bool)
+        or type(alpha) not in (int, float, bool)
+        or type(tol) not in (int, float, bool)
+        or (weight is not None and type(weight) is not str)
+        or any(
+            p is not None and (
+                type(p) is not dict
+                or any(not _view_filter_node_key_is_stable(node) for node in p)
+                or any(type(value) not in (int, float, bool) for value in p.values())
+            )
+            for p in queries
+        )
+    ):
+        return _solve_queries()
+
+    storage = G.__dict__
+    if (
+        any(name in storage for name in (
+            "__getitem__", "__iter__", "__len__", "neighbors", "is_directed",
+            "is_multigraph", "nbunch_iter", "subgraph", "number_of_nodes",
+            "number_of_edges",
+        ))
+        or any(
+            name in storage and storage[name] is not storage.get(f"_fnx_view_{name}")
+            for name in ("degree", "adj", "nodes", "edges", "succ", "pred")
+        )
+        or not _view_root_node_keys_are_stable(G, G.nodes_seq)
+        or _pagerank_uses_python_graph(G, weight, max_iter, alpha, tol)
+    ):
+        return _solve_queries()
+    if len(G) == 0:
         return [{} for _ in queries]
 
-    if isinstance(weight, str):
+    # Use the same producer/cache and weight-key admission as pagerank so
+    # parallel edges, escaped attributes and literal None keys cannot take a
+    # different numerical path merely because queries were batched.
+    matrix_weight = weight
+    if (
+        type(G) in (Graph, DiGraph)
+        and type(weight) is str
+        and not _graph_has_edge_attribute(G, weight)
+    ):
+        matrix_weight = None
+    if type(matrix_weight) is str:
         _sync_rust_edge_attrs(G, edge_only=True)
-
-    nodelist = list(G)
-    A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight, dtype=float)
-    S = _np.asarray(A.sum(axis=1)).ravel()
-    S[S != 0] = 1.0 / S[S != 0]
-    Q = _sp.csr_array(_sp.spdiags(S.T, 0, *A.shape))
-    A = Q @ A
-    is_dangling = _np.where(S == 0)[0]
+    nodelist, A, is_dangling = _pagerank_scipy_matrix(G, matrix_weight)
 
     def _solve(personalization):
-        x = _np.repeat(1.0 / N, N)
-        if personalization is None:
-            p = _np.repeat(1.0 / N, N)
-        else:
-            p = _np.array(
-                [personalization.get(node, 0) for node in nodelist],
-                dtype=float,
-            )
-            if p.sum() == 0:
-                raise ZeroDivisionError
-            p /= p.sum()
+        return _pagerank_power_iteration(
+            nodelist, A, is_dangling, alpha, personalization,
+            max_iter, tol, None, None,
+        )
 
-        for _ in range(max_iter):
-            xlast = x
-            x = alpha * (x @ A + sum(x[is_dangling]) * p) + (1 - alpha) * p
-            err = _np.absolute(x - xlast).sum()
-            if err < N * tol:
-                return dict(zip(nodelist, map(float, x)))
-        raise PowerIterationFailedConvergence(max_iter)
+    import concurrent.futures as _concurrent_futures
 
-    if workers is None:
-        # All workers stream the same CSR arrays.  Two saturate this host's
-        # useful memory-level parallelism; fanning to every visible core slows
-        # the whole job by competing for bandwidth.  Keep the explicit knob for
-        # hosts with a different memory topology.
-        worker_count = min(2, len(queries))
-    else:
-        worker_count = _coerce_index_arg(workers, "workers")
-        if worker_count < 1:
-            raise ValueError("workers must be greater than 0")
-    worker_count = min(worker_count, len(queries))
+    worker_count = min(worker_limit, len(queries))
 
     if worker_count == 1:
         return [_solve(personalization) for personalization in queries]
