@@ -45,7 +45,7 @@ That contract is checked by a Python parity test suite of about 1,100 files, by 
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
 | Declared import/signature surface | NetworkX 3.6.1 FeatureUniverse | **4,129 / 4,129 strictly present**; 0 partial, 0 missing (the classifier rejects shapes declared only through `__signature__`/`__module__` metadata, on classes and functions) |
 | NetworkX's own test suite, fnx as backend | 6,816 tests pass on plain NetworkX 3.6.1 (0 fail) | **6,815 pass, 0 fail, 0 error** with fnx as the backend (2026-09-24; 80 skipped against plain NetworkX's 78 skipped and 1 xfailed). `artifacts/upstream_suite/ratchet_v1.json` holds that floor with no allowed failures, and DSR fails on any failure |
-| Backend-dispatch surface | n/a | **315** algorithms registered in `backend.py` |
+| Backend-dispatch surface | n/a | **421** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
 | Strict vs hardened parsing | n/a | mode-aware `CgsePolicyEngine` with fail-closed defaults |
@@ -81,7 +81,7 @@ The discipline difference is enforced by tooling, not goodwill:
 | **graph-tool** | `Graph` with vertex/edge property maps | no; C++/Python hybrid API | no | strong for analytics + statistics | Boost-backed, very fast, but requires a custom build pipeline (no PyPI wheel). |
 | **rustworkx** | `PyGraph`/`PyDiGraph` with integer node IDs | partial; explicit conversion API | no; integer-index based | growing | High-quality Rust core; intentionally not a drop-in replacement. |
 | **graspologic** / **networkx-cuda** / **cugraph** | various, often GPU-backed | partial; mostly nx-shaped but algorithm coverage varies widely | varies | varies | Often optimize the inner loop of specific algorithms (PageRank, BFS, connected components) but require additional toolchains (CUDA, conda channels). |
-| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and every test of NetworkX's own suite that runs in backend mode passing, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 315 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
+| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and every test of NetworkX's own suite that runs in backend mode passing, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 421 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
 
 The honest summary: if the only thing you need is "PageRank on a huge graph as fast as possible" and you don't care about API shape or tie-break semantics, igraph or graph-tool or a GPU library may beat fnx on raw throughput for that single call. If you have an existing NetworkX codebase and you want it to *just work* without rewriting and without subtle behavior changes, fnx is built for that case.
 
@@ -173,7 +173,7 @@ assert list(fnx.topological_sort(D)) == [1, 2, 3]
 
 ## Algorithm Catalog
 
-FrankenNetworkX implements paths across 25+ algorithm families. The table below is a high-level inventory. The canonical, machine-checked surface list lives in [`docs/coverage.md`](docs/coverage.md) (4,926 qualified NetworkX 3.6.1 FeatureUniverse rows, including explicit exclusions) and [`python/franken_networkx/backend.py`](python/franken_networkx/backend.py) (the 315 algorithms wired into the NetworkX dispatcher).
+FrankenNetworkX implements paths across 25+ algorithm families. The table below is a high-level inventory. The canonical, machine-checked surface list lives in [`docs/coverage.md`](docs/coverage.md) (4,926 qualified NetworkX 3.6.1 FeatureUniverse rows, including explicit exclusions) and [`python/franken_networkx/backend.py`](python/franken_networkx/backend.py) (the 421 algorithms wired into the NetworkX dispatcher).
 
 | Family | Selected Functions |
 |--------|--------------------|
@@ -221,7 +221,7 @@ The full surface list is in [`docs/coverage.md`](docs/coverage.md). To use a spe
                 ┌──────────────────────────────────────────────────────────┐
                 │                Python package: franken_networkx          │
                 │   __init__.py  •  backend.py  •  backend_info.py         │
-                │   _fnx.pyi (stubs)  •  315 algorithms in backend dispatch│
+                │   _fnx.pyi (stubs)  •  421 algorithms in backend dispatch│
                 └────────────────────────────┬─────────────────────────────┘
                                              │  PyO3 / ABI3-py310
                                              ▼
@@ -1838,8 +1838,8 @@ To verify an existing publication without compiling or installing anything,
 use the retained-artifact verifier with the expected release source commit:
 
 ```bash
-python3 scripts/verify_published_release.py --version 0.2.3 \
-  --source-commit cec922aeb1ed8b67762aa1d1f9b58a99a8343b71 \
+python3 scripts/verify_published_release.py --version 0.4.1 \
+  --source-commit <release-commit-sha> \
   --evidence-dir /path/to/new/fnx-publication-evidence
 ```
 
@@ -1886,7 +1886,7 @@ If still slow, check:
 
 ```python
 import franken_networkx
-print(franken_networkx.__version__)        # PyPI's current release is 0.2.3
+print(franken_networkx.__version__)        # PyPI's current release is 0.4.1
 
 import networkx as nx
 print(nx.config.backend_priority)          # should contain "franken_networkx"
@@ -2147,7 +2147,7 @@ A practical checklist for shipping fnx in production.
 
 ```toml
 # requirements.txt or pyproject.toml [tool.poetry.dependencies]
-franken-networkx = "==0.2.3"
+franken-networkx = "==0.4.1"
 networkx = "==3.6.1" # qualified oracle; package minimum is 3.4
 ```
 
@@ -2155,7 +2155,7 @@ Pin fnx exactly during early development (0.x). The fnx parity guarantee include
 
 ### Wheel selection
 
-PyPI (release 0.2.3) ships pre-built ABI3 wheels for:
+PyPI (release 0.4.1) ships pre-built ABI3 wheels plus the source distribution for:
 
 - Linux x86_64 (manylinux_2_17 / manylinux2014)
 - Linux aarch64 (manylinux_2_17 / manylinux2014)
@@ -2164,10 +2164,9 @@ PyPI (release 0.2.3) ships pre-built ABI3 wheels for:
 - macOS arm64 (11.0+)
 - Windows x86_64
 
-PyPI rejected the 0.2.3 source archive because it omits the declared root license
-file ([#7](https://github.com/Dicklesworthstone/franken_networkx/issues/7)).
-Use a source checkout for source builds, including on platforms without wheels.
-The GitHub source archive retains this packaging limitation.
+The 0.4.1 source distribution includes the declared root `LICENSE` file and
+`python/fnx_backend_info.py` shim ([#7](https://github.com/Dicklesworthstone/franken_networkx/issues/7)),
+so platforms without a pre-built wheel can build from the published sdist.
 
 ### Memory considerations
 
@@ -2391,7 +2390,7 @@ FrankenNetworkX is honest about what it does not do today:
 - **Drawing is delegated.** `draw`, `draw_*`, and the matplotlib-backed layout functions delegate to NetworkX/matplotlib. Layout *math* (`spring_layout`, `kamada_kawai_layout`, etc.) is also delegated. We do not own matplotlib rendering.
 - **`check_planarity` certificates are native.** Both the boolean `is_planar` and `check_planarity` certificates (`PlanarEmbedding` rotation orders for planar graphs and Kuratowski subgraph counterexamples for non-planar graphs) are computed natively in Rust; the Python PlanarEmbedding container preserves NetworkX structure checks.
 - **Some functions still run NetworkX code.** Three of the 41 audited common functions always do on their default path (weighted/self-loop Louvain, `simple_cycles`, `k_components`), while matching, branchings, and greedy modularity now run natively; others delegate for specific argument shapes (user callables, custom `flow_func`, exotic format variants). See "Parity coverage today" and `docs/delegation_ledger.md`.
-- **Release status.** PyPI's current release is `0.2.3`: ABI3 wheels for Linux (`x86_64`, `aarch64`, `musllinux x86_64`), macOS (`x86_64`, `arm64`) and Windows (`x86_64`), Python 3.10+. The signed [v0.2.3 GitHub release](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.3) also contains native archives and the source archive. PyPI rejected that source archive because its root license file is missing ([#7](https://github.com/Dicklesworthstone/franken_networkx/issues/7)); use a checkout for source builds. The broad Python parity run remains incomplete, and the known arithmetic and NetworkX 3.7 limitations are recorded in the CHANGELOG.
+- **Release status.** PyPI's current release is `0.4.1`: ABI3 wheels for Linux (`x86_64`, `aarch64`, `musllinux x86_64`), macOS (`x86_64`, `arm64`), and Windows (`x86_64`), Python 3.10+, plus the verified source distribution including the declared root `LICENSE`. The signed [v0.4.1 GitHub release](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.4.1) carries all native archives, wheels, source archive, and Minisign-verified checksums, and all 12 workspace crates are published at `0.4.1` on crates.io. Known NetworkX 3.7 oracle and remaining broad-parity items are recorded in the CHANGELOG.
 - **Performance gates run on Linux only.** Cross-platform correctness comes from the release builds, not from a performance gate.
 - **No 3rd-party graph DB integration.** This is a graph *algorithms* library; it does not connect to Neo4j, JanusGraph, etc. Use it on in-memory graphs.
 
@@ -2400,7 +2399,7 @@ FrankenNetworkX is honest about what it does not do today:
 ## FAQ
 
 **Is it really a drop-in replacement?**
-Across the pinned 3.6.1 declared import-and-signature FeatureUniverse, all 4,129 applicable paths are strictly present (100.0%), with 0 partial and 0 missing. The 315 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
+Across the pinned 3.6.1 declared import-and-signature FeatureUniverse, all 4,129 applicable paths are strictly present (100.0%), with 0 partial and 0 missing. The 421 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
 
 **Why are iteration orders such a big deal?**
 NetworkX users often write code that implicitly depends on `dict` insertion order or BFS visit order or `connected_components` set ordering. If a "faster NetworkX" returns the same set of correct answers but in a different order, downstream code breaks subtly. CGSE + the parity tests + the iteration-order audit ledger collectively make iteration order a first-class API contract.
@@ -2698,7 +2697,7 @@ In rough priority order (`bv --robot-triage` shows the current bead backlog):
 3. **Native planar embedding & Kuratowski counterexamples** (shipped in `br-r37-c1-rc-planar-embedding-kernel-07rh8` / `br-r37-c1-rc-planarity-integration-cb6sb`). `check_planarity` builds its `PlanarEmbedding` rotation orders and extracts Kuratowski subgraph certificates natively in Rust.
 4. **Performance proof artifacts per SLO row (E3)** so every algorithm family in `docs/performance.md` has a profile-and-prove witness on file.
 5. **Tail closure on the remaining NetworkX-bound exports.** On the default path, 35 of 41 commonly used functions executed no NetworkX code in the 2026-09-23 census; since then `maximum_branching` and its family, `max_weight_matching`, `min_weight_matching` and `greedy_modularity_communities` run natively too. The always-NetworkX ones today are weighted/self-loop Louvain, `simple_cycles` and `k_components`, and several functions still reach NetworkX for specific argument shapes. Move them to native kernels while preserving the parity contract.
-6. **Release cadence.** PyPI now ships `0.2.3` on all six wheel platforms. Close the documented source packaging, parity, conformance and SLO evidence gaps before claiming the complete release gate is green.
+6. **Release cadence.** PyPI now ships `0.4.1` with all six wheel platforms and the verified source distribution, unified with GitHub Releases `v0.4.1` and all 12 crates on crates.io. Close the remaining NetworkX 3.7 oracle, parity, and SLO evidence gaps before claiming the complete release gate is green.
 
 ---
 
@@ -2757,7 +2756,7 @@ franken_networkx/
 │   └── fnx-python/            # PyO3 bindings (cdylib)
 ├── python/franken_networkx/   # Python package surface
 │   ├── __init__.py            # 843 FNX root exports; not the NetworkX coverage denominator
-│   ├── backend.py             # 315 algorithms wired into nx dispatch
+│   ├── backend.py             # 421 algorithms wired into nx dispatch
 │   ├── backend_info.py        # backend metadata for nx registration
 │   └── _fnx.pyi               # type stubs
 ├── tests/python/              # ~1,100 parity / conformance / metamorphic / fuzz / hypothesis / golden test files

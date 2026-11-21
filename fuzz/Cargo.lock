@@ -177,7 +177,7 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fnx-algorithms"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "fnx-cgse",
  "fnx-classes",
@@ -193,7 +193,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-cgse"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "blake3",
  "hex",
@@ -203,7 +203,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-classes"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "fnx-runtime",
  "indexmap",
@@ -213,7 +213,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-convert"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "fnx-classes",
  "fnx-dispatch",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-dispatch"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "fnx-runtime",
  "serde",
@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-generators"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "fnx-classes",
  "fnx-runtime",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-python"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "arrayvec",
  "fnx-algorithms",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-readwrite"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "fnx-classes",
  "fnx-dispatch",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-runtime"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "rustc-hash",
  "serde",
@@ -299,7 +299,7 @@ dependencies = [
 
 [[package]]
 name = "fnx-views"
-version = "0.3.0"
+version = "0.4.1"
 dependencies = [
  "fnx-classes",
 ]

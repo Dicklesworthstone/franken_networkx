@@ -8,7 +8,8 @@ Scope window: project inception on 2026-02-13 through HEAD on 2026-08-19.
 
 | Version | Kind | Date | Summary |
 |---------|------|------|---------|
-| [`v0.3.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.3.0) | Release | 2026-11-12 | In-process flow, connectivity, centrality and community kernels with backend dispatch; CGSE witness coverage and node-key fixes; security updates for quick-xml, pyo3, tokio, ctutils and rustix |
+| [`v0.4.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.4.1) | Release | 2026-11-21 | Unified 0.4.1 across GitHub, PyPI (6 wheels + verified sdist), and all 12 crates.io crates; 421 backend algorithms (VF2++, Leiden, residual flows, bipartite projections, graph edit, combinations/products, keyed multigraph arborescence); deterministic weighted personalized PageRank; Dijkstra overflow reachability fix; explicit `opt-level = 3`; 0 audit advisories across root & fuzz |
+| [`v0.3.0`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.3.0) | Crates-only prep | 2026-11-12 | Crates.io-only preparation (0.3.0 / 0.4.0); superseded on GitHub Releases and PyPI by `v0.4.1` |
 | [`v0.2.3`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.3) | Release | 2026-10-02 | Native fast paths across views, batches and shortest paths; review fixes for store-only node attrs and `read_gml`; first PyPI-bound build since 0.2.1 |
 | [`v0.2.2`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.2) | Release | 2026-09-11 | DSR authority release; dependency updates, security advisory resolutions, giant-component mean geodesic parity tests |
 | [`v0.2.1`](https://github.com/Dicklesworthstone/franken_networkx/releases/tag/v0.2.1) | Release | 2026-09-08 | First PyPI publication release; 8-way CI parity matrix, multi-OS wheels, runtime numpy dependency |
@@ -225,6 +226,37 @@ MultiDiGraph `add_edge` auto-key `O(N²) → O(N)`, cached MultiGraph
   the Rust API and the Python binding run identical code and produce byte-identical numeric results.
   Determinism (block/Dantzig+Bland entering-edge search, first-minimiser leaving-edge tie-break matching
   Python's `min`) is preserved and covered by `fnx-algorithms` unit tests.
+
+---
+
+## 0.4.1 - 2026-11-21
+
+Workspace version: **0.4.1** (`Cargo.toml`); Python package `franken-networkx` **0.4.1**; all 12 `crates.io` workspace crates **0.4.1** (unifying the previous `0.3.0` / `0.4.0` split from the 2026-11-12 crates-only preparation).
+Release and Quality Authority: DSR (Doodlestein Self-Releaser).
+
+### Added
+- **421 NetworkX backend-dispatchable algorithms** (up from 315 in `v0.2.3`), including owned VF2++ isomorphism, owned Leiden community detection, five residual flow solvers, five bipartite projections, graph edit distance, graph combinations and products, connectivity resilience and augmentation, local cuts, owned cycle algorithms, live DAG closure, load and percolation centrality, and group centrality.
+- **Complete keyed multigraph arborescence enumeration** preserving parallel-edge keys, keyed initial constraints, and exact numeric ranking.
+- **Deterministic weighted personalized PageRank** in `fnx-algorithms` (`personalized_pagerank`, `personalized_pagerank_with_control`, `PersonalizedPageRankResult`, `PersonalizedPageRankError`) with canonical sorted accumulation, dangling-node redistribution through the teleportation vector, strict input validation, and an `FnMut() -> bool` cancellation predicate.
+- **Bellman-Ford overflow-safe path reconstruction** (`bellman_ford_path_from_result`, `bellman_ford_paths_from_result`, `BellmanFordPathError`).
+
+### Fixed
+- **Dijkstra overflow reachability (#9):** tracks discovered/reachable state independently of numeric distance so finite-weight paths whose sum overflows to `+inf` remain reachable with exact NetworkX parity across `Graph`, `DiGraph`, `MultiGraph`, and `MultiDiGraph` (including finite vs infinite cutoffs and isolated nodes).
+- **Source distribution root `LICENSE` packaging (#7):** includes the root `LICENSE` file and `python/fnx_backend_info.py` shim in the sdist, verified by `scripts/dsr_release_wheels.py` and accepted on PyPI alongside all six platform ABI3 wheels. Updated `scripts/verify_published_release.py` to validate signed PyPI releases with all six wheels plus sdist.
+- **Packaged `fnx-conformance` behavioral oracle (#6):** embeds `src/behavioral_oracle.py` within the crate package boundary so unpacked registry builds of `feature_behavioral_oracle` succeed standalone.
+- **Live graph/view semantics & copy preservation:** preserves assigned readers, compatibility mode, live adjacency/providers, custom node hash callbacks in spectral admission, and pickle/snapshot user state across graph round-trips and views.
+- **Release performance profile:** sets explicit `opt-level = 3` in `[profile.release]` alongside `lto = "thin"` and `codegen-units = 1`.
+- **Documentation & verification ledgers:** regenerated `artifacts/docs/v1/doc_pass00_gap_matrix_v1.{json,md}` and `docs/coverage.md` (4,129/4,129 strict present, 843 root exports, 0 `NETWORKX_HELPER` routes), updated `README.md` to 421 backend algorithms and `0.4.1`, and generalized `tests/python/test_import.py::test_import_version` to validate semver.
+
+### Dependencies & Security
+- Refreshed root `Cargo.lock` (76 crates, including `tokio 1.54.1`, `pyo3-log 0.13.5`, `proptest 1.12.0`, `rand 0.10.4`, `raptorq 2.0.2`, `rayon 1.12.0`, `serde 1.0.229`, `serde_json 1.0.154`, `ctutils 0.4.8`), bumped `base64` `0.22.1 -> 0.23.1` in `fnx-durability`, refreshed `fuzz/Cargo.lock` (clearing `RUSTSEC-2026-0190` on `anyhow` and yanked `chacha20 0.10.0`), and synced `uv.lock` (`networkx>=3.4`, pinned `3.4.2`/`3.6.1`). Both root and fuzz `cargo audit` report **0 vulnerabilities and 0 warnings** (#8).
+- Retained `pyo3 0.29.3` (fixes `RUSTSEC-2026-0176`/`0177`; `pyo3 0.30` requires `maturin >= 1.16` while the release recipe pins `maturin 1.12.4`), `quick-xml 0.41.0` (fixes `RUSTSEC-2026-0194`/`0195`), `sha2 0.10.9`, and optional Franken-stack pins (`asupersync`, `ftui`).
+
+### Known Limitations
+- NetworkX 3.7 oracle qualification remains tracked separately in #5 (pinned qualified oracle is NetworkX 3.6.1).
+- Pre-existing Python edge-case parity items tracked in `.beads/issues.jsonl` (`br-r37-c1-ra7sv`, `br-r37-c1-faj9l`, public cold-iterator hash reentry in `br-r37-c1-native-node-hash-reentry`) remain open for follow-up.
+
+Crates: all 12 workspace crates (`fnx-runtime`, `fnx-cgse`, `fnx-durability`, `fnx-classes`, `fnx-dispatch`, `fnx-views`, `fnx-convert`, `fnx-generators`, `fnx-readwrite`, `fnx-algorithms`, `fnx-conformance`, `fnx-python`) unified at **0.4.1**.
 
 ---
 
