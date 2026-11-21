@@ -501,6 +501,215 @@ def test_eigenvector_zero_start_precedes_custom_key_hashing(fnx, nx, graph_type)
     assert outcome(fnx) == outcome(nx)
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("label_kind", ["integer-subclass", "tuple"])
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_iterative_centrality_node_hash_updates_current_scores(
+    fnx, nx, graph_type, algorithm, label_kind, warm, weight
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+        plain = list(range(4))
+        if label_kind == "tuple":
+            plain = [(node, "node") for node in plain]
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    graph.add_edge(plain[0], plain[2], weight=0.25)
+                return int.__hash__(self)
+
+        labels = [Node(node) for node in range(4)]
+        if label_kind == "tuple":
+            labels = [(node, "node") for node in labels]
+        graph.add_edges_from(
+            (labels[node], labels[(node + 1) % 4], {"weight": 0.5})
+            for node in range(4)
+        )
+        if warm:
+            assert list(graph) == labels
+        armed = True
+        result = getattr(module, algorithm)(graph, weight=weight)
+        scores = {
+            int(node[0] if label_kind == "tuple" else node): value
+            for node, value in result.items()
+        }
+        return scores, changed, graph.has_edge(plain[0], plain[2])
+
+    expected, expected_changed, expected_edge = outcome(nx)
+    actual, actual_changed, actual_edge = outcome(fnx)
+    assert list(actual) == list(expected)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_changed is expected_changed is True
+    assert actual_edge is expected_edge is True
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_iterative_centrality_node_hash_error_propagates(
+    fnx, nx, graph_type, algorithm, warm
+):
+    def outcome(module):
+        armed = False
+
+        class Node(int):
+            def __hash__(self):
+                if armed:
+                    raise LookupError("centrality node callback")
+                return int.__hash__(self)
+
+        graph = getattr(module, graph_type)()
+        nodes = [Node(node) for node in range(4)]
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+        if warm:
+            list(graph)
+        armed = True
+        with pytest.raises(LookupError) as error:
+            getattr(module, algorithm)(graph)
+        armed = False
+        # A callback failure must release every borrow and leave the graph
+        # usable by a later computation.
+        graph.add_edge(0, 2)
+        result = getattr(module, algorithm)(graph)
+        return error.value.args, {int(node): value for node, value in result.items()}
+
+    expected_error, expected = outcome(nx)
+    actual_error, actual = outcome(fnx)
+    assert actual_error == expected_error == ("centrality node callback",)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_iterative_centrality_hash_resizing_nodes_keeps_iterator_error(
+    fnx, nx, graph_type, algorithm, warm
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    graph.add_node(99)
+                return int.__hash__(self)
+
+        nodes = [Node(node) for node in range(4)]
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+        if warm:
+            list(graph)
+        armed = True
+        with pytest.raises(RuntimeError) as error:
+            getattr(module, algorithm)(graph)
+        return error.value.args, changed, [int(node) for node in graph]
+
+    actual = outcome(fnx)
+    expected = outcome(nx)
+    assert actual == expected
+    assert actual[0] == ("dictionary changed size during iteration",)
+    assert actual[1] is True
+    assert actual[2] == [0, 1, 2, 3, 99]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_eigenvector_zero_start_does_not_hash_graph_labels(fnx, nx, graph_type):
+    def outcome(module):
+        armed = False
+
+        class Node(int):
+            def __hash__(self):
+                if armed:
+                    raise AssertionError("zero-start validation precedes graph hashing")
+                return int.__hash__(self)
+
+        graph = getattr(module, graph_type)()
+        nodes = [Node(node) for node in range(3)]
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+        armed = True
+        with pytest.raises(module.NetworkXError, match="all zero") as error:
+            module.eigenvector_centrality(graph, nstart={0: 0, 1: 0, 2: 0})
+        return error.value.args
+
+    assert outcome(fnx) == outcome(nx)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("max_iter", [None, 0], ids=["defaults", "zero-iterations"])
+def test_iterative_centrality_keeps_class_node_iterator_overrides(
+    fnx, nx, monkeypatch, graph_type, algorithm, max_iter
+):
+    def outcome(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class([(0, 1), (1, 2), (2, 3), (3, 0)])
+        original_iter = graph_class.__iter__
+        events = []
+
+        def changed_iter(current):
+            if current is graph:
+                events.append("iter")
+                current.add_edge(0, 2)
+            return original_iter(current)
+
+        # Restore each module's class independently: graph construction and
+        # the oracle must not inherit another call's iterator replacement.
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, "__iter__", changed_iter)
+            if max_iter == 0:
+                with pytest.raises(module.PowerIterationFailedConvergence) as error:
+                    getattr(module, algorithm)(graph, max_iter=max_iter)
+                result = str(error.value)
+            else:
+                result = getattr(module, algorithm)(graph)
+        return result, events, graph.has_edge(0, 2)
+
+    expected, expected_events, expected_edge = outcome(nx)
+    actual, actual_events, actual_edge = outcome(fnx)
+    if max_iter == 0:
+        assert actual == expected
+    else:
+        assert list(actual) == list(expected)
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_events == expected_events == ["iter"] * (
+        1 if algorithm == "eigenvector_centrality" else 2
+    )
+    assert actual_edge is expected_edge is True
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_iterative_centrality_builtin_labels_keep_native_route(
+    fnx, nx, monkeypatch, graph_type, algorithm
+):
+    nodes = [0, "node", ("tuple", 1), frozenset({"left", "right"})]
+    actual_graph = getattr(fnx, graph_type)()
+    expected_graph = getattr(nx, graph_type)()
+    for graph in (actual_graph, expected_graph):
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+    raw_name = f"_raw_{algorithm}"
+    raw = getattr(fnx, raw_name)
+    calls = []
+
+    def tracked_raw(graph, *args, **kwargs):
+        calls.append(graph)
+        return raw(graph, *args, **kwargs)
+
+    monkeypatch.setattr(fnx, raw_name, tracked_raw)
+    actual = getattr(fnx, algorithm)(actual_graph)
+    expected = getattr(nx, algorithm)(expected_graph)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert calls == [actual_graph]
+
+
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("weight", [None, "weight"])
@@ -865,9 +1074,9 @@ def test_katz_many_does_not_reenter_query_iterator(fnx, nx, workers):
 
 
 @pytest.mark.parametrize("workers", [1, 3])
-def test_katz_many_does_not_probe_assigned_edge_provider(fnx, workers):
-    def outcome(batched):
-        graph = fnx.DiGraph([(0, 1), (1, 2), (2, 0)])
+def test_katz_many_does_not_probe_assigned_edge_provider(fnx, nx, workers):
+    def outcome(module, batched):
+        graph = module.DiGraph([(0, 1), (1, 2), (2, 0)])
         edges = graph.edges
         events = []
 
@@ -880,14 +1089,61 @@ def test_katz_many_does_not_probe_assigned_edge_provider(fnx, workers):
         betas = [1.0, {0: 1.0, 1: 2.0, 2: 3.0}]
         kwargs = {"alpha": 0.05, "weight": "weight", "normalized": False}
         if batched:
-            result = fnx.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+            result = module.katz_centrality_many(graph, betas, workers=workers, **kwargs)
         else:
-            result = [fnx.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+            result = [module.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
         return result, events[:]
 
-    expected = outcome(False)
-    assert expected[1]
-    assert outcome(True) == expected
+    expected = outcome(fnx, False)
+    reference = outcome(nx, False)
+    assert expected[1] == reference[1] == []
+    for actual, wanted in zip(expected[0], reference[0]):
+        assert actual == pytest.approx(wanted, rel=1e-12, abs=1e-12)
+    assert outcome(fnx, True) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("workers", [1, 3])
+@pytest.mark.parametrize("warm", [False, True])
+def test_katz_many_node_hash_mutations_reach_current_query(
+    fnx, nx, graph_type, workers, warm
+):
+    def outcome(module, batched):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    graph.add_edge(0, 2, weight=0.25)
+                return int.__hash__(self)
+
+        nodes = [Node(node) for node in range(4)]
+        graph.add_edges_from(
+            (nodes[node], nodes[(node + 1) % 4], {"weight": 0.5})
+            for node in range(4)
+        )
+        if warm:
+            list(graph)
+        armed = True
+        betas = [1.0, 2.0]
+        kwargs = {"alpha": 0.05, "weight": "weight", "normalized": False}
+        if batched:
+            vectors = module.katz_centrality_many(graph, betas, workers=workers, **kwargs)
+        else:
+            vectors = [module.katz_centrality(graph, beta=beta, **kwargs) for beta in betas]
+        scores = [{int(node): value for node, value in vector.items()} for vector in vectors]
+        return scores, changed
+
+    actual, changed = outcome(fnx, True)
+    expected, reference_changed = outcome(nx, False)
+    assert changed is reference_changed is True
+    assert len(actual) == len(expected) == 2
+    for result, wanted in zip(actual, expected):
+        assert list(result) == list(wanted)
+        assert result == pytest.approx(wanted, rel=1e-12, abs=1e-12)
 
 
 @pytest.mark.parametrize("key_location", ["nodes", "beta"])

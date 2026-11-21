@@ -346,7 +346,7 @@ pub struct PyDiGraph {
     /// (was 6-15x slower than nx). It is mutated IN PLACE by every node add /
     /// remove / clear hook so mutation-during-iteration raises CPython's native
     /// "dictionary changed size during iteration" exactly as nx does.
-    pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    pub(crate) node_iter_mirror: std::sync::Mutex<Option<crate::NodeIterationMirrors>>,
     pub(crate) instance_dict_gc: crate::InstanceDictGc,
 }
 
@@ -589,7 +589,9 @@ impl PyDiGraph {
         }
         {
             let mirror = self.node_iter_mirror.lock().unwrap();
-            visit.call(mirror.as_ref())?;
+            if let Some(mirror) = mirror.as_ref() {
+                mirror.traverse(visit.clone())?;
+            }
         }
         Ok(())
     }
@@ -689,8 +691,13 @@ pub struct PyMultiDiGraph {
         std::sync::Mutex<rustc_hash::FxHashSet<(u64, usize, usize, usize)>>,
     /// br-r37-c1-urjxk: see PyGraph::edge_attr_writes.
     pub(crate) edge_attr_writes: crate::EdgeAttrWrites,
-    pub(crate) node_keys_cache:
-        std::sync::Mutex<Option<(u64, Py<pyo3::types::PyTuple>, Py<pyo3::types::PySet>)>>,
+    pub(crate) node_keys_cache: std::sync::Mutex<
+        Option<(
+            u64,
+            Py<pyo3::types::PyTuple>,
+            Option<Py<pyo3::types::PySet>>,
+        )>,
+    >,
     /// br-r37-c1-4b5ie: see PyGraph::node_data_mirror — nodes_seq-keyed
     /// {node: attr_dict} cache so repeated nodes(data=...) reuse it.
     pub(crate) node_data_mirror: std::sync::Mutex<Option<(u64, Py<PyDict>)>>,
@@ -730,7 +737,7 @@ pub struct PyMultiDiGraph {
     /// Incremental node-iteration mirror — see PyDiGraph::node_iter_mirror.
     /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
     /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
-    pub(crate) node_iter_mirror: std::sync::Mutex<Option<Py<PyDict>>>,
+    pub(crate) node_iter_mirror: std::sync::Mutex<Option<crate::NodeIterationMirrors>>,
     /// br-r37-c1-ic4cv: the present-key memo the other three classes already
     /// carry (br-r37-c1-6n9vm). MultiDiGraph was the only class without this
     /// field, so there was nowhere to hang the set and `has_node` /
@@ -1010,7 +1017,9 @@ impl PyMultiDiGraph {
         }
         {
             let mirror = self.node_iter_mirror.lock().unwrap();
-            visit.call(mirror.as_ref())?;
+            if let Some(mirror) = mirror.as_ref() {
+                mirror.traverse(visit.clone())?;
+            }
         }
         Ok(())
     }
@@ -2679,36 +2688,27 @@ impl PyMultiDiGraph {
         let tup = pyo3::types::PyTuple::new(py, &keys)
             .expect("node-keys tuple")
             .unbind();
-        let set = PySet::new(py, keys.iter()).expect("node-keys set").unbind();
-        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py), set));
+        // Enumerating display labels must not hash them. A label's __hash__
+        // may mutate this graph; only the set-producing API may invoke it.
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py), None));
         keys
     }
 
     /// Incremental node-iteration mirror (see PyDiGraph::node_iter_mirror_or_init).
     pub(crate) fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        if let Some(dict) = self
-            .node_iter_mirror
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dict| dict.clone_ref(py))
-        {
-            return Ok(dict);
-        }
-        let dict = PyDict::new(py);
-        for canonical in self.inner.nodes_ordered() {
-            dict.set_item(self.py_node_key(py, canonical), py.None())?;
-        }
-        let owned = dict.unbind();
-        *self.node_iter_mirror.lock().unwrap() = Some(owned.clone_ref(py));
-        Ok(owned)
+        crate::NodeIterationMirrors::keys_or_init(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| self.py_node_key(py, canonical))
+        })
     }
 
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
     }
 
-    fn node_iter_mirror_insert(&self, py: Python<'_>, canonical: &str) -> PyResult<()> {
+    fn node_iter_mirror_insert(&mut self, py: Python<'_>, canonical: &str) -> PyResult<()> {
         let Some(dict) = self
             .node_iter_mirror
             .lock()
@@ -2718,11 +2718,25 @@ impl PyMultiDiGraph {
         else {
             return Ok(());
         };
-        dict.bind(py)
-            .set_item(self.py_node_key(py, canonical), py.None())
+        let committed = self.inner.has_node(canonical);
+        let result = dict.insert(py, canonical, self.py_node_key(py, canonical), committed);
+        if result.is_err() {
+            let _ = dict.reconcile_values(
+                py,
+                self.inner
+                    .nodes_ordered()
+                    .into_iter()
+                    .map(|canonical| (canonical, self.py_node_key(py, canonical))),
+            );
+            *self.node_keys_cache.lock().unwrap() = None;
+            if committed {
+                self.bump_nodes_seq();
+            }
+        }
+        result
     }
 
-    fn node_iter_mirror_remove_key(&self, py: Python<'_>, key: &Bound<'_, PyAny>) {
+    fn node_iter_mirror_remove_key(&self, py: Python<'_>, canonical: &str, key: &Bound<'_, PyAny>) {
         let Some(dict) = self
             .node_iter_mirror
             .lock()
@@ -2732,7 +2746,7 @@ impl PyMultiDiGraph {
         else {
             return;
         };
-        let _ = dict.bind(py).del_item(key);
+        dict.remove(py, canonical, key);
     }
 
     fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
@@ -2745,7 +2759,7 @@ impl PyMultiDiGraph {
         else {
             return Ok(());
         };
-        dict.bind(py).call_method0("clear")?;
+        dict.clear(py);
         Ok(())
     }
 
@@ -5563,33 +5577,45 @@ impl PyMultiDiGraph {
         let tup = pyo3::types::PyTuple::new(py, &keys)
             .expect("node-keys tuple")
             .unbind();
-        let set = PySet::new(py, keys.iter()).expect("node-keys set").unbind();
-        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py), set));
+        *self.node_keys_cache.lock().unwrap() = Some((seq, tup.clone_ref(py), None));
         tup.into_any()
     }
 
-    fn _native_node_key_set(&self, py: Python<'_>) -> PyResult<PyObject> {
-        let seq = self.nodes_seq;
+    fn _native_node_key_set(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
+        let py = slf.py();
+        let seq = slf.nodes_seq;
         {
-            let guard = self.node_keys_cache.lock().unwrap();
-            if let Some((cached_seq, _tup, set)) = guard.as_ref()
+            let guard = slf.node_keys_cache.lock().unwrap();
+            if let Some((cached_seq, _tup, Some(set))) = guard.as_ref()
                 && *cached_seq == seq
             {
                 return Ok(set.bind(py).call_method0("copy")?.unbind());
             }
         }
-        let keys: Vec<PyObject> = self
-            .inner
-            .nodes_ordered()
-            .into_iter()
-            .map(|n| self.py_node_key(py, n))
-            .collect();
-        let tup = pyo3::types::PyTuple::new(py, &keys)
-            .expect("node-keys tuple")
-            .unbind();
-        let set = PySet::new(py, keys.iter()).expect("node-keys set").unbind();
+        let keys = slf._native_node_keys(py);
+        let iterator = slf._fnx_unhashed_node_iter(py)?;
+        let graph: Py<Self> = slf.into();
+        // Release the graph borrow before hashing user keys, and propagate a
+        // callback exception as a Python exception instead of a Rust panic.
+        // The live iterator, rather than the tuple cache, observes node changes
+        // made by a hash callback at the same boundary as set(G).
+        let tup = keys.bind(py).cast::<PyTuple>()?;
+        let set = PySet::empty(py)?;
+        for label in iterator.bind(py).try_iter()? {
+            set.add(label?)?;
+        }
+        let set = set.unbind();
         let result = set.bind(py).call_method0("copy")?.unbind();
-        *self.node_keys_cache.lock().unwrap() = Some((seq, tup, set));
+        let graph = graph.borrow(py);
+        // A cached set copy skips key hashes. Only exact scalar keys can make
+        // that unobservable; a custom label must be hashed on every set read.
+        if graph.nodes_seq == seq
+            && tup
+                .iter()
+                .all(|node| crate::node_key_hash_cannot_raise(&node))
+        {
+            *graph.node_keys_cache.lock().unwrap() = Some((seq, tup.clone().unbind(), Some(set)));
+        }
         Ok(result)
     }
 
@@ -7235,7 +7261,7 @@ impl PyMultiDiGraph {
             // Remove from the live mirror while node_key_map still holds the
             // display object (mirror keys are the display py objects).
             let py_key = self.py_node_key(py, &canonical);
-            self.node_iter_mirror_remove_key(py, py_key.bind(py));
+            self.node_iter_mirror_remove_key(py, &canonical, py_key.bind(py));
         }
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
@@ -7300,7 +7326,7 @@ impl PyMultiDiGraph {
                 // Remove from the live mirror while node_key_map still holds the
                 // display object (mirror keys are the display py objects).
                 let py_key = self.py_node_key(py, canonical);
-                self.node_iter_mirror_remove_key(py, py_key.bind(py));
+                self.node_iter_mirror_remove_key(py, canonical, py_key.bind(py));
             }
             self.node_key_map.remove(canonical);
             self.node_py_attrs.remove(canonical);
@@ -7727,6 +7753,16 @@ impl PyMultiDiGraph {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// Live native node order without hashing the existing display labels.
+    fn _fnx_unhashed_node_iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        crate::NodeIterationMirrors::unhashed_iter(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| (canonical, self.py_node_key(py, canonical)))
+        })
     }
 
     /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
@@ -12293,22 +12329,12 @@ impl PyDiGraph {
     /// Lazily built from `nodes_ordered()` on first access, then kept live by
     /// the insert/remove/clear hooks. Mirrors PyGraph::node_iter_mirror_or_init.
     pub(crate) fn node_iter_mirror_or_init(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
-        if let Some(dict) = self
-            .node_iter_mirror
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dict| dict.clone_ref(py))
-        {
-            return Ok(dict);
-        }
-        let dict = PyDict::new(py);
-        for canonical in self.inner.nodes_ordered() {
-            dict.set_item(self.py_node_key(py, canonical), py.None())?;
-        }
-        let owned = dict.unbind();
-        *self.node_iter_mirror.lock().unwrap() = Some(owned.clone_ref(py));
-        Ok(owned)
+        crate::NodeIterationMirrors::keys_or_init(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| self.py_node_key(py, canonical))
+        })
     }
 
     /// True when the mirror has been materialised (so hooks must run).
@@ -12316,7 +12342,7 @@ impl PyDiGraph {
         self.node_iter_mirror.lock().unwrap().is_some()
     }
 
-    fn node_iter_mirror_insert(&self, py: Python<'_>, canonical: &str) -> PyResult<()> {
+    fn node_iter_mirror_insert(&mut self, py: Python<'_>, canonical: &str) -> PyResult<()> {
         let Some(dict) = self
             .node_iter_mirror
             .lock()
@@ -12326,11 +12352,25 @@ impl PyDiGraph {
         else {
             return Ok(());
         };
-        dict.bind(py)
-            .set_item(self.py_node_key(py, canonical), py.None())
+        let committed = self.inner.has_node(canonical);
+        let result = dict.insert(py, canonical, self.py_node_key(py, canonical), committed);
+        if result.is_err() {
+            let _ = dict.reconcile_values(
+                py,
+                self.inner
+                    .nodes_ordered()
+                    .into_iter()
+                    .map(|canonical| (canonical, self.py_node_key(py, canonical))),
+            );
+            *self.node_keys_cache.lock().unwrap() = None;
+            if committed {
+                self.bump_nodes_seq();
+            }
+        }
+        result
     }
 
-    fn node_iter_mirror_remove_key(&self, py: Python<'_>, key: &Bound<'_, PyAny>) {
+    fn node_iter_mirror_remove_key(&self, py: Python<'_>, canonical: &str, key: &Bound<'_, PyAny>) {
         let Some(dict) = self
             .node_iter_mirror
             .lock()
@@ -12340,7 +12380,7 @@ impl PyDiGraph {
         else {
             return;
         };
-        let _ = dict.bind(py).del_item(key);
+        dict.remove(py, canonical, key);
     }
 
     fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
@@ -12353,7 +12393,7 @@ impl PyDiGraph {
         else {
             return Ok(());
         };
-        dict.bind(py).call_method0("clear")?;
+        dict.clear(py);
         Ok(())
     }
 
@@ -15489,7 +15529,7 @@ impl PyDiGraph {
             // Remove from the live mirror while node_key_map still holds the
             // display object (mirror keys are the display py objects).
             let py_key = self.py_node_key(py, &canonical);
-            self.node_iter_mirror_remove_key(py, py_key.bind(py));
+            self.node_iter_mirror_remove_key(py, &canonical, py_key.bind(py));
         }
         self.inner.remove_node(&canonical);
         self.node_key_map.remove(&canonical);
@@ -15590,7 +15630,7 @@ impl PyDiGraph {
             // display objects (mirror keys are the display py objects).
             for canonical in &present {
                 let py_key = self.py_node_key(py, canonical);
-                self.node_iter_mirror_remove_key(py, py_key.bind(py));
+                self.node_iter_mirror_remove_key(py, canonical, py_key.bind(py));
             }
         }
         // br-r37-c1-v9auw: remove neighbor cells while the node-key maps and
@@ -19553,6 +19593,16 @@ impl PyDiGraph {
         let py = slf.py();
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+    }
+
+    /// Live native node order without hashing the existing display labels.
+    fn _fnx_unhashed_node_iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        crate::NodeIterationMirrors::unhashed_iter(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| (canonical, self.py_node_key(py, canonical)))
+        })
     }
 
     /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.

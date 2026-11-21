@@ -462,7 +462,11 @@ def _view_root_node_keys_are_stable(root, nodes_seq):
     storage = vars(root)
     cached = storage.get("_fnx_view_stable_node_keys")
     if cached is None or cached[0] != nodes_seq:
-        cached = (nodes_seq, all(_view_filter_node_key_is_stable(node) for node in root))
+        # Inspect display objects without hashing them to build a public
+        # iteration mirror. Admission must not execute the protocols whose
+        # presence it is checking, even on a cold native graph.
+        keys = _CONVERSION_NATIVE_NODE_KEYS[type(root)](root)
+        cached = (nodes_seq, all(_view_filter_node_key_is_stable(node) for node in keys))
         storage["_fnx_view_stable_node_keys"] = cached
     return cached[1]
 

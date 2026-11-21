@@ -908,6 +908,19 @@ admission does not invoke their hashing or read protocols. Provider mutations
 and failures invalidate prior conversions before subsequent algorithms run.
 Ordinary cached node, edge and adjacency views remain eligible for conversion.
 
+Native node-key tuple inspection does not hash or compare node labels.
+Spectral admission checks labels through that tuple; custom labels, including
+members of tuple or frozenset labels, retain the owned live iteration. The
+solver's private node iterator tracks insertion order and live node-set changes
+without hashing its labels. Their hash callbacks first run when the reference
+builds or reads a score mapping, outside any native graph borrow. Topology
+updates at that boundary affect the current scores, and callback errors retain
+their original type and timing. A previously warmed node iterator or key cache
+does not change these rules. Plain immutable builtin labels retain native
+acceleration, and public graph iterator types remain unchanged.
+Batch Katz admission uses the same callback-free key inspection before
+retaining ordered single-query execution for observable node labels.
+
 Sparse iterations require arithmetic compatible with their reordered
 matrix reductions. Signed weights or vectors can expose catastrophic
 cancellation in the reference per-edge update order, so they retain owned

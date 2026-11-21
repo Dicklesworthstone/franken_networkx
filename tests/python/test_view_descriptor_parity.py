@@ -2370,3 +2370,235 @@ def test_edge_view_contains_non_string_endpoints_match_networkx(cls_name):
         graph.add_edge("1", "2")
     for probe in [(1, 2), ("1", "2"), (1, "2"), ("1", 2), (2, 1), (1, 3)]:
         assert (probe in gfx.edges) == (probe in gnx.edges), probe
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("reader", ["_native_node_keys", "_fnx_unhashed_node_iter"])
+@pytest.mark.parametrize("shape", ["subclass", "object", "nested"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_native_node_key_readers_do_not_hash_existing_labels(cls_name, reader, shape, warm):
+    """Type admission and the internal live iterator must not run node hooks."""
+    for module in (nx, fnx):
+        armed = False
+
+        class IntKey(int):
+            def __hash__(self):
+                if armed:
+                    raise AssertionError("node enumeration hashed an existing label")
+                return int.__hash__(self)
+
+        class ObjectKey:
+            def __hash__(self):
+                if armed:
+                    raise AssertionError("node enumeration hashed an existing label")
+                return object.__hash__(self)
+
+            def __eq__(self, other):
+                if armed:
+                    raise AssertionError("node enumeration compared existing labels")
+                return self is other
+
+        labels = [
+            ObjectKey() if shape == "object" else (IntKey(i),) if shape == "nested" else IntKey(i)
+            for i in range(4)
+        ]
+        graph = getattr(module, cls_name)()
+        graph.add_nodes_from(labels)
+
+        def read():
+            return list(getattr(graph, reader)()) if module is fnx else list(graph)
+
+        if warm:
+            assert all(actual is expected for actual, expected in zip(read(), labels))
+        armed = True
+        actual = read()
+        assert len(actual) == len(labels)
+        assert all(a is b for a, b in zip(actual, labels))
+
+        # Invalidate the tuple cache and update the private live mirror using
+        # a new plain key. Existing labels still must not be rehashed.
+        graph.add_node("tail")
+        actual = read()
+        assert len(actual) == len(labels) + 1
+        assert all(a is b for a, b in zip(actual, labels))
+        assert actual[-1] == "tail"
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("public_mirror", [False, True])
+@pytest.mark.parametrize(
+    "mutation",
+    ["add", "remove", "replace_unseen", "replace_seen", "clear_refill", "add_bulk", "remove_bulk", "edge"],
+)
+def test_unhashed_node_iterator_observes_live_mutations(cls_name, public_mirror, mutation):
+    import operator
+
+    def run(module):
+        class Key(int):
+            pass
+
+        graph = getattr(module, cls_name)()
+        labels = [Key(i) for i in range(5)]
+        graph.add_nodes_from(labels)
+        if public_mirror:
+            assert list(graph) == labels
+        iterator = graph._fnx_unhashed_node_iter() if module is fnx else iter(graph)
+        trace = [("first", int(next(iterator)), operator.length_hint(iterator))]
+        if mutation == "add":
+            graph.add_node(Key(9))
+        elif mutation == "remove":
+            graph.remove_node(labels[-1])
+        elif mutation == "replace_unseen":
+            graph.remove_node(labels[-1])
+            graph.add_node(Key(9))
+        elif mutation == "replace_seen":
+            graph.remove_node(labels[0])
+            graph.add_node(Key(9))
+        elif mutation == "clear_refill":
+            graph.clear()
+            graph.add_nodes_from(Key(i) for i in range(10, 15))
+        elif mutation == "add_bulk":
+            graph.add_nodes_from([Key(7), Key(8)])
+        elif mutation == "remove_bulk":
+            graph.remove_nodes_from(labels[3:])
+        else:
+            graph.add_edge(labels[1], labels[3])
+        trace.append(("hint", operator.length_hint(iterator)))
+        for _ in range(8):
+            try:
+                trace.append(("next", int(next(iterator))))
+            except StopIteration:
+                trace.append(("stop",))
+                break
+            except Exception as exc:
+                trace.append(("error", type(exc).__name__, str(exc)))
+                break
+        return trace
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("public_first", [False, True])
+def test_unhashed_iterator_keeps_public_iterator_types_and_independent_positions(cls_name, public_first):
+    class Key(int):
+        pass
+
+    graph = getattr(fnx, cls_name)()
+    labels = [Key(i) for i in range(4)]
+    graph.add_nodes_from(labels)
+    if public_first:
+        public, private = iter(graph), graph._fnx_unhashed_node_iter()
+    else:
+        private, public = graph._fnx_unhashed_node_iter(), iter(graph)
+    assert type(public) is type(iter({}))
+    assert type(iter(graph.nodes)) is type(iter({}))
+    assert type(iter(graph.adj)) is type(iter({}))
+    assert next(private) is labels[0]
+    assert list(public) == labels
+    assert list(private) == labels[1:]
+    graph.add_node(Key(7))
+    assert list(graph) == list(graph._fnx_unhashed_node_iter()) == labels + [Key(7)]
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+def test_unhashed_iterator_mirror_is_visible_to_gc(cls_name):
+    def build_cycle():
+        graph = getattr(fnx, cls_name)()
+        label = _OwnerKey(graph)
+        graph.add_node(label)
+        assert next(graph._fnx_unhashed_node_iter()) is label
+        return weakref.ref(graph)
+
+    reference = build_cycle()
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("mutation", ["node", "edge"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_unhashed_iterator_tracks_native_insertion_when_public_hash_raises(
+    cls_name, mutation, warm_cache
+):
+    hash_failure = committed_failure = False
+    # Different bindings perform a different number of pre-insertion hash
+    # probes. Exercise each boundary and require a failure after insertion.
+    for fail_at in range(1, 9):
+        graph = getattr(fnx, cls_name)()
+        graph.add_nodes_from([0, 1])
+        assert list(graph) == list(graph._fnx_unhashed_node_iter()) == [0, 1]
+        if warm_cache:
+            assert graph._native_node_keys() == (0, 1)
+        previous_seq = graph.nodes_seq
+        calls = 0
+
+        class Key(int):
+            def __hash__(self):
+                nonlocal calls
+                calls += 1
+                if calls == fail_at:
+                    raise ValueError("public mirror hash failure")
+                return int.__hash__(self)
+
+        node = Key(9)
+        try:
+            if mutation == "node":
+                graph.add_node(node)
+            else:
+                graph.add_edge(node, 10)
+        except ValueError as exc:
+            assert str(exc) == "public mirror hash failure"
+            hash_failure = True
+            stored = graph._native_node_keys()
+            observed = tuple(graph._fnx_unhashed_node_iter())
+            assert len(observed) == len(stored) == graph.number_of_nodes()
+            assert all(a is b for a, b in zip(observed, stored))
+            committed = any(label is node for label in stored)
+            if committed:
+                assert graph.nodes_seq != previous_seq
+            committed_failure |= committed
+    assert hash_failure, "the regression must reach a public mirror callback"
+    if cls_name == "Graph" or (cls_name == "DiGraph" and mutation == "edge"):
+        assert committed_failure, "the regression must reach a committed native insertion"
+
+
+@pytest.mark.parametrize("warm", ["cold", "tuple", "set"])
+@pytest.mark.parametrize("action", ["raise", "edge", "resize", "replace"])
+def test_native_node_key_set_preserves_live_hash_callbacks(warm, action):
+    def run(module):
+        armed = fired = False
+        graph = module.MultiDiGraph()
+
+        class Key(int):
+            def __hash__(self):
+                nonlocal fired
+                if armed and not fired:
+                    fired = True
+                    if action == "raise":
+                        raise ValueError("node hash callback")
+                    if action == "edge":
+                        graph.add_edge(0, 2)
+                    elif action == "resize":
+                        graph.add_node(9)
+                    else:
+                        graph.remove_node(3)
+                        graph.add_node(9)
+                return int.__hash__(self)
+
+        graph.add_nodes_from(Key(i) for i in range(4))
+        if warm == "tuple":
+            tuple(graph._native_node_keys()) if module is fnx else tuple(graph)
+        elif warm == "set":
+            graph._native_node_key_set() if module is fnx else set(graph)
+        armed = True
+        try:
+            answer = graph._native_node_key_set() if module is fnx else set(graph)
+            result = ("values", sorted(map(int, answer)))
+        except Exception as exc:
+            result = ("error", type(exc).__name__, str(exc))
+        armed = False
+        retry = graph._native_node_key_set() if module is fnx else set(graph)
+        return result, fired, sorted(map(int, retry)), graph.has_edge(0, 2)
+
+    assert run(fnx) == run(nx)

@@ -463,7 +463,10 @@ def katz_centrality_many(
     if (
         not plain_queries
         or not _greedy_color_native_graph(G)
-        or any(type(node) not in plain_keys for node in G)
+        or any(
+            type(node) not in plain_keys
+            for node in _CONVERSION_NATIVE_NODE_KEYS[type(G)](G)
+        )
         or any(
             type(beta) is dict and any(type(node) not in plain_keys for node in beta)
             for beta in queries
@@ -592,12 +595,14 @@ def _katz_centrality_inproc(
     if len(G) == 0:
         return {}
     nnodes = G.number_of_nodes()
-    x = {n: 0 for n in G} if nstart is None else nstart
+    x = {n: 0 for n in _spectral_centrality_nodes(G)} if nstart is None else nstart
     try:
-        b = dict.fromkeys(G, float(beta))
+        # Preserve the reference's float(beta) call before graph iteration.
+        beta_value = float(beta)
+        b = dict.fromkeys(_spectral_centrality_nodes(G), beta_value)
     except (TypeError, ValueError, AttributeError) as err:
         b = beta
-        if set(beta) != set(G):
+        if set(beta) != set(_spectral_centrality_nodes(G)):
             raise NetworkXError(
                 "beta dictionary must have a value for every node"
             ) from err

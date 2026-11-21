@@ -563,6 +563,26 @@ def _spectral_centrality_plain_value(value):
     return value >= 0 and _math.isfinite(value)
 
 
+_SPECTRAL_PUBLIC_NODE_ITERATORS = {
+    cls: cls.__iter__ for cls in (Graph, DiGraph)
+}
+
+
+def _spectral_centrality_nodes(G):
+    """Iterate native labels live without introducing hash callbacks."""
+    if (
+        type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+        and "__iter__" not in G.__dict__
+        and type(G).__iter__ is _SPECTRAL_PUBLIC_NODE_ITERATORS[type(G)]
+    ):
+        # The solver's score dictionaries, rather than a lazy native node
+        # mirror, own the first label hashes. Keep this internal iterator
+        # live so a callback resizing the node set raises on advancement.
+        return type(G)._fnx_unhashed_node_iter(G)
+    return iter(G)
+
+
 def _spectral_centrality_can_snapshot(G, nstart, weight):
     """Whether sparse iteration can freeze these rows and initial values.
 
@@ -575,7 +595,17 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
     # adjacency boundary. Admit them statically before probing edges or start
     # keys: a sparse snapshot must not skip those callbacks or introduce reads
     # of an assigned edge provider which the power iteration never uses.
-    if not _greedy_color_native_graph(G):
+    if (
+        not _greedy_color_native_graph(G)
+        or type(G).__iter__ is not _SPECTRAL_PUBLIC_NODE_ITERATORS[type(G)]
+    ):
+        return False
+    # Iterating a graph does not hash its labels in NetworkX. Building the
+    # initial score dictionary does, and a label callback can change the
+    # adjacency that the same iteration must read. Inspect the native key
+    # tuple without hashing or public reader calls before choosing a frozen
+    # kernel. Tuple/frozenset labels are safe only when all their members are.
+    if not _view_root_node_keys_are_stable(G, G.nodes_seq):
         return False
     # A custom start key can change edges or raise when hashed. Inspect its
     # type before a sparse-domain membership probe moves that callback ahead
@@ -651,7 +681,7 @@ def _eigenvector_centrality_inproc(G, max_iter=100, tol=1e-6, nstart=None, weigh
     if len(G) == 0:
         raise NetworkXPointlessConcept("cannot compute centrality for the null graph")
     if nstart is None:
-        nstart = {v: 1 for v in G}
+        nstart = {v: 1 for v in _spectral_centrality_nodes(G)}
     if all(v == 0 for v in nstart.values()):
         raise NetworkXError("initial vector cannot have all zero values")
     nstart_sum = sum(nstart.values())

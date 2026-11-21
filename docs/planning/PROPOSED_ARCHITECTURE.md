@@ -190,6 +190,11 @@ Iterative spectral wrappers admit native and sparse arithmetic before
 coercion and retain their existing owned iterations for observable graph,
 vector and numeric providers. Eigenvector and Katz keep their distinct
 weight-selector semantics rather than sharing a lossy matrix interpretation.
+Native node-label admission reuses the revision-keyed immutable-label check
+and a callback-free key tuple. Owned spectral initialization uses a private
+live iterator backed by canonical keys and original label values, maintained
+through the same native mutation hooks as the public node mirror. Public
+iterator types and caller-supplied iteration providers remain unchanged.
 
 Flow hierarchy retains graph-size and induced-component-size operations
 when an edge-only aggregate would change floating arithmetic or custom
