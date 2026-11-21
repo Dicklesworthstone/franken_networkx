@@ -1373,7 +1373,10 @@ class _PrivateNodeFacade:
         return list(iter(self))
 
     def items(self):
-        return [(n, self._graph.nodes[n]) for n in self]
+        # Persistence reads logical storage, not an assignable public reader.
+        # The helper binds a native NodeView for this built-in facade while
+        # retaining the protocols of genuinely assigned private mappings.
+        return list(_conversion_node_items(self._graph))
 
     def values(self):
         return [self._graph.nodes[n] for n in self]

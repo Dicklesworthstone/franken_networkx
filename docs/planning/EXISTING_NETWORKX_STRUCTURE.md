@@ -1384,12 +1384,20 @@ replaced cached readers, survives both deepcopy and pickle snapshots. Only
 the view's own parent, filter machinery, and generated readers are excluded.
 
 The ordinary native route is eligible only when its inputs cannot require
-object remapping or observable copy callbacks. General Python object graphs
-use a memo-aware route that preserves the complete identity relationships.
+object remapping or observable copy callbacks. Explicit assignments to public
+cached readers use the general route before those values can be consulted as
+structural providers; ordinary scalar graphs retain their existing native
+eligibility. Built-in private node facades enumerate through captured native
+node readers for deepcopy and pickle, so replacing `G.nodes` does not replace
+the logical node store. Assigned private mappings retain their own persistence
+protocols. General Python object graphs use a memo-aware route that preserves
+the complete identity relationships.
 `tests/python/test_deepcopy_conformance_guard.py` and
 `tests/python/test_copy_semantics_parity.py` compare these semantics with
 NetworkX across all four graph classes, including recursive attributes,
 mutable node objects, shared dictionaries, supplied memos, and copy failures.
+`tests/python/test_view_descriptor_parity.py` also checks caller assignments
+after cached-reader access through both deepcopy and pickle round trips.
 
 ## 41. Disjoint Paths Across Graph Inputs and Backend Dispatch
 

@@ -696,12 +696,12 @@ def test_iterative_centrality_builtin_labels_keep_native_route(
     for graph in (actual_graph, expected_graph):
         graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
     raw_name = f"_raw_{algorithm}"
-    raw = getattr(fnx, raw_name)
+    native_solver = getattr(fnx, raw_name)
     calls = []
 
     def tracked_raw(graph, *args, **kwargs):
         calls.append(graph)
-        return raw(graph, *args, **kwargs)
+        return native_solver(graph, *args, **kwargs)
 
     monkeypatch.setattr(fnx, raw_name, tracked_raw)
     actual = getattr(fnx, algorithm)(actual_graph)

@@ -209,6 +209,17 @@ def _graph_deepcopy(self, memo=None, *, snapshot_class=None):
         and not private_overrides
         and _SHARED_STORAGE_SOURCE not in src_dict
         and native is not None
+        # Public cached readers are assignable instance state. A user value
+        # must not be called or inspected as topology by the native preflight.
+        # The general route copies the private stores and restores these
+        # values through the same memo as all other user-owned attributes.
+        and not any(
+            type(name) is str and name in {
+                "nodes", "edges", "degree", "adj", "succ", "pred",
+                "in_degree", "out_degree", "in_edges", "out_edges",
+            }
+            for name, _ in instance_items
+        )
         and all(
             type(key) in atomic_types and type(value) in atomic_types
             for key, value in instance_items
