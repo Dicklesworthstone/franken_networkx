@@ -2802,6 +2802,18 @@ candidates observe the original graph state and invalidate affected conversion
 caches. Node-cut verification must retain the input graph's implementation
 family when constructing a graph with the cut vertices removed.
 
+Constrained `k=1` augmentation contracts the original connected components
+and retains the lightest original edge per unordered component pair. The
+reference `(weight, u, v)` tie-break applies only within that pair. A stable
+cost-ordered minimum spanning forest over component IDs preserves exact
+Python costs, original endpoint identities and orientations, and quotient
+forest edge order. Mixed labels on different component links need not be
+orderable. Complete augmentation raises `NetworkXUnfeasible` when candidates
+cannot connect the quotient; partial augmentation returns the minimum-cost
+forest without redundant candidates. Neither mode mutates the input graph.
+`tests/python/test_k_edge_augmentation_parity.py` checks these contracts
+against NetworkX through direct and backend entry points.
+
 ## 89. Owned Leiden Community Detection Contract
 
 This implementation contract derives from Traag, Waltman and van Eck,

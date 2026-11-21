@@ -236,8 +236,6 @@ def _k_edge_complement_edges(G):
 
 
 def _k_edge_avail_weight(raw_weight, weight):
-    if raw_weight is None:
-        return 1
     if isinstance(raw_weight, _Mapping):
         key = "weight" if weight is None else weight
         return raw_weight[key]
@@ -277,6 +275,70 @@ def _k_edge_validate_available_endpoints(avail, G):
             raise KeyError(u)
         if v not in G:
             raise KeyError(v)
+
+
+def _k_edge_weighted_one_augmentation(G, avail, weight, partial):
+    """Connect existing components with a minimum-cost candidate forest.
+
+    Only component IDs enter the spanning-tree calculation. Sorting all
+    candidate endpoint tuples, as the general k-edge heuristic does, rejects
+    perfectly valid mixed node labels and needlessly solves a flow problem
+    for each link. Costs remain Python objects throughout this calculation.
+    """
+    available, costs = _k_edge_unpack_available_edges(avail, weight=weight, G=G)
+    components = list(connected_components(G))
+    component_of = {
+        node: index for index, component in enumerate(components) for node in component
+    }
+    choices = {}
+    for (source, target), cost in zip(available, costs):
+        left, right = component_of[source], component_of[target]
+        if left == right:
+            continue
+        pair = (left, right) if left < right else (right, left)
+        choices.setdefault(pair, []).append((cost, source, target))
+
+    # The reference picks the lightest original link per component pair.
+    # Its endpoint tie-break applies only WITHIN that pair; do not compare
+    # unrelated labels while sorting links between different components.
+    adjacency = [[] for _ in components]
+    for (left, right), options in choices.items():
+        cost, source, target = min(options)
+        edge = (source, target)
+        adjacency[left].append((right, cost, edge))
+        adjacency[right].append((left, cost, edge))
+
+    # Stable cost ordering starts from the quotient graph's edge-view order,
+    # not from the order of the candidate list or from the original labels.
+    candidates = []
+    for left, row in enumerate(adjacency):
+        for right, cost, edge in row:
+            if right < left:
+                continue
+            if _math.isnan(cost):
+                invalid = (left, right, {"weight": cost, "generator": edge})
+                raise ValueError(f"NaN found as an edge weight. Edge {invalid}")
+            candidates.append((cost, left, right, edge))
+    candidates.sort(key=lambda item: item[0])
+
+    forest = [[] for _ in components]
+    connected = _InProcUnionFind(range(len(components)))
+    selected = 0
+    for _, left, right, edge in candidates:
+        if connected[left] == connected[right]:
+            continue
+        connected.union(left, right)
+        forest[left].append((right, edge))
+        forest[right].append((left, edge))
+        selected += 1
+
+    if not partial and selected != len(components) - 1:
+        raise NetworkXUnfeasible("Not possible to connect G with available edges")
+    # Preserve the spanning forest's edge-view order and the orientation of
+    # each original candidate, including when only a partial solution exists.
+    return [
+        edge for left, row in enumerate(forest) for right, edge in row if left < right
+    ]
 
 
 def _k_edge_is_locally_connected(G, source, target, k):
@@ -561,11 +623,12 @@ def k_edge_augmentation(
 
     Notes
     -----
-    For k=1 with no avail/weight, uses a fast native implementation
-    that connects components. For remaining cases, uses the same
-    greedy augmentation policy as the upstream reference: add light
-    candidate edges between node pairs that are not yet locally
-    k-edge-connected, then prune redundant additions deterministically.
+    For k=1, connect components directly when all missing links are available,
+    or find a minimum spanning forest of the available component links.
+    Unconstrained k=2 uses bridge augmentation. Remaining cases use a greedy
+    augmentation policy: add light candidate edges between node pairs that
+    are not yet locally k-edge-connected, then prune redundant additions
+    deterministically.
     """
     _validate_backend_dispatch_keywords(
         "k_edge_augmentation", backend, backend_kwargs
@@ -609,6 +672,9 @@ def k_edge_augmentation(
         return [
             (list(comps[i])[0], list(comps[i + 1])[0]) for i in range(len(comps) - 1)
         ]
+
+    if k == 1:
+        return _k_edge_weighted_one_augmentation(G, avail, weight, partial)
 
     # br-r37-c1-h5qm1: unconstrained k=2 is the linear-time bridge-augmentation
     # (minimum cardinality). fnx's generic greedy below was BOTH ~11-54x slower
