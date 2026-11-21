@@ -115,6 +115,31 @@ class PublishedReleaseVerifierTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 verifier.validate_registry(changed, version, manifest)
 
+    def test_registry_accepts_six_wheels_plus_signed_sdist(self):
+        version = "0.4.1"
+        sdist = verifier.sdist_name(version)
+        manifest = {name: "a" * 64 for name in verifier.wheel_names(version) | {sdist}}
+        rows = [
+            {
+                "filename": name,
+                "packagetype": "sdist" if name == sdist else "bdist_wheel",
+                "yanked": False,
+                "digests": {"sha256": digest},
+            }
+            for name, digest in manifest.items()
+        ]
+        metadata = {"info": {"version": version}, "urls": rows}
+        self.assertEqual(verifier.validate_registry(metadata, version, manifest), rows)
+        bad_sdist = {
+            "info": dict(metadata["info"]),
+            "urls": [
+                dict(row, packagetype="bdist_wheel" if row["filename"] == sdist else row["packagetype"])
+                for row in rows
+            ],
+        }
+        with self.assertRaises(ValueError):
+            verifier.validate_registry(bad_sdist, version, manifest)
+
     def test_download_boundary_refuses_credentials_non_https_and_other_hosts(self):
         for url in ("http://pypi.org/pypi/pip/json", "https://pypi.org.evil.test/file",
                     "https://user:pass@pypi.org/file", "https://pypi.org:444/file", "file:///etc/passwd"):

@@ -42,6 +42,10 @@ def wheel_names(version):
     return {f"franken_networkx-{version}-cp310-abi3-{tag}.whl" for tag in PLATFORMS}
 
 
+def sdist_name(version):
+    return f"franken_networkx-{version}.tar.gz"
+
+
 def payload_names(version):
     archives = {
         f"franken-networkx-{version}-{tag}.tar.gz"
@@ -49,7 +53,7 @@ def payload_names(version):
     }
     return archives | wheel_names(version) | {
         f"franken-networkx-{version}-windows-amd64.zip",
-        f"franken_networkx-{version}.tar.gz",
+        sdist_name(version),
     }
 
 
@@ -69,10 +73,19 @@ def validate_registry(metadata, version, manifest):
     rows = metadata["urls"]
     require(metadata["info"]["version"] == version, "PyPI version differs")
     names = [row["filename"] for row in rows]
-    require(len(names) == len(set(names)) == len(PLATFORMS)
-            and set(names) == wheel_names(version), "PyPI six-wheel contract differs")
+    expected_wheels = wheel_names(version)
+    expected_sdist = sdist_name(version)
+    allowed_sets = (expected_wheels, expected_wheels | {expected_sdist})
+    require(
+        len(names) == len(set(names)) and set(names) in allowed_sets,
+        "PyPI distribution contract differs",
+    )
     for row in rows:
-        require(row["packagetype"] == "bdist_wheel" and not row["yanked"], "yanked or non-wheel publication")
+        expected_type = "sdist" if row["filename"] == expected_sdist else "bdist_wheel"
+        require(
+            row["packagetype"] == expected_type and not row["yanked"],
+            "yanked or mismatched distribution packagetype",
+        )
         expected = manifest.get(row["filename"])
         actual = row["digests"]["sha256"]
         require(isinstance(actual, str) and re.fullmatch(r"[0-9a-f]{64}", actual)

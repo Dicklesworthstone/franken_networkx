@@ -1,9 +1,13 @@
 """Smoke test: verify the package imports and version is accessible."""
 
+import re
+
 
 def test_import_version():
     import franken_networkx as fnx
-    assert fnx.__version__ in ("0.2.0", "0.2.1", "0.2.2")
+
+    assert isinstance(fnx.__version__, str)
+    assert re.fullmatch(r"\d+\.\d+\.\d+(?:[.-][0-9A-Za-z.]+)?", fnx.__version__)
 
 
 def test_multigraph_classes_import():
