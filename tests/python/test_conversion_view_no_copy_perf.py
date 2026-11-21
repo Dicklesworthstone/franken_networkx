@@ -515,3 +515,148 @@ def test_conversion_degree_cache_does_not_alias_snapshot(cls, conversion, method
         assert [list(degree(weight="weight")) for degree in snapshot_degrees] == before
         snapshots.append(before)
     assert snapshots[0] == snapshots[1]
+
+
+@needs_nx
+@pytest.mark.parametrize("cls,conversion,name", _DEGREE_ACCESSOR_CASES)
+@pytest.mark.parametrize("method", ["deepcopy", "pickle"])
+@pytest.mark.parametrize("reader_first", [False, True])
+def test_conversion_degree_roundtrip_preserves_owner_cycles_and_selections(
+    cls, conversion, name, method, reader_first
+):
+    observations = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)()
+        graph.add_nodes_from(["a", "b", "isolated"])
+        graph.add_edge("a", "b", weight=2)
+        graph.add_edge("a", "a", weight=0.25)
+        if graph.is_multigraph():
+            graph.add_edge("a", "b", weight=3)
+        view = getattr(graph, conversion)(as_view=True)
+        held = getattr(view, name)
+        weighted = held(weight="weight")
+        restricted = held(["b", "a", "b"], weight="weight")
+        view.graph["held"] = held
+        view.nodes["a"]["weighted"] = weighted
+        first, second = (held, view) if reader_first else (view, held)
+        payload = (first, second, weighted, restricted, view.graph)
+        if method == "deepcopy":
+            restored = copy.deepcopy(payload)
+        else:
+            restored = pickle.loads(pickle.dumps(payload))
+        snapshot, cached = (restored[1], restored[0]) if reader_first else restored[:2]
+        copied_weighted, copied_restricted = restored[2:4]
+        assert cached is getattr(snapshot, name)
+        assert cached._graph is snapshot
+        assert copied_weighted._graph is snapshot
+        assert copied_restricted._graph is snapshot
+        assert snapshot.graph is restored[4]
+        assert snapshot.graph["held"] is cached
+        assert snapshot.nodes["a"]["weighted"] is copied_weighted
+
+        def reads():
+            return (
+                type(cached).__name__, list(cached), list(copied_weighted),
+                list(copied_restricted), list(copied_weighted()),
+                list(copied_restricted(None, "weight")),
+                copied_weighted["a"], copied_restricted("a", weight="weight"),
+            )
+
+        before = reads()
+        graph.add_edge("a", "new", weight=7)
+        assert "new" not in snapshot
+        assert reads() == before
+        # Edge attributes remain writable even though the copied view is frozen.
+        attrs = snapshot["a"]["b"]
+        if snapshot.is_multigraph():
+            attrs = attrs[0]
+        attrs["weight"] = 11
+        observations.append((before, reads()))
+    assert observations[0] == observations[1]
+
+
+@needs_nx
+@pytest.mark.parametrize("cls,conversion,name", _DEGREE_ACCESSOR_CASES)
+def test_conversion_degree_deepcopy_uses_existing_graph_memo(cls, conversion, name):
+    observations = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls)()
+        graph.add_edge("a", "b", weight=2)
+        view = getattr(graph, conversion)(as_view=True)
+        weighted = getattr(view, name)(["a", "b"], weight="weight")
+        replacement = view.copy()
+        copied = copy.deepcopy(weighted, {id(view): replacement})
+        assert copied._graph is replacement
+        observations.append(list(copied))
+    assert observations[0] == observations[1]
+
+
+class _CustomConversionDegreeReader(type(fnx.Graph().to_directed(as_view=True).degree)):
+    __slots__ = ("note", "__private_note", "__dict__")
+
+    def __init__(self, graph):
+        super().__init__(graph, ["a", "b"], "weight")
+        self.note = []
+        self.__private_note = self.note
+        self.extra = {"note": self.note, "reader": self}
+
+    @property
+    def private_note(self):
+        return self.__private_note
+
+
+class _CollidingConversionDegreeReader(_CustomConversionDegreeReader):
+    pass
+
+
+_CollidingConversionDegreeReader.__name__ = "DiDegreeView"
+
+
+class _StatefulConversionDegreeReader(_CustomConversionDegreeReader):
+    def __getstate__(self):
+        return {"reader": (self._graph, self._nodes, self._weight),
+                "note": self.note, "extra": self.extra}
+
+    def __setstate__(self, state):
+        self._graph, self._nodes, self._weight = state["reader"]
+        self.note = state["note"]
+        self._CustomConversionDegreeReader__private_note = self.note
+        self.extra = state["extra"]
+        self.restored_by_hook = True
+
+
+@pytest.mark.parametrize("reader_type", [
+    _CustomConversionDegreeReader,
+    _CollidingConversionDegreeReader,
+    _StatefulConversionDegreeReader,
+])
+@pytest.mark.parametrize("method", ["copy", "deepcopy", "pickle"])
+def test_conversion_degree_reader_subclass_roundtrip_retains_state(reader_type, method):
+    graph = fnx.Graph()
+    graph.add_edge("a", "b", weight=2)
+    view = graph.to_directed(as_view=True)
+    reader = reader_type(view)
+    view.degree = reader
+    view.graph["reader"] = reader
+    if method == "copy":
+        restored = copy.copy(reader)
+    elif method == "deepcopy":
+        restored = copy.deepcopy(reader)
+    else:
+        restored = pickle.loads(pickle.dumps(reader))
+    assert type(restored) is reader_type
+    assert restored is not reader
+    assert list(restored) == list(reader)
+    assert restored.private_note is restored.note is restored.extra["note"]
+    if reader_type is _StatefulConversionDegreeReader:
+        assert restored.restored_by_hook is True
+    if method == "copy":
+        assert restored._graph is view
+        assert restored.note is reader.note
+        assert restored.extra["reader"] is reader
+    else:
+        assert restored._graph is not view
+        assert restored._graph.degree is restored
+        assert restored._graph.graph["reader"] is restored
+        assert restored.note is not reader.note
+        assert restored.extra["reader"] is restored

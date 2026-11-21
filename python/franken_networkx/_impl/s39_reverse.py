@@ -42,12 +42,75 @@ class _ConversionDegreeView:
         _HASH_PROBE.get(n)
         if n not in G:
             raise KeyError(n)
-        return getattr(G, self._compute)(n, self._weight)
+        compute = getattr(G, self._compute, None)
+        if compute is not None:
+            return compute(n, self._weight)
+        return self._snapshot_reader()[n]
 
     def __iter__(self):
         if self._nodes is self._graph:
-            return iter(getattr(self._graph, self._compute)(None, self._weight))
+            compute = getattr(self._graph, self._compute, None)
+            if compute is not None:
+                return iter(compute(None, self._weight))
+            return iter(self._snapshot_reader())
         return ((n, self[n]) for n in self._nodes)
+
+    def _snapshot_reader(self):
+        # A graph view becomes a concrete logical-storage snapshot on deepcopy
+        # or pickle. Its cached degree wrapper still belongs to that same owner,
+        # but the owner no longer has conversion-only computation methods. Reuse
+        # the existing logical readers without consulting the public degree
+        # attribute, which may itself be this wrapper.
+        if self._compute == "_degree_compute":
+            return _AssignedPrivateDegreeView(self._graph, weight=self._weight)
+        adjacency = "pred" if self._compute == "_in_degree_compute" else "succ"
+        return _DirectedDegreeView(self._graph, adjacency, weight=self._weight)
+
+    def __reduce__(self):
+        # Dynamic display-name classes are not module globals. Allocate through
+        # the stable registry before walking state so an owner or graph attribute
+        # can refer back to this very reader in the same copy/pickle memo.
+        from types import MemberDescriptorType
+
+        view_type = type(self)
+        if _CONVERSION_DEGREE_VIEW_CLASSES.get(view_type.__name__) is view_type:
+            allocate, args = _allocate_conversion_degree_view, (view_type.__name__,)
+        else:
+            # A caller subclass can even reuse a generated display name. Its
+            # identity and state must not be replaced with a built-in reader.
+            allocate, args = _allocate_graph_pickle_view, (view_type,)
+        if any(
+            "__getstate__" in vars(owner)
+            for owner in view_type.__mro__
+            if owner is not object
+        ):
+            state = self.__getstate__()
+        else:
+            # Python 3.10 has no object.__getstate__. Member descriptors retain
+            # the real names of private slots even if a class was renamed.
+            slots = {}
+            for owner in reversed(view_type.__mro__):
+                for name, descriptor in vars(owner).items():
+                    if isinstance(descriptor, MemberDescriptorType):
+                        try:
+                            slots[name] = descriptor.__get__(self, view_type)
+                        except AttributeError:
+                            pass
+            state = (getattr(self, "__dict__", None), slots)
+        return allocate, args, state
+
+    def __setstate__(self, state):
+        # Match Python's ordinary dictionary/slot state protocol. Subclasses
+        # with their own __setstate__ retain control through normal dispatch.
+        if isinstance(state, tuple) and len(state) == 2:
+            instance, slots = state
+        else:
+            instance, slots = state, None
+        if instance is not None:
+            self.__dict__.update(instance)
+        if slots is not None:
+            for name, value in slots.items():
+                setattr(self, name, value)
 
     def __len__(self):
         return len(self._nodes)
@@ -75,6 +138,16 @@ _CONVERSION_DEGREE_VIEW_TYPES = {
     ("out", False): _conversion_degree_view_type("OutDegreeView", "_out_degree_compute"),
     ("out", True): _conversion_degree_view_type("OutMultiDegreeView", "_out_degree_compute"),
 }
+
+
+_CONVERSION_DEGREE_VIEW_CLASSES = {
+    view_type.__name__: view_type
+    for view_type in _CONVERSION_DEGREE_VIEW_TYPES.values()
+}
+
+
+def _allocate_conversion_degree_view(name):
+    return object.__new__(_CONVERSION_DEGREE_VIEW_CLASSES[name])
 
 
 _NOT_A_ROW_DEGREE_VIEW = object()
