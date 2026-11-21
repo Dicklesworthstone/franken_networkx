@@ -415,6 +415,7 @@ def test_verify_docs_rejects_planted_readme_numeric_drift():
 
     assert verify_docs.verify_doc_truth_invariants() == []
 
+    import franken_networkx as fnx
     from franken_networkx import backend as fnx_backend
 
     actual_exports = len(fnx.__all__)
