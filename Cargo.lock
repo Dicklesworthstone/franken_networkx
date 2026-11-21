@@ -138,7 +138,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5b2e20bf4312b9fedbc06d6c7244e994119b987946f44f82a447e3bc3c9bb03"
 dependencies = [
  "aes-gcm",
- "base64 0.23.1",
+ "base64",
  "bincode-next",
  "chacha20poly1305",
  "crc32fast",
@@ -203,12 +203,6 @@ dependencies = [
  "rustc-demangle",
  "windows-link",
 ]
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64"
@@ -930,7 +924,7 @@ dependencies = [
 name = "fnx-durability"
 version = "0.3.0"
 dependencies = [
- "base64 0.22.1",
+ "base64",
  "blake3",
  "raptorq",
  "serde",
