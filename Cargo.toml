@@ -27,6 +27,7 @@ repository = "https://github.com/Dicklesworthstone/franken_networkx"
 # + a single codegen unit let the optimizer inline across fnx-classes/algorithms/python
 # boundaries (hot kernels call across crates constantly). Semantics-preserving — Rust keeps
 # IEEE FP (no fast-math), so results are byte-identical; only the machine code improves.
+opt-level = 3
 lto = "thin"
 codegen-units = 1
 
