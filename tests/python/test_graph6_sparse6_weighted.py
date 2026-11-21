@@ -1,7 +1,9 @@
 """Tests for graph6, sparse6, and weighted edgelist wrappers."""
 
 import builtins
-from io import BytesIO
+import bz2
+import gzip
+from io import BytesIO, StringIO
 from pathlib import Path
 
 import networkx as nx
@@ -185,6 +187,141 @@ def test_graph6_and_sparse6_read_multiple_graphs_from_binary_stream():
 
     assert [graph.number_of_edges() for graph in graph6_graphs] == [1, 6]
     assert [graph.number_of_edges() for graph in sparse6_graphs] == [1, 6]
+
+
+def _compact_graph_snapshot(graph):
+    return graph.is_multigraph(), list(graph), list(graph.edges())
+
+
+@pytest.mark.parametrize("kind", ("graph6", "sparse6"))
+@pytest.mark.parametrize("suffix", (".gz", ".gzip", ".bz2"))
+@pytest.mark.parametrize("header", (False, True))
+@pytest.mark.parametrize("path_type", (str, Path))
+def test_compressed_compact_writes_are_readable_by_networkx(
+    tmp_path, kind, suffix, header, path_type
+):
+    graph_type = "MultiGraph" if kind == "sparse6" else "Graph"
+    actual_graph = getattr(fnx, graph_type)()
+    expected_graph = getattr(nx, graph_type)()
+    for graph in (actual_graph, expected_graph):
+        graph.add_nodes_from(["c", "b", "a", "isolated"])
+        graph.add_edges_from([("c", "b"), ("b", "a")])
+        if kind == "sparse6":
+            graph.add_edges_from([("c", "b"), ("a", "a")])
+    path = path_type(tmp_path / (kind + suffix))
+    assert getattr(fnx, "write_" + kind)(actual_graph, path, header=header) is None
+    decompress = bz2.decompress if suffix == ".bz2" else gzip.decompress
+    payload = decompress(Path(path).read_bytes())
+    expected_payload = getattr(nx, "to_" + kind + "_bytes")(
+        expected_graph, header=header
+    )
+    assert payload == expected_payload
+    expected = getattr(nx, "read_" + kind)(BytesIO(expected_payload))
+    assert _compact_graph_snapshot(getattr(nx, "read_" + kind)(path)) == (
+        _compact_graph_snapshot(expected)
+    )
+    assert _compact_graph_snapshot(getattr(fnx, "read_" + kind)(path)) == (
+        _compact_graph_snapshot(expected)
+    )
+
+
+@pytest.mark.parametrize("kind", ("graph6", "sparse6"))
+@pytest.mark.parametrize("suffix", (".txt", ".gz", ".gzip", ".bz2"))
+@pytest.mark.parametrize("count", (0, 1, 2))
+def test_compact_dataset_reads_keep_single_and_multiple_result_shapes(
+    tmp_path, kind, suffix, count
+):
+    encoder = getattr(nx, "to_" + kind + "_bytes")
+    payload = b"\n  \n" + b"\n".join(
+        encoder(nx.path_graph(index + 2), header=index == 0)
+        for index in range(count)
+    )
+    compressed = (
+        bz2.compress(payload) if suffix == ".bz2"
+        else gzip.compress(payload) if suffix in (".gz", ".gzip")
+        else payload
+    )
+    path = tmp_path / ("dataset" + suffix)
+    path.write_bytes(compressed)
+    expected = getattr(nx, "read_" + kind)(path)
+    actual = getattr(fnx, "read_" + kind)(path)
+    assert isinstance(actual, list) == isinstance(expected, list) == (count != 1)
+    if count == 1:
+        actual, expected = [actual], [expected]
+    assert list(map(_compact_graph_snapshot, actual)) == list(
+        map(_compact_graph_snapshot, expected)
+    )
+
+
+@pytest.mark.parametrize("kind", ("graph6", "sparse6"))
+@pytest.mark.parametrize("text", (False, True))
+def test_compact_readers_iterate_nonseekable_streams_without_closing(kind, text):
+    base = StringIO if text else BytesIO
+
+    class LineOnly(base):
+        def read(self, *args):
+            raise AssertionError("compact readers must consume one line at a time")
+
+        def readlines(self, *args):
+            raise AssertionError("compact readers must not buffer every line")
+
+        def seek(self, *args):
+            raise AssertionError("compact readers must not seek")
+
+    payload = getattr(nx, "to_" + kind + "_bytes")(nx.path_graph(3))
+    stream = LineOnly(payload.decode("ascii") if text else payload)
+    actual = getattr(fnx, "read_" + kind)(stream)
+    expected = getattr(nx, "read_" + kind)(BytesIO(payload))
+    assert _compact_graph_snapshot(actual) == _compact_graph_snapshot(expected)
+    assert not stream.closed
+
+
+@pytest.mark.parametrize("kind", ("graph6", "sparse6"))
+def test_compact_reader_stops_at_malformed_record_and_keeps_stream_open(kind):
+    valid = getattr(nx, "to_" + kind + "_bytes")(nx.path_graph(3))
+    observations = []
+    for lib in (nx, fnx):
+        stream = BytesIO(valid + b"invalid\n" + valid)
+        with pytest.raises(Exception) as exc:
+            getattr(lib, "read_" + kind)(stream)
+        observations.append((type(exc.value), str(exc.value), stream.tell()))
+        assert not stream.closed
+        assert stream.readline() == valid
+    assert observations[0] == observations[1]
+
+
+@pytest.mark.parametrize("kind", ("graph6", "sparse6"))
+def test_compact_reader_parses_before_requesting_the_next_record(kind):
+    valid = getattr(nx, "to_" + kind + "_bytes")(nx.path_graph(3))
+    observations = []
+    for lib in (nx, fnx):
+        events = []
+
+        def records():
+            events.append("first")
+            yield valid
+            events.append("invalid")
+            yield b"invalid\n"
+            events.append("unreachable")
+            raise AssertionError("read beyond the malformed graph")
+
+        with pytest.raises(Exception) as exc:
+            getattr(lib, "read_" + kind)(records())
+        observations.append((type(exc.value), str(exc.value), events))
+    assert observations[0] == observations[1]
+    assert observations[0][2] == ["first", "invalid"]
+
+
+@pytest.mark.parametrize("kind", ("graph6", "sparse6"))
+@pytest.mark.parametrize("text", (False, True))
+def test_compact_writers_leave_caller_owned_destinations_open(kind, text):
+    stream = StringIO() if text else BytesIO()
+    getattr(fnx, "write_" + kind)(fnx.path_graph(3), stream)
+    assert not stream.closed
+    actual = stream.getvalue()
+    if text:
+        actual = actual.encode("ascii")
+    assert actual == getattr(nx, "to_" + kind + "_bytes")(nx.path_graph(3))
 
 
 def test_graph6_sparse6_do_not_import_networkx(monkeypatch):

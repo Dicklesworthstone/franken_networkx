@@ -989,27 +989,36 @@ def cytoscape_graph(
     return fnx.cytoscape_graph(data, name=name, ident=ident)
 
 
-def _read_bytes(path):
-    """Read bytes from a path-like or file-like object."""
-    if hasattr(path, "read"):
-        data = path.read()
-    else:
-        data = _Path(path).read_bytes()
-    if isinstance(data, str):
-        return data.encode("ascii")
-    return bytes(data)
+def _read_compact_graphs(path, parser):
+    """Decode graph6/sparse6 records with compressed-path ownership semantics."""
+    import franken_networkx as fnx
+
+    def read_graphs(handle):
+        graphs = []
+        for line in handle:
+            # Keep the existing text-stream extension; the wire format is
+            # ASCII. Parse before advancing an arbitrary caller's iterator.
+            if isinstance(line, str):
+                line = line.encode("ascii")
+            line = line.strip()
+            if line:
+                graphs.append(parser(line))
+        return graphs[0] if len(graphs) == 1 else graphs
+
+    return fnx._open_path_and_call(_normalize_io_path(path), "rb", read_graphs)
 
 
 def _write_bytes(path, data):
-    """Write bytes to a path-like or file-like object."""
-    if hasattr(path, "write"):
+    """Write binary data, compressing paths and retaining caller stream ownership."""
+    import franken_networkx as fnx
+
+    def write_data(handle):
         try:
-            path.write(data)
+            handle.write(data)
         except TypeError:
-            path.write(data.decode("ascii"))
-        return None
-    _Path(path).write_bytes(data)
-    return None
+            handle.write(data.decode("ascii"))
+
+    return fnx._open_path_and_call(_normalize_io_path(path), "wb", write_data)
 
 
 def _graph6_data_to_n(data):
@@ -1880,12 +1889,7 @@ def read_graph6(path, *, backend=None, **backend_kwargs):
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("read_graph6", backend, backend_kwargs)
-    graphs = []
-    for line in _read_bytes(path).splitlines():
-        line = line.strip()
-        if line:
-            graphs.append(from_graph6_bytes(line))
-    return graphs[0] if len(graphs) == 1 else graphs
+    return _read_compact_graphs(path, from_graph6_bytes)
 
 
 def write_graph6(G, path, nodes=None, header=True):
@@ -2042,12 +2046,7 @@ def read_sparse6(path, *, backend=None, **backend_kwargs):
     import franken_networkx as fnx
 
     fnx._validate_backend_dispatch_keywords("read_sparse6", backend, backend_kwargs)
-    graphs = []
-    for line in _read_bytes(path).splitlines():
-        line = line.strip()
-        if line:
-            graphs.append(from_sparse6_bytes(line))
-    return graphs[0] if len(graphs) == 1 else graphs
+    return _read_compact_graphs(path, from_sparse6_bytes)
 
 
 def write_sparse6(G, path, nodes=None, header=True):

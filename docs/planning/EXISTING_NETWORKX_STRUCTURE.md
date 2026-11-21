@@ -1759,6 +1759,18 @@ compressed roundtrips, foreign graph protocols, subclass/instance mutation
 hooks, source/converter event ordering, invalid later lines, encoding
 failures, nonseekable streams, handle lifetime, and bounded outstanding input.
 
+The graph6 and sparse6 file interfaces share the same suffix-directed
+compression and handle-ownership contract. Readers parse one physical line
+before requesting the next, ignore blank lines, and preserve NetworkX's
+single-graph result versus a list for zero or multiple records. A malformed
+record raises at that record, leaving later records unread on caller streams.
+Input bytes are streamed, while returned graphs retain the documented eager
+result shape. Writers emit the existing format bytes through the shared
+compressed-path opener. Caller-owned binary streams stay open on success or
+failure; the established ASCII text-stream extension remains available.
+`tests/python/test_graph6_sparse6_weighted.py` compares compressed payloads,
+cross-library reads, result shapes, nonseekable sources, and failure positions.
+
 ## 49. Configurable GraphML Decoding
 
 GraphML's complete decoder owns XML interpretation and constructs the selected
