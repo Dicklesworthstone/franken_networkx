@@ -51,8 +51,9 @@ def is_matching(G, matching):
     leaked canonical keys ("str:1:a") into messages, and skipped
     matching_dict_to_set's self-loop error.
     """
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # Candidate iterators and dict.items providers may change G before an
+    # edge is checked. These owned predicates read the public graph protocol;
+    # converting first would freeze views and discard has_edge overrides.
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     nodes = set()
@@ -77,8 +78,6 @@ def is_maximal_matching(G, matching):
 
     See :func:`is_matching`.
     """
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     edges = set()
@@ -110,8 +109,6 @@ def is_perfect_matching(G, matching):
 
     See :func:`is_matching`.
     """
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     if isinstance(matching, dict):
         matching = _matching_dict_to_set(matching)
     nodes = set()

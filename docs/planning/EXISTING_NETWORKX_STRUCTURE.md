@@ -3112,6 +3112,22 @@ The focused contract is covered by
 `tests/python/test_covering_module_parity.py`; current-native DSR execution is
 required before claiming whole-package qualification.
 
+Matching predicates (`is_matching`, `is_maximal_matching`, and
+`is_perfect_matching`) also retain the original graph. Candidate iterables
+are consumed incrementally; dictionary candidates normalize through their
+live `items()` provider before any graph lookup. Each candidate edge checks
+its shape and endpoint membership before self-loop, `has_edge`, and overlap
+validation. Empty or malformed candidates do not trigger an eager graph
+copy or unrelated graph-kind/attribute reads.
+
+Membership, edge presence, final graph length and maximality edge enumeration
+use the caller's public providers, preserving asymmetric filtered rows and
+topology edits made while consuming candidates. Backend dispatch preserves
+this behavior with both cold and warm conversion caches, invalidates those
+caches around provider execution, and propagates provider exceptions without
+reclassifying them as a request for upstream fallback. Regression coverage
+lives in `tests/python/test_matching_predicates_parity.py`.
+
 ## 100. Unweighted Distance Measures on Live Adjacency
 
 Unweighted eccentricity, diameter, radius, center and periphery retain the
