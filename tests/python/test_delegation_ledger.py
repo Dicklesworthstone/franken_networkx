@@ -415,10 +415,23 @@ def test_verify_docs_rejects_planted_readme_numeric_drift():
 
     assert verify_docs.verify_doc_truth_invariants() == []
 
+    from franken_networkx import backend as fnx_backend
+
+    actual_exports = len(fnx.__all__)
+    actual_backend = len(fnx_backend._SUPPORTED_ALGORITHMS)
+    drifted_exports = actual_exports - 4
+    drifted_backend = actual_backend - 2
+
     real_readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    drifted = real_readme.replace("843 `franken_networkx.__all__`", "839 `franken_networkx.__all__`")
-    drifted = drifted.replace("315 algorithms in `backend.py`", "313 algorithms in `backend.py`")
+    drifted = real_readme.replace(
+        f"{actual_exports} `franken_networkx.__all__`",
+        f"{drifted_exports} `franken_networkx.__all__`",
+    )
+    drifted = drifted.replace(
+        f"{actual_backend} algorithms in `backend.py`",
+        f"{drifted_backend} algorithms in `backend.py`",
+    )
     failures = verify_docs.verify_doc_truth_invariants(readme_text=drifted)
-    assert any("claims 839 __all__ exports" in f for f in failures), failures
-    assert any("claims 313 backend algorithms" in f for f in failures), failures
+    assert any(f"claims {drifted_exports} __all__ exports" in f for f in failures), failures
+    assert any(f"claims {drifted_backend} backend algorithms" in f for f in failures), failures
 
