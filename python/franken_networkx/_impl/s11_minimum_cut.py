@@ -665,13 +665,13 @@ def is_bipartite(G):
 def number_of_spanning_trees(G, *, root=None, weight=None):
     """Return the number of spanning trees in G (Kirchhoff/Tutte).
 
-    Thin wrapper over the Rust binding so the introspectable signature
-    matches nx's ``(G, *, root=None, weight=None)`` (br-r37-c1-cirha).
+    Use the native kernel for simple graphs with finite real weights and
+    the owned Matrix-Tree builders for parallel edges or other weight domains.
     """
     # br-r37-c1-0555d: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
-        return _multigraph_number_of_spanning_trees(G, root, weight)
+        return _matrix_number_of_spanning_trees(G, root, weight)
     # br-r37-c1-33ctq: nx answers the literal 0 when no spanning tree exists
     # (disconnected; weakly disconnected once root is valid) - the kernel's
     # determinant would be the float 0.0.
@@ -681,6 +681,11 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
                 return 0
         elif root is not None and root in G and not is_weakly_connected(G):
             return 0
+    if weight is not None and not _spanning_weights_native_safe(G, weight):
+        # The native reader accepts string selectors and finite f64 weights.
+        # Other domains must retain their matrix results, warnings or errors;
+        # native storage would parse numeric text or replace invalid values by 1.
+        return _matrix_number_of_spanning_trees(G, root, weight)
     if isinstance(weight, str):
         # br-r37-c1-4tmgq: weights written after construction live only in the
         # Python edge dicts until synced into the Rust store the kernel reads.
@@ -688,13 +693,12 @@ def number_of_spanning_trees(G, *, root=None, weight=None):
     return _raw_number_of_spanning_trees(G, root=root, weight=weight)
 
 
-def _multigraph_number_of_spanning_trees(G, root, weight):
-    """networkx's Kirchhoff/Tutte count for multigraphs.
+def _matrix_number_of_spanning_trees(G, root, weight):
+    """Compute a Kirchhoff/Tutte cofactor using the original edge values.
 
-    nro4w.7: the native kernel counts each adjacent pair once, so parallel
-    edges vanished (MultiGraph 3.0 where networkx counts 8). networkx's
-    Laplacian sums parallel edges (their weights, or 1 each); this is its
-    code over fnx's matrix builders, which sum the same way.
+    The owned matrix builders aggregate parallel weights and preserve Python
+    attribute selectors and NumPy/SciPy dtype behavior. This also retains
+    complex and nonfinite arithmetic that the native f64 reader cannot encode.
     """
     import numpy as np
 

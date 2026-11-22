@@ -9,7 +9,9 @@ br-r37-c1-uvvqy
 
 from __future__ import annotations
 
+import math
 import random
+import warnings
 
 import pytest
 import networkx as nx
@@ -136,3 +138,173 @@ def test_networkx_multigraph_examples():
     assert round(fnx.number_of_spanning_trees(G)) == 8
     D = fnx.MultiDiGraph([(0, 1), (0, 1), (1, 2), (1, 2)])
     assert round(fnx.number_of_spanning_trees(D, root=0)) == 4
+
+
+_COUNT_WEIGHT_DOMAINS = [
+    pytest.param(1 + 1j, 1 - 1j, id="complex"),
+    pytest.param(float("nan"), 2, id="nan"),
+    pytest.param(float("inf"), 2, id="positive_infinity"),
+    pytest.param(float("-inf"), 2, id="negative_infinity"),
+    pytest.param("7", 2, id="numeric_text"),
+    pytest.param("invalid", 2, id="invalid_text"),
+    pytest.param(None, 2, id="none"),
+    pytest.param([3], 2, id="list"),
+]
+
+
+def _weighted_count_graph(lib, graph_type, key, first, second):
+    graph = getattr(lib, graph_type)()
+    graph.add_edge(0, 1)
+    graph.add_edge(1, 2)
+    if graph.is_multigraph():
+        graph[0][1][0][key] = first
+        graph[1][2][0][key] = second
+        graph.add_edge(0, 1)
+        graph[0][1][1][key] = 3
+    else:
+        graph[0][1][key] = first
+        graph[1][2][key] = second
+    return graph
+
+
+def _matrix_count_outcome(function, graph, **kwargs):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            value = function(graph, **kwargs)
+        except Exception as exc:
+            result = ("raise", type(exc), exc.args)
+        else:
+            result = ("return", type(value), value)
+    return result, [(warning.category, str(warning.message)) for warning in caught]
+
+
+def _assert_matrix_count_outcome(actual, expected):
+    actual_result, actual_warnings = actual
+    expected_result, expected_warnings = expected
+    assert actual_result[:2] == expected_result[:2]
+    if expected_result[0] == "raise":
+        assert actual_result[2] == expected_result[2]
+    elif math.isnan(expected_result[2]):
+        assert math.isnan(actual_result[2])
+    else:
+        assert actual_result[2] == pytest.approx(expected_result[2], rel=1e-12, abs=0)
+    assert actual_warnings == expected_warnings
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("first,second", _COUNT_WEIGHT_DOMAINS)
+@pytest.mark.parametrize("route", ["direct", "backend"])
+def test_spanning_count_preserves_weight_domain(graph_type, first, second, route):
+    reference = _weighted_count_graph(nx, graph_type, "cost", first, second)
+    expected = _matrix_count_outcome(
+        nx.number_of_spanning_trees, reference, root=0, weight="cost", backend="networkx"
+    )
+    if route == "backend":
+        actual = _matrix_count_outcome(
+            nx.number_of_spanning_trees, reference,
+            root=0, weight="cost", backend="franken_networkx",
+        )
+    else:
+        graph = _weighted_count_graph(fnx, graph_type, "cost", first, second)
+        actual = _matrix_count_outcome(
+            fnx.number_of_spanning_trees, graph, root=0, weight="cost"
+        )
+    _assert_matrix_count_outcome(actual, expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("key", [0, ("cost",)], ids=["integer_key", "tuple_key"])
+@pytest.mark.parametrize("route", ["direct", "backend"])
+def test_spanning_count_preserves_literal_weight_keys(graph_type, key, route):
+    reference = _weighted_count_graph(nx, graph_type, key, 2, 3)
+    expected = _matrix_count_outcome(
+        nx.number_of_spanning_trees, reference, root=0, weight=key, backend="networkx"
+    )
+    if route == "backend":
+        actual = _matrix_count_outcome(
+            nx.number_of_spanning_trees, reference,
+            root=0, weight=key, backend="franken_networkx",
+        )
+    else:
+        graph = _weighted_count_graph(fnx, graph_type, key, 2, 3)
+        actual = _matrix_count_outcome(
+            fnx.number_of_spanning_trees, graph, root=0, weight=key
+        )
+    _assert_matrix_count_outcome(actual, expected)
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("root", [None, 99], ids=["missing_root", "absent_root"])
+@pytest.mark.parametrize("key", ["cost", 0], ids=["string_key", "integer_key"])
+def test_spanning_count_validates_root_before_weight_domain(graph_type, root, key):
+    reference = _weighted_count_graph(nx, graph_type, key, "invalid", 2)
+    graph = _weighted_count_graph(fnx, graph_type, key, "invalid", 2)
+    _assert_matrix_count_outcome(
+        _matrix_count_outcome(fnx.number_of_spanning_trees, graph, root=root, weight=key),
+        _matrix_count_outcome(nx.number_of_spanning_trees, reference, root=root, weight=key),
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("shape", ["null", "disconnected", "singleton"])
+@pytest.mark.parametrize("key", ["cost", 0], ids=["string_key", "integer_key"])
+def test_spanning_count_empty_and_disconnected_weight_domains(graph_type, shape, key):
+    graphs = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_type)()
+        if shape == "disconnected":
+            graph.add_edge(0, 1, **{"cost": "invalid"})
+            graph.add_node(2)
+        elif shape == "singleton":
+            graph.add_node(0)
+        graphs.append(graph)
+    _assert_matrix_count_outcome(
+        _matrix_count_outcome(fnx.number_of_spanning_trees, graphs[1], root=0, weight=key),
+        _matrix_count_outcome(nx.number_of_spanning_trees, graphs[0], root=0, weight=key),
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "weight,first,second",
+    [
+        pytest.param(None, "ignored", None, id="unweighted"),
+        pytest.param("cost", 1, 1, id="unit"),
+        pytest.param("cost", 2, 3, id="integer"),
+        pytest.param("cost", -2, 3, id="signed_integer"),
+        pytest.param("cost", 0, 3, id="zero"),
+        pytest.param("cost", 0.5, 1.5, id="float"),
+    ],
+)
+def test_spanning_count_ordinary_weights_keep_native(graph_type, weight, first, second, monkeypatch):
+    reference = _weighted_count_graph(nx, graph_type, "cost", first, second)
+    graph = _weighted_count_graph(fnx, graph_type, "cost", first, second)
+    native = fnx._raw_number_of_spanning_trees
+    calls = []
+
+    def counted_native(*args, **kwargs):
+        calls.append(args[0])
+        return native(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, "_raw_number_of_spanning_trees", counted_native)
+    expected = nx.number_of_spanning_trees(reference, root=0, weight=weight)
+    assert fnx.number_of_spanning_trees(graph, root=0, weight=weight) == pytest.approx(
+        expected, rel=1e-12, abs=0
+    )
+    assert calls == [graph]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("value", [float("nan"), 1 + 1j], ids=["nan", "complex"])
+def test_spanning_count_refreshes_domain_after_weight_update(graph_type, value):
+    reference = _weighted_count_graph(nx, graph_type, "cost", 2, 3)
+    graph = _weighted_count_graph(fnx, graph_type, "cost", 2, 3)
+    held_attrs = graph[0][1]
+    fnx.number_of_spanning_trees(graph, root=0, weight="cost")
+    held_attrs["cost"] = value
+    reference[0][1]["cost"] = value
+    _assert_matrix_count_outcome(
+        _matrix_count_outcome(fnx.number_of_spanning_trees, graph, root=0, weight="cost"),
+        _matrix_count_outcome(nx.number_of_spanning_trees, reference, root=0, weight="cost"),
+    )
