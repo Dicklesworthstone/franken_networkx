@@ -424,6 +424,110 @@ def _unconstrained_bridge_augmentation_inproc(G):
                 break
 
 
+def _k_edge_weighted_bridge_augmentation(G, avail, weight):
+    """Select original links through the weighted bridge-tree reduction."""
+    if weight is None:
+        weight = "weight"
+
+    if is_connected(G):
+        working = G
+        connectors = []
+    else:
+        working = G.copy()
+        connectors = _k_edge_weighted_one_augmentation(
+            working, avail, weight, partial=False
+        )
+        working.add_edges_from(connectors)
+
+    if len(avail) == 0 and has_bridges(working):
+        raise NetworkXUnfeasible("no augmentation possible")
+    available, costs = _k_edge_unpack_available_edges(avail, weight=weight, G=working)
+    quotient = _collapse_bridge_components(working, _bridge_components(working))
+    component_of = quotient.graph["mapping"]
+    choices = {}
+    for (source, target), cost in zip(available, costs):
+        left, right = component_of[source], component_of[target]
+        if left == right:
+            continue
+        pair = (left, right) if left < right else (right, left)
+        choices.setdefault(pair, []).append((cost, source, target))
+    candidates = {}
+    for pair, options in choices.items():
+        cost, source, target = min(options)
+        candidates[pair] = (cost, (source, target))
+
+    root = next((node for node, degree in quotient.degree() if degree == 1), None)
+    if root is None:
+        return connectors
+    tree = dfs_tree(quotient, root)
+    links = DiGraph()
+    links.add_nodes_from(tree)
+    links.add_edges_from((child, parent, {"weight": 0}) for parent, child in tree.edges())
+
+    # The LCA producer determines insertion/overwrite order when different
+    # candidate links generate the same directed arc. Preserve that order,
+    # and retain original endpoints only as payload: meta-node IDs are ordered.
+    for pair, ancestor in tree_all_pairs_lowest_common_ancestor(
+        tree, root=root, pairs=candidates.keys()
+    ):
+        left, right = pair
+        cost, original = candidates[pair]
+        targets = (right,) if ancestor == left else (left,) if ancestor == right else pair
+        for target in targets:
+            links.add_edge(ancestor, target, weight=cost, generator=original)
+
+    rooted = links.copy()
+    rooted.remove_edges_from((node, root) for node in links.predecessors(root))
+    try:
+        branching = minimum_spanning_arborescence(rooted)
+    except NetworkXException as exc:
+        raise NetworkXUnfeasible("no 2-edge-augmentation possible") from exc
+
+    selected = set()
+    for source, target in branching.edges():
+        attrs = links.get_edge_data(source, target)
+        if "generator" in attrs:
+            selected.add(attrs["generator"])
+    return connectors + list(selected)
+
+
+def _k_edge_partial_bridge_augmentation(G, avail, weight):
+    """Optimize feasible bridge blocks and retain their available cross-links."""
+    _, costs = _k_edge_unpack_available_edges(avail, weight=weight, G=G)
+    maximal = G.copy()
+    # The reference's fallback reads raw endpoint pairs after unpacking costs.
+    # Keep that boundary, including its errors for non-pair records, instead
+    # of silently accepting a different candidate protocol on infeasibility.
+    maximal.add_edges_from(
+        (source, target, {"weight": cost, "generator": (source, target)})
+        for (source, target), cost in zip(avail, costs)
+    )
+    blocks = list(_bridge_components(maximal))
+    result = []
+    for nodes in blocks:
+        if len(nodes) <= 1:
+            continue
+        block = maximal.subgraph(nodes).copy()
+        candidates = {
+            attrs["generator"]: attrs["weight"]
+            for _, _, attrs in block.edges(data=True)
+            if "generator" in attrs
+        }
+        block.remove_edges_from(candidates)
+        result.extend(k_edge_augmentation(block, 2, avail=candidates))
+
+    # Match the component-pair, node-set and neighbor-intersection order.
+    # These links cannot become internal to a feasible bridge-connected block.
+    for left, right in _combinations(blocks, 2):
+        neighbors = {node: set(maximal.adj[node]) for node in left}
+        for source, adjacent in neighbors.items():
+            for target in adjacent.intersection(right):
+                original = maximal.get_edge_data(source, target).get("generator")
+                if original is not None:
+                    result.append(original)
+    return result
+
+
 def _k_edge_greedy_augmentation(G, k, avail=None, weight=None, seed=0):
     if is_k_edge_connected(G, k):
         return []
@@ -625,10 +729,11 @@ def k_edge_augmentation(
     -----
     For k=1, connect components directly when all missing links are available,
     or find a minimum spanning forest of the available component links.
-    Unconstrained k=2 uses bridge augmentation. Remaining cases use a greedy
-    augmentation policy: add light candidate edges between node pairs that
-    are not yet locally k-edge-connected, then prune redundant additions
-    deterministically.
+    Unconstrained k=2 uses minimum-cardinality bridge augmentation. Constrained
+    k=2 uses weighted bridge contraction and rooted arborescence approximation;
+    partial results optimize feasible blocks and retain their available links.
+    Higher connectivity uses a greedy augmentation policy with deterministic
+    pruning of redundant additions.
     """
     _validate_backend_dispatch_keywords(
         "k_edge_augmentation", backend, backend_kwargs
@@ -650,11 +755,15 @@ def k_edge_augmentation(
     if G.number_of_nodes() < k + 1:
         msg = f"impossible to {k} connect in graph with less than {k + 1} nodes"
         if partial:
+            if k == 2 and avail is not None:
+                return _k_edge_partial_bridge_augmentation(G, avail, weight)
             return list(_k_edge_complement_edges(G))
         raise NetworkXUnfeasible(msg)
     if avail is not None and len(avail) == 0:
         if not is_k_edge_connected(G, k):
             if partial:
+                if k == 2:
+                    return _k_edge_partial_bridge_augmentation(G, avail, weight)
                 return []
             raise NetworkXUnfeasible("no available edges")
         return []
@@ -682,7 +791,7 @@ def k_edge_augmentation(
     # per candidate) AND suboptimal (~2x more edges than the minimum). Run nx's
     # exact linear-time ``bridge_augmentation`` in-process on the fnx graph (no
     # conversion): byte-identical to nx, ~27x faster than the old greedy, and
-    # minimum cardinality. Other k / avail cases keep the greedy.
+    # minimum cardinality. Constrained k=2 uses the weighted reduction below.
     if k == 2 and avail is None:
         try:
             return list(_unconstrained_bridge_augmentation_inproc(G))
@@ -692,12 +801,16 @@ def k_edge_augmentation(
             return list(_k_edge_complement_edges(G))
 
     try:
+        if k == 2:
+            return _k_edge_weighted_bridge_augmentation(G, avail, weight)
         return _k_edge_greedy_augmentation(G, k, avail=avail, weight=weight, seed=0)
     except NetworkXUnfeasible:
         if not partial:
             raise
         if avail is None:
             return list(_k_edge_complement_edges(G))
+        if k == 2:
+            return _k_edge_partial_bridge_augmentation(G, avail, weight)
         avail_edges, _ = _k_edge_unpack_available_edges(avail, weight=weight, G=G)
         return avail_edges
 

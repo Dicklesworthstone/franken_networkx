@@ -335,3 +335,163 @@ def test_constrained_k1_random_component_forests_match_networkx(seed, partial):
         assert actual.value.args == exc.args
     else:
         assert _constrained_one_augmentation(graph, "native", avail, partial=partial) == expected
+
+
+def _constrained_two_augmentation(graph, route, avail, *, partial=False, weight=None):
+    if route == "backend":
+        return list(nx.k_edge_augmentation(
+            graph, 2, avail=avail, weight=weight, partial=partial,
+            backend="franken_networkx",
+        ))
+    supplied = fnx.Graph(graph) if route == "native" else graph
+    return list(fnx.k_edge_augmentation(
+        supplied, 2, avail=avail, weight=weight, partial=partial,
+    ))
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("encoding", ["tuples", "mapping", "attributes"])
+def test_constrained_k2_omits_redundant_cheaper_links(route, encoding):
+    graph = nx.path_graph(5)
+    graph[0][1]["weight"] = 17
+    choices = [(0, 2, 1), (0, 4, 2)]
+    if encoding == "mapping":
+        avail = {(u, v): cost for u, v, cost in choices}
+    elif encoding == "attributes":
+        avail = [(u, v, {"cost": cost}) for u, v, cost in choices]
+    else:
+        avail = choices
+    before = list(graph.edges(data=True))
+    expected = list(nx.k_edge_augmentation(graph, 2, avail=avail, weight="cost"))
+    actual = _constrained_two_augmentation(graph, route, avail, weight="cost")
+    assert actual == expected == [(0, 4)]
+    assert list(graph.edges(data=True)) == before
+    graph.add_edges_from(actual)
+    assert nx.is_k_edge_connected(graph, 2)
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+def test_constrained_k2_accepts_unordered_candidate_labels(route):
+    labels = [0, "branch", (2,), frozenset({3}), "tip"]
+    graph = nx.path_graph(labels)
+    avail = [
+        (labels[0], labels[2], 1),
+        (labels[1], labels[4], 1),
+        (labels[0], labels[4], 2),
+    ]
+    expected = list(nx.k_edge_augmentation(graph, 2, avail=avail))
+    actual = _constrained_two_augmentation(graph, route, avail)
+    assert actual == expected
+    graph.add_edges_from(actual)
+    assert nx.is_k_edge_connected(graph, 2)
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("encoding", ["pairs", "mapping"])
+def test_partial_k2_optimizes_feasible_blocks_and_retains_crossing_links(route, encoding):
+    graph = nx.path_graph(7)
+    graph.add_node(7)
+    candidates = {
+        (0, 2): 1, (0, 3): 2, (0, 4): 3, (1, 3): 4,
+        (1, 4): 2, (2, 4): 1, (0, 7): 5,
+    }
+    avail = list(candidates) if encoding == "pairs" else candidates
+    expected = list(nx.k_edge_augmentation(graph, 2, avail=avail, partial=True))
+    actual = _constrained_two_augmentation(graph, route, avail, partial=True)
+    assert actual == expected
+    assert (0, 7) in actual
+    assert len(actual) < len(avail)
+    assert list(graph.edges()) == [(node, node + 1) for node in range(6)]
+    augmented = graph.copy()
+    augmented.add_edges_from(actual)
+    assert nx.is_k_edge_connected(augmented.subgraph(range(5)), 2)
+    assert set(nx.bridges(augmented)) == {(0, 7), (4, 5), (5, 6)}
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+def test_constrained_k2_infeasibility_preserves_reference_error(route):
+    graph = nx.path_graph(5)
+    avail = {(0, 2): 1}
+    with pytest.raises(nx.NetworkXUnfeasible) as expected:
+        list(nx.k_edge_augmentation(graph, 2, avail=avail))
+    with pytest.raises(nx.NetworkXUnfeasible) as actual:
+        _constrained_two_augmentation(graph, route, avail)
+    assert actual.value.args == expected.value.args
+    assert list(graph.edges()) == [(node, node + 1) for node in range(4)]
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("count,avail", [(0, {}), (1, {}), (2, {}), (2, {(0, 1): 7})])
+def test_partial_k2_small_graphs_respect_available_edges(route, count, avail):
+    graph = nx.empty_graph(count)
+    expected = list(nx.k_edge_augmentation(graph, 2, avail=avail, partial=True))
+    actual = _constrained_two_augmentation(graph, route, avail, partial=True)
+    assert actual == expected
+    assert all(edge in avail for edge in actual)
+    assert graph.number_of_edges() == 0
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("count", [2, 5])
+def test_partial_k2_preserves_reference_raw_pair_errors(route, count):
+    graph = nx.empty_graph(2) if count == 2 else nx.path_graph(5)
+    avail = [(0, 1 if count == 2 else 2, 1)]
+    with pytest.raises(ValueError) as expected:
+        list(nx.k_edge_augmentation(graph, 2, avail=avail, partial=True))
+    with pytest.raises(ValueError) as actual:
+        _constrained_two_augmentation(graph, route, avail, partial=True)
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+def test_partial_k2_existing_candidate_iteration_matches_reference(route):
+    graph = nx.path_graph(5)
+    avail = {(0, 1): 99, (0, 2): 1}
+    before = list(graph.edges(data=True))
+    expected = list(nx.k_edge_augmentation(graph, 2, avail=avail, partial=True))
+    actual = _constrained_two_augmentation(graph, route, avail, partial=True)
+    assert actual == expected
+    assert list(graph.edges(data=True)) == before
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("high,low", [
+    (2**100 + 1, 2**100),
+    (Fraction(1, 3) + Fraction(1, 2**100), Fraction(1, 3)),
+    (Decimal("0.1000000000000000000001"), Decimal("0.1")),
+], ids=["wide-int", "fraction", "decimal"])
+def test_constrained_k2_preserves_exact_component_link_costs(route, high, low):
+    graph = nx.Graph([(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 5), (5, 3)])
+    avail = [(0, 4, high), (1, 5, low)]
+    expected = list(nx.k_edge_augmentation(graph, 2, avail=avail))
+    actual = _constrained_two_augmentation(graph, route, avail)
+    assert actual == expected == [(1, 5)]
+
+
+@pytest.mark.parametrize("seed", range(8))
+@pytest.mark.parametrize("partial", [False, True])
+def test_constrained_k2_random_weighted_forests_match_networkx(seed, partial):
+    rng = random.Random(seed)
+    graph = nx.Graph()
+    graph.add_nodes_from(rng.sample(range(7), 7))
+    graph.add_edges_from((node, node + 1) for node in range(6) if rng.random() < 0.7)
+    avail = {
+        (u, v): rng.randrange(1, 10)
+        for u, v in nx.non_edges(graph)
+        if rng.random() < 0.65
+    }
+    before = list(graph.edges())
+    try:
+        expected = list(nx.k_edge_augmentation(graph, 2, avail=avail, partial=partial))
+    except nx.NetworkXUnfeasible as exc:
+        with pytest.raises(nx.NetworkXUnfeasible) as actual:
+            _constrained_two_augmentation(graph, "native", avail, partial=partial)
+        assert actual.value.args == exc.args
+    else:
+        actual = _constrained_two_augmentation(graph, "native", avail, partial=partial)
+        assert actual == expected
+        augmented = graph.copy()
+        augmented.add_edges_from(actual)
+        if not partial:
+            assert nx.is_k_edge_connected(augmented, 2)
+    assert list(graph.edges()) == before

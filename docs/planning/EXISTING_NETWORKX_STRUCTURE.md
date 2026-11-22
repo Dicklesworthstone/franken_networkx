@@ -2826,6 +2826,28 @@ forest without redundant candidates. Neither mode mutates the input graph.
 `tests/python/test_k_edge_augmentation_parity.py` checks these contracts
 against NetworkX through direct and backend entry points.
 
+Constrained `k=2` augmentation uses the reference weighted bridge reduction.
+Disconnected inputs first receive the weighted `k=1` connectors. Contract
+bridge-connected components of that connected graph, retain the lightest
+original candidate per unordered component pair, and root the quotient tree
+at its first leaf. Its reversed tree arcs have zero cost. Candidate links
+generate downward arcs from their lowest common ancestor, in the reference
+LCA emission order, carrying the original link and its Python cost. Remove
+incoming arcs at the root and find a minimum spanning arborescence through
+the existing branching implementation. Emit the initial connectors followed
+by the distinct selected original generators in reference set order. This
+is weighted approximation, with the branching implementation's numeric and
+tie semantics; it does not accumulate redundant links using local flow tests.
+
+If complete constrained `k=2` augmentation is infeasible and `partial=True`,
+add the available edges to a private graph, identify its bridge-connected
+blocks, and augment each feasible block independently. Keep the available
+links crossing different blocks. Partial results must respect the candidate
+set even when the input has fewer than three nodes. Preserve reference
+candidate unpacking and error order, including the partial fallback's raw
+pair iteration and its errors for weighted triples. Complete and partial
+paths leave the original graph and its attributes unchanged.
+
 ## 89. Owned Leiden Community Detection Contract
 
 This implementation contract derives from Traag, Waltman and van Eck,
