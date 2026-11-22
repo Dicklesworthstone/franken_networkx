@@ -3455,3 +3455,65 @@ The twenty failing numeric baselines now pass. DSR passed all 501 cases in
 the focused modularity and community-quality suites, including 44 new exact
 arithmetic, overflow and route-control cases. The native dependency and
 qualification limits are the same as in Section 107.
+
+## 109. Complete GML File Reads in Runtime Modes
+
+`read_gml` preserves the complete GML value model under explicit strict and
+hardened modes and ambient hardened mode: all four graph classes, parallel
+edge keys, graph/node/edge attributes, repeated values and nested mappings.
+Compressed paths use the existing opener. Caller-owned streams are consumed
+once, remain open and are not rewound.
+
+Default-option reads validate the original decoded input through the native
+reader. Clean documents are reconstructed by the owned GML decoder, then
+receive the actual native policy and decision records. Custom labels,
+`label=None` and destringizers use the existing complete-parser boundary:
+grammar, IDs, labels and endpoints are validated, malformed input fails closed
+in either mode, and no native read/recovery receipt is fabricated.
+
+Native recovery remains available for simple scalar graphs and nested scalar
+maps. Recovery rejects a declared multigraph and repeated/list/tuple values
+recognized by the complete decoder, preventing silent parallel-edge collapse
+or attribute-list truncation. Incomplete syntax retains the established
+bounded recovery; lossless recovery of rich malformed documents is not
+claimed. Thirty-three failing file-reader baselines now pass, with 78 new
+mode, graph-class, option, recovery and ownership regression cases.
+
+### Scoped diagnostic evidence for Sections 107-109
+
+Real DSR runs `20261122T020246-YB5sqgfb` and
+`20261122T020506-BfA7YYpd` have identical before/after source snapshots. Their
+[initial receipt](../../artifacts/diagnostics/core_functionality_20261122/initial-receipt.json),
+[initial checks](../../artifacts/diagnostics/core_functionality_20261122/initial-checks.yaml),
+[final receipt](../../artifacts/diagnostics/core_functionality_20261122/final-receipt.json)
+and [final checks](../../artifacts/diagnostics/core_functionality_20261122/final-checks.yaml)
+are retained without rewriting their failed aggregate statuses.
+
+| Guarded pytest group | Passed | Failed |
+| --- | ---: | ---: |
+| Composition, graph operators, backend and merge contracts | 678 | 0 |
+| Modularity and community quality | 501 | 0 |
+| GML, runtime modes, readwrite audit and GML/GraphML roundtrips | 1,546 | 1 |
+| **Distinct cases, excluding isolated reruns** | **2,725** | **1** |
+
+All 178 newly added cases pass. The remaining failure is the unchanged
+`test_hardened_graphml_repair_revalidates_beyond_retained_ledger`. Its final
+assertion expects an earlier native FullValidate record to have been retired;
+the native ledger intentionally retains non-Allow decisions. The GraphML
+adapter correctly rejects the unsupported repair, and the same assertion
+fails in isolation. The GML change does not enter that execution path.
+
+Each of the three UBS checks scanned its two selected source/test files and
+reported zero critical findings. All returned partial exit 2 because Python
+flow analysis could not resolve existing generator-consumer identities; no
+partial acceptance setting or finding suppression was used. The aggregate
+DSR results are **failed (3/4 and 1/5 checks passed)**, not green quality gates.
+
+The frozen checkout is based on `b83db9e33462c8a0306c9a7606bf2e788d380f1a`
+with the preceding live-graph changes and the three changes above. It uses
+NetworkX 3.6.1 and the published 0.4.1 native extension, SHA-256
+`9314ccf170b8a43ca54f2c77822cd26012e5ba6b121cc314386bfbebbf34e386`.
+Concurrent native and Python commits on main were preserved when publishing;
+they are outside these frozen-source receipts. Current-native compilation,
+canonical full DSR quality and release qualification remain open under
+`br-r37-c1-78u12`.

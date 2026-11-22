@@ -1,0 +1,12 @@
+schema_version: "1.0.0"
+tools:
+  franken_networkx_functionality_final:
+    repo: Dicklesworthstone/franken_networkx
+    local_path: /tmp/fnx-critical-validation
+    language: python
+    checks:
+      - ./scripts/run_pytest_guarded.sh tests/python/test_graph_operators_parity.py tests/python/test_graph_operator_backend.py tests/python/test_union_singlepass_parity.py tests/python/test_operator_attr_merge_conformance_guard.py -q --tb=short
+      - .venv/bin/python scripts/ubs_changed_regions.py python/franken_networkx/_impl/s14_single_source_shortest_path_length.py tests/python/test_operators_conformance.py
+      - .venv/bin/python scripts/ubs_changed_regions.py python/franken_networkx/_impl/s14_single_source_shortest_path_length.py tests/python/test_modularity_directed_parity.py
+      - .venv/bin/python scripts/ubs_changed_regions.py python/franken_networkx/_impl/s20_read_edgelist.py tests/python/test_gml_scalar_type_parity.py
+      - ./scripts/run_pytest_guarded.sh tests/python/test_gml_graphml_attribute_roundtrip.py::test_hardened_graphml_repair_revalidates_beyond_retained_ledger -vv --tb=short

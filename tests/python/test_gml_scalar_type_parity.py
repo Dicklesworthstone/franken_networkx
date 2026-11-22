@@ -478,3 +478,180 @@ def test_owned_gml_parser_retains_eager_byte_line_normalization(monkeypatch):
     actual = fnx.parse_gml(lines(), destringizer=convert)
     assert _gml_graph_state(actual) == _gml_graph_state(expected)
     assert events == ["input", "end", ("convert", "a")]
+
+
+def _read_gml_with_runtime_mode(source, mode, **options):
+    if mode == "ambient-hardened":
+        with fnx.compatibility_mode("hardened"):
+            return fnx.read_gml(source, **options)
+    return fnx.read_gml(source, mode=mode, **options)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mode", ["strict", "hardened", "ambient-hardened"])
+@pytest.mark.parametrize("source_kind", ["bytes", "compressed-path"])
+def test_read_gml_runtime_modes_preserve_complete_documents(
+    graph_type, mode, source_kind, tmp_path, monkeypatch
+):
+    """Mode selection must retain the same graph that the string parser reads."""
+    source = getattr(nx, graph_type)()
+    source.graph["payload"] = {"items": [2, 3, 5], "single": [9]}
+    source.add_node("isolated", payload={"names": ["a", "b"]})
+    source.add_node("left", payload=[1, 2, 3])
+    source.add_node("right", payload={"nested": {"values": [4, 5]}})
+    if source.is_multigraph():
+        source.add_edge("left", "right", key="primary", weight=3, payload=[7, 8])
+        source.add_edge("left", "right", key=11, weight=5, payload=[9])
+    else:
+        source.add_edge("left", "right", weight=3, payload=[7, 8])
+    if source.is_directed():
+        source.add_edge("right", "left", weight=13, payload={"steps": [1, 2]})
+
+    text = "\n".join(nx.generate_gml(source))
+    expected = nx.read_gml(BytesIO(text.encode("ascii")), backend="networkx")
+    _forbid_gml_delegation(monkeypatch)
+    effective_mode = "hardened" if mode == "ambient-hardened" else mode
+    with fnx.compatibility_mode(effective_mode):
+        parsed = fnx.parse_gml(text)
+    assert _gml_graph_state(parsed) == _gml_graph_state(expected)
+
+    if source_kind == "bytes":
+        input_source = BytesIO(text.encode("ascii"))
+    else:
+        import gzip
+
+        input_source = tmp_path / "graph.gml.gz"
+        with gzip.open(input_source, "wb") as stream:
+            stream.write(text.encode("ascii"))
+
+    actual = _read_gml_with_runtime_mode(input_source, mode)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+    assert type(actual) is getattr(fnx, graph_type)
+    assert actual.mode == effective_mode
+    records = actual.decision_records()
+    assert any(record["operation"] == "read_gml" for record in records)
+    assert all(record["mode"] == effective_mode for record in records)
+    assert all(record["action"] == "allow" for record in records)
+    if source_kind == "bytes":
+        assert not input_source.closed
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened", "ambient-hardened"])
+@pytest.mark.parametrize("option", ["numeric-ids", "custom-label", "destringizer"])
+def test_read_gml_runtime_modes_honor_label_options(mode, option, monkeypatch):
+    text = (
+        'graph [ node [ id 0 label "10" code "left" ] '
+        'node [ id 1 label "20" code "right" ] '
+        'edge [ source 0 target 1 weight 3 ] ]'
+    )
+    options = {
+        "numeric-ids": {"label": None},
+        "custom-label": {"label": "code"},
+        "destringizer": {"destringizer": int},
+    }[option]
+    expected = nx.read_gml(
+        BytesIO(text.encode("ascii")), backend="networkx", **options
+    )
+    _forbid_gml_delegation(monkeypatch)
+    actual = _read_gml_with_runtime_mode(BytesIO(text.encode("ascii")), mode, **options)
+    assert _gml_graph_state(actual) == _gml_graph_state(expected)
+    assert actual.mode == ("hardened" if mode == "ambient-hardened" else mode)
+    assert not any(
+        record["operation"] == "read_gml" for record in actual.decision_records()
+    )
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened", "ambient-hardened"])
+@pytest.mark.parametrize("option", ["numeric-ids", "custom-label", "destringizer"])
+@pytest.mark.parametrize("malformation", ["duplicate-id", "missing-endpoint", "incompatible-key"])
+def test_read_gml_runtime_option_parser_fails_closed(
+    mode, option, malformation, monkeypatch
+):
+    """Custom options keep complete validation instead of unsupported recovery."""
+    text = {
+        "duplicate-id": (
+            'graph [ node [ id 0 label "10" code "left" ] '
+            'node [ id 0 label "20" code "right" ] ]'
+        ),
+        "missing-endpoint": (
+            'graph [ node [ id 0 label "10" code "left" ] '
+            'edge [ source 0 target 1 weight 3 ] ]'
+        ),
+        "incompatible-key": (
+            'graph [ node [ id 0 label "10" code "left" ] '
+            'node [ id 1 label "20" code "right" ] '
+            'edge [ source 0 target 1 __fnx_incompatible_feature_test__ 1 ] ]'
+        ),
+    }[malformation]
+    options = {
+        "numeric-ids": {"label": None},
+        "custom-label": {"label": "code"},
+        "destringizer": {"destringizer": int},
+    }[option]
+    expected = _gml_outcome(
+        nx.read_gml, BytesIO(text.encode("ascii")), backend="networkx", **options
+    )
+    assert expected[0] == "raise"
+    _forbid_gml_delegation(monkeypatch)
+    actual = _gml_outcome(
+        _read_gml_with_runtime_mode, BytesIO(text.encode("ascii")), mode, **options
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("mode", ["hardened", "ambient-hardened"])
+def test_read_gml_runtime_recovery_keeps_native_decisions(mode):
+    text = (
+        'graph [ metadata [ count 2 nested [ status "ok" ] ] '
+        'node [ id 0 payload [ score 3.5 ] ] node [ id 1 label "end" ] '
+        'edge [ source 0 target 1 weight 7 payload [ nested [ value 9 ] ] ] ]'
+    )
+    stream = StringIO(text)
+    with pytest.warns(RuntimeWarning, match="missing label"):
+        actual = _read_gml_with_runtime_mode(stream, mode)
+    assert list(actual) == ["0", "end"]
+    assert list(actual.edges(data="weight")) == [("0", "end", 7)]
+    assert actual.graph["metadata"] == {"count": 2, "nested": {"status": "ok"}}
+    assert actual.nodes["0"]["payload"] == {"score": 3.5}
+    assert actual["0"]["end"]["payload"] == {"nested": {"value": 9}}
+    assert actual.mode == "hardened"
+    assert any(
+        record["operation"] == "read_gml" and record["action"] == "full_validate"
+        for record in actual.decision_records()
+    )
+    assert not stream.closed
+
+
+@pytest.mark.parametrize("mode", ["hardened", "ambient-hardened"])
+@pytest.mark.parametrize("directed", [False, True])
+@pytest.mark.parametrize("closed", [False, True])
+def test_read_gml_runtime_recovery_cannot_collapse_parallel_edges(mode, directed, closed):
+    text = (
+        f'graph [ directed {int(directed)} multigraph 1 '
+        'node [ id 0 ] node [ id 1 label "end" ] '
+        'edge [ source 0 target 1 key "first" weight 3 ] '
+        'edge [ source 0 target 1 key "second" weight 7 ] '
+        + ("]" if closed else "")
+    )
+    with pytest.warns(RuntimeWarning, match="missing label"):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="GML recovery"):
+            _read_gml_with_runtime_mode(StringIO(text), mode)
+
+
+@pytest.mark.parametrize("mode", ["hardened", "ambient-hardened"])
+@pytest.mark.parametrize("scope", ["graph", "node", "edge", "nested"])
+def test_read_gml_runtime_recovery_cannot_truncate_attribute_lists(mode, scope):
+    repeated = "payload 2 payload 3"
+    graph_data = repeated if scope == "graph" else ""
+    node_data = repeated if scope == "node" else ""
+    edge_data = repeated if scope == "edge" else ""
+    if scope == "nested":
+        edge_data = f"payload [ nested [ {repeated} ] ]"
+    text = (
+        f'graph [ {graph_data} node [ id 0 {node_data} ] '
+        'node [ id 1 label "end" ] '
+        f'edge [ source 0 target 1 {edge_data} ] ]'
+    )
+    with pytest.warns(RuntimeWarning, match="missing label"):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="GML recovery"):
+            _read_gml_with_runtime_mode(StringIO(text), mode)

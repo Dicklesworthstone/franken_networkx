@@ -1,0 +1,11 @@
+schema_version: "1.0.0"
+tools:
+  franken_networkx_operator_isolation:
+    repo: Dicklesworthstone/franken_networkx
+    local_path: /tmp/fnx-critical-validation
+    language: python
+    checks:
+      - ./scripts/run_pytest_guarded.sh 'tests/python/test_operators_conformance.py::test_composed_node_attributes_preserve_keys_and_sharing_across_routes[top_level-union-MultiGraph]' -vv --tb=short
+      - ./scripts/run_pytest_guarded.sh tests/python/test_operators_conformance.py -vv --tb=short
+      - ./scripts/run_pytest_guarded.sh tests/python/test_gml_scalar_type_parity.py tests/python/test_runtime_modes_strict_vs_hardened.py tests/python/test_readwrite_audit_regressions.py tests/python/test_gml_graphml_attribute_roundtrip.py -q --tb=short
+      - ./scripts/run_pytest_guarded.sh tests/python/test_modularity_directed_parity.py tests/python/test_modularity_namespace_parity.py tests/python/test_community_quality_parity.py -q --tb=short

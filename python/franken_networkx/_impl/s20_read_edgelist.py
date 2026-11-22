@@ -510,6 +510,100 @@ def write_gml(G, path, stringizer=None):
     return _write_gml_via_nx(G, path, stringizer=stringizer)
 
 
+def _gml_recovery_requires_complete_values(graph, text):
+    """Reject native projection of multigraphs or decoded repeated values.
+
+    Native scalar/nested-map recovery remains supported. Complete document
+    trees reveal list/tuple values at any depth; incomplete syntax retains
+    its existing bounded recovery and is not promised lossless rich decoding.
+    """
+    # Native GML retains this declaration as graph metadata, including on
+    # incomplete input whose complete grammar cannot be decoded below.
+    if graph.graph.get("multigraph"):
+        return True
+
+    from .readwrite import _GMLDecoder
+
+    try:
+        document = _GMLDecoder(text.splitlines(), None).document()
+    except NetworkXError:
+        # Keep the established bounded recovery for incomplete simple GML.
+        # The native multigraph declaration above still forbids projection.
+        return False
+    data = document.get("graph")
+    if not isinstance(data, dict):
+        return False
+    if data.get("multigraph"):
+        return True
+    values = [
+        value for name, value in data.items()
+        if name not in ("node", "edge")
+    ]
+    for category in ("node", "edge"):
+        records = data.get(category, ())
+        if isinstance(records, dict):
+            records = (records,)
+        elif not isinstance(records, (list, tuple)):
+            continue
+        for record in records:
+            if isinstance(record, dict):
+                values.extend(record.values())
+    while values:
+        value = values.pop()
+        if isinstance(value, (list, tuple)):
+            return True
+        if isinstance(value, dict):
+            values.extend(value.values())
+    return False
+
+
+def _read_gml_with_policy(path, *, label, destringizer):
+    """Retain complete values around the native default-option policy check."""
+    if label != "label" or destringizer is not None:
+        # The native reader cannot validate a different label field or user
+        # conversions. Match parse_gml: the complete owned parser validates
+        # grammar, labels and endpoints, and fails closed on malformed input
+        # in either mode. Its graph retains the selected compatibility mode;
+        # it does not claim a native read/recovery decision that never ran.
+        return _read_gml_owned(path, label=label, destringizer=destringizer)
+
+    from .readwrite import _normalize_io_path
+
+    def read(source):
+        payload = source.read()
+        if isinstance(payload, str):
+            payload = payload.encode("ascii")
+        else:
+            payload = bytes(payload)
+        try:
+            text = payload.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise NetworkXError("input is not ASCII-encoded") from exc
+
+        # Decode compressed paths before native validation, and consume a
+        # caller-owned stream once without closing or seeking it. The native
+        # result is a policy carrier for clean input: its simple graph and
+        # scalar maps cannot represent parallel edges or repeated GML values.
+        graph = _rust_read_gml(_io.BytesIO(payload))
+        if any(
+            record["action"] == "full_validate"
+            for record in graph.decision_records()
+        ):
+            if _gml_recovery_requires_complete_values(graph, text):
+                raise NetworkXNotImplemented(
+                    "GML recovery with multigraphs or repeated attribute values "
+                    "is not supported"
+                )
+            return graph
+        converted = _read_gml_owned(
+            _io.BytesIO(payload), label=label, destringizer=destringizer
+        )
+        _fnx.copy_readwrite_policy(graph, converted)
+        return converted
+
+    return _open_path_and_call(_normalize_io_path(path), "rb", read)
+
+
 def read_gml(
     path,
     label="label",
@@ -521,12 +615,19 @@ def read_gml(
     """Read a graph in GML format.
 
     Decode the complete GML value model directly into native graph storage.
-    Explicit strict/hardened modes retain native validation and recovery.
+    Explicit strict/hardened modes retain native default-option validation
+    and recovery. Custom label/conversion options use the complete owned
+    parser and fail closed on malformed input, as parse_gml does. Native
+    recovery is rejected when it would project a multigraph or discard
+    repeated attribute values recognized by the complete decoder.
     """
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_gml", backend, backend_kwargs)
-    if mode is not None or _rust_get_compatibility_mode() == "hardened":
-        return _rust_read_gml(path, label=label, destringizer=destringizer, mode=mode)
+    if mode is not None:
+        with compatibility_mode(mode):
+            return _read_gml_with_policy(path, label=label, destringizer=destringizer)
+    if _rust_get_compatibility_mode() == "hardened":
+        return _read_gml_with_policy(path, label=label, destringizer=destringizer)
     return _read_gml_owned(path, label=label, destringizer=destringizer)
 
 
