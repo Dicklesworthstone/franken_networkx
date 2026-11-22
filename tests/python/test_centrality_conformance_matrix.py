@@ -1176,3 +1176,53 @@ def test_degree_family_undirected_error_precedes_other_readers(name, route):
         return error.value.args
 
     assert run(_degree_provider_input_module(route), True) == run(nx, False)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("filter_kind", ["closure", "node-set"])
+def test_degree_family_filtered_private_rows_keep_live_asymmetric_degrees(
+    graph_type, weight, filter_kind
+):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from([2, 0, 1])
+        multi, directed = graph.is_multigraph(), graph.is_directed()
+        outgoing, incoming, loop = {"weight": 2}, {"weight": 5}, {"weight": 7}
+        out_row = {"a": outgoing, "b": {"weight": 3}} if multi else outgoing
+        in_row = {"c": incoming} if multi else incoming
+        loop_row = {"loop": loop} if multi else loop
+        graph._adj = {2: {}, 0: {1: out_row}, 1: {}}
+        if directed:
+            # Both visible rows belong to node 0. Reconstructing predecessors
+            # from successor edges would incorrectly give node 1 a degree.
+            graph._pred = {2: {}, 0: {1: in_row}, 1: {}}
+        view = (
+            module.subgraph_view(graph, filter_node=lambda node: node != 2)
+            if filter_kind == "closure"
+            else graph.subgraph([0, 1])
+        )
+        reader = view.degree(weight=weight)
+
+        def capture():
+            return (
+                list(reader),
+                [reader[0], reader[1]],
+                list(view.degree([1, 0], weight=weight)),
+            )
+
+        before = capture()
+        # Mutate logical storage after binding the reader. Its whole-graph,
+        # scalar, and restricted reads must all observe the new self-loop.
+        graph._adj[0][0] = loop_row
+        if directed:
+            graph._pred[0][0] = loop_row
+        return before, capture()
+
+    expected = run(nx)
+    assert run(fnx) == expected
+    initial = (5 if "Multi" in graph_type else 2) if weight else (2 if "Multi" in graph_type else 1)
+    if "DiGraph" in graph_type:
+        initial += 5 if weight else 1
+    assert expected[0][0] == [(0, initial), (1, 0)]
+    assert expected[1][0] == [(0, initial + (14 if weight else 2)), (1, 0)]

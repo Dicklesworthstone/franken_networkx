@@ -729,6 +729,8 @@ class _AssignedPrivateDegreeView:
         parent = getattr(view, "_graph", None)
         if type(parent) not in (MultiGraph, MultiDiGraph):
             return None
+        if _has_networkx_private_storage(parent):
+            return None
         return getattr(parent, "_native_edge_key_set", None)
 
     def _out_degree(self, node):
@@ -1068,12 +1070,17 @@ class _AssignedPrivateDegreeView:
             MultiDiGraph,
         ):
             return None
+        parent = view._graph
+        if _has_networkx_private_storage(parent):
+            # Native rows and reciprocal endpoint counts are authoritative
+            # only for owned storage. Assigned successor and predecessor rows
+            # can differ; let the filtered readers count them independently.
+            return None
         weight = self._weight
         edge_default = getattr(view, "_filter_edge_is_default", False)
         keep_is_set = getattr(getattr(view, "_filter_node", None), "nodes", None) is not None
         if weight is None and edge_default and keep_is_set:
             return None  # per-node _filtered_set_count already handles this fast
-        parent = view._graph
         # cc-rvdegwt: weighted degree is a float SUM; CPython's builtin `sum` is
         # Neumaier-compensated (3.12+), so a naive `+=` accumulator would diverge by
         # ULPs. Directed weighted total = sum(out) + sum(in) with nx's specific
