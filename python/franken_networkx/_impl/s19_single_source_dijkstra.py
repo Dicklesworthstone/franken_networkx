@@ -923,8 +923,6 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
     already counts multi-edges correctly) for multigraphs to match nx.
     """
     _validate_backend_dispatch_keywords("in_degree_centrality", backend, backend_kwargs)
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-n7rgh: nx is @not_implemented_for('undirected'). The
     # MultiGraph (undirected + multi) branch fell through to
     # G.in_degree() which doesn't exist on undirected and raised
@@ -940,10 +938,11 @@ def in_degree_centrality(G, *, backend=None, **backend_kwargs):
     # d*(1.0/(n-1.0)) (native!=nx on n>=1500; also returns float 1.0 vs nx's int 1
     # for n==1). nx's own {n: d*s} dict-comp over the in_degree view is byte-exact
     # AND 1.23x (beats nx). Run nx's algorithm verbatim.
-    n = len(G)
-    if n <= 1:
+    if len(G) <= 1:
         return {node: 1 for node in G}
-    s = 1.0 / (n - 1.0)
+    # Preserve the caller's size and degree protocols, including the second
+    # size read before the provider is consumed. No graph copy is needed.
+    s = 1.0 / (len(G) - 1.0)
     return {node: d * s for node, d in G.in_degree()}
 
 
@@ -954,8 +953,6 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
     Rust path undercounted parallel edges on MultiDiGraph.
     """
     _validate_backend_dispatch_keywords("out_degree_centrality", backend, backend_kwargs)
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-n7rgh: same undirected guard as in_degree_centrality.
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
@@ -963,10 +960,9 @@ def out_degree_centrality(G, *, backend=None, **backend_kwargs):
     # br-r37-c1-idcnative (cc): same as in_degree_centrality — _raw_out_degree_
     # centrality is slower (PyO3 dict-build) AND ULP-drifts from nx; nx's verbatim
     # {n: d*s} dict-comp over the out_degree view is byte-exact + 1.23x.
-    n = len(G)
-    if n <= 1:
+    if len(G) <= 1:
         return {node: 1 for node in G}
-    s = 1.0 / (n - 1.0)
+    s = 1.0 / (len(G) - 1.0)
     return {node: d * s for node, d in G.out_degree()}
 
 

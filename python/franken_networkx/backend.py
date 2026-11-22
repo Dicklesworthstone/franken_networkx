@@ -151,6 +151,9 @@ _RESIDUAL_FLOW_ALGORITHMS = frozenset(
         "preflow_push", "boykov_kolmogorov",
     }
 )
+_DEGREE_CENTRALITY_ALGORITHMS = frozenset(
+    {"degree_centrality", "in_degree_centrality", "out_degree_centrality"}
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -308,6 +311,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _LOAD_PERCOLATION_ALGORITHMS
     | _ASSORTATIVITY_INPUT_ALGORITHMS
     | _CLUSTERING_INPUT_ALGORITHMS
+    | _DEGREE_CENTRALITY_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -361,6 +365,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _LOAD_PERCOLATION_ALGORITHMS
     | _ASSORTATIVITY_INPUT_ALGORITHMS
     | _CLUSTERING_INPUT_ALGORITHMS
+    | _DEGREE_CENTRALITY_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -389,6 +394,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _DEGREE_CENTRALITY_ALGORITHMS:
+        # Size and degree providers determine normalization, output order and
+        # even the result's node domain. Keep the original input on cold and
+        # warm conversions; the public function admits native storage itself.
+        return True
     if name in _WEIGHTED_MATCHING_ALGORITHMS:
         # Edge readers and truth/numeric protocols belong to the caller.
         # Recover it even after another algorithm cached a conversion; the
@@ -2583,6 +2593,7 @@ class BackendInterface:
                             | _ISOMORPHISM_INPUT_ALGORITHMS
                             | _MATCHING_PREDICATE_ALGORITHMS
                             | _WEIGHTED_MATCHING_ALGORITHMS
+                            | _DEGREE_CENTRALITY_ALGORITHMS
                         )
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",

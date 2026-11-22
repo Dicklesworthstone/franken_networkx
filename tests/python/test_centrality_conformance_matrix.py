@@ -911,3 +911,268 @@ def test_eigenvector_centrality_nonconvergence_matches_networkx():
         nx.eigenvector_centrality(ng, max_iter=1, tol=1e-12)
     with pytest.raises(fnx.PowerIterationFailedConvergence):
         fnx.eigenvector_centrality(fg, max_iter=1, tol=1e-12)
+
+
+_DEGREE_PROVIDER_CASES = [
+    pytest.param("degree_centrality", graph_type, id=f"degree-{graph_type}")
+    for graph_type in ("Graph", "DiGraph", "MultiGraph", "MultiDiGraph")
+] + [
+    pytest.param(name, graph_type, id=f"{name}-{graph_type}")
+    for name in ("in_degree_centrality", "out_degree_centrality")
+    for graph_type in ("DiGraph", "MultiDiGraph")
+]
+_DEGREE_PROVIDER_ROUTES = ("native", "networkx-input", "backend-cold", "backend-warm")
+
+
+def _degree_provider_input_module(route):
+    return fnx if route == "native" else nx
+
+
+def _degree_provider_call(name, graph, route):
+    if route.startswith("backend-"):
+        return getattr(nx, name)(graph, backend="franken_networkx")
+    return getattr(fnx, name)(graph)
+
+
+def _warm_degree_provider_cache(graph, route, monkeypatch):
+    if route == "backend-warm":
+        monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+        assert nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx") == 2
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("name,graph_type", _DEGREE_PROVIDER_CASES)
+@pytest.mark.parametrize("route", _DEGREE_PROVIDER_ROUTES)
+@pytest.mark.parametrize("outcome", ["values", "error"])
+def test_degree_family_preserves_live_provider_order_and_errors(
+    name, graph_type, route, outcome, monkeypatch
+):
+    degree_name = name.removesuffix("_centrality")
+
+    def run(module, actual):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from([2, 0, 1])
+        graph.add_edges_from([(0, 1), (1, 2)])
+        if actual:
+            _warm_degree_provider_cache(graph, route, monkeypatch)
+        events = []
+
+        def degrees():
+            events.append(("start", tuple(graph)))
+            yield 2, 2
+            graph.add_node(3)
+            events.append(("resumed", tuple(graph)))
+            if outcome == "error":
+                raise LookupError("degree provider failed after mutation")
+            yield 3, 8
+            yield 2, 4
+            yield 0, 0
+
+        setattr(graph, degree_name, degrees)
+        try:
+            result = (
+                _degree_provider_call(name, graph, route)
+                if actual else getattr(nx, name)(graph, backend="networkx")
+            )
+            answer = ("values", list(result.items()))
+        except Exception as exc:
+            answer = ("error", type(exc).__name__, exc.args)
+        return answer, events, tuple(graph)
+
+    expected = run(nx, False)
+    assert run(_degree_provider_input_module(route), True) == expected
+    assert expected[1] == [("start", (2, 0, 1)), ("resumed", (2, 0, 1, 3))]
+    if outcome == "values":
+        assert expected[0] == ("values", [(2, 2.0), (3, 4.0), (0, 0.0)])
+    else:
+        assert expected[0] == (
+            "error", "LookupError", ("degree provider failed after mutation",)
+        )
+
+
+@pytest.mark.parametrize("name,graph_type", _DEGREE_PROVIDER_CASES)
+@pytest.mark.parametrize("route", _DEGREE_PROVIDER_ROUTES)
+def test_degree_family_preserves_repeated_length_reads(name, graph_type, route, monkeypatch):
+    def run(module, actual):
+        armed = False
+        events = []
+
+        class GraphWithLength(getattr(module, graph_type)):
+            def __len__(self):
+                if armed:
+                    events.append("len")
+                    if len(events) == 2:
+                        self.add_node(3)
+                return super().__len__()
+
+        # Prime a concrete graph before changing its public reader surface.
+        # Dijkstra correctly retains subclass providers instead of caching a
+        # conversion, so warming the subclass itself would not exercise reuse.
+        graph = (
+            getattr(module, graph_type)()
+            if actual and route == "backend-warm"
+            else GraphWithLength()
+        )
+        graph.add_edges_from([(0, 1), (1, 2)])
+        if actual:
+            _warm_degree_provider_cache(graph, route, monkeypatch)
+            if route == "backend-warm":
+                graph.__class__ = GraphWithLength
+        armed = True
+        try:
+            result = (
+                _degree_provider_call(name, graph, route)
+                if actual else getattr(nx, name)(graph, backend="networkx")
+            )
+        finally:
+            armed = False
+        return list(result.items()), events, list(graph)
+
+    expected = run(nx, False)
+    assert run(_degree_provider_input_module(route), True) == expected
+    assert expected[1] == ["len", "len"]
+    assert expected[2] == [0, 1, 2, 3]
+
+
+@pytest.mark.parametrize("name,graph_type", _DEGREE_PROVIDER_CASES)
+@pytest.mark.parametrize("route", ["native", "networkx-input", "backend-cold"])
+def test_degree_family_singleton_skips_degree_provider(name, graph_type, route):
+    def run(module, actual):
+        graph = getattr(module, graph_type)()
+        graph.add_node("only")
+        graph.add_edge("only", "only")
+
+        def forbidden(*args, **kwargs):
+            raise AssertionError("singleton must not read a degree provider")
+
+        setattr(graph, name.removesuffix("_centrality"), forbidden)
+        # The public contract asks len(G), never this independently assigned
+        # method. Neither fast-path admission nor singleton handling may call it.
+        graph.number_of_nodes = forbidden
+        result = (
+            _degree_provider_call(name, graph, route)
+            if actual else getattr(nx, name)(graph, backend="networkx")
+        )
+        return result, [type(value) for value in result.values()]
+
+    expected = run(nx, False)
+    assert run(_degree_provider_input_module(route), True) == expected
+    assert expected == ({"only": 1}, [int])
+
+
+@pytest.mark.parametrize(
+    "name,graph_type",
+    [
+        ("degree_centrality", "Graph"),
+        ("degree_centrality", "DiGraph"),
+        ("in_degree_centrality", "DiGraph"),
+        ("out_degree_centrality", "DiGraph"),
+    ],
+)
+@pytest.mark.parametrize("route", ["native", "backend-cold"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_degree_family_keeps_asymmetric_private_rows_and_views(name, graph_type, route, filtered):
+    def run(module, actual):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from([2, 0, 1])
+        first, second = {}, {}
+        graph._adj = {2: {}, 0: {1: first}, 1: {}}
+        if graph_type == "DiGraph":
+            # A predecessor provider may intentionally differ from successor
+            # storage. Rebuilding edges would normalize away this distinction.
+            graph._pred = {2: {0: second}, 0: {}, 1: {0: first}}
+        if filtered:
+            graph = module.subgraph_view(graph, filter_node=lambda node: node != 2)
+        result = (
+            _degree_provider_call(name, graph, route)
+            if actual else getattr(nx, name)(graph, backend="networkx")
+        )
+        return list(result.items())
+
+    assert run(_degree_provider_input_module(route), True) == run(nx, False)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_degree_family_plain_native_input_retains_native_kernel(graph_type, monkeypatch):
+    graph = getattr(fnx, graph_type)()
+    graph.add_edges_from([(2, 0), (0, 1), (1, 1)])
+    expected_graph = getattr(nx, graph_type)([(2, 0), (0, 1), (1, 1)])
+    calls = []
+    original = fnx._raw_degree_centrality
+
+    def observe(graph):
+        calls.append(graph)
+        return original(graph)
+
+    monkeypatch.setattr(fnx, "_raw_degree_centrality", observe)
+    actual = fnx.degree_centrality(graph)
+    expected = nx.degree_centrality(expected_graph, backend="networkx")
+    assert list(actual.items()) == list(expected.items())
+    assert calls == [graph]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("reader", ["degree", "__len__"])
+def test_degree_family_class_reader_overrides_are_live(graph_type, reader, monkeypatch):
+    def run(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_edges_from([(0, 1), (1, 2)])
+        events = []
+
+        if reader == "degree":
+            def degrees():
+                events.append("degree")
+                yield 2, 8
+                graph.add_node(3)
+                yield 3, 6
+                yield 0, 2
+
+            replacement = property(lambda self: degrees)
+        else:
+            original = graph_class.__len__
+
+            def replacement(self):
+                if self is graph:
+                    events.append("len")
+                    if len(events) == 2:
+                        self.add_node(3)
+                return original(self)
+
+        # Keep the concrete graph type unchanged: native admission must check
+        # reader identity as well as class identity before using stored degrees.
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, reader, replacement)
+            result = (
+                fnx.degree_centrality(graph)
+                if module is fnx
+                else nx.degree_centrality(graph, backend="networkx")
+            )
+        return list(result.items()), events, list(graph)
+
+    expected = run(nx)
+    assert run(fnx) == expected
+    assert expected[1] == (["degree"] if reader == "degree" else ["len", "len"])
+    assert expected[2] == [0, 1, 2, 3]
+
+
+@pytest.mark.parametrize("name", ["in_degree_centrality", "out_degree_centrality"])
+@pytest.mark.parametrize("route", ["native", "networkx-input", "backend-cold"])
+def test_degree_family_undirected_error_precedes_other_readers(name, route):
+    def run(module, actual):
+        class Undirected(module.Graph):
+            def __len__(self):
+                raise AssertionError("undirected rejection must precede len")
+
+            def __iter__(self):
+                raise AssertionError("undirected rejection must precede iteration")
+
+        graph = Undirected()
+        with pytest.raises(nx.NetworkXNotImplemented) as error:
+            if actual:
+                _degree_provider_call(name, graph, route)
+            else:
+                getattr(nx, name)(graph, backend="networkx")
+        return error.value.args
+
+    assert run(_degree_provider_input_module(route), True) == run(nx, False)

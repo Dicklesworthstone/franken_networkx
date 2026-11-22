@@ -280,6 +280,16 @@ DiGraph.degree = _private_aware_degree(_DIGRAPH_PRIVATE_AWARE_DEGREE)
 MultiGraph.degree = _private_aware_degree(_MULTIGRAPH_PRIVATE_AWARE_DEGREE)
 MultiDiGraph.degree = _private_aware_degree(_MULTIDIGRAPH_PRIVATE_AWARE_DEGREE)
 
+# These are the final public degree descriptors. Native degree-centrality
+# admission must reject later class-level replacements without invoking them.
+_DEGREE_CENTRALITY_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in ("__len__", "__iter__", "__getattribute__", "degree")
+    }
+    for cls in (Graph, DiGraph)
+}
+
 # br-r37-c1-hwu8a (cc): the DIRECTED siblings of the accessors converted above.
 # `in_degree`/`out_degree`/`in_edges`/`out_edges` were still plain `property`
 # objects, so — exactly like `nodes`/`edges`/`degree` before br-r37-c1-wbwkb —

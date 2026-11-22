@@ -1041,6 +1041,22 @@ def harmonic_centrality(
     return {u: (0 if raw[u] == 0.0 else raw[u]) for u in set(G.nodes)}
 
 
+def _degree_centrality_can_use_native(G):
+    """Admit only the graph's unchanged, owned degree and size readers."""
+    graph_type = type(G)
+    if graph_type is not Graph and graph_type is not DiGraph:
+        return False
+    # Read the class namespace without invoking an assigned descriptor. The
+    # final degree descriptors are installed after this module is loaded.
+    namespace = vars(graph_type)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _DEGREE_CENTRALITY_NATIVE_READERS[graph_type].items()
+    ):
+        return False
+    return _greedy_color_native_graph(G)
+
+
 def degree_centrality(G, *, backend=None, **backend_kwargs):
     """Compute degree centrality for nodes.
 
@@ -1051,20 +1067,20 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     nodes.
     """
     _validate_backend_dispatch_keywords("degree_centrality", backend, backend_kwargs)
-    # br-r37-c1-rg8jh: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-pu5q7: nx special-cases ``len(G) <= 1`` and returns
     # ``{n: 1 for n in G}`` (int 1, not 1.0 or NaN) before any
     # ``1 / (n - 1)`` would divide by zero. Mirror that for both the
     # multigraph branch (was returning NaN on singletons) and the
     # simple-graph branch (Rust path returns float 1.0 — type drift).
-    if G.number_of_nodes() <= 1:
+    if len(G) <= 1:
         return {v: 1 for v in G}
-    if G.is_multigraph():
-        n = G.number_of_nodes()
-        s = 1.0 / (n - 1)
-        return {v: d * s for v, d in G.degree()}
-    return _raw_degree_centrality(G)
+    if _degree_centrality_can_use_native(G):
+        return _raw_degree_centrality(G)
+    # A degree provider owns both the result's node domain and the order of
+    # reads. Views may expose asymmetric rows, and a provider can change G
+    # between yields. Converting first discards these observable semantics.
+    s = 1.0 / (len(G) - 1.0)
+    return {node: degree * s for node, degree in G.degree()}
 
 
 def _single_source_betweenness_dijkstra(G, source, weight):
