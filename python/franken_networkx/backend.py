@@ -253,6 +253,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "katz_centrality",
         "betweenness_centrality",
         "edge_betweenness_centrality",
+        "voterank",
         "pagerank",
         "maximum_flow",
         "maximum_flow_value",
@@ -372,6 +373,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "floyd_warshall", "floyd_warshall_predecessor_and_distance", "floyd_warshall_numpy",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
+        "voterank",
         "harmonic_diameter",
         "single_source_shortest_path_length", "predecessor", "bidirectional_shortest_path",
         "find_cycle",
@@ -394,6 +396,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "voterank":
+        # Each election reads the caller's node and edge providers. A cached
+        # conversion may retain nodes hidden since a view was first queried.
+        return True
     if name in _DEGREE_CENTRALITY_ALGORITHMS:
         # Size and degree providers determine normalization, output order and
         # even the result's node domain. Keep the original input on cold and
@@ -2600,6 +2606,7 @@ class BackendInterface:
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis", "min_edge_cover",
+                            "voterank",
                         }
                     ):
                         # Preserve graph-contract errors and user callback

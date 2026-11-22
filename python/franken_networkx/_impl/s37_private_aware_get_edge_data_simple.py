@@ -327,6 +327,20 @@ for _cls, _accessor in (
         setattr(_cls, _accessor, _CachedViewDescriptor(_installed.fget, _accessor))
 del _cls, _accessor, _installed
 
+# VoteRank can reuse topology only while all election readers are still the
+# owned descriptors. Capture them after installing the directed cached views.
+_VOTERANK_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__len__", "__iter__", "__getattribute__", "nodes", "edges",
+            "degree", "out_degree", "is_directed", "is_multigraph",
+            "nbunch_iter", "_native_node_keys",
+        )
+    }
+    for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
+
 # br-r37-c1-qmi5w / br-r37-c1-6q4wl: install raw primitive descriptors for
 # ordinary graphs. ``_set_private_override`` restores mapping-aware behavior
 # per instance if a NetworkX utility assigns one of its private stores.

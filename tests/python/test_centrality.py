@@ -172,6 +172,157 @@ class TestCentrality:
         assert abs(fnx_dac - nx_dac) < 1e-6
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_voterank_backend_keeps_changed_view_membership(fnx, nx, graph_type, monkeypatch):
+    graph = getattr(nx, graph_type)()
+    graph.add_edges_from((node, node + 1) for node in range(6))
+    visible = set(graph)
+    view = nx.subgraph_view(graph, filter_node=visible.__contains__)
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    assert nx.is_tree(view, backend="franken_networkx")
+    assert view.__networkx_cache__["backends"]["franken_networkx"]
+    visible.remove(1)
+
+    expected = nx.voterank(view)
+    actual = nx.voterank(view, backend="franken_networkx")
+
+    assert actual == expected
+    assert all(node in visible for node in actual)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("graph_module", ["native", "networkx"])
+def test_voterank_reads_topology_after_degree_provider(fnx, nx, graph_type, graph_module):
+    def make_graph(module):
+        graph = getattr(module, graph_type)()
+        graph.add_edges_from((node, node + 1) for node in range(5))
+        name = "out_degree" if graph.is_directed() else "degree"
+        degree = getattr(graph, name)
+
+        def change_topology():
+            graph.remove_edge(1, 2)
+            graph.add_edges_from([(0, 3), (0, 4), (0, 5)])
+            return degree()
+
+        setattr(graph, name, change_topology)
+        return graph
+
+    expected = nx.voterank(make_graph(nx))
+    actual = fnx.voterank(make_graph(fnx if graph_module == "native" else nx))
+
+    assert expected[0] == 0
+    assert actual == expected
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native", "foreign", "backend-cold", "backend-warm"])
+def test_voterank_observes_edge_provider_between_elections(
+    fnx, nx, graph_type, route, monkeypatch
+):
+    def make_graph(module, warm=False):
+        graph = getattr(module, graph_type)()
+        graph.add_edges_from((node, node + 1) for node in range(6))
+        if warm:
+            monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+            assert nx.is_tree(graph, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        edges = graph.edges
+        calls = []
+        changed = False
+
+        def live_edges(nbunch=None):
+            nonlocal changed
+            calls.append(nbunch)
+            if nbunch is not None and not changed:
+                changed = True
+                graph.remove_edge(3, 4)
+                graph.add_edges_from([(5, 0), (5, 2), (5, 3)])
+            return edges(nbunch)
+
+        graph.edges = live_edges
+        return graph, calls
+
+    reference, expected_calls = make_graph(nx)
+    expected = nx.voterank(reference)
+    actual_graph, actual_calls = make_graph(
+        fnx if route == "native" else nx, route == "backend-warm"
+    )
+    if route.startswith("backend-"):
+        actual = nx.voterank(actual_graph, backend="franken_networkx")
+    else:
+        actual = fnx.voterank(actual_graph)
+
+    assert actual == expected
+    assert actual_calls == expected_calls
+    assert len([node for node in actual_calls if node is not None]) > 1
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("number_of_nodes", [None, 0, 2, 20])
+def test_voterank_keeps_native_snapshot_for_ordinary_graphs(
+    fnx, nx, graph_type, number_of_nodes, monkeypatch
+):
+    edges = [(0, 1), (1, 2), (2, 0), (1, 3), (3, 4), (4, 5), (2, 2)]
+    if "Multi" in graph_type:
+        edges.extend([(0, 1), (0, 1), (1, 3)])
+    graph = getattr(fnx, graph_type)(edges)
+    reference = getattr(nx, graph_type)(edges)
+    expected = nx.voterank(reference, number_of_nodes=number_of_nodes)
+
+    def unexpected_live_rounds(*args, **kwargs):
+        raise AssertionError("ordinary native VoteRank lost its topology snapshot")
+
+    monkeypatch.setattr(fnx, "_voterank_live_rounds", unexpected_live_rounds)
+    assert fnx.voterank(graph, number_of_nodes=number_of_nodes) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_voterank_node_hash_mutation_during_weakening(fnx, nx, graph_type):
+    def make_graph(module):
+        state = {"active": False, "hashes": 0, "mutated": False}
+
+        class CallbackNode:
+            def __hash__(self):
+                if state["active"]:
+                    state["hashes"] += 1
+                    if state["hashes"] == 3:
+                        state["mutated"] = True
+                        graph.add_edges_from(("pivot", node) for node in "abcd")
+                return 17
+
+            def __repr__(self):
+                return "callback"
+
+        callback = CallbackNode()
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from(["hub", callback, "a", "b", "c", "d", "pivot"])
+        graph.add_edges_from([
+            ("hub", callback), ("hub", "a"), ("hub", "b"),
+            ("a", "c"), ("b", "d"), ("c", "d"),
+        ])
+        edges = graph.edges
+
+        def live_edges(nbunch=None):
+            for edge in list(edges(nbunch)):
+                observe = nbunch is not None and edge[1] is callback
+                state["active"] = observe
+                yield edge
+                state["active"] = False
+
+        graph.edges = live_edges
+        return graph, state
+
+    reference, expected_state = make_graph(nx)
+    expected = nx.voterank(reference)
+    graph, actual_state = make_graph(fnx)
+    actual = fnx.voterank(graph)
+
+    assert expected_state["mutated"]
+    assert expected[:2] == ["hub", "pivot"]
+    assert actual_state["mutated"]
+    assert [repr(node) for node in actual] == [repr(node) for node in expected]
+
+
 @pytest.mark.conformance
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])

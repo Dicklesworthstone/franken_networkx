@@ -1442,6 +1442,63 @@ def _betweenness_sampled_sources(G, rng, k, endpoints, normalized, source_aware)
     return sampled_nodes
 
 
+def _voterank_can_snapshot(G, number_of_nodes):
+    """Admit only unchanged native readers and callback-free node keys."""
+    graph_type = type(G)
+    if graph_type not in _CONCRETE_FNX_GRAPH_TYPES or type(number_of_nodes) not in (int, bool):
+        return False
+    readers = _VOTERANK_NATIVE_READERS[graph_type]
+    namespace = vars(graph_type)
+    if any(namespace.get(name) is not reader for name, reader in readers.items()):
+        return False
+    if _has_networkx_private_storage(G):
+        return False
+    storage = vars(G)
+    if any(name in storage for name in (
+        "__iter__", "__len__", "__getattribute__", "is_directed", "is_multigraph",
+        "nbunch_iter", "number_of_nodes", "number_of_edges", "_native_node_keys",
+    )):
+        return False
+    for name in ("nodes", "edges", "degree", "out_degree"):
+        if name in storage and (
+            f"_fnx_view_{name}_assigned" in storage
+            or storage[name] is not storage.get(f"_fnx_view_{name}")
+        ):
+            return False
+    # The native key tuple only returns stored references. Inspect their exact
+    # types without hashing: a custom node hash can change a later round's rows.
+    return all(
+        type(node) in (str, int, float, bool, type(None))
+        for node in readers["_native_node_keys"](G)
+    )
+
+
+def _voterank_live_rounds(G, number_of_nodes, avg_degree):
+    """Run elections with public node, edge and graph-kind readers per round."""
+    vote_rank = {node: [0, 1] for node in G.nodes()}
+    influential_nodes = []
+    for _ in range(number_of_nodes):
+        for node in G.nodes():
+            vote_rank[node][0] = 0
+        for source, neighbor in G.edges():
+            vote_rank[source][0] += vote_rank[neighbor][1]
+            if not G.is_directed():
+                vote_rank[neighbor][0] += vote_rank[source][1]
+        for node in influential_nodes:
+            vote_rank[node][0] = 0
+        winner = max(G.nodes, key=lambda node: vote_rank[node][0])
+        if vote_rank[winner][0] == 0:
+            return influential_nodes
+        influential_nodes.append(winner)
+        vote_rank[winner] = [0, 0]
+        for _, neighbor in G.edges(winner):
+            # Keep the decrement visible before clamping. A node's hash can
+            # change later rows between these two accesses to its vote state.
+            vote_rank[neighbor][1] -= 1 / avg_degree
+            vote_rank[neighbor][1] = max(vote_rank[neighbor][1], 0)
+    return influential_nodes
+
+
 def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
     """Select influential spreaders using VoteRank.
 
@@ -1452,13 +1509,10 @@ def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
     tie-break ordered ties by a different criterion, so elections
     after the top few seeds diverged from networkx.
 
-    br-r37-c1-vrcache: the outer ``for _ in range(number_of_nodes)``
-    loop previously re-invoked ``G.nodes()``, ``G.edges()``, and
-    ``G.edges(winner)`` every iteration — each a PyO3 round-trip
-    materialising a fresh list.  On a 200-node 1k-edge graph this ran
-    ~450ms (~10× slower than nx).  Snapshot the node list, the edge
-    list, and a per-node neighbour map once; per-iteration cost drops
-    to pure-Python dict accumulation.
+    Ordinary native graphs reuse a node/edge snapshot to avoid repeated
+    boundary crossings. Views and user-provided readers stay live: degree
+    normalization happens before the first election, and later elections
+    observe changes made by node, edge and graph-kind providers.
     """
     _validate_backend_dispatch_keywords("voterank", backend, backend_kwargs)
 
@@ -1468,18 +1522,24 @@ def voterank(G, number_of_nodes=None, *, backend=None, **backend_kwargs):
     if number_of_nodes is None or number_of_nodes > len(G):
         number_of_nodes = len(G)
 
+    snapshot = _voterank_can_snapshot(G, number_of_nodes)
     is_directed = G.is_directed()
+    if is_directed:
+        avg_degree = sum(deg for _, deg in G.out_degree()) / len(G)
+    else:
+        avg_degree = sum(deg for _, deg in G.degree()) / len(G)
+    if not snapshot:
+        return _voterank_live_rounds(G, number_of_nodes, avg_degree)
+
     nodes_snapshot = list(G.nodes())
     edges_snapshot = list(G.edges())
     if is_directed:
-        avg_degree = sum(deg for _, deg in G.out_degree()) / len(G)
         # For directed voterank, ``G.edges(winner)`` yields out-edges,
         # which is the set we decrement.
         out_neighbours = {n: [] for n in nodes_snapshot}
         for u, v in edges_snapshot:
             out_neighbours[u].append(v)
     else:
-        avg_degree = sum(deg for _, deg in G.degree()) / len(G)
         # Undirected: ``G.edges(winner)`` yields all incident edges.
         out_neighbours = {n: [] for n in nodes_snapshot}
         for u, v in edges_snapshot:
