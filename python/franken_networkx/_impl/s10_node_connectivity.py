@@ -1126,12 +1126,13 @@ def _rescale_betweenness_legacy_local(
 ):
     """Uniform scaling used before the source-aware node/edge estimators."""
     if normalized:
-        if endpoints and n >= 2:
-            scale = 1 / (n * (n - 1))
-        elif not endpoints and n > 2:
-            scale = 1 / ((n - 1) * (n - 2))
+        # The legacy oracle reads endpoint truth once in this branch, even
+        # when no scaling is needed. A second read can change a provider's
+        # result or raise after a successful first read.
+        if endpoints:
+            scale = 1 / (n * (n - 1)) if n >= 2 else None
         else:
-            scale = None
+            scale = 1 / ((n - 1) * (n - 2)) if n > 2 else None
     else:
         scale = None if directed else 0.5
     if scale is not None:
@@ -1187,11 +1188,11 @@ def _betweenness_centrality_inproc(
                 betweenness[node] += delta[node]
     if source_aware:
         return _rescale_betweenness_local(
-            betweenness, n, normalized=normalized, directed=G.is_directed(),
+            betweenness, len(G), normalized=normalized, directed=G.is_directed(),
             endpoints=endpoints, sampled_nodes=sampled_nodes,
         )
     return _rescale_betweenness_legacy_local(
-        betweenness, n, normalized=normalized, directed=G.is_directed(),
+        betweenness, len(G), normalized=normalized, directed=G.is_directed(),
         endpoints=endpoints, k=k,
     )
 
@@ -1225,13 +1226,21 @@ _BETWEENNESS_RANDOM_PROTOCOL = {
 }
 
 
-def _betweenness_uses_live_python_rows(G, weight, seed=None, k=None):
+def _betweenness_uses_live_python_rows(
+    G, weight, seed=None, k=None, *, normalized=True, endpoints=False
+):
     """Keep Brandes providers on the caller's graph before taking a snapshot.
 
     Sampling and scalar/mapping hooks can change edges that later sources
     traverse. The standalone wrappers and backend admission share this check
     so a cached conversion cannot silently hide those changes.
     """
+    # Endpoint truth is evaluated after each source traversal, while
+    # normalization is evaluated only during the final rescale (and can be
+    # skipped altogether for small graphs). Native bool extraction would
+    # consume either provider once before Brandes even starts.
+    if type(normalized) is not bool or type(endpoints) is not bool:
+        return True
     if _weighted_query_uses_live_python_rows(G, weight):
         return True
     if weight is not None and type(weight) is not str:
@@ -1315,7 +1324,9 @@ def betweenness_centrality(
     # conversion would disconnect those writes from Brandes, and collapsing
     # an undirected view of directed edges loses its per-endpoint weights.
     # The owned engine also preserves explicitly assigned private adjacency.
-    if _betweenness_uses_live_python_rows(G, weight, rng, k):
+    if _betweenness_uses_live_python_rows(
+        G, weight, rng, k, normalized=normalized, endpoints=endpoints
+    ):
         return _betweenness_centrality_inproc(
             G, k=k, normalized=normalized, weight=weight,
             endpoints=endpoints, seed=rng,

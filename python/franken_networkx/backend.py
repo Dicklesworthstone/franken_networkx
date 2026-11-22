@@ -523,7 +523,9 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         )
     if name in _BETWEENNESS_INPUT_ALGORITHMS:
         return fnx._betweenness_uses_live_python_rows(
-            graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k")
+            graph, arguments.get("weight"), arguments.get("seed"), arguments.get("k"),
+            normalized=arguments.get("normalized", True),
+            endpoints=arguments.get("endpoints", False),
         )
     if name in _SUBSET_BETWEENNESS_INPUT_ALGORITHMS:
         return fnx._subset_betweenness_uses_live_python_rows(

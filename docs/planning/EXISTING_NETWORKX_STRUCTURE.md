@@ -1875,6 +1875,17 @@ regression matrix compares returned scores or exception type/arguments,
 callback traces, edge dictionary identity, resulting graph attributes,
 private adjacency, filtered views and sampled RNG state.
 
+Node betweenness evaluates endpoint truth after each source search and again
+when choosing its normalization domain. Both node and edge betweenness read
+normalization truth during final rescaling, preserving version-specific
+small-graph early returns. Non-boolean option providers use the owned traversal on
+the caller's graph; neither native parameter extraction nor a cached backend
+conversion may evaluate their truth early or freeze later source searches.
+The legacy normalization branch reads endpoint truth exactly once.
+Rescaling captures the current node count after traversal, so a sampled
+endpoint provider can add an isolated node and change the denominator without
+adding a score entry for that node.
+
 Subset node and edge betweenness accepts native and NetworkX graphs through
 standalone and backend calls. Admitted simple inputs convert before either
 unweighted or weighted native kernels. Source and target iterables and custom
