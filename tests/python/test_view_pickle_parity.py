@@ -375,6 +375,152 @@ def test_node_view_deepcopy_roundtrips(name, builder):
     assert dict(deepc) == {n: dict(G.nodes[n]) for n in G.nodes}
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("reader", ["nodes", "edges"])
+@pytest.mark.parametrize("view_first", [False, True])
+def test_direct_view_deepcopy_preserves_nested_values_cycles_and_outer_aliases(
+    cls_name, reader, view_first
+):
+    for module in (nx, fnx):
+        graph = getattr(module, cls_name)([(0, 1), (1, 2)])
+        view = getattr(graph, reader)
+        attrs = view[0] if reader == "nodes" else next(iter(view(data=True)))[-1]
+        other = view[1] if reader == "nodes" else list(view(data=True))[1][-1]
+        payload = {"items": [1]}
+        attrs.update(payload=payload, view=view)
+        attrs["self"] = attrs
+        other["payload"] = payload
+        source = [view, attrs] if view_first else [attrs, view]
+        memo = {}
+        copied_values = copy.deepcopy(source, memo)
+        copied, copied_attrs = copied_values if view_first else reversed(copied_values)
+        copied_row = (
+            copied[0] if reader == "nodes" else next(iter(copied(data=True)))[-1]
+        )
+        copied_other = (
+            copied[1] if reader == "nodes" else list(copied(data=True))[1][-1]
+        )
+        assert type(copied).__name__ == type(view).__name__
+        assert copied_row is copied_attrs is memo[id(attrs)]
+        assert copied_row is not attrs
+        assert copied_row["self"] is copied_row
+        assert copied_row["view"] is copied is memo[id(view)]
+        assert copied_row["payload"] is copied_other["payload"]
+        assert copied_row["payload"] is not payload
+        payload["items"].append(2)
+        assert copied_row["payload"] == {"items": [1]}
+        assert list(copied) == list(view)
+        assert list(copied(data="payload"))[0][-1] is copied_row["payload"]
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("reader", ["nodes", "edges"])
+def test_direct_view_deepcopy_honors_preseeded_attribute_dictionary(cls_name, reader):
+    for module in (nx, fnx):
+        graph = getattr(module, cls_name)([(0, 1)])
+        view = getattr(graph, reader)
+        attrs = view[0] if reader == "nodes" else next(iter(view(data=True)))[-1]
+        replacement = {"replacement": [7]}
+        copied = copy.deepcopy(view, {id(attrs): replacement})
+        copied_attrs = (
+            copied[0] if reader == "nodes" else next(iter(copied(data=True)))[-1]
+        )
+        assert copied_attrs is replacement
+        assert attrs == {}
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_direct_node_view_deepcopy_remaps_labels_and_keeps_data_protocol(cls_name):
+    class Label:
+        def __init__(self, value):
+            self.value = value
+
+    for module in (nx, fnx):
+        graph = getattr(module, cls_name)()
+        label = Label("source")
+        graph.add_node(label, label=label, payload=[1])
+        view = graph.nodes
+        copied, copied_label = copy.deepcopy([view, label])
+        assert copied_label is not label
+        assert next(iter(copied)) is copied_label
+        assert copied[copied_label]["label"] is copied_label
+        assert copied[copied_label]["payload"] is not view[label]["payload"]
+        assert copied() is copied
+        assert copied.data(False) is copied
+        assert list(copied.data("payload")) == [(copied_label, [1])]
+        assert copied & {copied_label} == {copied_label}
+        assert str(copied) == str(list(copied))
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("reader", ["nodes", "edges"])
+def test_direct_view_deepcopy_propagates_attribute_copy_errors(cls_name, reader):
+    class CannotCopy:
+        def __deepcopy__(self, memo):
+            raise ValueError("attribute copy failed")
+
+    for module in (nx, fnx):
+        graph = getattr(module, cls_name)([(0, 1)])
+        view = getattr(graph, reader)
+        attrs = view[0] if reader == "nodes" else next(iter(view(data=True)))[-1]
+        attrs["payload"] = CannotCopy()
+        with pytest.raises(ValueError, match="^attribute copy failed$"):
+            copy.deepcopy(view)
+
+
+@pytest.mark.parametrize("with_attributes", [False, True])
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_direct_edge_view_deepcopy_preserves_native_type_and_owner(cls_name, with_attributes):
+    graph = getattr(fnx, cls_name)([(0, 1), (1, 2)])
+    graph.add_node(3)
+    edge = next(iter(graph.edges))
+    if with_attributes:
+        graph.graph = {"name": "snapshot"}
+        graph.nodes[0]["color"] = "red"
+        graph.edges[edge]["weight"] = 2
+    view = graph.edges
+    memo = {}
+    copied = copy.deepcopy(view, memo)
+    copied_graph = memo[id(graph)]
+    assert type(copied) is type(view)
+    assert copied is copied_graph.edges
+    assert list(copied_graph) == list(graph)
+    assert copied_graph.graph == graph.graph
+    assert copied_graph.graph is not graph.graph
+    assert list(copied(data=True)) == list(view(data=True))
+    assert copied[edge] is copied_graph.get_edge_data(*edge)
+    assert copied[edge] is not view[edge]
+    copied_graph.graph["copy_only"] = True
+    assert "copy_only" not in graph.graph
+
+
+@pytest.mark.parametrize("cls_name", ["DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_direct_edge_view_subclass_shallow_copy_honors_custom_reducer(cls_name):
+    graph = getattr(fnx, cls_name)([(0, 1)])
+    base = type(graph.edges)
+    protocols = []
+
+    class CustomView(base):
+        def __reduce_ex__(self, protocol):
+            protocols.append(protocol)
+            return (type(self), (self._graph,), {"marker": self.marker})
+
+    view = CustomView(graph)
+    view.marker = ["source"]
+    copied = copy.copy(view)
+    assert protocols == [4]
+    assert type(copied) is CustomView
+    assert copied is not view
+    assert vars(copied) is not vars(view)
+    assert copied._graph is view._graph is graph
+    assert copied.marker is view.marker
+    copied.marker = ["copy"]
+    assert view.marker == ["source"]
+    graph.add_edge(1, 2)
+    assert list(copied) == list(view)
+    assert (1, 2) in [edge[:2] for edge in copied]
+
+
 # ---------------------------------------------------------------------------
 # G.edges + G.degree pickle parity (br-r37-c1-{ev-pkl, dv-pkl})
 # ---------------------------------------------------------------------------

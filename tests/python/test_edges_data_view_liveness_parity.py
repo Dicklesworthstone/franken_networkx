@@ -18,6 +18,8 @@ repr) so semantics match nx, with class name aligned.
 
 from __future__ import annotations
 
+import copy
+
 import pytest
 
 import franken_networkx as fnx
@@ -167,3 +169,92 @@ def test_edges_data_none_yields_default_in_third_position():
     f = list(G.edges(data=None, default=42))
     n = list(GX.edges(data=None, default=42))
     assert f == n
+
+
+@needs_nx
+@pytest.mark.parametrize("view_first", [False, True])
+def test_edges_data_view_deepcopy_preserves_memo_cycles_and_frozen_nbunch(view_first):
+    for module in (nx, fnx):
+        graph = module.Graph([(0, 1), (1, 2), (2, 3)])
+        view = graph.edges([1], data=True)
+        attrs, other = graph[0][1], graph[1][2]
+        payload = [1]
+        attrs.update(payload=payload, view=view)
+        attrs["self"] = attrs
+        other["payload"] = payload
+        source = [view, attrs] if view_first else [attrs, view]
+        memo = {}
+        result = copy.deepcopy(source, memo)
+        copied, copied_attrs = result if view_first else reversed(result)
+        rows = list(copied)
+        assert type(copied) is type(view)
+        assert len(copied) == len(rows) == 2
+        assert [row[:2] for row in rows] == [(1, 0), (1, 2)]
+        assert rows[0][-1] is copied_attrs is memo[id(attrs)]
+        assert copied_attrs["self"] is copied_attrs
+        assert copied_attrs["view"] is copied is memo[id(view)]
+        assert rows[0][-1]["payload"] is rows[1][-1]["payload"]
+        assert copied_attrs["payload"] is not payload
+        payload.append(2)
+        graph.add_edge(1, 4)
+        assert copied_attrs["payload"] == [1]
+        assert [row[:2] for row in copied] == [(1, 0), (1, 2)]
+        assert (1, 4) in [row[:2] for row in copy.copy(view)]
+
+
+@needs_nx
+@pytest.mark.parametrize("selector", ["weight", 7, ("weight", 7)])
+def test_edges_data_view_deepcopy_remaps_labels_and_mutable_defaults(selector):
+    class Label:
+        pass
+
+    for module in (nx, fnx):
+        graph = module.Graph()
+        node = Label()
+        payload, default = [1], [9]
+        graph.add_edges_from([(node, 1), (1, 2)])
+        graph[node][1][selector] = payload
+        view = graph.edges([1, node], data=selector, default=default)
+        copied, copied_node, copied_payload, copied_default = copy.deepcopy(
+            [view, node, payload, default]
+        )
+        assert type(copied) is type(view)
+        rows = list(copied)
+        assert len(copied) == len(rows) == 2
+        assert rows == [(1, copied_node, copied_payload), (1, 2, copied_default)]
+        assert rows[0][-1] is copied_payload
+        assert rows[1][-1] is copied_default
+        assert copied_node is not node
+        payload.append(2)
+        default.append(8)
+        assert copied_payload == [1]
+        assert copied_default == [9]
+
+
+@needs_nx
+def test_edges_data_view_deepcopy_remaps_attribute_selector_identity():
+    class Selector:
+        pass
+
+    for module in (nx, fnx):
+        graph = module.Graph([(0, 1)])
+        selector, payload = Selector(), [1]
+        graph[0][1][selector] = payload
+        view = graph.edges(data=selector)
+        copied, copied_selector, copied_payload = copy.deepcopy([view, selector, payload])
+        assert copied_selector is not selector
+        assert list(copied) == [(0, 1, copied_payload)]
+        assert next(iter(copied))[-1] is copied_payload
+
+
+@needs_nx
+def test_edges_data_view_deepcopy_propagates_attribute_copy_errors():
+    class CannotCopy:
+        def __deepcopy__(self, memo):
+            raise ValueError("edge data copy failed")
+
+    for module in (nx, fnx):
+        graph = module.Graph([(0, 1)])
+        graph[0][1]["payload"] = CannotCopy()
+        with pytest.raises(ValueError, match="^edge data copy failed$"):
+            copy.deepcopy(graph.edges(data=True))

@@ -388,7 +388,8 @@ class EdgeDataView:
         # walks only the requested rows, so it BEATS nx (the earlier
         # to_dict_of_dicts routing overbuilt the whole graph for a partial
         # nbunch). data=False / data=None skip the dict attach entirely.
-        if type(graph) is Graph and self._nbunch_list is not None and type(data) is str:
+        native_graph = type(graph) is Graph and not _has_networkx_private_storage(graph)
+        if native_graph and self._nbunch_list is not None and type(data) is str:
             # br-r37-c1-p1tyz: an attribute's VALUES, read natively from each
             # edge's live dict or the store - no dict built per edge. Not
             # memoized: writing an attribute does not move edges_seq, so a
@@ -397,7 +398,7 @@ class EdgeDataView:
             if rows is not None:
                 return rows
         elif (
-            type(graph) is Graph
+            native_graph
             and self._nbunch_list is not None
             and (data is False or data is True or data_is_none)
         ):
@@ -448,7 +449,7 @@ class EdgeDataView:
                 if data is False:
                     result.append((node, nbr))
                 elif data is True:
-                    result.append((node, nbr, dict(edge_data)))
+                    result.append((node, nbr, edge_data))
                 elif data_is_none:
                     result.append((node, nbr, default))
                 else:
@@ -582,7 +583,11 @@ class EdgeDataView:
         # ``__iter__``; counting the nbunch edges natively (no PyObject build)
         # avoids materializing the whole tuple list twice. Simple Graph only;
         # otherwise fall back to the materialize-based count.
-        elif self._nbunch_list is not None and type(self._graph) is Graph:
+        elif (
+            self._nbunch_list is not None
+            and type(self._graph) is Graph
+            and not _has_networkx_private_storage(self._graph)
+        ):
             # br-r37-c1-2pia7: the native count skips absent nodes, so it must
             # not run before the frozen-nbunch check that _materialize does —
             # otherwise len() answers a number where nx raises.
@@ -670,27 +675,26 @@ class EdgeDataView:
         return self
 
     def __deepcopy__(self, memo):
-        # SNAPSHOT semantics — independent of subsequent G mutations.
-        # Materialise edges + attrs into a new fnx Graph, return its
-        # EdgeView.data() so type EdgeDataView is preserved AND
-        # mutations don't leak.
-        snapshot = self._materialize()
-        G_new = Graph()
-        if isinstance(self._data, bool) and self._data:
-            # snapshot is [(u, v, attrs), ...]
-            G_new.add_edges_from(snapshot)
-        elif isinstance(self._data, bool):
-            # data=False: snapshot is [(u, v), ...]
-            G_new.add_edges_from(snapshot)
-        else:
-            # data='attr': snapshot is [(u, v, value_or_default), ...]
-            # Reconstruct attrs dict.
-            for u, v, value in snapshot:
-                G_new.add_edge(u, v, **{self._data: value})
-        return G_new.edges.data(
-            data=self._data,
-            default=self._default,
+        from copy import deepcopy
+
+        # Copy the owner and frozen selection through one memo. Rebuilding
+        # projected rows loses attribute aliases, node identities and selectors
+        # that cannot be passed as keyword arguments.
+        result = type(self).__new__(type(self))
+        memo[id(self)] = result
+        for name, value in vars(self).items():
+            if name not in {"_call", "_len_handoff", "_nbunch_nodes_seq"}:
+                vars(result)[deepcopy(name, memo)] = deepcopy(value, memo)
+        result._call = (
+            self._call
+            if type(result._view) is type(self._view)
+            else type(result._view).__call__
         )
+        # Cached source rows and revision stamps do not belong to the copied
+        # graph. Revalidate its frozen nbunch on the first and subsequent reads.
+        result._len_handoff = None
+        result._nbunch_nodes_seq = None
+        return result
 
 
 def _edge_view_call_with_nbunch_first(edge_view_call):
@@ -958,7 +962,7 @@ class NodeDataView:
         default = self._default
         if isinstance(data, bool):
             attrs = self._view[key]
-            return dict(attrs) if data else None
+            return attrs if data else None
         return self._view[key].get(data, default)
 
     def __repr__(self):
@@ -992,19 +996,21 @@ class NodeDataView:
         return self
 
     def __deepcopy__(self, memo):
-        # SNAPSHOT semantics — independent of subsequent G mutations.
-        # Materialise the underlying view into a new fnx Graph and
-        # return ITS NodeDataView so type is preserved AND snapshot
-        # is independent.
-        snapshot = [(node, dict(self._view[node])) for node in self._view]
-        G_new = Graph()
-        G_new.add_nodes_from(snapshot)
-        return type(self)(
-            type(G_new.nodes).__call__,
-            G_new.nodes,
-            data=self._data,
-            default=self._default,
+        from copy import deepcopy
+
+        result = type(self).__new__(type(self))
+        memo[id(self)] = result
+        for name, value in vars(self).items():
+            if name != "_call":
+                vars(result)[deepcopy(name, memo)] = deepcopy(value, memo)
+        # A memo-aware node copy may use a mapping-backed view; the old native
+        # descriptor cannot be invoked on that view's different Python type.
+        result._call = (
+            self._call
+            if type(result._view) is type(self._view)
+            else type(result._view).__call__
         )
+        return result
 
     def __reduce__(self):
         # br-r37-c1-ndv-pkl: NodeDataView holds `self._call`, a

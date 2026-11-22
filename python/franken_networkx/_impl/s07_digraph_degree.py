@@ -802,18 +802,98 @@ def _node_view_copy(self):
 _NODE_VIEW_TYPE_TO_GRAPH_CLASS = {}
 
 
+class _CopiedNodeView(_Mapping, _Set):
+    """A node snapshot whose dictionaries retain their deepcopy identities."""
+
+    def __init__(self, nodes):
+        self._nodes = nodes
+
+    def __iter__(self):
+        return iter(self._nodes)
+
+    def __len__(self):
+        return len(self._nodes)
+
+    def __getitem__(self, node):
+        if isinstance(node, slice):
+            raise NetworkXError(
+                "NodeView does not support slicing, try "
+                f"list(G.nodes)[{node.start}:{node.stop}:{node.step}]"
+            )
+        return self._nodes[node]
+
+    def __contains__(self, node):
+        return node in self._nodes
+
+    def __call__(self, data=False, default=None):
+        if data is False:
+            return self
+        return _ViewNodeDataView(self, data, default)
+
+    def data(self, data=True, default=None):
+        return self(data=data, default=default)
+
+    def __repr__(self):
+        return f"NodeView({tuple(self)!r})"
+
+    def __str__(self):
+        return str(list(self))
+
+    @classmethod
+    def _from_iterable(cls, iterable):
+        return set(iterable)
+
+
+_CopiedNodeView.__name__ = "NodeView"
+
+
 def _node_view_deepcopy(self, memo):
-    # br-r37-c1-vcopydc: nx's _deepcopy of NodeView is a SNAPSHOT
-    # — independent of subsequent G mutations.  Materialise via
-    # the existing __reduce__ snapshot pattern, but build a new
-    # fnx Graph (of the matching class) and return ITS NodeView so
-    # ``isinstance(c, NodeView)`` still holds AND mutations to the
-    # original G aren't visible through c.
-    snapshot = [(node, dict(attrs)) for node, attrs in self(data=True)]
-    GraphCls = _NODE_VIEW_TYPE_TO_GRAPH_CLASS.get(type(self), Graph)
-    G_new = GraphCls()
-    G_new.add_nodes_from((n, a) for n, a in snapshot)
-    return G_new.nodes
+    from copy import _keep_alive, deepcopy
+
+    snapshot = list(self(data=True))
+    atomic_types = (type(None), bool, int, float, complex, str, bytes)
+    seen_attrs = set()
+    native = True
+    for node, attrs in snapshot:
+        if (
+            type(node) not in atomic_types
+            or id(node) in memo
+            or type(attrs) is not dict
+            or id(attrs) in memo
+            or id(attrs) in seen_attrs
+        ):
+            native = False
+        seen_attrs.add(id(attrs))
+
+    if not native:
+        # A preseeded memo may already own an attribute dictionary, and a
+        # user node's copy hook may refer back to this view. Native insertion
+        # copies dictionaries, so use an owned mapping for these identities.
+        nodes = {}
+        result = _CopiedNodeView(nodes)
+        memo[id(self)] = result
+        for node, attrs in snapshot:
+            nodes[deepcopy(node, memo)] = deepcopy(attrs, memo)
+        return result
+
+    graph_class = _NODE_VIEW_TYPE_TO_GRAPH_CLASS.get(type(self), Graph)
+    graph = graph_class()
+    result = graph.nodes
+    memo[id(self)] = result
+    targets = []
+    for node, attrs in snapshot:
+        copied_node = deepcopy(node, memo)
+        graph.add_node(copied_node)
+        target = result[copied_node]
+        memo[id(attrs)] = target
+        _keep_alive(attrs, memo)
+        targets.append((attrs, target))
+    # Register every row before traversing attributes: a row may contain
+    # itself, another row, this view, or a shared mutable payload.
+    for attrs, target in targets:
+        for key, value in attrs.items():
+            target[deepcopy(key, memo)] = deepcopy(value, memo)
+    return result
 
 
 for _nv_type, _g_cls in (
@@ -916,17 +996,164 @@ def _edge_view_copy(self):
 
 
 def _edge_view_deepcopy(self, memo):
-    # Materialise the edges into a new Graph and return its EdgeView.
-    snapshot = [(u, v, dict(attrs)) for u, v, attrs in self(data=True)]
-    G_new = Graph()
-    # Add all source-graph nodes too so EdgeView reflects same
-    # universe (some edge-set operations care about isolated nodes).
-    G_new.add_edges_from(snapshot)
-    return G_new.edges
+    from copy import _keep_alive, deepcopy
+
+    owner = _EDGE_VIEW_GRAPH_OWNER.get(id(self))
+    direct_types = (_EDGE_VIEW_TYPE, _DiGraphEdgeView, _MultiGraphEdgeView, _MultiDiGraphEdgeView)
+    if owner is None and type(self) in direct_types[1:]:
+        owner = self._graph
+    if (
+        owner is not None
+        and not memo
+        and type(self) in direct_types
+        and type(owner) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+    ):
+        storage = vars(owner)
+        cached = storage.get(_DESCRIPTOR_CACHED_VIEWS) or ()
+        ordinary_state = all(
+            type(name) is str
+            and (
+                name.startswith("_fnx_")
+                or (
+                    name in cached
+                    and any(
+                        value is storage.get(key, _PRIVATE_MISSING)
+                        for key in (f"_fnx_view_{name}", f"_fnx_view_{name}_assigned")
+                    )
+                )
+                or (name == "__networkx_cache__" and type(value) is dict and not value)
+            )
+            for name, value in storage.items()
+        )
+        native = getattr(owner, "_native_deepcopy", None)
+        if ordinary_state and native is not None and not _has_networkx_private_storage(owner):
+            atomic = (type(None), bool, int, float, complex, str, bytes)
+            graph_attrs = owner.graph
+            nodes = list(owner.nodes(data=True))
+            edges = list(self(keys=True, data=True) if owner.is_multigraph() else self(data=True))
+            rows = [graph_attrs, *(attrs for _, attrs in nodes), *(edge[-1] for edge in edges)]
+
+            def scalar_attrs(attrs):
+                if not _attr_dict_has_plain_reads(attrs):
+                    return False
+                if type(attrs) is not dict:
+                    copier = next(
+                        (vars(base)["__deepcopy__"] for base in type(attrs).__mro__
+                         if "__deepcopy__" in vars(base)),
+                        None,
+                    )
+                    if copier is not _EdgeAttrDict.__deepcopy__:
+                        return False
+                return all(
+                    type(key) in atomic and type(value) in atomic
+                    for key, value in dict.items(attrs)
+                )
+
+            if (
+                all(type(node) in atomic for node, _ in nodes)
+                and all(type(key) in atomic for edge in edges for key in edge[:-1])
+                and len({id(attrs) for attrs in rows}) == len(rows)
+                and all(scalar_attrs(attrs) for attrs in rows)
+            ):
+                # A standalone scalar snapshot needs no logical-store fallback.
+                # The native clone preserves adjacency order and EdgeView type;
+                # retain each public dictionary identity in the caller's memo.
+                copied_graph = native(memo)
+                memo[id(owner)] = copied_graph
+                _keep_alive(owner, memo)
+                setattr(copied_graph, _GRAPH_ATTR_OVERRIDE, deepcopy(graph_attrs, memo))
+                memo[id(graph_attrs)] = copied_graph.graph
+                _keep_alive(graph_attrs, memo)
+                for node, attrs in nodes:
+                    memo[id(node)] = node
+                    memo[id(attrs)] = copied_graph.nodes[node]
+                    _keep_alive(attrs, memo)
+                for edge in edges:
+                    for key in edge[:-1]:
+                        memo[id(key)] = key
+                    memo[id(edge[-1])] = copied_graph.edges[edge[:-1]]
+                    _keep_alive(edge[-1], memo)
+                if "__networkx_cache__" in storage:
+                    vars(copied_graph)["__networkx_cache__"] = deepcopy(
+                        storage["__networkx_cache__"], memo
+                    )
+                for name in cached:
+                    if name in storage:
+                        memo[id(storage[name])] = getattr(copied_graph, name)
+                        _keep_alive(storage[name], memo)
+                result = copied_graph.edges
+                memo[id(self)] = result
+                return result
+    if owner is not None:
+        # Edge views retain their graph. Its copy boundary already memoizes
+        # canonical readers before following owner/view/attribute cycles.
+        copied_graph = deepcopy(owner, memo)
+        copied_view = memo.get(id(self))
+        if copied_view is not None:
+            return copied_view
+        # A held reader remains bound to its stores even if the caller has
+        # assigned a different public ``graph.edges`` value in the meantime.
+        result = _assigned_private_edge_view(copied_graph)
+        memo[id(self)] = result
+        return result
+
+    snapshot = list(self(data=True))
+    graph = Graph()
+    nodes, adjacency = {}, {}
+    _set_private_overrides(
+        graph,
+        [(_PRIVATE_NODE_OVERRIDE, nodes), (_PRIVATE_ADJ_OVERRIDE, adjacency)],
+    )
+    result = graph.edges
+    memo[id(self)] = result
+    for u, v, attrs in snapshot:
+        copied_attrs = deepcopy(attrs, memo)
+        copied_u, copied_v = deepcopy(u, memo), deepcopy(v, memo)
+        nodes.setdefault(copied_u, {})
+        nodes.setdefault(copied_v, {})
+        adjacency.setdefault(copied_u, {})[copied_v] = copied_attrs
+        adjacency.setdefault(copied_v, {})[copied_u] = copied_attrs
+    return result
 
 
 _EDGE_VIEW_TYPE.__copy__ = _edge_view_copy
 _EDGE_VIEW_TYPE.__deepcopy__ = _edge_view_deepcopy
+
+
+def _direct_edge_view_copy_hook(view_type, previous):
+    def copy_view(self):
+        if type(self) is view_type:
+            return self
+        if previous is not None:
+            return previous(self)
+        from copy import _reconstruct
+        reduced = self.__reduce_ex__(4)
+        return self if isinstance(reduced, str) else _reconstruct(self, None, *reduced)
+
+    return copy_view
+
+
+def _direct_edge_view_deepcopy_hook(view_type, previous):
+    def copy_view(self, memo):
+        if type(self) is view_type:
+            return _edge_view_deepcopy(self, memo)
+        if previous is not None:
+            return previous(self, memo)
+        from copy import _reconstruct
+        reduced = self.__reduce_ex__(4)
+        return self if isinstance(reduced, str) else _reconstruct(self, memo, *reduced)
+
+    return copy_view
+
+
+for _direct_view_type in (_DiGraphEdgeView, _MultiGraphEdgeView, _MultiDiGraphEdgeView):
+    _direct_view_type.__copy__ = _direct_edge_view_copy_hook(
+        _direct_view_type, getattr(_direct_view_type, "__copy__", None)
+    )
+    _direct_view_type.__deepcopy__ = _direct_edge_view_deepcopy_hook(
+        _direct_view_type, getattr(_direct_view_type, "__deepcopy__", None)
+    )
+del _direct_view_type
 
 
 # br-r37-c1-k147g: Rust-bound view classes had reprs that either
