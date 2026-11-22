@@ -528,9 +528,17 @@ def identified_nodes(
     # the node/edge "contraction" bookkeeping follows nx line-for-line.
     H = G.copy() if copy else G
     if H.is_directed():
-        edges_to_remap = list(G.in_edges(v, data=True)) + list(G.out_edges(v, data=True))
+        from itertools import chain
+
+        # Obtain both providers before consuming either one. Their iterators
+        # may observe changes made while removing v from a separate copy.
+        edges_to_remap = chain(G.in_edges(v, data=True), G.out_edges(v, data=True))
     else:
-        edges_to_remap = list(G.edges(v, data=True))
+        edges_to_remap = G.edges(v, data=True)
+    if not copy:
+        # Only in-place contraction must retain the rows before removing v
+        # from the very graph that supplies them.
+        edges_to_remap = list(edges_to_remap)
     # Keep the removed node's actual dictionary, including caller-held aliases
     # and cycles. With copy=True, H already owns its shallow dictionary copy.
     v_data = H.nodes[v]
@@ -554,10 +562,9 @@ def identified_nodes(
             else:
                 edge_attrs[store_contraction_as] = {(prev_w, prev_x): d}
 
-    # Store the contracted node's data on u (guard u in H: nx permits u absent
-    # from G, in which case it is created via the remapped edges above; if v had
-    # no incident edges u may never appear, matching the prior lenient contract).
-    if store and u in H:
+    # Remapping can create an absent survivor. If it did not, the node lookup
+    # must raise after the removal rather than silently discard v's metadata.
+    if store:
         node_attrs = H.nodes[u]
         if store_contraction_as in node_attrs:
             node_attrs[store_contraction_as][v] = v_data
