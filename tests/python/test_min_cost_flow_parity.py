@@ -19,6 +19,111 @@ import networkx as nx
 import franken_networkx as fnx
 
 
+_I64_MAX = (1 << 63) - 1
+_I64_MIN = -(1 << 63)
+
+
+@pytest.mark.parametrize(
+    "demands,sources,targets,capacities,weights",
+    [
+        ([-1, 1], [0], [1], [_I64_MAX - 1], [1]),
+        ([-1, 1], [0], [1], [_I64_MAX], [_I64_MIN]),
+        ([-1, 1], [0], [1], [_I64_MAX], [_I64_MAX]),
+        ([_I64_MIN, _I64_MAX, 1], [0, 0], [1, 2], [_I64_MAX, 1], [0, 0]),
+        (
+            [-_I64_MAX, 0, 0, 0, 0, 0, _I64_MAX],
+            [0, 1, 2, 3, 4, 5], [1, 2, 3, 4, 5, 6], [_I64_MAX] * 6,
+            [_I64_MAX] * 3 + [-_I64_MAX] * 3,
+        ),
+        ([0, 0], [0, 1], [1, 0], [_I64_MAX - 1] * 2, [-1, 0]),
+    ],
+    ids=[
+        "wide-finite-capacity", "minimum-weight", "maximum-weight",
+        "minimum-demand", "canceling-wide-costs", "finite-negative-cycle",
+    ],
+)
+def test_raw_native_simplex_integer_boundaries_match_networkx(
+    demands, sources, targets, capacities, weights
+):
+    """The raw public binding must enforce exactness without the Python guard."""
+    graph = nx.MultiDiGraph()
+    graph.add_nodes_from((node, {"demand": demand}) for node, demand in enumerate(demands))
+    for edge, (u, v, capacity, weight) in enumerate(zip(sources, targets, capacities, weights)):
+        data = {"weight": weight}
+        if capacity != _I64_MAX:
+            data["capacity"] = capacity
+        graph.add_edge(u, v, key=edge, **data)
+    expected_cost, expected_flow = nx.network_simplex(graph)
+    expected_flows = [expected_flow[u][v][edge] for edge, (u, v) in enumerate(zip(sources, targets))]
+
+    actual = fnx._fnx.network_simplex_int(
+        demands, sources, targets, capacities, weights, _I64_MAX
+    )
+    assert actual == (0, expected_cost, expected_flows)
+    assert type(actual[1]) is int and all(type(flow) is int for flow in actual[2])
+
+
+@pytest.mark.parametrize(
+    "demands,sources,targets,capacities,weights",
+    [
+        ([-2, 2], [0], [1], [2], [_I64_MAX]),
+        ([-2, 2], [0], [1], [2], [_I64_MIN]),
+        ([_I64_MIN, _I64_MAX, 1], [0, 1], [1, 2], [_I64_MAX] * 2, [0, 0]),
+    ],
+    ids=["positive-cost", "negative-cost", "individual-edge-flow"],
+)
+def test_raw_native_simplex_overflow_is_an_explicit_python_error(
+    demands, sources, targets, capacities, weights
+):
+    with pytest.raises(OverflowError, match="integer arithmetic exceeds the supported range"):
+        fnx._fnx.network_simplex_int(
+            demands, sources, targets, capacities, weights, _I64_MAX
+        )
+
+
+@pytest.mark.parametrize(
+    "demands,sources,targets,capacities,weights",
+    [
+        ([0, 0], [0], [], [1], [0]),
+        ([0, 0], [0], [1], [], [0]),
+        ([0, 0], [0], [1], [1], []),
+        ([0, 0], [2], [1], [1], [0]),
+        ([0, 0], [0], [2], [1], [0]),
+        ([0], [0], [0], [1], [0]),
+        ([0, 0], [0], [1], [0], [-1]),
+        ([], [0], [1], [1], [0]),
+    ],
+    ids=["targets", "capacities", "weights", "source-index", "target-index", "self-loop", "zero-capacity", "empty-nodes"],
+)
+def test_raw_native_simplex_rejects_invalid_arrays_without_panicking(
+    demands, sources, targets, capacities, weights
+):
+    with pytest.raises(ValueError, match="network simplex requires"):
+        fnx._fnx.network_simplex_int(
+            demands, sources, targets, capacities, weights, _I64_MAX
+        )
+
+
+def test_raw_native_simplex_preserves_mathematical_status_codes():
+    solve = fnx._fnx.network_simplex_int
+    assert solve([], [], [], [], [], _I64_MAX) == (0, 0, [])
+    assert solve([-2, 2], [0], [1], [1], [0], _I64_MAX) == (1, 0, [])
+    assert solve([0, 0], [0], [1], [-1], [0], _I64_MAX) == (1, 0, [])
+    assert solve([1, 0], [], [], [], [], _I64_MAX) == (1, 0, [])
+    assert solve([0, 0], [0, 1], [1, 0], [_I64_MAX] * 2, [-1, 0], _I64_MAX) == (2, 0, [])
+
+
+@pytest.mark.parametrize("sentinel", [0, -1])
+def test_raw_native_simplex_rejects_nonpositive_infinity_sentinel(sentinel):
+    with pytest.raises(ValueError, match="capacity sentinel must be positive"):
+        fnx._fnx.network_simplex_int([0, 0], [0], [1], [1], [0], sentinel)
+
+
+def test_raw_native_simplex_rejects_capacity_above_the_declared_sentinel():
+    with pytest.raises(ValueError, match="finite capacities must be below the infinity sentinel"):
+        fnx._fnx.network_simplex_int([0, 0], [0], [1], [11], [0], 10)
+
+
 def _demand_spec(seed):
     rng = random.Random(seed)
     n = rng.randint(4, 7)

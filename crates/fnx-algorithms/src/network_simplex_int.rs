@@ -3,9 +3,10 @@
 //! A faithful transcription of NetworkX's `network_simplex`
 //! (`networkx/algorithms/flow/networksimplex.py`, BSD-licensed) pivot logic,
 //! specialised to integer demands/capacities/weights — the common, and the
-//! only byte-exact-integer, case. All arithmetic here is `i64`; there is no
-//! `f64` anywhere on this path, so results are exact and reproducible with no
-//! rounding.
+//! only byte-exact-integer, case. Flow and cost arithmetic uses checked bounds
+//! and widened `i128` intermediates; results retain the `i64` public contract.
+//! A problem that exceeds that contract returns an explicit overflow status,
+//! never a wrapped cost, a debug-build panic, or overflow-induced unboundedness.
 //!
 //! This kernel was hoisted out of the PyO3 binding crate (`fnx-python`) so that
 //! sibling Rust consumers (e.g. MTDT's integer voice-leading optimal transport)
@@ -35,9 +36,8 @@
 const NONE: usize = usize::MAX;
 
 /// Sentinel used inside [`network_simplex_int`] to mean "unbounded / +infinity"
-/// capacity. Any capacity `>= i64::MAX` is treated as infinite. Rust callers
-/// that want an infinite-capacity edge should pass [`i64::MAX`] for that edge's
-/// capacity.
+/// capacity. Exactly [`i64::MAX`] is reserved for this sentinel; the largest
+/// finite capacity is [`i64::MAX`] - 1.
 pub const CAP_INF: i64 = i64::MAX;
 
 /// Result status of an exact-integer network-simplex solve.
@@ -51,6 +51,12 @@ pub enum NetworkSimplexStatus {
     /// The problem is unbounded below (a negative-cost cycle of infinite
     /// capacity exists).
     Unbounded,
+    /// The edge arrays have different lengths, an endpoint is out of range,
+    /// or a self-loop/zero-capacity edge was not removed by extraction.
+    InvalidInput,
+    /// The internal arithmetic bound, exact total cost, or an individual edge
+    /// flow cannot be represented by the solver's integer types.
+    Overflow,
 }
 
 /// Outcome of [`network_simplex_int`].
@@ -109,11 +115,11 @@ struct Simplex {
     // length edge_count + n (artificial edges appended)
     edge_sources: Vec<usize>,
     edge_targets: Vec<usize>,
-    edge_capacities: Vec<i64>,
-    edge_weights: Vec<i64>,
-    edge_flow: Vec<i64>,
+    edge_capacities: Vec<i128>,
+    edge_weights: Vec<i128>,
+    edge_flow: Vec<i128>,
     // length n
-    node_potentials: Vec<i64>,
+    node_potentials: Vec<i128>,
     // length n + 1 (index n == root)
     parent: Vec<usize>,
     parent_edge: Vec<usize>,
@@ -133,14 +139,14 @@ struct CycleScratch {
 
 impl Simplex {
     #[inline]
-    fn reduced_cost(&self, i: usize) -> i64 {
+    fn reduced_cost(&self, i: usize) -> i128 {
         let c = self.edge_weights[i] - self.node_potentials[self.edge_sources[i]]
             + self.node_potentials[self.edge_targets[i]];
         if self.edge_flow[i] == 0 { c } else { -c }
     }
 
     #[inline]
-    fn residual_capacity(&self, i: usize, p: usize) -> i64 {
+    fn residual_capacity(&self, i: usize, p: usize) -> i128 {
         if self.edge_sources[i] == p {
             self.edge_capacities[i] - self.edge_flow[i]
         } else {
@@ -240,7 +246,7 @@ impl Simplex {
         scratch.edges.extend_from_slice(&scratch.right_edges);
     }
 
-    fn augment_flow(&mut self, wn: &[usize], we: &[usize], f: i64) {
+    fn augment_flow(&mut self, wn: &[usize], we: &[usize], f: i128) {
         for (idx, &i) in we.iter().enumerate() {
             let p = wn[idx];
             if self.edge_sources[i] == p {
@@ -417,42 +423,66 @@ fn solve_impl<const REUSE_CYCLE_SCRATCH: bool>(
     let n = node_demands.len();
     let edge_count = src.len();
 
+    // This is a public Rust entry point as well as an internal Python kernel.
+    // Do not assume that a caller ran the Python extraction/admission checks.
+    if tgt.len() != edge_count
+        || cap.len() != edge_count
+        || wt.len() != edge_count
+        || src
+            .iter()
+            .zip(tgt)
+            .any(|(&u, &v)| u >= n || v >= n || u == v)
+    {
+        return (NetworkSimplexStatus::InvalidInput, 0, Vec::new());
+    }
+    if cap.iter().any(|&c| c < 0) {
+        return (NetworkSimplexStatus::Infeasible, 0, Vec::new());
+    }
+    if cap.contains(&0) {
+        return (NetworkSimplexStatus::InvalidInput, 0, Vec::new());
+    }
+    let Some(demand_sum) = node_demands
+        .iter()
+        .try_fold(0i128, |sum, &d| sum.checked_add(i128::from(d)))
+    else {
+        return (NetworkSimplexStatus::Overflow, 0, Vec::new());
+    };
+    if demand_sum != 0 {
+        return (NetworkSimplexStatus::Infeasible, 0, Vec::new());
+    }
     if n == 0 {
         return (NetworkSimplexStatus::Optimal, 0, Vec::new());
     }
 
-    let inf = i64::MAX;
-
-    // faux_inf = 3 * max(sum finite caps, sum |weights|, sum |demands|) or 1
-    let mut sum_cap: i64 = 0;
-    for &c in cap {
-        if c < inf {
-            sum_cap += c;
-        }
-    }
-    let mut sum_w: i64 = 0;
-    for &w in wt {
-        sum_w += w.abs();
-    }
-    let mut sum_d: i64 = 0;
-    for &d in node_demands {
-        sum_d += d.abs();
-    }
-    let faux_inf = {
-        let m = sum_cap.max(sum_w).max(sum_d);
-        if m == 0 { 1 } else { 3 * m }
+    let Some(faux_inf) = artificial_capacity(node_demands, cap, wt) else {
+        return (NetworkSimplexStatus::Overflow, 0, Vec::new());
     };
 
     // Build full edge arrays: real edges, then n artificial root edges.
-    let total = edge_count + n;
+    let Some(total) = edge_count.checked_add(n) else {
+        return (NetworkSimplexStatus::Overflow, 0, Vec::new());
+    };
+    if total > isize::MAX as usize / std::mem::size_of::<i128>() {
+        return (NetworkSimplexStatus::Overflow, 0, Vec::new());
+    }
     let mut edge_sources = Vec::with_capacity(total);
     let mut edge_targets = Vec::with_capacity(total);
     let mut edge_capacities = Vec::with_capacity(total);
     let mut edge_weights = Vec::with_capacity(total);
     edge_sources.extend_from_slice(src);
     edge_targets.extend_from_slice(tgt);
-    edge_capacities.extend_from_slice(cap);
-    edge_weights.extend_from_slice(wt);
+    // Bound an infinite edge by the same exact artificial capacity. It exceeds
+    // every finite capacity and the total supply plus finite cycle capacity,
+    // and reaches the reference unboundedness threshold before it can constrain
+    // an accepted flow. No ordinary i64 number acts as infinity internally.
+    edge_capacities.extend(cap.iter().map(|&c| {
+        if c == CAP_INF {
+            faux_inf
+        } else {
+            i128::from(c)
+        }
+    }));
+    edge_weights.extend(wt.iter().map(|&w| i128::from(w)));
     // artificial edges connect node i to the root (index n)
     for (i, &d) in node_demands.iter().enumerate() {
         if d > 0 {
@@ -467,9 +497,9 @@ fn solve_impl<const REUSE_CYCLE_SCRATCH: bool>(
     edge_capacities.extend(std::iter::repeat_n(faux_inf, n));
 
     // initialize_spanning_tree(n, faux_inf)
-    let mut edge_flow = vec![0i64; edge_count];
-    edge_flow.extend(node_demands.iter().map(|d| d.abs()));
-    let node_potentials: Vec<i64> = node_demands
+    let mut edge_flow = vec![0i128; edge_count];
+    edge_flow.extend(node_demands.iter().map(|&d| i128::from(d).abs()));
+    let node_potentials: Vec<i128> = node_demands
         .iter()
         .map(|&d| if d <= 0 { faux_inf } else { -faux_inf })
         .collect();
@@ -535,7 +565,7 @@ fn solve_impl<const REUSE_CYCLE_SCRATCH: bool>(
             let l = f + b;
             // find first edge with the lowest reduced cost in the block
             let mut best_i = usize::MAX;
-            let mut best_c = 0i64;
+            let mut best_c = 0i128;
             if l <= edge_count {
                 for e in f..l {
                     let c = sx.reduced_cost(e);
@@ -605,19 +635,79 @@ fn solve_impl<const REUSE_CYCLE_SCRATCH: bool>(
             return (NetworkSimplexStatus::Infeasible, 0, Vec::new());
         }
     }
-    // Unboundedness: any real edge has flow*2 >= faux_inf.
+    // Preserve NetworkX's observable unboundedness threshold. This check is
+    // deliberately separate from arithmetic overflow: all flows are <= F and
+    // the admitted arithmetic envelope proves that doubling fits i128.
     for i in 0..edge_count {
-        if sx.edge_flow[i].saturating_mul(2) >= faux_inf {
+        if sx.edge_flow[i] * 2 >= faux_inf {
             return (NetworkSimplexStatus::Unbounded, 0, Vec::new());
         }
     }
 
-    let mut cost: i64 = 0;
-    for i in 0..edge_count {
-        cost += sx.edge_weights[i] * sx.edge_flow[i];
-    }
-    let flows: Vec<i64> = sx.edge_flow[..edge_count].to_vec();
+    let Ok(flows): Result<Vec<i64>, _> = sx.edge_flow[..edge_count]
+        .iter()
+        .map(|&flow| i64::try_from(flow))
+        .collect()
+    else {
+        return (NetworkSimplexStatus::Overflow, 0, Vec::new());
+    };
+    let Some(cost) = exact_cost(wt, &flows) else {
+        return (NetworkSimplexStatus::Overflow, 0, Vec::new());
+    };
     (NetworkSimplexStatus::Optimal, cost, flows)
+}
+
+/// Prove that every unchecked operation in the pivot loop fits i128.
+///
+/// F = 3 * max(sum finite capacities, sum |weights|, sum |demands|), or 1.
+/// Every flow lies between 0 and its capacity, at most F. A tree path reaches
+/// the artificial root through one artificial edge, so |potential| <= F + W,
+/// where W = sum |real weights|. Reduced costs and potential shifts are bounded
+/// by 2F + 3W; even the intermediate addition of a shift to an old potential is
+/// bounded by 3F + 4W. The conservative 4F + 4W check covers all of these,
+/// their partial subtractions, and their negations. Final costs are checked
+/// separately because products of valid flows and costs can still exceed i64.
+fn artificial_capacity(node_demands: &[i64], cap: &[i64], wt: &[i64]) -> Option<i128> {
+    let sum_cap = cap
+        .iter()
+        .filter(|&&c| c != CAP_INF)
+        .try_fold(0i128, |sum, &c| sum.checked_add(i128::from(c)))?;
+    let sum_w = wt
+        .iter()
+        .try_fold(0i128, |sum, &w| sum.checked_add(i128::from(w).abs()))?;
+    let sum_d = node_demands
+        .iter()
+        .try_fold(0i128, |sum, &d| sum.checked_add(i128::from(d).abs()))?;
+    let faux_inf = sum_cap.max(sum_w).max(sum_d).checked_mul(3)?.max(1);
+    faux_inf
+        .checked_mul(4)?
+        .checked_add(sum_w.checked_mul(4)?)?;
+    Some(faux_inf)
+}
+
+/// Sum exact products without falsely rejecting a representable cancellation.
+/// Each i64 product fits i128. While both signs remain, choosing the opposite
+/// sign to the running sum also keeps it in i128. Once one sign is exhausted,
+/// overflow implies that the final cost cannot fit i64 either.
+fn exact_cost(weights: &[i64], flows: &[i64]) -> Option<i64> {
+    let products = weights
+        .iter()
+        .zip(flows)
+        .map(|(&weight, &flow)| i128::from(weight) * i128::from(flow));
+    let mut positive = products.clone().filter(|&value| value > 0);
+    let mut negative = products.filter(|&value| value < 0);
+    let mut cost = 0i128;
+    loop {
+        let next = if cost < 0 {
+            positive.next().or_else(|| negative.next())
+        } else {
+            negative.next().or_else(|| positive.next())
+        };
+        let Some(value) = next else {
+            return i64::try_from(cost).ok();
+        };
+        cost = cost.checked_add(value)?;
+    }
 }
 
 fn solve(
@@ -657,9 +747,9 @@ pub fn network_simplex_int_cycle_arm(
 /// Solve an exact-integer minimum-cost-flow problem via primal network simplex.
 ///
 /// This is the first-class Rust entry point for the exact-integer path. It is a
-/// byte-exact-integer solver — every intermediate value is `i64`, there is no
-/// `f64` rounding anywhere, and the result is a deterministic function of the
-/// inputs in the order supplied.
+/// byte-exact-integer solver — flow and cost arithmetic uses widened `i128`
+/// intermediates, and the result is a deterministic function of the inputs in
+/// the order supplied. There is no floating-point rounding of flow or cost.
 ///
 /// Parameters:
 /// - `node_demands`: one entry per node (node index = position). NetworkX
@@ -676,7 +766,12 @@ pub fn network_simplex_int_cycle_arm(
 /// Returns a [`NetworkSimplexIntSolution`]; on
 /// [`NetworkSimplexStatus::Optimal`], `flows[i]` is the integer flow on edge `i`
 /// in the same order the edges were supplied, and `cost` is the exact minimum
-/// total cost.
+/// total cost. Malformed edge arrays, self-loops, or zero-capacity edges return
+/// [`NetworkSimplexStatus::InvalidInput`]; negative capacities and unbalanced
+/// demands return [`NetworkSimplexStatus::Infeasible`]. A cost or edge flow
+/// outside i64, or an internal arithmetic bound outside i128, returns
+/// [`NetworkSimplexStatus::Overflow`]. All non-optimal results have zero cost
+/// and an empty flow vector.
 ///
 /// # Determinism & exact-integer guarantees
 ///
@@ -873,5 +968,177 @@ mod tests {
         assert_eq!(sol.cost, 3, "0->2->3 exact shortest path cost");
         // No flow on the expensive 0->1 / 1->3 edges; one unit on 0->2->3.
         assert_eq!(sol.flows, vec![0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn large_finite_capacity_keeps_a_small_optimum_exact() {
+        let sol = network_simplex_int(&[-1, 1], &[0], &[1], &[i64::MAX - 1], &[1]);
+        assert_eq!(sol.status, NetworkSimplexStatus::Optimal);
+        assert_eq!(sol.cost, 1);
+        assert_eq!(sol.flows, [1]);
+    }
+
+    #[test]
+    fn extreme_i64_weights_preserve_exact_cost() {
+        for weight in [i64::MIN, i64::MAX] {
+            let sol = network_simplex_int(&[-1, 1], &[0], &[1], &[CAP_INF], &[weight]);
+            assert_eq!(sol.status, NetworkSimplexStatus::Optimal);
+            assert_eq!(sol.cost, weight);
+            assert_eq!(sol.flows, [1]);
+        }
+    }
+
+    #[test]
+    fn minimum_i64_demand_splits_into_representable_flows() {
+        let sol = network_simplex_int(
+            &[i64::MIN, i64::MAX, 1],
+            &[0, 0],
+            &[1, 2],
+            &[CAP_INF, 1],
+            &[0, 0],
+        );
+        assert_eq!(sol.status, NetworkSimplexStatus::Optimal);
+        assert_eq!(sol.cost, 0);
+        assert_eq!(sol.flows, [i64::MAX, 1]);
+    }
+
+    #[test]
+    fn canceling_costs_are_exact_even_when_a_prefix_exceeds_i128() {
+        // Three positive products exceed i128::MAX, but the full path costs
+        // exactly zero. Neither i64 multiplication nor an unchecked i128
+        // input-order sum is sufficient for the public exact-cost contract.
+        let bound = i64::MAX;
+        let sol = network_simplex_int(
+            &[-bound, 0, 0, 0, 0, 0, bound],
+            &[0, 1, 2, 3, 4, 5],
+            &[1, 2, 3, 4, 5, 6],
+            &[CAP_INF; 6],
+            &[bound, bound, bound, -bound, -bound, -bound],
+        );
+        assert_eq!(sol.status, NetworkSimplexStatus::Optimal);
+        assert_eq!(sol.cost, 0);
+        assert_eq!(sol.flows, [bound; 6]);
+    }
+
+    #[test]
+    fn unrepresentable_cost_or_flow_returns_overflow() {
+        for weight in [i64::MIN, i64::MAX] {
+            let sol = network_simplex_int(&[-2, 2], &[0], &[1], &[2], &[weight]);
+            assert_eq!(sol.status, NetworkSimplexStatus::Overflow);
+            assert_eq!(sol.cost, 0);
+            assert!(sol.flows.is_empty());
+        }
+        // The first edge must carry 2**63 units even though each input demand
+        // fits i64 and the total cost is zero.
+        let sol = network_simplex_int(
+            &[i64::MIN, i64::MAX, 1],
+            &[0, 1],
+            &[1, 2],
+            &[CAP_INF; 2],
+            &[0, 0],
+        );
+        assert_eq!(sol.status, NetworkSimplexStatus::Overflow);
+        assert_eq!(sol.cost, 0);
+        assert!(sol.flows.is_empty());
+    }
+
+    #[test]
+    fn infinite_and_finite_capacity_statuses_preserve_reference_behavior() {
+        let unbounded = network_simplex_int(
+            &[0, 0], &[0, 1], &[1, 0], &[CAP_INF; 2], &[-1, 0],
+        );
+        assert_eq!(unbounded.status, NetworkSimplexStatus::Unbounded);
+        assert_eq!(unbounded.cost, 0);
+        assert!(unbounded.flows.is_empty());
+
+        // The negative cycle is limited by its finite return edge. Preserve
+        // the reference optimum below its artificial-flow cutoff.
+        let bounded = network_simplex_int(
+            &[-1, 1], &[0, 1], &[1, 0], &[CAP_INF, 4], &[-1, 0],
+        );
+        assert_eq!(bounded.status, NetworkSimplexStatus::Optimal);
+        assert_eq!(bounded.cost, -5);
+        assert_eq!(bounded.flows, [5, 4]);
+
+        // The largest finite capacity is still a capacity, even with a
+        // negative cycle. No rounding or sentinel comparison can erase it.
+        let finite = network_simplex_int(
+            &[0, 0], &[0, 1], &[1, 0], &[i64::MAX - 1; 2], &[-1, 0],
+        );
+        assert_eq!(finite.status, NetworkSimplexStatus::Optimal);
+        assert_eq!(finite.cost, -(i64::MAX - 1));
+        assert_eq!(finite.flows, [i64::MAX - 1; 2]);
+    }
+
+    #[test]
+    fn infeasibility_is_checked_before_wide_cost_arithmetic() {
+        let insufficient = network_simplex_int(
+            &[-2, 2], &[0], &[1], &[1], &[i64::MIN],
+        );
+        assert_eq!(insufficient.status, NetworkSimplexStatus::Infeasible);
+        let negative = network_simplex_int(&[0, 0], &[0], &[1], &[-1], &[0]);
+        assert_eq!(negative.status, NetworkSimplexStatus::Infeasible);
+        let unbalanced = network_simplex_int(&[i64::MAX, 1], &[], &[], &[], &[]);
+        assert_eq!(unbalanced.status, NetworkSimplexStatus::Infeasible);
+    }
+
+    #[test]
+    fn malformed_arrays_fail_without_panicking_or_entering_the_pivot_loop() {
+        let invalid = [
+            network_simplex_int(&[0, 0], &[0], &[], &[1], &[0]),
+            network_simplex_int(&[0, 0], &[0], &[1], &[], &[0]),
+            network_simplex_int(&[0, 0], &[0], &[1], &[1], &[]),
+            network_simplex_int(&[0, 0], &[2], &[1], &[1], &[0]),
+            network_simplex_int(&[0, 0], &[0], &[2], &[1], &[0]),
+            network_simplex_int(&[0], &[0], &[0], &[1], &[0]),
+            network_simplex_int(&[0, 0], &[0], &[1], &[0], &[-1]),
+            network_simplex_int(&[], &[0], &[1], &[1], &[0]),
+        ];
+        for sol in invalid {
+            assert_eq!(sol.status, NetworkSimplexStatus::InvalidInput);
+            assert_eq!(sol.cost, 0);
+            assert!(sol.flows.is_empty());
+        }
+    }
+
+    #[test]
+    fn finite_small_networks_match_exhaustive_flow_enumeration() {
+        let sources = [0, 1, 0, 2];
+        let targets = [1, 2, 2, 0];
+        for seed in 0..125i64 {
+            let demands = [-2, 0, 2];
+            let capacities = [1 + seed % 3, 1 + seed / 3 % 3, 3, 2];
+            let weights = [seed % 5 - 2, seed / 5 % 5 - 2, seed / 25 % 5 - 2, -1];
+            let mut best = None;
+            for a in 0..=capacities[0] {
+                for b in 0..=capacities[1] {
+                    for c in 0..=capacities[2] {
+                        for d in 0..=capacities[3] {
+                            if [-a - c + d, a - b, b + c - d] == demands {
+                                let cost = a * weights[0] + b * weights[1]
+                                    + c * weights[2] + d * weights[3];
+                                best = Some(best.map_or(cost, |previous: i64| previous.min(cost)));
+                            }
+                        }
+                    }
+                }
+            }
+            let sol = network_simplex_int(&demands, &sources, &targets, &capacities, &weights);
+            if let Some(cost) = best {
+                assert_eq!(sol.status, NetworkSimplexStatus::Optimal, "seed {seed}");
+                assert_eq!(sol.cost, cost, "seed {seed}");
+                let mut balance = [0; 3];
+                for edge in 0..4 {
+                    assert!((0..=capacities[edge]).contains(&sol.flows[edge]));
+                    balance[sources[edge]] -= sol.flows[edge];
+                    balance[targets[edge]] += sol.flows[edge];
+                }
+                assert_eq!(balance, demands, "flow conservation for seed {seed}");
+                let recomputed: i64 = weights.iter().zip(&sol.flows).map(|(w, f)| w * f).sum();
+                assert_eq!(recomputed, sol.cost);
+            } else {
+                assert_eq!(sol.status, NetworkSimplexStatus::Infeasible, "seed {seed}");
+            }
+        }
     }
 }

@@ -1160,6 +1160,8 @@ fn encode_network_simplex_solution(solution: &NetworkSimplexIntSolution) -> Vec<
         NetworkSimplexStatus::Optimal => 0,
         NetworkSimplexStatus::Infeasible => 1,
         NetworkSimplexStatus::Unbounded => 2,
+        NetworkSimplexStatus::InvalidInput => 3,
+        NetworkSimplexStatus::Overflow => 4,
     };
     let mut encoded = Vec::with_capacity(solution.flows.len() + 3);
     encoded.push(status);

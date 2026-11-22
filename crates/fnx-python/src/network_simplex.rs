@@ -11,12 +11,14 @@
 //! There is no duplicated algorithm here — this is a single source of truth.
 
 use fnx_algorithms::network_simplex_int::{NetworkSimplexStatus, network_simplex_int as ns_int};
+use pyo3::exceptions::{PyOverflowError, PyValueError};
 use pyo3::prelude::*;
 
 /// PyO3 binding: takes flat integer arrays, returns (status, cost, flows).
 /// status: 0 = optimal, 1 = infeasible, 2 = unbounded.
 /// `cap` uses the sentinel `cap_inf` for +infinity (caller passes a value it
-/// guarantees no finite capacity reaches).
+/// guarantees no finite capacity reaches). Invalid arrays/sentinels raise
+/// ValueError; unrepresentable integer results raise OverflowError.
 #[pyfunction]
 #[pyo3(signature = (node_demands, src, tgt, cap, wt, cap_inf))]
 pub fn network_simplex_int(
@@ -26,17 +28,38 @@ pub fn network_simplex_int(
     cap: Vec<i64>,
     wt: Vec<i64>,
     cap_inf: i64,
-) -> (i32, i64, Vec<i64>) {
+) -> PyResult<(i32, i64, Vec<i64>)> {
+    if cap_inf <= 0 {
+        return Err(PyValueError::new_err(
+            "network simplex capacity sentinel must be positive",
+        ));
+    }
+    if cap.iter().any(|&c| c > cap_inf) {
+        return Err(PyValueError::new_err(
+            "finite capacities must be below the infinity sentinel",
+        ));
+    }
     // Map the caller's +inf sentinel to i64::MAX used internally by the kernel.
     let cap2: Vec<i64> = cap
         .iter()
-        .map(|&c| if c >= cap_inf { i64::MAX } else { c })
+        .map(|&c| if c == cap_inf { i64::MAX } else { c })
         .collect();
     let sol = ns_int(&node_demands, &src, &tgt, &cap2, &wt);
     let code = match sol.status {
         NetworkSimplexStatus::Optimal => 0,
         NetworkSimplexStatus::Infeasible => 1,
         NetworkSimplexStatus::Unbounded => 2,
+        NetworkSimplexStatus::InvalidInput => {
+            return Err(PyValueError::new_err(
+                "network simplex requires equal edge-array lengths, valid endpoints, \
+                 and no self-loops or zero-capacity edges",
+            ));
+        }
+        NetworkSimplexStatus::Overflow => {
+            return Err(PyOverflowError::new_err(
+                "network simplex integer arithmetic exceeds the supported range",
+            ));
+        }
     };
-    (code, sol.cost, sol.flows)
+    Ok((code, sol.cost, sol.flows))
 }
