@@ -3424,3 +3424,19 @@ Its single critical finding is an unchanged self-pickle roundtrip test in
 No scanner findings or checks were suppressed. This diagnostic does not
 claim a green UBS run, the canonical full-repository DSR quality gate, a
 cross-platform build, or release qualification.
+
+## 107. Composition Preserves Live Node Attributes
+
+`compose` and disjoint `union` on ordinary native `Graph` inputs merge the
+authoritative node dictionaries after native topology and edge composition.
+Reading an input dictionary before the operation must not change its result;
+cleared attributes cannot reappear from older native storage. Right-hand
+attributes take precedence, earlier nonconflicting fields and insertion order
+survive, and each result dictionary is a fresh shallow copy whose nested
+values retain their original identity. Attribute-free inputs keep the native
+fast return. Other graph classes retain their existing composition routes.
+
+The eight failing storage-history baselines now pass. The guarded DSR operator
+checks passed 678 cases, including 56 new cases across graph classes and
+public, namespace and backend routes. These are scoped Python checks using
+the published 0.4.1 native dependency, not current-native release qualification.

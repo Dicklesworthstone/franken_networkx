@@ -871,6 +871,33 @@ def _set_operator_native_inputs(G, H):
     return True
 
 
+def _restore_native_compose_node_attrs(result, G, H):
+    """Merge authoritative node dictionaries after fused graph construction."""
+    if (
+        _native_graph_has_any_attrs is not None
+        and _native_graph_has_any_attrs(G) is False
+        and _native_graph_has_any_attrs(H) is False
+    ):
+        return result
+
+    # Native node dictionaries may be lazy or may have been edited directly.
+    # Mixing their stored and materialized forms can lose an earlier field,
+    # keep a superseded value, or restore a field the caller cleared. Read the
+    # public dictionaries in input order and replace, rather than update, each
+    # result dictionary. The native pass still owns structure and edge data.
+    merged = {}
+    for graph in (G, H):
+        for node, attrs in graph.nodes(data=True):
+            if node in merged:
+                merged[node].update(attrs)
+            else:
+                merged[node] = dict(attrs)
+    for node, attrs in result.nodes(data=True):
+        attrs.clear()
+        attrs.update(merged[node])
+    return result
+
+
 def _difference_from_live_inputs(G, H, *, symmetric=False):
     """Filter live edge readers through the other input's membership method."""
     if G.is_multigraph() != H.is_multigraph():
@@ -980,7 +1007,7 @@ def union(G, H, rename=()):
     ):
         native = getattr(G, "_native_compose", None)
         if native is not None:
-            return native(H)
+            return _restore_native_compose_node_attrs(native(H), G, H)
     rebuilt = cls()
     rebuilt.graph.update(G.graph)
     rebuilt.graph.update(H.graph)
@@ -1027,7 +1054,7 @@ def compose(G, H):
     ):
         native = getattr(G, "_native_compose", None)
         if native is not None:
-            return native(H)
+            return _restore_native_compose_node_attrs(native(H), G, H)
     # br-r37-c1-composedir (cc): native single-pass for exact DiGraph x DiGraph
     # (directed compose was 0.74x via the Python replay). PyDiGraph._native_compose
     # returns None for row-display-override graphs, falling back to the replay below.

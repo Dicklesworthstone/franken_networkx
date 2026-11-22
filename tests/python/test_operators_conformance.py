@@ -75,6 +75,125 @@ def test_compose_overlap_H_attrs_win():
     assert r[0][1] == {"source": "H", "weight": 1.0, "extra": "new"}
 
 
+def _node_merge_graph(module, graph_type, side, offset=0):
+    graph = getattr(module, graph_type)()
+    graph.graph["source"] = side
+    # Ten attributed nodes reach the native bulk constructor. Do not read
+    # their dictionaries before composition: those reads materialize them
+    # and can hide a merge that incorrectly depends on storage history.
+    graph.add_nodes_from(
+        [(offset + node, {side: node, "shared": side}) for node in range(10)]
+    )
+    graph.add_edge(offset + 1, offset + 2, weight=offset + 1)
+    return graph
+
+
+def _operator_data(graph):
+    edges = (
+        [(u, v, key, dict(attrs)) for u, v, key, attrs in graph.edges(keys=True, data=True)]
+        if graph.is_multigraph()
+        else [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)]
+    )
+    return (
+        dict(graph.graph),
+        [(node, list(attrs.items())) for node, attrs in graph.nodes(data=True)],
+        edges,
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "left_state,right_state",
+    [
+        ("cold", "cold"),
+        ("warm", "warm"),
+        ("cold", "warm"),
+        ("warm", "cold"),
+        ("cold", "cleared"),
+        ("cleared", "cold"),
+    ],
+)
+def test_compose_node_attributes_ignore_storage_history(
+    graph_type, left_state, right_state
+):
+    def run(module):
+        left = _node_merge_graph(module, graph_type, "left")
+        right = _node_merge_graph(module, graph_type, "right")
+        for graph, state in ((left, left_state), (right, right_state)):
+            if state == "warm":
+                graph.nodes[0]
+            elif state == "cleared":
+                graph.nodes[0].clear()
+        result = module.compose(left, right)
+        return _operator_data(result), _operator_data(left), _operator_data(right)
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("operator_name", ["compose", "union", "disjoint_union"])
+@pytest.mark.parametrize("cleared_side", ["left", "right"])
+def test_binary_operator_does_not_restore_cleared_node_attributes(
+    graph_type, operator_name, cleared_side
+):
+    def run(module):
+        left = _node_merge_graph(module, graph_type, "left")
+        right = _node_merge_graph(module, graph_type, "right", offset=10)
+        graph, node = (left, 0) if cleared_side == "left" else (right, 10)
+        graph.nodes[node].clear()
+        result = getattr(module, operator_name)(left, right)
+        assert result.nodes[node] == {}
+        return _operator_data(result), _operator_data(left), _operator_data(right)
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("operator_name", ["compose", "union"])
+@pytest.mark.parametrize("route", ["top_level", "operators", "algorithms", "backend"])
+def test_composed_node_attributes_preserve_keys_and_sharing_across_routes(
+    graph_type, operator_name, route
+):
+    def build(module):
+        left = _node_merge_graph(module, graph_type, "left")
+        target = 0 if operator_name == "compose" else 10
+        right = _node_merge_graph(module, graph_type, "right", offset=target)
+        left.nodes[5].clear()
+        payload = ["shared"]
+        right_attrs = right.nodes[target]
+        right_attrs[("kind", 1)] = "nonstring key"
+        right_attrs["payload"] = payload
+        return left, right, target, payload, right_attrs
+
+    expected_left, expected_right, _, _, _ = build(nx)
+    expected = getattr(nx, operator_name)(expected_left, expected_right)
+    left, right, target, payload, right_attrs = build(fnx)
+    if route == "backend":
+        result = getattr(nx, operator_name)(left, right, backend="franken_networkx")
+    elif route == "operators":
+        from franken_networkx import operators
+
+        result = getattr(operators, operator_name)(left, right)
+    elif route == "algorithms":
+        from franken_networkx.algorithms import operators
+
+        result = getattr(operators, operator_name)(left, right)
+    else:
+        result = getattr(fnx, operator_name)(left, right)
+
+    assert type(result) is getattr(fnx, graph_type)
+    assert _operator_data(result) == _operator_data(expected)
+    assert _operator_data(left) == _operator_data(expected_left)
+    assert _operator_data(right) == _operator_data(expected_right)
+    result_attrs = result.nodes[target]
+    assert result_attrs is not right_attrs
+    assert result_attrs["payload"] is payload
+    result_attrs["result_only"] = True
+    assert "result_only" not in right_attrs
+    result_attrs["payload"].append("still shared")
+    assert right_attrs["payload"] == ["shared", "still shared"]
+
+
 def test_compose_undirected_edge_order_matches_networkx():
     """Edge tuple orientation/order should match nx for simple Graph output."""
     g = fnx.Graph()
