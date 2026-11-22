@@ -345,18 +345,20 @@ def _degree_assortativity_inproc(G, x="out", y="in", weight=None, nodes=None):
         nodes = G.nodes
     if G.is_directed():
         indeg = (
-            {d for _, d in G.in_degree(nodes, weight=weight)}
+            {d for _, d in _assortativity_degree_items(G, G.in_degree, nodes, weight)}
             if "in" in (x, y)
             else set()
         )
         outdeg = (
-            {d for _, d in G.out_degree(nodes, weight=weight)}
+            {d for _, d in _assortativity_degree_items(G, G.out_degree, nodes, weight)}
             if "out" in (x, y)
             else set()
         )
         degrees = set.union(indeg, outdeg)
     else:
-        degrees = {d for _, d in G.degree(nodes, weight=weight)}
+        degrees = {
+            d for _, d in _assortativity_degree_items(G, G.degree, nodes, weight)
+        }
     mapping = {d: i for i, d in enumerate(degrees)}
     matrix = degree_mixing_matrix(
         G, x=x, y=y, nodes=nodes, weight=weight, mapping=mapping
@@ -396,12 +398,16 @@ def degree_assortativity_coefficient(
     _validate_backend_dispatch_keywords(
         "degree_assortativity_coefficient", backend, backend_kwargs
     )
-    G = _coerce_arg_to_fnx_graph(G)
+    # Converting an undirected view can merge distinct reciprocal weights,
+    # and eager degree maps can hide changes made by a selector or provider.
+    # Keep the original graph unless its ordinary native readers and scalar
+    # weights make the existing bulk degree-pair construction unobservable.
     if (
         x == "out"
         and y == "in"
         and nodes is None
-        and (not G.is_multigraph() or weight is None)
+        and _assortativity_has_native_graph_access(G, allow_multigraph=True)
+        and (weight is None or _adc_native_weight_rows(G, weight) is not None)
     ):
         if G.number_of_edges() == 0:
             return float("nan")

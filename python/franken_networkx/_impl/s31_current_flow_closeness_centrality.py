@@ -1490,13 +1490,14 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
     return _gen()
 
 
-def _assortativity_has_native_graph_access(G):
+def _assortativity_has_native_graph_access(G, *, allow_multigraph=False):
     """Admit eager native snapshots without bypassing graph providers."""
-    if type(G) not in (Graph, DiGraph) or not _adc_has_native_graph_access(G):
+    graph_types = _CONCRETE_FNX_GRAPH_TYPES if allow_multigraph else (Graph, DiGraph)
+    if type(G) not in graph_types or not _adc_has_native_graph_access(G):
         return False
     storage = vars(G)
     if any(name in storage for name in (
-        "is_directed", "is_multigraph", "adjacency", "number_of_edges",
+        "is_directed", "is_multigraph", "adjacency", "number_of_edges", "nbunch_iter",
         "__iter__", "__getitem__", "__len__", "__contains__",
     )):
         return False

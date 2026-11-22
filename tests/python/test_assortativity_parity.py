@@ -143,3 +143,103 @@ def test_average_neighbor_degree_nodes_subset(seed):
         k: round(v, 9) for k, v in nx.average_neighbor_degree(ng, nodes=subset).items()
     }
     assert restricted != fnx.average_neighbor_degree(fg)
+
+
+def _directional_assortativity_view(module, class_name, view_kind):
+    graph = getattr(module, class_name)()
+    graph.add_weighted_edges_from([
+        (0, 1, 1), (1, 0, 10), (1, 2, 2), (2, 1, 20),
+        (2, 0, 3), (0, 2, 30), (2, 3, 4), (3, 1, 7), (1, 3, 9),
+    ])
+    view = graph.to_undirected(as_view=True)
+    if view_kind == "nested":
+        view = module.subgraph_view(view, filter_node=lambda node: node != 3)
+    elif view_kind == "asymmetric":
+        view = module.subgraph_view(
+            view, filter_edge=lambda u, v: (u, v) != (1, 2)
+        )
+    return graph, view
+
+
+@pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("view_kind", ["undirected", "nested", "asymmetric"])
+@pytest.mark.parametrize("nodes", [None, [0, 1, 2]])
+@pytest.mark.parametrize("route", ["native", "networkx", "backend", "cached-backend"])
+def test_degree_assortativity_keeps_directional_view_weights(
+    monkeypatch, class_name, view_kind, nodes, route
+):
+    actual_root, actual_graph = _directional_assortativity_view(
+        fnx if route == "native" else nx, class_name, view_kind
+    )
+    expected_root, expected_graph = _directional_assortativity_view(
+        nx, class_name, view_kind
+    )
+    if route == "cached-backend":
+        monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+        nx.relabel_nodes(actual_graph, {}, backend="franken_networkx")
+        assert actual_graph.__networkx_cache__["backends"]["franken_networkx"]
+
+    for replacement in (10, 13, 4):
+        for root in (actual_root, expected_root):
+            attrs = root[1][0][0] if root.is_multigraph() else root[1][0]
+            attrs["weight"] = replacement
+        expected = nx.degree_assortativity_coefficient(
+            expected_graph, weight="weight", nodes=nodes, backend="networkx"
+        )
+        if route in ("backend", "cached-backend"):
+            actual = nx.degree_assortativity_coefficient(
+                actual_graph, weight="weight", nodes=nodes,
+                backend="franken_networkx",
+            )
+        else:
+            actual = fnx.degree_assortativity_coefficient(
+                actual_graph, weight="weight", nodes=nodes
+            )
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12, nan_ok=True)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_degree_assortativity_reads_caller_degree_provider(class_name):
+    def run(module):
+        graph = getattr(module, class_name)()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0), (1, 3)])
+        events = []
+        name = "out_degree" if graph.is_directed() else "degree"
+        original = getattr(graph, name)
+
+        def degree_provider(nbunch=None, weight=None):
+            selected = tuple(nbunch) if nbunch is not None else None
+            events.append((selected, weight))
+            return original(selected, weight=weight)
+
+        setattr(graph, name, degree_provider)
+        result = module.degree_assortativity_coefficient(graph)
+        return result, events
+
+    expected, expected_events = run(nx)
+    actual, actual_events = run(fnx)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12, nan_ok=True)
+    assert actual_events == expected_events
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_degree_assortativity_keeps_ordinary_bulk_degrees(monkeypatch, class_name):
+    graph = getattr(fnx, class_name)()
+    oracle = getattr(nx, class_name)()
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0), (1, 3)]
+    for item in (graph, oracle):
+        item.add_edges_from(edges)
+        if item.is_multigraph():
+            item.add_edge(0, 1)
+    calls = []
+    original = fnx._multigraph_degree_assortativity_coefficient
+
+    def record_bulk(graph, weight):
+        calls.append(graph)
+        return original(graph, weight)
+
+    monkeypatch.setattr(fnx, "_multigraph_degree_assortativity_coefficient", record_bulk)
+    actual = fnx.degree_assortativity_coefficient(graph)
+    expected = nx.degree_assortativity_coefficient(oracle, backend="networkx")
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12, nan_ok=True)
+    assert calls == [graph]

@@ -118,7 +118,7 @@ _ASSORTATIVITY_INPUT_ALGORITHMS = frozenset(
         "attribute_mixing_dict", "attribute_mixing_matrix",
         "degree_mixing_dict", "degree_mixing_matrix",
         "attribute_assortativity_coefficient", "numeric_assortativity_coefficient",
-        "degree_pearson_correlation_coefficient",
+        "degree_assortativity_coefficient", "degree_pearson_correlation_coefficient",
     }
 )
 # Core decomposition graph restrictions are part of the algorithm contract.
