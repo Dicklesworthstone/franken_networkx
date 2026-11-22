@@ -416,3 +416,29 @@ def test_inplace_relabel_plain_attributed_graph_keeps_order_and_sharing(
             assert result.nodes[10]["payload"] is payload
         results.append(_ordered_data(result))
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+@pytest.mark.parametrize("attributes", [False, True], ids=["empty", "scalar"])
+def test_inplace_relabel_plain_graph_keeps_bulk_removal_admission(class_name, attributes):
+    graph = getattr(fnx, class_name)()
+    node_attrs = {"tag": "ordinary", "rank": 7} if attributes else {}
+    edge_attrs = {"weight": 2.5, "active": True} if attributes else {}
+    graph.add_nodes_from(range(3), **node_attrs)
+    graph.add_edges_from([(0, 1), (1, 2), (0, 2)], **edge_attrs)
+    mapping = {0: 10, 1: 11}
+
+    # Correct final output alone does not establish that the ordinary native
+    # bulk route remains reachable after tightening its safety conditions.
+    assert fnx._relabel_can_defer_removals(graph, mapping) is True
+    readers = ("nodes", "edges", "adj")
+    if graph.is_directed():
+        readers += ("succ", "pred")
+    for name in readers:
+        list(getattr(graph, name))
+    assert fnx._relabel_can_defer_removals(graph, mapping) is True
+
+    # A graph can acquire observable payloads after its readers are cached.
+    # That transition must stop deferring removals on this same instance.
+    graph.nodes[0]["payload"] = ["shared"]
+    assert fnx._relabel_can_defer_removals(graph, mapping) is False

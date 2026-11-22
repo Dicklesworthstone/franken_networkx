@@ -3318,8 +3318,11 @@ observes mutations made by earlier reads or arithmetic. Node-bunch iterators
 remain lazy and are consumed after the weighted maximum scan, between the
 corresponding triangle counts. Directed counts retain their predecessor and
 successor rows. The same owned counting loops support live and snapshot
-access; ordinary native graphs retain their existing native or local-snapshot
-route. MultiGraph and MultiDiGraph rejection remains unchanged.
+access; ordinary whole-graph and unweighted native queries retain their
+existing native or snapshot routes. Weighted scalar and subset queries read
+their selected rows live after the required maximum-weight scan, avoiding a
+second full-graph admission pass. MultiGraph and MultiDiGraph rejection
+remains unchanged.
 
 Backend dispatch shares the live-input admission check before conversion,
 including calls made after an earlier query populated a conversion cache.
@@ -3328,12 +3331,11 @@ A cached triangle census cannot override assigned logical/public readers.
 Regression cases are added to `tests/python/test_clustering.py` and
 `tests/python/test_backend_convert_from_nx_hints.py`. The baseline mismatch
 was reproduced through the whole current Python package and released 0.4.1
-native dependency before the workspace disconnected. After recovery, a DSR
-diagnostic passed 355 clustering correctness cases and 52 backend cases;
-two existing weighted single-node scan-budget assertions exposed an extra
-admission scan and require correction. This is not parity-green or full
-current-head quality evidence. The existing `br-r37-c1-78u12` qualification
-work remains open.
+native dependency before the workspace disconnected. After recovery and
+correction of the extra admission scan, the bounded DSR diagnostic described
+below passed all 357 clustering cases, including both existing single-node
+scan-budget checks, and all 52 selected backend cases. This remains targeted
+evidence; `br-r37-c1-78u12` full qualification work stays open.
 
 ## 104. Degree Assortativity on Original Graph Providers
 
@@ -3349,10 +3351,11 @@ retains parallel-edge multiplicity. Repeated attribute writes are visible to
 subsequent weighted coefficient calls.
 
 Focused cases extend `tests/python/test_assortativity_parity.py`. Baseline
-differences were reproduced before execution-environment loss. The first
-recovered DSR diagnostic passed 433 cases and exposed ten regression-fixture
-setup failures, including multigraph filter arity and asymmetric-view cache
-preparation; corrected fixtures still require guarded execution.
+differences were reproduced before execution-environment loss. The recovered
+DSR diagnostic passed all 443 cases across the parity and extensions modules.
+The regression fixtures accept multigraph edge keys and populate a reciprocal
+view's conversion cache before activating its asymmetric filter, testing
+that subsequent calls recover the original live view.
 
 ## 105. In-Place Relabeling Partial Progress
 
@@ -3370,10 +3373,43 @@ even when a later invalid label or attribute raises.
 The all-class baseline `{0: 10, 1: None}` on a three-node path leaves
 `[1, 2, 10]` after the reference exception. The prior implementation left
 the stale node `0` as well. Regressions extend
-`tests/python/test_relabel_edge_cases_parity.py`. All 140 cases in that module,
-including 64 new failure-state, callback and attribute-sharing cases, passed
-in DSR diagnostic run `20261122T005319-rkuhuXag` after workspace recovery.
-The diagnostic used the published 0.4.1 native extension; its native sources
-are unchanged at the tested revision. The combined diagnostic failed its
-assortativity-fixture, clustering scan-budget and UBS checks, so this focused
-result does not qualify the full repository or a release.
+`tests/python/test_relabel_edge_cases_parity.py`. All 148 cases in that module
+passed the bounded DSR diagnostic below: 64 new cases cover failure state,
+callbacks and attribute sharing, and eight additional cases verify that
+ordinary native bulk removal remains admitted before and after public
+readers are cached, then stops being admitted after nested payloads appear.
+
+## 106. Bounded Live-Graph Parity Validation
+
+DSR diagnostic run `20261122T005909-pNxIe6Td` executed five checks against
+`b83db9e33462c8a0306c9a7606bf2e788d380f1a` plus the relabel, weighted-local
+clustering and regression-fixture changes above. Its before/after source
+snapshots are identical. The selected checks and receipt are preserved in
+[`checks-config.yaml`](../../artifacts/diagnostics/live_graph_parity_20261122/checks-config.yaml)
+and [`receipt.json`](../../artifacts/diagnostics/live_graph_parity_20261122/receipt.json).
+
+| Guarded pytest group | Passed |
+| --- | ---: |
+| Assortativity parity and extensions | 443 |
+| Clustering, coefficient identities and triangle order | 357 |
+| In-place relabel edge cases and bulk admission | 148 |
+| Backend clustering dispatch, providers and conversion caches | 52 |
+| **Total** | **1,000** |
+
+The Python checkout used the published 0.4.1 native extension, SHA-256
+`9314ccf170b8a43ca54f2c77822cd26012e5ba6b121cc314386bfbebbf34e386`.
+The native crates, Cargo manifests/lockfile and Rust toolchain configuration
+have no differences from tag `v0.4.1` at the tested revision. This is an
+unchanged release dependency, not a freshly built native artifact.
+Concurrent native integer-simplex commit `23519093faee162c6d6c63a01dbb5de5da8aa15b`
+landed after this frozen run and is preserved on `main`; its native changes
+are outside this receipt's qualification scope.
+
+The aggregate diagnostic is **failed, 4/5 checks passed**. UBS scanned 12
+files but returned partial status (exit 2): its Python taint analysis could
+not resolve generator-consumer identities in existing split-module code.
+Its single critical finding is an unchanged self-pickle roundtrip test in
+`test_backend_convert_from_nx_hints.py`; it is not introduced by these changes.
+No scanner findings or checks were suppressed. This diagnostic does not
+claim a green UBS run, the canonical full-repository DSR quality gate, a
+cross-platform build, or release qualification.

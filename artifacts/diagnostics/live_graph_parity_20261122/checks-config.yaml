@@ -1,0 +1,12 @@
+schema_version: "1.0.0"
+tools:
+  franken_networkx_critical_parity_diagnostic:
+    repo: Dicklesworthstone/franken_networkx
+    local_path: /tmp/fnx-critical-validation
+    language: python
+    checks:
+      - ./scripts/run_pytest_guarded.sh tests/python/test_assortativity_parity.py tests/python/test_assortativity_extensions_parity.py -q --tb=short
+      - ./scripts/run_pytest_guarded.sh tests/python/test_clustering.py tests/python/test_clustering_coefficient_identities.py tests/python/test_triangles_order_parity.py -q --tb=short
+      - ./scripts/run_pytest_guarded.sh tests/python/test_relabel_edge_cases_parity.py -q --tb=short
+      - ./scripts/run_pytest_guarded.sh tests/python/test_backend_convert_from_nx_hints.py -k 'clustering or assortativity' -q --tb=short
+      - .venv/bin/python scripts/ubs_changed_regions.py --base 1c13d71e6fcf5f5181dc0ca22719ce423aa754b6

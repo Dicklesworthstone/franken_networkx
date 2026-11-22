@@ -152,13 +152,15 @@ def _directional_assortativity_view(module, class_name, view_kind):
         (2, 0, 3), (0, 2, 30), (2, 3, 4), (3, 1, 7), (1, 3, 9),
     ])
     view = graph.to_undirected(as_view=True)
+    hidden_edges = set()
     if view_kind == "nested":
         view = module.subgraph_view(view, filter_node=lambda node: node != 3)
     elif view_kind == "asymmetric":
+        hidden_edges.add((1, 2))
         view = module.subgraph_view(
-            view, filter_edge=lambda u, v: (u, v) != (1, 2)
+            view, filter_edge=lambda u, v, *keys: (u, v) not in hidden_edges
         )
-    return graph, view
+    return graph, view, hidden_edges
 
 
 @pytest.mark.parametrize("class_name", ["DiGraph", "MultiDiGraph"])
@@ -168,16 +170,22 @@ def _directional_assortativity_view(module, class_name, view_kind):
 def test_degree_assortativity_keeps_directional_view_weights(
     monkeypatch, class_name, view_kind, nodes, route
 ):
-    actual_root, actual_graph = _directional_assortativity_view(
+    actual_root, actual_graph, actual_hidden = _directional_assortativity_view(
         fnx if route == "native" else nx, class_name, view_kind
     )
-    expected_root, expected_graph = _directional_assortativity_view(
+    expected_root, expected_graph, _ = _directional_assortativity_view(
         nx, class_name, view_kind
     )
     if route == "cached-backend":
         monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+        # Materialize an ordinary reciprocal view, then change its live
+        # predicate without clearing the cache. A concrete undirected graph
+        # cannot itself represent an asymmetric adjacency filter.
+        actual_hidden.clear()
         nx.relabel_nodes(actual_graph, {}, backend="franken_networkx")
         assert actual_graph.__networkx_cache__["backends"]["franken_networkx"]
+        if view_kind == "asymmetric":
+            actual_hidden.add((1, 2))
 
     for replacement in (10, 13, 4):
         for root in (actual_root, expected_root):

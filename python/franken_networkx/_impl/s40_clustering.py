@@ -254,6 +254,11 @@ def _store_triangle_census_snapshot(G, triangle_counts, start_key):
 
 def _clustering_uses_live_python_rows(G, weight, nodes=None):
     """Preserve rows and selectors whose reads can change later triangles."""
+    if weight is not None and nodes is not None:
+        # Local weighted queries already need one whole-graph normalization
+        # scan. Read only their selected rows afterward, without a separate
+        # whole-graph inspection to decide whether snapshots are safe.
+        return True
     if _weighted_query_uses_live_python_rows(G, weight):
         return True
     if nodes is not None and not _is_plain_immutable_label(nodes):
