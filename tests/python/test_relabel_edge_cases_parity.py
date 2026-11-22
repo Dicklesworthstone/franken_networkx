@@ -271,3 +271,148 @@ def test_inplace_relabel_still_merges_node_attribute_fields(class_name):
         assert result.nodes["b"] == {"only_b": 2, "common": "a", "only_a": 1}
         results.append(_ordered_data(result))
     assert results[0] == results[1]
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["networkx", "franken_networkx"])
+@pytest.mark.parametrize("failure", ["invalid_target", "node_attributes", "mapping"])
+def test_inplace_relabel_preserves_completed_renames_after_failure(
+    class_name, graph_module, failure
+):
+    def run(module, relabel):
+        graph = getattr(module, class_name)([(0, 1), (1, 2)])
+        graph.nodes[0]["tag"] = "first"
+        mapping = {0: 10, 1: 11}
+        if failure == "invalid_target":
+            mapping[1] = None
+            error, message = ValueError, "None cannot be a node"
+        elif failure == "node_attributes":
+            graph.nodes[1][7] = "not a keyword"
+            error, message = TypeError, "keywords must be strings"
+        else:
+            class FailingMapping(dict):
+                def __getitem__(self, node):
+                    if node == 1:
+                        raise ValueError("mapping failed")
+                    return super().__getitem__(node)
+
+            mapping = FailingMapping(mapping)
+            error, message = ValueError, "mapping failed"
+
+        with pytest.raises(error, match=message):
+            relabel(graph, mapping, copy=False)
+
+        # The first rename succeeded. Its old label must not survive as an
+        # isolated node when a later rename fails. Scalar attributes keep the
+        # ordinary native graph eligible for batched deletion.
+        assert list(graph) == [1, 2, 10]
+        assert graph.nodes[10]["tag"] == "first"
+        assert graph.has_edge(10, 1)
+        return _ordered_data(graph)
+
+    expected = run(nx, nx.relabel_nodes)
+    assert run(graph_module, fnx.relabel_nodes) == expected
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+@pytest.mark.parametrize("graph_module", [nx, fnx], ids=["networkx", "franken_networkx"])
+@pytest.mark.parametrize("provider", ["subclass", "instance", "mapping", "node_reader"])
+def test_inplace_relabel_callbacks_see_completed_previous_rename(
+    class_name, graph_module, provider
+):
+    def run(module, relabel):
+        observations = []
+        base = getattr(module, class_name)
+
+        def observe(graph):
+            observations.append(tuple(graph))
+            data = graph[1][2][0] if graph.is_multigraph() else graph[1][2]
+            # This affects a later remapped edge, so stale intermediate
+            # topology changes the final answer as well as the callback trace.
+            data["weight"] = len(graph)
+
+        if provider == "subclass":
+            class ObservedGraph(base):
+                def add_node(self, node, **attrs):
+                    if node == 11:
+                        observe(self)
+                    return super().add_node(node, **attrs)
+
+            graph = ObservedGraph()
+        else:
+            graph = base()
+        graph.add_edges_from([(0, 1, {"weight": 2}), (1, 2, {"weight": 2})])
+        mapping = {0: 10, 1: 11}
+
+        if provider == "instance":
+            add_node = graph.add_node
+
+            def observed_add_node(node, **attrs):
+                if node == 11:
+                    observe(graph)
+                return add_node(node, **attrs)
+
+            graph.add_node = observed_add_node
+        elif provider == "mapping":
+            class ObservedMapping(dict):
+                def __getitem__(self, node):
+                    if node == 1:
+                        observe(graph)
+                    return super().__getitem__(node)
+
+            mapping = ObservedMapping(mapping)
+        elif provider == "node_reader":
+            original_nodes = graph.nodes
+
+            class NodeReader:
+                def __getitem__(self, node):
+                    if node == 1:
+                        observe(graph)
+                    return original_nodes[node]
+
+                def __call__(self, *args, **kwargs):
+                    return original_nodes(*args, **kwargs)
+
+                def __iter__(self):
+                    return iter(original_nodes)
+
+                def __len__(self):
+                    return len(original_nodes)
+
+            graph.nodes = NodeReader()
+
+        result = relabel(graph, mapping, copy=False)
+        assert result is graph
+        assert observations == [(1, 2, 10)]
+        data = graph[11][2][0] if graph.is_multigraph() else graph[11][2]
+        assert data["weight"] == 3
+        return observations, _ordered_data(graph)
+
+    expected = run(nx, nx.relabel_nodes)
+    assert run(graph_module, fnx.relabel_nodes) == expected
+
+
+@pytest.mark.parametrize("class_name", _GRAPH_CLASSES)
+@pytest.mark.parametrize("nested_payload", [False, True])
+def test_inplace_relabel_plain_attributed_graph_keeps_order_and_sharing(
+    class_name, nested_payload
+):
+    results = []
+    for module in (nx, fnx):
+        graph = getattr(module, class_name)([(0, 1), (1, 2), (0, 2)])
+        payload = ["shared"] if nested_payload else "shared"
+        graph.nodes[0]["payload"] = payload
+        for index, (_, _, attrs) in enumerate(graph.edges(data=True)):
+            attrs["weight"] = index + 1
+        # Cached ordinary readers must remain usable with the batched route.
+        list(graph.nodes)
+        list(graph.edges)
+        list(graph.adj)
+        result = module.relabel_nodes(graph, {0: 10, 1: 11}, copy=False)
+        assert result is graph
+        assert list(result) == [2, 10, 11]
+        assert result.nodes[10]["payload"] == payload
+        if nested_payload:
+            assert result.nodes[10]["payload"] is payload
+        results.append(_ordered_data(result))
+    assert results[0] == results[1]

@@ -3302,3 +3302,78 @@ multigraph classes retain their prior admission; compound labels do not newly
 trigger graph conversion or whole-graph directed-multigraph projections.
 Bounded queries retain their existing routing, and length-only queries do not
 build path dictionaries.
+
+
+## 103. Clustering on Live Views and Attribute Providers
+
+`clustering` and `average_clustering` retain the caller's graph when a view,
+assigned adjacency, node selector, attribute reader or numeric value has an
+observable protocol. In particular, an undirected view of a directed graph
+may expose different weights at its two endpoints. Conversion to a concrete
+undirected graph and a symmetric edge-weight cache both lose that information.
+
+Weighted normalization uses the original edge enumeration. Triangle products
+then read the oriented adjacency cells needed by each triangle; a later read
+observes mutations made by earlier reads or arithmetic. Node-bunch iterators
+remain lazy and are consumed after the weighted maximum scan, between the
+corresponding triangle counts. Directed counts retain their predecessor and
+successor rows. The same owned counting loops support live and snapshot
+access; ordinary native graphs retain their existing native or local-snapshot
+route. MultiGraph and MultiDiGraph rejection remains unchanged.
+
+Backend dispatch shares the live-input admission check before conversion,
+including calls made after an earlier query populated a conversion cache.
+A cached triangle census cannot override assigned logical/public readers.
+
+Regression cases are added to `tests/python/test_clustering.py` and
+`tests/python/test_backend_convert_from_nx_hints.py`. The baseline mismatch
+was reproduced through the whole current Python package and released 0.4.1
+native dependency before the workspace disconnected. After recovery, a DSR
+diagnostic passed 355 clustering correctness cases and 52 backend cases;
+two existing weighted single-node scan-budget assertions exposed an extra
+admission scan and require correction. This is not parity-green or full
+current-head quality evidence. The existing `br-r37-c1-78u12` qualification
+work remains open.
+
+## 104. Degree Assortativity on Original Graph Providers
+
+Degree assortativity keeps the original graph/view through weighted degree
+mapping and degree-pair reads before building its mixing matrix. Undirected
+views of directed edges can expose different endpoint weights; materializing
+them must not merge those weights or restore hidden adjacency.
+
+Assigned private/public readers, custom degree or edge providers, and
+mutating node selectors retain their own read order. Native bulk admission
+requires callback-free native storage; the unweighted multigraph route
+retains parallel-edge multiplicity. Repeated attribute writes are visible to
+subsequent weighted coefficient calls.
+
+Focused cases extend `tests/python/test_assortativity_parity.py`. Baseline
+differences were reproduced before execution-environment loss. The first
+recovered DSR diagnostic passed 433 cases and exposed ten regression-fixture
+setup failures, including multigraph filter arity and asymmetric-view cache
+preparation; corrected fixtures still require guarded execution.
+
+## 105. In-Place Relabeling Partial Progress
+
+An in-place relabel completes each accepted rename before the next observable
+mapping, graph or node callback. If a later rename fails, the graph retains
+exactly the previously completed renames and their attributes, without
+isolated old labels left behind by deferred cleanup.
+
+Deferred native deletion is allowed only when native graph readers, labels
+and mapping inputs cannot call user code. Ordinary disjoint-label batch
+relabeling retains its existing fast route. Subclasses and custom mappings
+keep the incremental mutation boundary. Deferred native removals are finalized
+even when a later invalid label or attribute raises.
+
+The all-class baseline `{0: 10, 1: None}` on a three-node path leaves
+`[1, 2, 10]` after the reference exception. The prior implementation left
+the stale node `0` as well. Regressions extend
+`tests/python/test_relabel_edge_cases_parity.py`. All 140 cases in that module,
+including 64 new failure-state, callback and attribute-sharing cases, passed
+in DSR diagnostic run `20261122T005319-rkuhuXag` after workspace recovery.
+The diagnostic used the published 0.4.1 native extension; its native sources
+are unchanged at the tested revision. The combined diagnostic failed its
+assortativity-fixture, clustering scan-budget and UBS checks, so this focused
+result does not qualify the full repository or a release.

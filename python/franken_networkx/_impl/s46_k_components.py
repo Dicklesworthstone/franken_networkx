@@ -726,6 +726,77 @@ from franken_networkx.drawing.nx_pylab import (
 # ---------------------------------------------------------------------------
 
 
+_RELABEL_NATIVE_PROTOCOLS = {
+    cls: tuple(
+        (name, getattr(cls, name))
+        for name in (
+            "__iter__", "__getitem__", "add_node", "add_edge", "add_edges_from",
+            "remove_node", "remove_nodes_from", "remove_edges_from",
+            "is_directed", "is_multigraph", "node_dict_factory",
+            "node_attr_dict_factory", "edge_attr_dict_factory",
+            "adjlist_outer_dict_factory", "adjlist_inner_dict_factory",
+            "nodes", "edges", "adj",
+        ) + (("succ", "pred") if cls in (DiGraph, MultiDiGraph) else ())
+        + (("new_edge_key", "edge_key_dict_factory") if cls in (MultiGraph, MultiDiGraph) else ())
+    )
+    for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
+_RELABEL_NATIVE_MULTIEDGES = {
+    cls: cls._native_edge_view_list for cls in (MultiGraph, MultiDiGraph)
+}
+
+
+def _relabel_can_defer_removals(graph, mapping):
+    """Batch deletion only when later relabel steps cannot observe it."""
+    graph_type = type(graph)
+    if not (
+        graph_type is Graph or graph_type is DiGraph
+        or graph_type is MultiGraph or graph_type is MultiDiGraph
+    ):
+        return False
+    if type(mapping) is not dict or _has_networkx_private_storage(graph):
+        return False
+    storage = vars(graph)
+    readers = ("nodes", "edges", "adj", "succ", "pred")
+    if any(
+        getattr(graph_type, name) is not original
+        or (name not in readers and name in storage)
+        for name, original in _RELABEL_NATIVE_PROTOCOLS[graph_type]
+    ):
+        return False
+    if any(
+        name in storage and storage[name] is not storage.get("_fnx_view_" + name)
+        for name in readers
+    ):
+        return False
+    if not all(
+        _is_plain_immutable_label(old) and _is_plain_immutable_label(new)
+        for old, new in mapping.items()
+    ):
+        return False
+    # These inspections use native tuples rather than constructing public
+    # dictionaries that may hash user labels during route selection.
+    if not _view_root_node_keys_are_stable(graph, graph.nodes_seq):
+        return False
+    if graph_type is MultiGraph or graph_type is MultiDiGraph:
+        edges = _RELABEL_NATIVE_MULTIEDGES[graph_type](graph, False, True, None)
+        if any(not _is_plain_immutable_label(key) for _, _, key in edges):
+            return False
+
+    if _native_graph_has_any_attrs is not None and not _graph_has_any_attrs(graph):
+        return True
+    # Attribute reads and re-insertion can invoke mapping, key, or value
+    # protocols. Reuse the existing plain-read/scalar admission instead of
+    # changing their order merely to retain deferred deletion.
+    for _, attrs in graph.nodes(data=True):
+        if not _attr_dict_has_plain_reads(attrs) or not _multigraph_import_plain_attrs(attrs):
+            return False
+    for _, _, attrs in graph.edges(data=True):
+        if not _attr_dict_has_plain_reads(attrs) or not _multigraph_import_plain_attrs(attrs):
+            return False
+    return True
+
+
 def relabel_nodes(G, mapping, copy=True):
     """Relabel the nodes of the graph G.
 
@@ -944,76 +1015,84 @@ def relabel_nodes(G, mapping, copy=True):
         # So a colliding mapping keeps the original per-iteration removal, which
         # is correct and slow. Everything else - including the common
         # relabel-everything-to-fresh-labels case - takes the batched path.
-        defer_removals = not (set(_map.values()) & set(_map))
+        defer_removals = (
+            not (mapping_values & mapping_keys)
+            and _relabel_can_defer_removals(G, _map)
+        )
         pending_removal = []
-        for old in nodes:
-            try:
-                new = _map[old]
-                G.add_node(new, **dict(G.nodes[old]))
-            except KeyError:
-                continue
+        try:
+            for old in nodes:
+                try:
+                    new = _map[old]
+                    G.add_node(new, **dict(G.nodes[old]))
+                except KeyError:
+                    continue
 
-            if new == old:
-                continue
+                if new == old:
+                    continue
 
-            if multigraph:
-                new_edges = [
-                    (new, new if old == target else target, key, dict(data))
-                    for target, keyed_data in G[old].items()
-                    for key, data in keyed_data.items()
-                ]
-                detach = (
-                    [
-                        (old, target, key)
+                if multigraph:
+                    new_edges = [
+                        (new, new if old == target else target, key, dict(data))
                         for target, keyed_data in G[old].items()
-                        for key in keyed_data
-                    ]
-                    if defer_removals
-                    else ()
-                )
-                if directed:
-                    new_edges += [
-                        (new if old == source else source, new, key, dict(data))
-                        for source, keyed_data in G.pred[old].items()
                         for key, data in keyed_data.items()
                     ]
-                    if defer_removals:
-                        detach = list(detach) + [
-                            (source, old, key)
-                            for source, keyed_data in G.pred[old].items()
+                    detach = (
+                        [
+                            (old, target, key)
+                            for target, keyed_data in G[old].items()
                             for key in keyed_data
                         ]
+                        if defer_removals
+                        else ()
+                    )
+                    if directed:
+                        new_edges += [
+                            (new if old == source else source, new, key, dict(data))
+                            for source, keyed_data in G.pred[old].items()
+                            for key, data in keyed_data.items()
+                        ]
+                        if defer_removals:
+                            detach = list(detach) + [
+                                (source, old, key)
+                                for source, keyed_data in G.pred[old].items()
+                                for key in keyed_data
+                            ]
 
-                seen = set()
-                for index, (source, target, key, data) in enumerate(new_edges):
-                    if target in G[source] and key in G[source][target]:
-                        new_key = key if isinstance(key, (int, float)) else 0
-                        while new_key in G[source][target] or (target, new_key) in seen:
-                            new_key += 1
-                        new_edges[index] = (source, target, new_key, data)
-                        seen.add((target, new_key))
-            else:
-                new_edges = [
-                    (new, new if old == target else target, dict(data))
-                    for target, data in G[old].items()
-                ]
-                detach = [(old, target) for target in G[old]] if defer_removals else ()
-                if directed:
-                    new_edges += [
-                        (new if old == source else source, new, dict(data))
-                        for source, data in G.pred[old].items()
+                    seen = set()
+                    for index, (source, target, key, data) in enumerate(new_edges):
+                        if target in G[source] and key in G[source][target]:
+                            new_key = key if isinstance(key, (int, float)) else 0
+                            while new_key in G[source][target] or (target, new_key) in seen:
+                                new_key += 1
+                            new_edges[index] = (source, target, new_key, data)
+                            seen.add((target, new_key))
+                else:
+                    new_edges = [
+                        (new, new if old == target else target, dict(data))
+                        for target, data in G[old].items()
                     ]
-                    if defer_removals:
-                        detach = list(detach) + [(source, old) for source in G.pred[old]]
+                    detach = [(old, target) for target in G[old]] if defer_removals else ()
+                    if directed:
+                        new_edges += [
+                            (new if old == source else source, new, dict(data))
+                            for source, data in G.pred[old].items()
+                        ]
+                        if defer_removals:
+                            detach = list(detach) + [(source, old) for source in G.pred[old]]
 
-            if defer_removals:
-                G.remove_edges_from(detach)
-                pending_removal.append(old)
-            else:
-                G.remove_node(old)
-            G.add_edges_from(new_edges)
-        if pending_removal:
-            G.remove_nodes_from(pending_removal)
+                if defer_removals:
+                    G.remove_edges_from(detach)
+                    pending_removal.append(old)
+                else:
+                    G.remove_node(old)
+                G.add_edges_from(new_edges)
+        finally:
+            # Each accepted rename has already moved its incident edges. A
+            # later invalid label or attribute must not leave the original
+            # node behind merely because its physical deletion was batched.
+            if pending_removal:
+                G.remove_nodes_from(pending_removal)
         return G
 
 
