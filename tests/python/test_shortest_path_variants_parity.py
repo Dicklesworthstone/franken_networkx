@@ -297,6 +297,218 @@ def test_multisource_plain_collections_retain_native_routes(
     assert _ordered_weighted_value(actual) == _ordered_weighted_value(expected)
 
 
+def _compound_builtin_label(kind, value):
+    if kind == "tuple":
+        return (value, "node")
+    if kind == "frozenset":
+        return frozenset((value, "node"))
+    return ((value, "node"), frozenset((b"layer", None, 2j)))
+
+
+@pytest.mark.parametrize("name", _MULTISOURCE_NAMES)
+@pytest.mark.parametrize("graph_class", _GRAPH_CLASSES)
+@pytest.mark.parametrize("kind", ["tuple", "frozenset", "nested"])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input", "backend"])
+def test_multisource_compound_builtin_labels_preserve_typed_routes(
+    monkeypatch, name, graph_class, kind, route
+):
+    labels = [_compound_builtin_label(kind, value) for value in range(6)]
+    reference = getattr(nx, graph_class)()
+    reference.add_nodes_from(labels)
+    reference.add_weighted_edges_from([
+        (labels[0], labels[2], 1), (labels[0], labels[3], 1.0),
+        (labels[1], labels[3], 1), (labels[2], labels[4], 2),
+        (labels[3], labels[4], 2), (labels[4], labels[4], 0),
+    ])
+    if reference.is_multigraph():
+        reference.add_edge(labels[0], labels[2], key="parallel", weight=8)
+    library = fnx if route == "native-input" else nx
+    graph = getattr(library, graph_class)(reference)
+    for reader in ("nodes", "edges", "adj"):
+        getattr(graph, reader)
+    # Equal labels supplied by the caller remain the roots of returned paths.
+    sources = [_compound_builtin_label(kind, value) for value in (1, 0)]
+    namespace = fnx.multi_source_dijkstra.__globals__
+    calls = []
+    uses_native = route == "native-input" and graph_class in ("Graph", "DiGraph")
+    if name == "multi_source_dijkstra_path_length":
+        native = namespace["_fnx"].multi_source_dijkstra_path_length
+    else:
+        native = namespace["_raw_multi_source_dijkstra"]
+
+    def record_native(*args, **kwargs):
+        calls.append(None)
+        return native(*args, **kwargs)
+
+    def left_native(*args, **kwargs):
+        raise AssertionError("builtin compound labels left the native search")
+
+    if uses_native:
+        monkeypatch.setitem(namespace, "_multi_source_dijkstra_inproc", left_native)
+        monkeypatch.setitem(namespace, "_dijkstra_multisource_inproc", left_native)
+    if name == "multi_source_dijkstra_path_length":
+        monkeypatch.setattr(namespace["_fnx"], name, record_native)
+    else:
+        monkeypatch.setitem(namespace, "_raw_multi_source_dijkstra", record_native)
+
+    for weight in (2, 0.25):
+        for item in (graph, reference):
+            if route == "backend":
+                # NetworkX invalidates cached backend conversions through
+                # graph mutators, not direct edits of its attribute dicts.
+                keys = {"key": 0} if item.is_multigraph() else {}
+                item.add_edge(labels[2], labels[4], weight=weight, **keys)
+                continue
+            edge = item[labels[2]][labels[4]]
+            if item.is_multigraph():
+                edge = edge[0]
+            edge["weight"] = weight
+        expected = getattr(nx, name)(reference, sources, backend="networkx")
+        actual = (
+            getattr(nx, name)(graph, sources, backend="franken_networkx")
+            if route == "backend" else getattr(fnx, name)(graph, sources)
+        )
+        assert _ordered_weighted_value(actual) == _ordered_weighted_value(expected)
+        if name != "multi_source_dijkstra_path_length":
+            paths = actual[1] if name == "multi_source_dijkstra" else actual
+            for source in sources:
+                assert paths[source][0] is source
+    assert len(calls) == (2 if uses_native else 0)
+
+
+@pytest.mark.parametrize("name", _MULTISOURCE_NAMES)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("provider", ["private-rows", "assigned-edges", "attribute-factory"])
+def test_multisource_compound_sources_keep_assigned_graph_protocols(
+    monkeypatch, name, graph_class, provider
+):
+    nodes = [(index, "node") for index in range(3)]
+    graphs = []
+    for library in (fnx, nx):
+        graph = getattr(library, graph_class)()
+        graph.add_weighted_edges_from([
+            (nodes[0], nodes[1], 1), (nodes[1], nodes[2], 3),
+        ])
+        if provider == "private-rows":
+            rows = {node: {} for node in nodes}
+            rows[nodes[0]][nodes[2]] = {"weight": 0.25}
+            if graph_class == "Graph":
+                rows[nodes[2]][nodes[0]] = rows[nodes[0]][nodes[2]]
+            graph._adj = rows
+        elif provider == "assigned-edges":
+            def edges(*args, **kwargs):
+                raise AssertionError("shortest-path search read an assigned edge provider")
+
+            graph.edges = edges
+        else:
+            class AttributeFactory(dict):
+                pass
+
+            graph.edge_attr_dict_factory = AttributeFactory
+        graphs.append(graph)
+
+    def prepared_native_graph(*args, **kwargs):
+        raise AssertionError("assigned graph protocols reached a native search")
+
+    namespace = fnx.multi_source_dijkstra.__globals__
+    monkeypatch.setitem(namespace, "_raw_multi_source_dijkstra", prepared_native_graph)
+    monkeypatch.setattr(
+        namespace["_fnx"], "multi_source_dijkstra_path_length", prepared_native_graph
+    )
+    actual = getattr(fnx, name)(graphs[0], [nodes[0]])
+    expected = getattr(nx, name)(graphs[1], [nodes[0]], backend="networkx")
+    assert _ordered_weighted_value(actual) == _ordered_weighted_value(expected)
+
+
+@pytest.mark.parametrize("name", _MULTISOURCE_NAMES)
+@pytest.mark.parametrize("kind", [
+    "tuple", "frozenset", "nested", "tuple-subclass", "frozenset-subclass",
+])
+@pytest.mark.parametrize("route", ["networkx-input", "backend"])
+def test_multisource_compound_source_protocols_precede_conversion(name, kind, route):
+    def run(reference):
+        graph = nx.DiGraph()
+        events = []
+        armed = False
+
+        def wrap(value):
+            if kind in ("tuple", "tuple-subclass"):
+                return (value,)
+            if kind in ("frozenset", "frozenset-subclass"):
+                return frozenset((value,))
+            return (frozenset((value,)), ("cell",))
+
+        source, middle, target = map(wrap, ("s", "a", "t"))
+        graph.add_weighted_edges_from([
+            (source, middle, 1), (middle, target, 9), (source, target, 8),
+        ])
+
+        def observe(operation):
+            if armed:
+                events.append(operation)
+                graph[middle][target]["weight"] = 1
+
+        class LabelMeta(type):
+            def __eq__(cls, other):
+                raise AssertionError("a caller's label type was compared")
+
+            def __hash__(cls):
+                raise AssertionError("a caller's label type was hashed")
+
+        class ScalarLabel(str, metaclass=LabelMeta):
+            def __hash__(self):
+                observe("hash")
+                return str.__hash__(self)
+
+            def __eq__(self, other):
+                observe("equal")
+                return str.__eq__(self, other)
+
+        class TupleLabel(tuple):
+            def __hash__(self):
+                observe("hash")
+                return tuple.__hash__(self)
+
+            def __iter__(self):
+                raise AssertionError("a caller's node label was iterated")
+
+        class FrozenLabel(frozenset):
+            def __hash__(self):
+                observe("hash")
+                return frozenset.__hash__(self)
+
+            def __iter__(self):
+                raise AssertionError("a caller's node label was iterated")
+
+            def __repr__(self):
+                return "FrozenLabel(source)"
+
+        if kind == "tuple-subclass":
+            supplied = TupleLabel(source)
+        elif kind == "frozenset-subclass":
+            supplied = FrozenLabel(source)
+        else:
+            supplied = wrap(ScalarLabel("s"))
+        armed = True
+        actual = (
+            getattr(fnx, name)(graph, [supplied])
+            if not reference and route == "networkx-input" else
+            getattr(nx, name)(
+                graph, [supplied],
+                backend="networkx" if reference else "franken_networkx",
+            )
+        )
+        if name == "multi_source_dijkstra_path":
+            assert actual[target][0] is supplied
+            assert len(actual[target]) == 3
+        else:
+            distances = actual[0] if name == "multi_source_dijkstra" else actual
+            assert distances[target] == 2
+        return repr(actual), events
+
+    assert run(False) == run(True)
+
+
 @pytest.mark.parametrize("name", _WEIGHTED_ROUTE_NAMES)
 @pytest.mark.parametrize("weight", [None, "", 0])
 @pytest.mark.parametrize("prewarmed", [False, True])

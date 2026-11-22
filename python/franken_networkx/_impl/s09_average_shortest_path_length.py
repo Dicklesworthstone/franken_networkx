@@ -916,6 +916,42 @@ def _undirected_view_has_directed_rows(G):
     return False
 
 
+_PLAIN_IMMUTABLE_LABEL_SCALARS = (str, bytes, int, float, complex, bool, type(None))
+
+
+def _is_plain_immutable_label(label):
+    """Whether a label can be inspected and hashed without caller protocols.
+
+    Grid and state-space nodes often contain nested tuples or frozensets.
+    Inspect exact builtin containers only: a subclass or any custom leaf may
+    change the graph while being hashed, compared, represented or iterated.
+    An explicit stack also handles deep and shared immutable structures
+    without recursion or repeatedly expanding the same container.
+    """
+    label_type = type(label)
+    # Comparing a class with a custom metaclass can itself call user code.
+    if type(label_type) is not type:
+        return False
+    if label_type in _PLAIN_IMMUTABLE_LABEL_SCALARS:
+        return True
+    pending = [label]
+    seen = set()
+    while pending:
+        value = pending.pop()
+        value_type = type(value)
+        if type(value_type) is not type:
+            return False
+        if value_type in _PLAIN_IMMUTABLE_LABEL_SCALARS:
+            continue
+        if value_type not in (tuple, frozenset):
+            return False
+        identity = id(value)
+        if identity not in seen:
+            seen.add(identity)
+            pending.extend(value)
+    return True
+
+
 def _weighted_query_uses_live_python_rows(G, weight):
     """Keep observable weight and graph protocols on the caller's rows.
 

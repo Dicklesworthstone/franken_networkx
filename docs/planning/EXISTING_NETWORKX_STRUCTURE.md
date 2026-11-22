@@ -3283,3 +3283,22 @@ Focused cases extend `tests/python/test_attribute_access_parity.py` and
 `tests/python/test_graph_utilities.py`. They received independent source
 review; execution and current-native DSR qualification remain outstanding
 under `br-r37-c1-78u12` because the execution environment is unavailable.
+
+## 102. Native Multi-Source Search with Compound Builtin Labels
+
+Ordinary source labels include exact builtin tuples and frozensets containing
+only exact builtin immutable scalars or nested tuples and frozensets. Their
+admission inspects element types without invoking hashing, equality, repr,
+or user iteration. Concrete native `Graph` and `DiGraph` inputs with ordinary
+storage and canonical readers retain the existing native kernels for all
+three multi-source Dijkstra entry points. Distance types, selected paths and
+result insertion order remain identical to the reference search.
+
+Nested custom objects or subclasses inside source labels retain caller-row
+traversal and source-provider operation order, as do graphs with assigned
+private rows or custom readers. Reusable source collections remain distinct
+from effectful or one-shot source iterables. Foreign NetworkX inputs and both
+multigraph classes retain their prior admission; compound labels do not newly
+trigger graph conversion or whole-graph directed-multigraph projections.
+Bounded queries retain their existing routing, and length-only queries do not
+build path dictionaries.

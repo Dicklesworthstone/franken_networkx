@@ -244,24 +244,47 @@ def _multidigraph_dijkstra_has_bound(G, cutoff, target=None):
     )
 
 
-def _dijkstra_sources_use_live_graph(sources):
+def _dijkstra_sources_use_live_graph(sources, G=None):
     """Keep source iteration and node protocols on the caller's graph.
 
     A source iterable can add a source or change later edges while the public
     validation loop consumes it. Converting the graph first disconnects those
     writes; consuming the iterable to decide a route changes its lifetime.
     Only ordinary reusable collections of plain labels can be inspected here.
+    Compound builtin labels additionally use the non-projection native kernels
+    on concrete simple graphs with ordinary storage and canonical readers.
     """
     if type(sources) is range:
         return False
     if type(sources) not in (list, tuple, set, frozenset, dict):
         return True
-    return any(type(source) not in (str, int, float, bool) for source in sources)
+    if all(
+        type(source) is str or type(source) is int
+        or type(source) is float or type(source) is bool
+        for source in sources
+    ):
+        return False
+    if (type(G) is not Graph and type(G) is not DiGraph) or _has_networkx_private_storage(G):
+        return True
+    storage = vars(G)
+    if G.edge_attr_dict_factory is not dict or any(
+        name in storage for name in (
+            "is_directed", "is_multigraph", "nbunch_iter", "adjacency",
+            "neighbors", "predecessors", "successors",
+        )
+    ):
+        return True
+    if any(
+        name in storage and storage[name] is not storage.get("_fnx_view_" + name)
+        for name in ("nodes", "edges", "adj", "succ", "pred")
+    ):
+        return True
+    return any(not _is_plain_immutable_label(source) for source in sources)
 
 
 def multi_source_dijkstra(G, sources, target=None, cutoff=None, weight="weight"):
     """Return shortest path lengths and paths from any source in *sources*."""
-    live_sources = _dijkstra_sources_use_live_graph(sources)
+    live_sources = _dijkstra_sources_use_live_graph(sources, G)
     # The owned engine performs its own emptiness check. A user collection's
     # truth protocol must run once, at the same boundary as its validation.
     if not live_sources and not sources:
@@ -356,7 +379,7 @@ def multi_source_dijkstra_path_length(G, sources, cutoff=None, weight="weight"):
     if not sources:
         raise ValueError("sources must not be empty")
     if (
-        _dijkstra_sources_use_live_graph(sources)
+        _dijkstra_sources_use_live_graph(sources, G)
         or not _dijkstra_cutoff_uses_native_comparisons(cutoff)
         or _weighted_query_uses_live_python_rows(G, weight)
         or _multidigraph_dijkstra_has_bound(G, cutoff)
