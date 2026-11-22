@@ -15,6 +15,8 @@ repr(), not within a tolerance.
 
 import json
 import sys
+from decimal import Decimal
+from fractions import Fraction
 
 import franken_networkx as fnx
 import networkx as nx
@@ -196,3 +198,101 @@ def test_directed_modularity_interpreter_cancellation_exact(cls, mode, bulk, mut
             }
             print(json.dumps(trace), flush=True)
             assert got == want, trace
+
+
+def _exact_weight_modularity_graph(lib, cls, numeric, unit_weights):
+    graph = getattr(lib, cls)()
+    graph.add_nodes_from(range(5))
+    weights = (
+        [numeric(1)] * 4 if unit_weights
+        else [numeric("0.1"), numeric("0.3"), numeric("0.7"), numeric("1.25")]
+    )
+    graph.add_weighted_edges_from(
+        [
+            (0, 1, weights[0]),
+            (1, 2, weights[1]),
+            (2, 0, weights[2]),
+            (2, 3, weights[3]),
+            (3, 3, weights[0]),
+        ],
+        weight="cost",
+    )
+    graph.add_edge(0, 3)  # A missing weight contributes the integer default 1.
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, cost=weights[1])
+    return graph
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("numeric", [Decimal, Fraction], ids=["decimal", "fraction"])
+@pytest.mark.parametrize("unit_weights", [False, True], ids=["nonunit", "unit"])
+@pytest.mark.parametrize("route", ["native", "backend"])
+def test_modularity_preserves_exact_weight_arithmetic(cls, numeric, unit_weights, route):
+    partition = [{0, 1}, {2, 3}, {4}]
+    expected_graph = _exact_weight_modularity_graph(nx, cls, numeric, unit_weights)
+    expected = nx.community.modularity(
+        expected_graph, partition, weight="cost", backend="networkx"
+    )
+    # Exact numeric weights make the objective exact too, even if every
+    # weight compares equal to one. A float comparison would hide this loss.
+    assert type(expected) is numeric
+    actual_graph = _exact_weight_modularity_graph(
+        fnx if route == "native" else nx, cls, numeric, unit_weights
+    )
+    if route == "backend":
+        actual = nx.community.modularity(
+            actual_graph, partition, weight="cost", backend="franken_networkx"
+        )
+    else:
+        actual = fnx.community.modularity(actual_graph, partition, weight="cost")
+    assert type(actual) is type(expected)
+    assert actual == expected
+
+
+@pytest.mark.parametrize("cls", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("route", ["native", "backend"])
+def test_modularity_preserves_float_normalization_overflow(cls, route):
+    edges = [(0, 1, 1e154), (1, 2, 2e154)]
+    expected_graph = getattr(nx, cls)()
+    expected_graph.add_weighted_edges_from(edges)
+    partition = [{0, 1, 2}]
+    with pytest.raises(OverflowError) as expected:
+        nx.community.modularity(expected_graph, partition, backend="networkx")
+    actual_graph = getattr(fnx if route == "native" else nx, cls)()
+    actual_graph.add_weighted_edges_from(edges)
+    with pytest.raises(OverflowError) as actual:
+        if route == "backend":
+            nx.community.modularity(
+                actual_graph, partition, backend="franken_networkx"
+            )
+        else:
+            fnx.community.modularity(actual_graph, partition)
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("numeric", [int, float], ids=["int", "float"])
+@pytest.mark.parametrize("weight", [None, "cost"])
+def test_modularity_unit_weights_keep_bulk_edge_count(numeric, weight, monkeypatch):
+    edges = [(0, 1, numeric(1)), (1, 2, numeric(1)), (2, 0, numeric(1))]
+    graph, oracle = fnx.Graph(), nx.Graph()
+    for candidate in (graph, oracle):
+        candidate.add_weighted_edges_from(edges, weight="cost")
+    partition = [{0, 1}, {2}]
+    expected = nx.community.modularity(
+        oracle, partition, weight=weight, backend="networkx"
+    )
+    edge_view = graph.edges
+    edge_calls = []
+
+    def counted_edges(*args, **kwargs):
+        edge_calls.append((args, kwargs))
+        return edge_view(*args, **kwargs)
+
+    monkeypatch.setattr(graph, "edges", counted_edges)
+    actual = fnx.community.modularity(graph, partition, weight=weight)
+    assert type(actual) is type(expected)
+    assert actual == expected
+    # Primitive unit weights keep one whole-graph pass rather than reading
+    # each community's weighted rows. Exact-domain handling must not force
+    # these ordinary native graphs onto the per-community route.
+    assert edge_calls == [((), {})]

@@ -233,6 +233,13 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     # _graph_has_explicit_nonunit_weight (native fast path + edge-walk
     # fallback). weight=None => unit weights => not weighted.
     weighted = weight is not None and _graph_has_explicit_nonunit_weight(G, weight)
+    degrees = dict(G.degree(weight=weight))
+    # Unit Decimal/Fraction weights still determine the arithmetic domain.
+    # Their degree sums and per-community edge sums must retain that domain;
+    # equality with the integer 1 does not make integer edge counting exact.
+    weighted = weighted or any(
+        type(degree) not in (int, float, bool) for degree in degrees.values()
+    )
     if weighted:
         # cc-modweightednative: the weighted case used to build a whole nx.Graph
         # copy (_networkx_graph_for_parity) and run nx's modularity on it — ~0.23x
@@ -247,12 +254,9 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
         # 0.23x -> ~0.68x (3.2x self). Undirected only (directed handled above);
         # deg_sum==0 (edges present but zero total weight) raises ZeroDivisionError
         # exactly as nx's `1/deg_sum**2`.
-        degrees = dict(G.degree(weight=weight))
         deg_sum = sum(degrees.values())
-        if deg_sum == 0:
-            raise ZeroDivisionError("division by zero")
-        m = deg_sum / 2.0
-        norm = 1.0 / (deg_sum * deg_sum)
+        m = deg_sum / 2
+        norm = 1 / deg_sum**2
 
         def _community_contribution(community):
             comm = set(community)
@@ -269,10 +273,10 @@ def _modularity_backend_impl(G, communities, weight="weight", resolution=1):
     # Q = sum_c [ L_c/m - gamma*(k_c/2m)^2 ] directly over a native degree dict
     # and ONE native edge pass (0.76x nx). L_c counts each intra-community edge
     # once — including a self-loop once — matching nx's G.edges(comm) sum.
-    deg = dict(G.degree())
+    deg = degrees
     two_m = sum(deg.values())
-    m = two_m / 2.0
-    norm = 1.0 / (two_m * two_m)
+    m = two_m / 2
+    norm = 1 / two_m**2
     cid = {}
     for idx, community in enumerate(community_list):
         for node in community:

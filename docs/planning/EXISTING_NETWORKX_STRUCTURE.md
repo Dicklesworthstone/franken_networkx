@@ -3440,3 +3440,18 @@ The eight failing storage-history baselines now pass. The guarded DSR operator
 checks passed 678 cases, including 56 new cases across graph classes and
 public, namespace and backend routes. These are scoped Python checks using
 the published 0.4.1 native dependency, not current-native release qualification.
+
+## 108. Exact Numeric Modularity
+
+Undirected modularity retains Python's arithmetic domain for edge weights.
+Decimal and Fraction weights, including values equal to one, use their exact
+weighted degree and community-edge sums. The normalization expressions match
+NetworkX (`degree_sum / 2` and `1 / degree_sum**2`), preserving result types,
+rounding, division errors and float-overflow exceptions. Ordinary primitive
+unit weights retain the single whole-graph edge-count route; directed graphs
+retain their existing in/out-degree formula.
+
+The twenty failing numeric baselines now pass. DSR passed all 501 cases in
+the focused modularity and community-quality suites, including 44 new exact
+arithmetic, overflow and route-control cases. The native dependency and
+qualification limits are the same as in Section 107.
