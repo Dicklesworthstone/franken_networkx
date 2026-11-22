@@ -4315,19 +4315,6 @@ impl InstanceDictGc {
         mapping.len().map(Some)
     }
 
-    /// The iterator a graph carrying networkx private storage must yield
-    /// (br-r37-c1-l7ww9), or `None` for an ordinary graph.
-    ///
-    /// Iterating the mapping — not a copy of it — is what nx does, so a
-    /// mutation during iteration raises there and here alike.
-    pub(crate) fn private_node_iter(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
-        let Some(mapping) = self.private_node_mapping(py)? else {
-            return Ok(None);
-        };
-        Ok(Some(mapping.try_iter()?.into_any().unbind()))
-    }
-
-    /// The assigned `_node` mapping, if this graph has one.
     /// The `_adj` MAPPING a graph carrying networkx private storage exposes, or
     /// `None` for an ordinary graph.
     ///
@@ -4353,7 +4340,13 @@ impl InstanceDictGc {
         Ok(self.shared_adj_mapping.as_ref().map(|m| m.bind(py).clone()))
     }
 
-    fn private_node_mapping<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
+    /// Capture the assigned node mapping without calling its protocols.
+    /// Callers invoking Python must first release any native graph borrow:
+    /// the mapping may mutate the graph or replace itself from a callback.
+    pub(crate) fn private_node_mapping<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
         if !self.private_node_override {
             return Ok(None);
         }
@@ -4367,20 +4360,18 @@ impl InstanceDictGc {
             .as_ref()
             .map(|m| m.bind(py).clone()))
     }
+}
 
-    pub(crate) fn private_node_contains(
-        &self,
-        py: Python<'_>,
-        node: &Bound<'_, PyAny>,
-    ) -> PyResult<Option<bool>> {
-        let Some(mapping) = self.private_node_mapping(py)? else {
-            return Ok(None);
-        };
-        match mapping.contains(node) {
-            Ok(contains) => Ok(Some(contains)),
-            Err(error) if error.is_instance_of::<PyTypeError>(py) => Ok(Some(false)),
-            Err(error) => Err(error),
-        }
+/// NetworkX graph membership suppresses TypeError from the node mapping.
+/// The mapping is owned independently of its graph so callbacks can reenter.
+pub(crate) fn node_mapping_contains(
+    mapping: &Bound<'_, PyAny>,
+    node: &Bound<'_, PyAny>,
+) -> PyResult<bool> {
+    match mapping.contains(node) {
+        Ok(contains) => Ok(contains),
+        Err(error) if error.is_instance_of::<PyTypeError>(mapping.py()) => Ok(false),
+        Err(error) => Err(error),
     }
 }
 
@@ -14473,16 +14464,18 @@ impl PyMultiGraph {
     ///
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
     /// `__contains__` — an ordinary graph pays one bool test for the check.
-    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
-        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
-            return Ok(count);
+    fn __len__(slf: PyRef<'_, Self>) -> PyResult<usize> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(slf.py())? {
+            drop(slf);
+            return mapping.len();
         }
-        Ok(self.inner.node_count())
+        Ok(slf.inner.node_count())
     }
 
-    fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
-            return Ok(contains);
+    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
@@ -14492,7 +14485,7 @@ impl PyMultiGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
+            && slf.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -14508,7 +14501,7 @@ impl PyMultiGraph {
         // `exact_str_node_is_present` is misnamed: its body is type-agnostic
         // (value-keyed presence cache, then the generic canonical fallback).
         if node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
+            return slf.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
         // byte comparison. nx is `try: n in self._node except TypeError:
@@ -14519,7 +14512,7 @@ impl PyMultiGraph {
             return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -14557,8 +14550,9 @@ impl PyMultiGraph {
         // Serve iteration from the live node_iter_mirror dict_keyiterator
         // (matching nx) instead of rebuilding a Vec<PyObject> per call.
         let py = slf.py();
-        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
-            return Ok(iterator);
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return Ok(mapping.try_iter()?.into_any().unbind());
         }
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
@@ -19771,17 +19765,19 @@ impl PyGraph {
     ///
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
     /// `__contains__` — an ordinary graph pays one bool test for the check.
-    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
-        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
-            return Ok(count);
+    fn __len__(slf: PyRef<'_, Self>) -> PyResult<usize> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(slf.py())? {
+            drop(slf);
+            return mapping.len();
         }
-        Ok(self.inner.node_count())
+        Ok(slf.inner.node_count())
     }
 
     /// Membership test (called by ``n in G``).
-    fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
-            return Ok(contains);
+    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
@@ -19791,7 +19787,7 @@ impl PyGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
+            && slf.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -19807,7 +19803,7 @@ impl PyGraph {
         // `exact_str_node_is_present` is misnamed: its body is type-agnostic
         // (value-keyed presence cache, then the generic canonical fallback).
         if node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
+            return slf.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
         // byte comparison. nx is `try: n in self._node except TypeError:
@@ -19818,7 +19814,7 @@ impl PyGraph {
             return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — the in-graph members of `nbunch`, in
@@ -19864,8 +19860,9 @@ impl PyGraph {
     /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
-        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
-            return Ok(iterator);
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return Ok(mapping.try_iter()?.into_any().unbind());
         }
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
@@ -24514,24 +24511,22 @@ class FnxMultiGraphCtorEdgeIterable:
                 .into_py_any(py)
                 .expect("missing key conversion should succeed");
             let unhashable = PyList::empty(py);
+            let mapping = state
+                .private_node_mapping(py)
+                .expect("marked mapping probe succeeds")
+                .expect("a marked graph exposes its mapping");
 
-            assert_eq!(
-                state
-                    .private_node_contains(py, present.bind(py))
-                    .expect("present lookup should succeed"),
-                Some(true)
+            assert!(
+                node_mapping_contains(&mapping, present.bind(py))
+                    .expect("present lookup should succeed")
             );
-            assert_eq!(
-                state
-                    .private_node_contains(py, missing.bind(py))
-                    .expect("missing lookup should succeed"),
-                Some(false)
+            assert!(
+                !node_mapping_contains(&mapping, missing.bind(py))
+                    .expect("missing lookup should succeed")
             );
-            assert_eq!(
-                state
-                    .private_node_contains(py, &unhashable)
-                    .expect("unhashable lookup should be suppressed"),
-                Some(false)
+            assert!(
+                !node_mapping_contains(&mapping, &unhashable)
+                    .expect("unhashable lookup should be suppressed")
             );
         });
     }
@@ -24568,12 +24563,11 @@ class FnxMultiGraphCtorEdgeIterable:
             );
 
             // Iteration comes from the SAME mapping, in its order.
-            let iterator = state
-                .private_node_iter(py)
-                .expect("marked iter probe succeeds")
+            let mapping = state
+                .private_node_mapping(py)
+                .expect("marked mapping probe succeeds")
                 .expect("a marked graph iterates its mapping");
-            let observed: Vec<String> = iterator
-                .bind(py)
+            let observed: Vec<String> = mapping
                 .try_iter()
                 .expect("the mapping iterator is iterable")
                 .map(|item| {

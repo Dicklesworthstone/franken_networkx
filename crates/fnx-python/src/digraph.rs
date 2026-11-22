@@ -7661,16 +7661,18 @@ impl PyMultiDiGraph {
     ///
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
     /// `__contains__` — an ordinary graph pays one bool test for the check.
-    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
-        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
-            return Ok(count);
+    fn __len__(slf: PyRef<'_, Self>) -> PyResult<usize> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(slf.py())? {
+            drop(slf);
+            return mapping.len();
         }
-        Ok(self.inner.node_count())
+        Ok(slf.inner.node_count())
     }
 
-    fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
-            return Ok(contains);
+    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return crate::node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
@@ -7680,7 +7682,7 @@ impl PyMultiDiGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = crate::exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
+            && slf.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -7693,7 +7695,7 @@ impl PyMultiDiGraph {
         // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
         // 1.59-1.63x, all four classes.
         if crate::node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
+            return slf.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
         // byte comparison — see the undirected twin.
@@ -7701,7 +7703,7 @@ impl PyMultiDiGraph {
             return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -7739,8 +7741,9 @@ impl PyMultiDiGraph {
         // Serve iteration from the live node_iter_mirror dict_keyiterator
         // (matching nx) instead of rebuilding a Vec<PyObject> per call.
         let py = slf.py();
-        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
-            return Ok(iterator);
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return Ok(mapping.try_iter()?.into_any().unbind());
         }
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
@@ -19496,20 +19499,22 @@ impl PyDiGraph {
     ///
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for
     /// `__contains__` — an ordinary graph pays one bool test for the check.
-    fn __len__(&self, py: Python<'_>) -> PyResult<usize> {
-        if let Some(count) = self.instance_dict_gc.private_node_len(py)? {
-            return Ok(count);
+    fn __len__(slf: PyRef<'_, Self>) -> PyResult<usize> {
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(slf.py())? {
+            drop(slf);
+            return mapping.len();
         }
-        Ok(self.inner.node_count())
+        Ok(slf.inner.node_count())
     }
 
-    fn __contains__(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
         // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
         // same question and must not disagree, so they share the memo. It sits
         // below the private-storage probe and the identity-int path, both of
         // which answer without touching the node-key canonical at all.
-        if let Some(contains) = self.instance_dict_gc.private_node_contains(py, n)? {
-            return Ok(contains);
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return crate::node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
         // (bool excluded) that fits usize AND sits at its own index IS present —
@@ -19519,7 +19524,7 @@ impl PyDiGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = crate::exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
+            && slf.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -19530,7 +19535,7 @@ impl PyDiGraph {
         // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
         // 1.59-1.63x, all four classes.
         if crate::node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
+            return slf.exact_str_node_is_present(py, n);
         }
         // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
         // byte comparison — see the undirected twin.
@@ -19538,7 +19543,7 @@ impl PyDiGraph {
             return Ok(false);
         }
         // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -19579,8 +19584,9 @@ impl PyDiGraph {
         // in-place mutation hooks give nx's native "changed size during
         // iteration" semantics for free.
         let py = slf.py();
-        if let Some(iterator) = slf.instance_dict_gc.private_node_iter(py)? {
-            return Ok(iterator);
+        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
+            drop(slf);
+            return Ok(mapping.try_iter()?.into_any().unbind());
         }
         let mirror = slf.node_iter_mirror_or_init(py)?;
         Ok(mirror.bind(py).call_method0("__iter__")?.unbind())

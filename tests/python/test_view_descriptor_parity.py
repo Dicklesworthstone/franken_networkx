@@ -1233,6 +1233,112 @@ def test_private_node_install_preserves_user_instance_methods():
     assert graph.has_node("sentinel")
 
 
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("operation", ["iter", "len", "contains"])
+@pytest.mark.parametrize("action", ["add", "replace", "raise", "type_error"])
+def test_private_node_mapping_callbacks_can_reenter_graph(cls_name, operation, action):
+    """Mapping protocols run after the native graph borrow has been released."""
+    def run(module):
+        graph = getattr(module, cls_name)()
+        graph.add_nodes_from(["left", "right"])
+        armed = False
+        events = []
+
+        def callback(name):
+            nonlocal armed
+            if not armed or name != operation:
+                return
+            armed = False
+            events.append(name)
+            if action == "add":
+                graph.add_node("tail")
+            else:
+                graph._node = {"replacement": {}}
+                if action == "raise":
+                    raise LookupError("mapping callback failed")
+                if action == "type_error":
+                    raise TypeError("mapping callback type error")
+
+        class Mapping(dict):
+            def __iter__(self):
+                callback("iter")
+                return super().__iter__()
+
+            def __len__(self):
+                callback("len")
+                return super().__len__()
+
+            def __contains__(self, node):
+                callback("contains")
+                return super().__contains__(node)
+
+        original = Mapping((node, {}) for node in ["left", "right"])
+        graph._node = original
+        armed = True
+        try:
+            if operation == "iter":
+                iterator = iter(graph)
+                result = ("iter", type(iterator).__name__, list(iterator))
+            elif operation == "len":
+                result = ("len", len(graph))
+            else:
+                result = ("contains", "left" in graph)
+        except Exception as exc:
+            result = ("error", type(exc).__name__, exc.args)
+        armed = False
+        # A reassignment does not redirect a protocol already operating on
+        # the original mapping. Errors keep the callback's committed changes.
+        return result, events, list(graph), list(original)
+
+    expected = run(nx)
+    assert run(fnx) == expected
+    assert expected[1] == [operation]
+
+
+@pytest.mark.parametrize("cls_name", CLASS_NAMES)
+@pytest.mark.parametrize("mutation", ["add", "remove", "replace_unseen", "replace_seen"])
+def test_reentrant_private_node_iterators_keep_live_mutation_semantics(cls_name, mutation):
+    import operator
+
+    def run(module):
+        graph = getattr(module, cls_name)()
+
+        class Mapping(dict):
+            def __iter__(self):
+                # Replace the graph's mapping while returning an iterator
+                # bound to this original one, as a NetworkX mapping may do.
+                graph._node = {"replacement": {}}
+                return super().__iter__()
+
+        original = Mapping((node, {}) for node in range(5))
+        graph._node = original
+        iterator = iter(graph)
+        trace = [("first", next(iterator), operator.length_hint(iterator))]
+        if mutation == "add":
+            original[9] = {}
+        elif mutation == "remove":
+            original.pop(4)
+        elif mutation == "replace_unseen":
+            original.pop(4)
+            original[9] = {}
+        else:
+            original.pop(0)
+            original[9] = {}
+        trace.append(("hint", operator.length_hint(iterator)))
+        for _ in range(8):
+            try:
+                trace.append(("next", next(iterator)))
+            except StopIteration:
+                trace.append(("stop",))
+                break
+            except Exception as exc:
+                trace.append(("error", type(exc).__name__, str(exc)))
+                break
+        return trace, list(graph)
+
+    assert run(fnx) == run(nx)
+
+
 def test_private_storage_install_preserves_user_has_edge_method():
     graph = fnx.Graph()
 
