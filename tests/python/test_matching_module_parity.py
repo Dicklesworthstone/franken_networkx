@@ -222,13 +222,22 @@ def test_weighted_matching_does_not_preconsume_weight_reader(name, route, behavi
         events = []
 
         class WeightDict(dict):
-            def get(self, key, default=None):
-                events.append((key, default))
+            def _observe(self, method, key, default=None):
+                events.append((method, key, default))
                 if behavior == "raise":
                     raise LookupError("selected weight provider")
                 if behavior == "not-implemented":
                     raise nx.NetworkXNotImplemented("selected weight provider")
+
+            def get(self, key, default=None):
+                self._observe("get", key, default)
                 return super().get(key, default)
+
+            def __getitem__(self, key):
+                # min_weight_matching reads EdgeDataView-selected weights by
+                # subscription; max_weight_matching reads each dict with get.
+                self._observe("__getitem__", key)
+                return super().__getitem__(key)
 
         graph = nx.Graph()
         graph.add_weighted_edges_from([
@@ -258,6 +267,8 @@ def test_weighted_matching_does_not_preconsume_weight_reader(name, route, behavi
     else:
         assert _weighted_call(name, actual, route) == getattr(nx, name)(expected)
     assert actual_events == expected_events
+    first_reader = "get" if name == "max_weight_matching" else "__getitem__"
+    assert actual_events[0][0] == first_reader
 
 
 @pytest.mark.parametrize("route", _WEIGHTED_ROUTES)
