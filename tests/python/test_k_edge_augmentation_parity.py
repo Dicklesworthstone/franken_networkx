@@ -495,3 +495,136 @@ def test_constrained_k2_random_weighted_forests_match_networkx(seed, partial):
         if not partial:
             assert nx.is_k_edge_connected(augmented, 2)
     assert list(graph.edges()) == before
+
+
+def _constrained_partial_augmentation(graph, route, k, avail):
+    if route == "backend":
+        return list(nx.k_edge_augmentation(
+            graph, k, avail=avail, partial=True, backend="franken_networkx",
+        ))
+    supplied = fnx.Graph(graph) if route == "native" else graph
+    before = [(u, v, dict(attrs)) for u, v, attrs in supplied.edges(data=True)]
+    result = list(fnx.k_edge_augmentation(supplied, k, avail=avail, partial=True))
+    assert [(u, v, dict(attrs)) for u, v, attrs in supplied.edges(data=True)] == before
+    return result
+
+
+def _partial_higher_k_fixture(k, cost_kind):
+    size = k + 2
+    if cost_kind == "pairs":
+        labels = list(range(2 * size))
+    else:
+        labels = [
+            index if index % 4 == 0 else
+            f"node-{index}" if index % 4 == 1 else
+            (index,) if index % 4 == 2 else frozenset({index})
+            for index in range(2 * size)
+        ]
+    graph = nx.Graph()
+    graph.add_nodes_from(labels)
+    for start in (0, size):
+        graph.add_edges_from(
+            (labels[start + index], labels[start + (index + 1) % size])
+            for index in range(size)
+        )
+    graph.add_edge(labels[size - 1], labels[size])
+    graph[labels[0]][labels[1]]["retained"] = {"source": "original"}
+    blocks = (labels[:size], labels[size:])
+    choices = [
+        (source, target)
+        for nodes in blocks
+        for index, source in enumerate(nodes)
+        for target in nodes[index + 1:]
+        if not graph.has_edge(source, target)
+    ]
+    crossing = (labels[0], labels[size + 2])
+    choices.append(crossing)
+    if cost_kind == "pairs":
+        avail = choices
+    elif cost_kind == "wide-int":
+        avail = {edge: 2**100 + index for index, edge in enumerate(choices, 1)}
+    elif cost_kind == "fraction":
+        avail = {
+            edge: Fraction(1, 3) + Fraction(index, 2**100)
+            for index, edge in enumerate(choices, 1)
+        }
+    else:
+        avail = {
+            edge: Decimal("0.1") + Decimal(index).scaleb(-25)
+            for index, edge in enumerate(choices, 1)
+        }
+    return graph, avail, blocks, crossing
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("k", [3, 4])
+@pytest.mark.parametrize("cost_kind", ["pairs", "wide-int", "fraction", "decimal"])
+def test_partial_higher_k_optimizes_feasible_blocks(route, k, cost_kind):
+    graph, avail, blocks, crossing = _partial_higher_k_fixture(k, cost_kind)
+    before = [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)]
+    expected = list(nx.k_edge_augmentation(graph, k, avail=avail, partial=True))
+    actual = _constrained_partial_augmentation(graph, route, k, avail)
+    # The upstream general component producer pops a set of graph objects,
+    # so its global block order depends on object identity. Each block's
+    # deterministic augmentation and the selected original links still agree.
+    assert set(actual) == set(expected)
+    assert len(actual) == len(expected) < len(avail)
+    assert actual[-1] == crossing
+    weights = {edge: 1 for edge in avail} if cost_kind == "pairs" else avail
+    assert sum(weights[edge] for edge in actual) == sum(weights[edge] for edge in expected)
+    original_nodes = {node: node for node in graph}
+    assert all(original_nodes[node] is node for edge in actual for node in edge)
+    augmented = graph.copy()
+    augmented.add_edges_from(actual)
+    assert nx.edge_connectivity(augmented) == 2
+    for nodes in blocks:
+        candidates = {edge: cost for edge, cost in weights.items()
+                      if edge[0] in nodes and edge[1] in nodes}
+        expected_block = list(nx.k_edge_augmentation(
+            graph.subgraph(nodes).copy(), k, avail=candidates,
+        ))
+        assert [edge for edge in actual if edge in candidates] == expected_block
+        assert nx.is_k_edge_connected(augmented.subgraph(nodes), k)
+    assert [(u, v, dict(attrs)) for u, v, attrs in graph.edges(data=True)] == before
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("k", [3, 4])
+@pytest.mark.parametrize("empty", [False, True])
+def test_partial_higher_k_small_graphs_respect_candidates(route, k, empty):
+    graph = nx.empty_graph(k)
+    avail = {} if empty else {(0, k - 1): 7}
+    expected = list(nx.k_edge_augmentation(graph, k, avail=avail, partial=True))
+    actual = _constrained_partial_augmentation(graph, route, k, avail)
+    assert actual == expected == ([] if empty else [(0, k - 1)])
+    assert graph.number_of_edges() == 0
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+@pytest.mark.parametrize("small", [False, True])
+def test_partial_higher_k_preserves_reference_raw_pair_errors(route, small):
+    graph = nx.empty_graph(3) if small else nx.path_graph(5)
+    avail = [(0, 2, 1)]
+    with pytest.raises(ValueError) as expected:
+        list(nx.k_edge_augmentation(graph, 3, avail=avail, partial=True))
+    with pytest.raises(ValueError) as actual:
+        _constrained_partial_augmentation(graph, route, 3, avail)
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend"])
+def test_partial_higher_k_existing_candidates_match_reference(route):
+    graph = nx.path_graph(5)
+    avail = {(0, 1): 99, (0, 2): 1}
+    expected = list(nx.k_edge_augmentation(graph, 3, avail=avail, partial=True))
+    actual = _constrained_partial_augmentation(graph, route, 3, avail)
+    assert actual == expected
+
+
+def test_partial_higher_k_uses_owned_augmentation():
+    graph, avail, _, _ = _partial_higher_k_fixture(3, "pairs")
+    expected = set(nx.k_edge_augmentation(graph, 3, avail=avail, partial=True))
+    with mock.patch("networkx.k_edge_augmentation", side_effect=AssertionError("fallback")), \
+         mock.patch("networkx.k_edge_subgraphs", side_effect=AssertionError("fallback")):
+        actual = _constrained_partial_augmentation(graph, "native", 3, avail)
+    assert set(actual) == expected

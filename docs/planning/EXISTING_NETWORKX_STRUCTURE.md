@@ -2848,6 +2848,18 @@ candidate unpacking and error order, including the partial fallback's raw
 pair iteration and its errors for weighted triples. Complete and partial
 paths leave the original graph and its attributes unchanged.
 
+For higher `k`, infeasible constrained partial augmentation uses the same
+block strategy with `k_edge_subgraphs` of the maximally augmented private
+graph. Each non-singleton block receives the existing deterministic greedy
+augmentation for that `k`; only the selected internal candidates are emitted,
+followed by every available link crossing blocks. Traverse blocks in the
+existing `k_edge_subgraphs` order and retain reference edge and neighbor-set
+iteration within each block or block pair, exact Python costs, original
+endpoint objects, and the raw-pair fallback errors. The candidate restriction also
+applies when there are fewer than `k + 1` nodes or no available edges. The
+original graph and attributes remain unchanged, and the complete higher-k
+augmentation policy is unchanged.
+
 ## 89. Owned Leiden Community Detection Contract
 
 This implementation contract derives from Traag, Waltman and van Eck,

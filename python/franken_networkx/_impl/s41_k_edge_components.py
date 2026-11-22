@@ -491,8 +491,8 @@ def _k_edge_weighted_bridge_augmentation(G, avail, weight):
     return connectors + list(selected)
 
 
-def _k_edge_partial_bridge_augmentation(G, avail, weight):
-    """Optimize feasible bridge blocks and retain their available cross-links."""
+def _k_edge_partial_augmentation(G, k, avail, weight):
+    """Optimize feasible k-edge-connected blocks and retain their cross-links."""
     _, costs = _k_edge_unpack_available_edges(avail, weight=weight, G=G)
     maximal = G.copy()
     # The reference's fallback reads raw endpoint pairs after unpacking costs.
@@ -502,7 +502,9 @@ def _k_edge_partial_bridge_augmentation(G, avail, weight):
         (source, target, {"weight": cost, "generator": (source, target)})
         for (source, target), cost in zip(avail, costs)
     )
-    blocks = list(_bridge_components(maximal))
+    blocks = list(
+        _bridge_components(maximal) if k == 2 else k_edge_subgraphs(maximal, k)
+    )
     result = []
     for nodes in blocks:
         if len(nodes) <= 1:
@@ -514,10 +516,10 @@ def _k_edge_partial_bridge_augmentation(G, avail, weight):
             if "generator" in attrs
         }
         block.remove_edges_from(candidates)
-        result.extend(k_edge_augmentation(block, 2, avail=candidates))
+        result.extend(k_edge_augmentation(block, k, avail=candidates))
 
     # Match the component-pair, node-set and neighbor-intersection order.
-    # These links cannot become internal to a feasible bridge-connected block.
+    # These links cannot become internal to a feasible k-edge-connected block.
     for left, right in _combinations(blocks, 2):
         neighbors = {node: set(maximal.adj[node]) for node in left}
         for source, adjacent in neighbors.items():
@@ -731,9 +733,9 @@ def k_edge_augmentation(
     or find a minimum spanning forest of the available component links.
     Unconstrained k=2 uses minimum-cardinality bridge augmentation. Constrained
     k=2 uses weighted bridge contraction and rooted arborescence approximation;
-    partial results optimize feasible blocks and retain their available links.
-    Higher connectivity uses a greedy augmentation policy with deterministic
-    pruning of redundant additions.
+    higher connectivity uses a greedy augmentation policy with deterministic
+    pruning of redundant additions. Constrained partial results optimize
+    feasible k-edge-connected blocks and retain their available crossing links.
     """
     _validate_backend_dispatch_keywords(
         "k_edge_augmentation", backend, backend_kwargs
@@ -755,15 +757,15 @@ def k_edge_augmentation(
     if G.number_of_nodes() < k + 1:
         msg = f"impossible to {k} connect in graph with less than {k + 1} nodes"
         if partial:
-            if k == 2 and avail is not None:
-                return _k_edge_partial_bridge_augmentation(G, avail, weight)
+            if k >= 2 and avail is not None:
+                return _k_edge_partial_augmentation(G, k, avail, weight)
             return list(_k_edge_complement_edges(G))
         raise NetworkXUnfeasible(msg)
     if avail is not None and len(avail) == 0:
         if not is_k_edge_connected(G, k):
             if partial:
-                if k == 2:
-                    return _k_edge_partial_bridge_augmentation(G, avail, weight)
+                if k >= 2:
+                    return _k_edge_partial_augmentation(G, k, avail, weight)
                 return []
             raise NetworkXUnfeasible("no available edges")
         return []
@@ -809,8 +811,8 @@ def k_edge_augmentation(
             raise
         if avail is None:
             return list(_k_edge_complement_edges(G))
-        if k == 2:
-            return _k_edge_partial_bridge_augmentation(G, avail, weight)
+        if k >= 2:
+            return _k_edge_partial_augmentation(G, k, avail, weight)
         avail_edges, _ = _k_edge_unpack_available_edges(avail, weight=weight, G=G)
         return avail_edges
 
