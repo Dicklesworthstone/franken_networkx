@@ -298,7 +298,7 @@ class _DirectedDegreeView:
         # same path _node_degree takes for single nodes).
         if (
             self._nodes is None
-            and self._weight is not None
+            and isinstance(self._weight, str)
             and type(self._graph) is DiGraph
             and self._adjacency_attr in ("succ", "pred")
             and not isinstance(

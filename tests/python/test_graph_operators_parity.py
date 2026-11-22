@@ -1,4 +1,6 @@
 import itertools
+from decimal import Decimal, Inexact, localcontext
+from fractions import Fraction
 
 import pytest
 
@@ -305,6 +307,209 @@ def test_stochastic_graph_multidigraph_native_copy_direct():
         ("a", "c", 4, {"w": 5}),
         ("b", "c", 7, {}),
     ]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy", [False, True])
+@pytest.mark.parametrize(
+    "weights",
+    [
+        [10**308, 10**308],
+        [2**53, 1],
+        [1e16, 1.0, 1.0],
+        [Fraction(1, 3), Fraction(2, 3)],
+        [Decimal("0.1"), Decimal("0.2")],
+        [0, 0],
+    ],
+    ids=["large-integer-total", "integer-low-bit", "compensated-floats", "fractions", "decimals", "zero-total"],
+)
+def test_stochastic_graph_preserves_weight_arithmetic(graph_type, copy, weights):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from(range(len(weights) + 2))
+        graph.add_weighted_edges_from(
+            [(0, target, value) for target, value in enumerate(weights, start=1)],
+            weight="cost",
+        )
+        result = module.stochastic_graph(graph, copy=copy, weight="cost")
+        assert (result is graph) is (not copy)
+        if copy:
+            assert [attrs["cost"] for _, _, attrs in graph.edges(data=True)] == weights
+        return (
+            list(result),
+            [(u, v, type(attrs["cost"]), attrs["cost"]) for u, v, attrs in result.edges(data=True)],
+        )
+
+    expected = run(nx)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("copy", [False, True])
+def test_stochastic_graph_preserves_parallel_decimal_degree_sums(copy):
+    def run(module):
+        graph = module.MultiDiGraph()
+        graph.add_edge(0, 1, key="large", cost=Decimal("1"))
+        graph.add_edge(0, 2, key="small-a", cost=Decimal("0.0004"))
+        graph.add_edge(0, 2, key="small-b", cost=Decimal("0.0004"))
+        result = module.stochastic_graph(graph, copy=copy, weight="cost")
+        return [
+            (u, v, key, type(attrs["cost"]), attrs["cost"])
+            for u, v, key, attrs in result.edges(keys=True, data=True)
+        ]
+
+    with localcontext() as context:
+        context.prec = 4
+        expected = run(nx)
+        assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy", [False, True])
+def test_stochastic_graph_preserves_node_link_metadata(graph_type, copy):
+    def run(module):
+        payload = ["shared"]
+        document = {
+            "directed": True,
+            "multigraph": graph_type == "MultiDiGraph",
+            "graph": {"name": "transport", "payload": payload},
+            "nodes": [{"id": 0}, {"id": 1}, {"id": 2}, {"id": "isolated"}],
+            "edges": [
+                {"source": 0, "target": 1, "weight": 2},
+                {"source": 0, "target": 2, "weight": 6},
+            ],
+        }
+        graph = module.node_link_graph(document)
+        result = module.stochastic_graph(graph, copy=copy)
+        assert (result is graph) is (not copy)
+        assert result.graph == document["graph"]
+        assert result.graph["payload"] is payload
+        assert (result.graph is graph.graph) is (not copy)
+        return _graph_signature(result)
+
+    expected = run(nx)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy", [False, True])
+def test_stochastic_graph_preserves_arbitrary_attribute_keys_and_shallow_values(graph_type, copy):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph_payload, node_payload, edge_payload = [], [], []
+        graph.graph[("graph", "payload")] = graph_payload
+        graph.add_nodes_from([(0, {1: node_payload}), (1, {}), (2, {})])
+        graph.add_edges_from([
+            (0, 1, {("edge", "payload"): edge_payload, "cost": Fraction(1, 3)}),
+            (0, 2, {"cost": Fraction(2, 3)}),
+        ])
+        original_edge = next(iter(graph.edges(data=True)))[-1]
+        result = module.stochastic_graph(graph, copy=copy, weight="cost")
+        result_edge = next(iter(result.edges(data=True)))[-1]
+
+        assert result.graph[("graph", "payload")] is graph_payload
+        assert result.nodes[0][1] is node_payload
+        assert result_edge[("edge", "payload")] is edge_payload
+        assert (result.graph is graph.graph) is (not copy)
+        assert (result.nodes[0] is graph.nodes[0]) is (not copy)
+        assert (result_edge is original_edge) is (not copy)
+        return _graph_signature(result)
+
+    expected = run(nx)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy", [False, True])
+def test_stochastic_graph_preserves_partial_progress_on_numeric_error(graph_type, copy):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph.add_weighted_edges_from([
+            (0, 1, Decimal("1")), (0, 2, Decimal("1")),
+            (3, 4, Decimal("1")), (3, 5, Decimal("2")),
+        ])
+        with pytest.raises(Inexact) as error:
+            module.stochastic_graph(graph, copy=copy)
+        return (
+            type(error.value), error.value.args,
+            [(u, v, type(data["weight"]), data["weight"]) for u, v, data in graph.edges(data=True)],
+        )
+
+    with localcontext() as context:
+        context.prec = 8
+        context.traps[Inexact] = True
+        expected = run(nx)
+        assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy", [False, True])
+@pytest.mark.parametrize("weight", [7, ("cost", "units"), None])
+def test_stochastic_graph_preserves_non_string_weight_selectors(graph_type, copy, weight):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph.add_edges_from([(0, 1, {weight: 2}), (0, 2, {weight: 6})])
+        result = module.stochastic_graph(graph, copy=copy, weight=weight)
+        return [(u, v, type(data[weight]), data[weight]) for u, v, data in result.edges(data=True)]
+
+    expected = run(nx)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", [7, ("cost", "units"), None])
+def test_directed_out_degree_preserves_non_string_weight_selectors(graph_type, weight):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph.add_edges_from([(0, 1, {weight: 2}), (0, 2, {weight: 6})])
+        graph.add_node("isolated")
+        return list(graph.out_degree(weight=weight))
+
+    expected = run(nx)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("copy", [False, True])
+@pytest.mark.parametrize("weights", [(2, 6), (0.5, 1.5)], ids=["integers", "binary-floats"])
+def test_stochastic_graph_retains_native_normalization_for_exact_weights(
+    monkeypatch, graph_type, copy, weights,
+):
+    def build(module):
+        graph = getattr(module, graph_type)()
+        graph.add_edge(0, 1, cost=weights[0])
+        graph.add_edge(0, 2, cost=weights[1])
+        if graph.is_multigraph():
+            graph.add_edge(0, 1, cost=weights[0])
+        graph.add_edge(1, 2)
+        graph.add_edge(2, 0, cost=True)
+        graph.add_node("isolated")
+        return graph
+
+    graph = build(fnx)
+    expected = nx.stochastic_graph(build(nx), copy=copy, weight="cost")
+    calls = []
+
+    def record(name, native):
+        def wrapped(*args, **kwargs):
+            calls.append(name)
+            return native(*args, **kwargs)
+        return wrapped
+
+    for name in (
+        "stochastic_graph_copy_multidigraph",
+        "stochastic_graph_normalize_multidigraph_inplace",
+        "stochastic_graph_normalize_digraph_inplace",
+    ):
+        monkeypatch.setattr(fnx._fnx, name, record(name, getattr(fnx._fnx, name)))
+    _block_networkx_operators(monkeypatch, "stochastic_graph")
+    result = fnx.stochastic_graph(graph, copy=copy, weight="cost")
+
+    if graph_type == "MultiDiGraph" and copy:
+        assert calls == ["stochastic_graph_copy_multidigraph"]
+    else:
+        assert calls == [f"stochastic_graph_normalize_{graph_type.lower()}_inplace"]
+    assert (result is graph) is (not copy)
+    assert _graph_signature(result) == _graph_signature(expected)
 
 
 def test_disjoint_union_matches_networkx_for_multigraphs():

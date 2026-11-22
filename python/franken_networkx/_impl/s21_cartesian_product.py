@@ -615,53 +615,92 @@ def minimum_edge_cut(G, s=None, t=None, flow_func=None, *, backend=None, **backe
         return min_cut
 
 
+def _stochastic_native_weights_are_exact(G, weight):
+    """Admit positive builtin weights whose native sums are exact.
+
+    Express the weights over one binary denominator and bound their total
+    integer numerator by 2**53. Every row and partial sum is then exactly
+    representable as a float, independent of native traversal order. Other
+    weights retain Python's integer, compensated-float and numeric protocols.
+    """
+    if (
+        type(G) not in (DiGraph, MultiDiGraph)
+        or type(weight) is not str
+        or not _adc_has_native_graph_access(G)
+    ):
+        return False
+    storage = G.__dict__
+    if "edges" in storage and storage["edges"] is not storage.get("_fnx_view_edges"):
+        return False
+    if any(not _is_plain_immutable_label(node) for node in G):
+        return False
+
+    multigraph = type(G) is MultiDiGraph
+    edges = G.edges(keys=True, data=True) if multigraph else G.edges(data=True)
+    denominator = 1
+    numerator_total = 0
+    for edge in edges:
+        if multigraph and not _is_plain_immutable_label(edge[-2]):
+            return False
+        attrs = edge[-1]
+        if not _attr_dict_has_plain_reads(attrs):
+            return False
+        if any(not _is_plain_immutable_label(key) for key in attrs):
+            return False
+        value = attrs.get(weight, 1)
+        if type(value) is int or type(value) is bool:
+            numerator, divisor = int(value), 1
+        elif type(value) is float and _math.isfinite(value):
+            numerator, divisor = value.as_integer_ratio()
+        else:
+            return False
+        # A zero row must produce integer zero; negative and cancelling rows
+        # also use the public degree calculation and ordered edge writes.
+        if numerator <= 0:
+            return False
+        if divisor > denominator:
+            numerator_total *= divisor // denominator
+            denominator = divisor
+        else:
+            numerator *= denominator // divisor
+        numerator_total += numerator
+        if numerator_total > 2**53:
+            return False
+    return True
+
+
 def stochastic_graph(G, copy=True, weight="weight"):
     """Return the stochastic graph of *G* (row-normalized adjacency)."""
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
 
-    # br-r37-c1-stochcopy: the copy dominated — _copy_graph_shallow rebuilds via a
-    # per-edge add_edge loop (~35ms @3200e, 0.34x nx). For an exact DiGraph use the
-    # native integer-CSR ``G.copy()`` (independent attr dicts, so the in-place
-    # weight normalisation below stays isolated from G); and materialise the edge
-    # view ONCE (live attr-dict refs) rather than crossing ``edges(data=True)``
-    # twice. 0.34x -> ~parity, ~3x self-speedup. Multigraph keeps
-    # _copy_graph_shallow (its native G.copy() is the slow String-keyed path), and
-    # subclasses keep it (SubgraphView can't be empty-constructed).
     if copy:
-        if type(G) is MultiDiGraph and isinstance(weight, str):
+        if (
+            type(G) is MultiDiGraph
+            and _GRAPH_ATTR_OVERRIDE not in G.__dict__
+            and _stochastic_native_weights_are_exact(G, weight)
+        ):
             _sync_rust_edge_attrs(G, edge_only=True)
             graph = _fnx.stochastic_graph_copy_multidigraph(G, weight)
             if graph is not None:
                 return graph
-        graph = G.copy() if type(G) is DiGraph else _copy_graph_shallow(G)
+        # The canonical constructors preserve public metadata, arbitrary
+        # attribute keys and shallow values, including imported graph aliases.
+        graph = MultiDiGraph(G) if G.is_multigraph() else DiGraph(G)
     else:
         graph = G
-    if (
-        type(graph) is DiGraph
-        and isinstance(weight, str)
-        and _fnx.stochastic_graph_normalize_digraph_inplace(graph, weight)
-    ):
-        return graph
-    if (
-        type(graph) is MultiDiGraph
-        and isinstance(weight, str)
-        and _fnx.stochastic_graph_normalize_multidigraph_inplace(graph, weight)
-    ):
-        return graph
-    degree = {node: 0 for node in graph.nodes()}
-    if graph.is_multigraph():
-        edges = list(graph.edges(keys=True, data=True))
-        for u, _, _, attrs in edges:
-            degree[u] += attrs.get(weight, 1)
-        for u, _, _, attrs in edges:
-            attrs[weight] = 0 if degree[u] == 0 else attrs.get(weight, 1) / degree[u]
-    else:
-        edges = list(graph.edges(data=True))
-        for u, _, attrs in edges:
-            degree[u] += attrs.get(weight, 1)
-        for u, _, attrs in edges:
-            attrs[weight] = 0 if degree[u] == 0 else attrs.get(weight, 1) / degree[u]
+    if _stochastic_native_weights_are_exact(graph, weight):
+        normalize = (
+            _fnx.stochastic_graph_normalize_multidigraph_inplace
+            if type(graph) is MultiDiGraph
+            else _fnx.stochastic_graph_normalize_digraph_inplace
+        )
+        if normalize(graph, weight):
+            return graph
+
+    degree = dict(graph.out_degree(weight=weight))
+    for u, _, attrs in graph.edges(data=True):
+        attrs[weight] = 0 if degree[u] == 0 else attrs.get(weight, 1) / degree[u]
     return graph
 
 
