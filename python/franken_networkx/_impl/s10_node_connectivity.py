@@ -576,16 +576,30 @@ _SPECTRAL_PUBLIC_NODE_ITERATORS = {
 
 def _spectral_centrality_nodes(G):
     """Iterate native labels live without introducing hash callbacks."""
-    if (
-        type(G) in (Graph, DiGraph)
-        and not _has_networkx_private_storage(G)
-        and "__iter__" not in G.__dict__
-        and type(G).__iter__ is _SPECTRAL_PUBLIC_NODE_ITERATORS[type(G)]
-    ):
-        # The solver's score dictionaries, rather than a lazy native node
-        # mirror, own the first label hashes. Keep this internal iterator
-        # live so a callback resizing the node set raises on advancement.
-        return type(G)._fnx_unhashed_node_iter(G)
+    import inspect
+
+    graph_type = type(G)
+    for graph_class, native_iterator in _SPECTRAL_PUBLIC_NODE_ITERATORS.items():
+        if (
+            issubclass(graph_type, graph_class)
+            and inspect.getattr_static(graph_type, "__iter__") is native_iterator
+            and (
+                inspect.getattr_static(graph_type, "__getattribute__")
+                is inspect.getattr_static(graph_class, "__getattribute__")
+            )
+            and (
+                inspect.getattr_static(graph_type, "__dict__")
+                is inspect.getattr_static(graph_class, "__dict__")
+            )
+            and not _has_networkx_private_storage(G)
+        ):
+            # Inherited native iteration leaves the first label hashes to the
+            # solver's score dictionaries too. Inspect descriptors before
+            # reading storage: subclass readers can run arbitrary callbacks.
+            # As with iter(G), an instance-only __iter__ binding is ignored.
+            # Use the base helper so private subclass methods cannot replace
+            # the unchanged public iterator's live, hash-free behavior.
+            return graph_class._fnx_unhashed_node_iter(G)
     return iter(G)
 
 

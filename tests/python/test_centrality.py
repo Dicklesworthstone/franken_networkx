@@ -1215,3 +1215,176 @@ def test_katz_many_does_not_probe_observable_edge_keys(fnx, workers):
     expected = outcome(False)
     assert expected[1]
     assert outcome(True) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("mutation", ["edge", "error", "resize"])
+@pytest.mark.parametrize("instance_shadow", [False, True])
+def test_iterative_centrality_inherited_iterator_keeps_node_callbacks(
+    fnx, nx, graph_type, algorithm, mutation, instance_shadow
+):
+    def outcome(module):
+        base = getattr(module, graph_type)
+
+        class ParentGraph(base):
+            def _fnx_unhashed_node_iter(self):
+                raise AssertionError("private helpers do not override public iteration")
+
+        class InheritedGraph(ParentGraph):
+            pass
+
+        graph = InheritedGraph()
+        armed = fired = False
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal fired
+                if armed and not fired:
+                    fired = True
+                    if mutation == "error":
+                        raise LookupError("inherited centrality node callback")
+                    if mutation == "resize":
+                        graph.add_node(99)
+                    else:
+                        graph.add_edge(0, 2)
+                return int.__hash__(self)
+
+        nodes = [Node(node) for node in range(4)]
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+        if instance_shadow:
+            def instance_iterator():
+                raise AssertionError("iter(G) ignores instance-only __iter__")
+
+            graph.__iter__ = instance_iterator
+        armed = True
+        scores = failure = None
+        try:
+            result = getattr(module, algorithm)(graph)
+            scores = {int(node): score for node, score in result.items()}
+        except (LookupError, RuntimeError) as error:
+            failure = (type(error).__name__, error.args)
+        finally:
+            armed = False
+        return scores, failure, fired, list(map(int, graph)), graph.has_edge(0, 2)
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert actual[1:] == expected[1:]
+    assert expected[2] is True
+    if mutation == "edge":
+        assert actual[1] is None
+        assert list(actual[0]) == list(expected[0])
+        assert actual[0] == pytest.approx(expected[0], rel=1e-12, abs=1e-12)
+        assert actual[4] is True
+    elif mutation == "error":
+        assert actual[1] == (
+            "LookupError", ("inherited centrality node callback",)
+        )
+    else:
+        assert actual[1] == (
+            "RuntimeError", ("dictionary changed size during iteration",)
+        )
+        assert actual[3] == [0, 1, 2, 3, 99]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_iterative_centrality_preserves_subclass_iterator_descriptor(
+    fnx, nx, graph_type, algorithm
+):
+    def outcome(module):
+        base = getattr(module, graph_type)
+        original_iter = base.__iter__
+        events = []
+
+        class PublicIterator:
+            def __get__(self, instance, owner=None):
+                if instance is None:
+                    raise AssertionError("admission must not bind an iterator descriptor")
+
+                def iterate():
+                    events.append("iter")
+                    instance.add_edge(0, 2)
+                    return original_iter(instance)
+
+                return iterate
+
+        class GraphSubclass(base):
+            __iter__ = PublicIterator()
+
+        graph = GraphSubclass()
+        graph.add_edges_from([(0, 1), (1, 2), (2, 3), (3, 0)])
+        result = getattr(module, algorithm)(graph)
+        return result, events, graph.has_edge(0, 2)
+
+    expected, expected_events, expected_edge = outcome(nx)
+    actual, actual_events, actual_edge = outcome(fnx)
+    assert list(actual) == list(expected)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_events == expected_events
+    assert expected_events
+    assert actual_edge is expected_edge is True
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_iterative_centrality_subclass_uses_assigned_node_storage(
+    fnx, nx, graph_type, algorithm
+):
+    def outcome(module):
+        base = getattr(module, graph_type)
+
+        class GraphSubclass(base):
+            pass
+
+        graph = GraphSubclass([(0, 1), (1, 2), (2, 3), (3, 0)])
+        # Preserve adjacency but reorder the logical node store. Native keys
+        # retain the old order and must not replace this assigned reader.
+        graph._node = {node: {} for node in (3, 2, 1, 0)}
+        return getattr(module, algorithm)(graph)
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert list(actual) == list(expected) == [3, 2, 1, 0]
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("reader", ["getattribute", "dict-property"])
+def test_spectral_node_iteration_does_not_probe_subclass_storage(
+    fnx, nx, graph_type, reader
+):
+    import inspect
+
+    for module in (nx, fnx):
+        base = getattr(module, graph_type)
+        native_dict = inspect.getattr_static(base, "__dict__")
+        armed = False
+        events = []
+
+        if reader == "getattribute":
+            class GraphSubclass(base):
+                def __getattribute__(self, name):
+                    if armed and name == "__dict__":
+                        events.append("dict")
+                        raise AssertionError("iteration must not probe subclass storage")
+                    return super().__getattribute__(name)
+        else:
+            class GraphSubclass(base):
+                @property
+                def __dict__(self):
+                    if armed:
+                        events.append("dict")
+                        raise AssertionError("iteration must not probe subclass storage")
+                    return native_dict.__get__(self, type(self))
+
+        graph = GraphSubclass()
+        graph.add_nodes_from([0, 1, 2])
+        armed = True
+        iterator = (
+            module._spectral_centrality_nodes(graph)
+            if module is fnx else iter(graph)
+        )
+        assert list(iterator) == [0, 1, 2]
+        assert events == []
