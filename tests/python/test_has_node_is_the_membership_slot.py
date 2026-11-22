@@ -144,3 +144,170 @@ def test_mutation_is_visible_to_both_spellings(cls_name):
     for graph in (fx, ref):
         graph.remove_node("3")
     assert _probe(fx, "3") == _probe(ref, "3") == (False, False)
+
+
+MEMBERSHIP_FORMS = ["contains", "has_node", "raw_has_node"]
+
+
+def _membership_call(lib, cls_name, graph, key, form):
+    if form == "contains":
+        return key in graph
+    if form == "raw_has_node" and lib is fnx:
+        return fnx._RAW_HAS_NODE_METHODS[CLASSES.index(cls_name)](graph, key)
+    return graph.has_node(n=key)
+
+
+def _membership_outcome(lib, cls_name, graph, key, form):
+    try:
+        return _membership_call(lib, cls_name, graph, key, form)
+    except Exception as exc:  # noqa: BLE001 - callback errors are observable
+        return "raised", type(exc).__name__, str(exc)
+
+
+def _hash_reentry_probe(lib, cls_name, form, key_kind, action):
+    graph = getattr(lib, cls_name)()
+    graph.add_node("anchor")
+    armed = False
+    changed = False
+    trace = []
+
+    def query_hash(key, value):
+        nonlocal changed
+        if armed and key is query:
+            trace.append("hash")
+            if not changed:
+                changed = True
+                if action == "add":
+                    graph.add_node(stored)
+                elif action == "remove":
+                    graph.remove_node(stored)
+                else:
+                    graph.clear()
+                trace.append(action)
+        return value
+
+    if key_kind == "int":
+        class Node(int):
+            def __hash__(self):
+                return query_hash(self, int.__hash__(self))
+
+        stored, query = 41, Node(41)
+    elif key_kind == "str":
+        class Node(str):
+            def __hash__(self):
+                return query_hash(self, str.__hash__(self))
+
+        stored, query = "target", Node("target")
+    else:
+        class Node:
+            def __hash__(self):
+                return query_hash(self, 671023)
+
+            def __eq__(self, other):
+                return isinstance(other, Node)
+
+        stored, query = Node(), Node()
+
+    if action != "add":
+        graph.add_node(stored)
+    armed = True
+    outcome = _membership_outcome(lib, cls_name, graph, query, form)
+    armed = False
+    return outcome, trace, len(graph), stored in graph, "anchor" in graph
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("form", MEMBERSHIP_FORMS)
+@pytest.mark.parametrize("key_kind", ["int", "str", "object"])
+@pytest.mark.parametrize("action", ["add", "remove", "clear"])
+def test_membership_hash_callback_can_mutate_the_graph(
+    cls_name, form, key_kind, action
+):
+    """Hash once, release the native borrow, and look up the updated topology."""
+    expected = _hash_reentry_probe(nx, cls_name, form, key_kind, action)
+    assert expected[0] is (action == "add")
+    assert expected[1] == ["hash", action]
+    assert _hash_reentry_probe(fnx, cls_name, form, key_kind, action) == expected
+
+
+def _hash_error_probe(lib, cls_name, form, error_type):
+    graph = getattr(lib, cls_name)()
+    calls = []
+
+    class Node:
+        def __hash__(self):
+            calls.append("hash")
+            graph.add_node("callback-node")
+            raise error_type("membership callback failed")
+
+    outcome = _membership_outcome(lib, cls_name, graph, Node(), form)
+    return outcome, calls, list(graph)
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("form", MEMBERSHIP_FORMS)
+@pytest.mark.parametrize("error_type", [TypeError, ValueError, RuntimeError])
+def test_membership_hash_errors_are_not_retried_or_silenced(
+    cls_name, form, error_type
+):
+    expected = _hash_error_probe(nx, cls_name, form, error_type)
+    assert expected[1:] == (["hash"], ["callback-node"])
+    if error_type is TypeError:
+        assert expected[0] is False
+    else:
+        assert expected[0] == (
+            "raised", error_type.__name__, "membership callback failed"
+        )
+    assert _hash_error_probe(fnx, cls_name, form, error_type) == expected
+
+
+def _equality_reentry_probe(lib, cls_name, form, action):
+    graph = getattr(lib, cls_name)()
+    armed = False
+    changed = False
+    trace = []
+
+    class Node:
+        def __hash__(self):
+            if armed and self is query:
+                trace.append("hash")
+            return 671029
+
+        def __eq__(self, other):
+            nonlocal changed
+            if not isinstance(other, Node):
+                return False
+            if armed and self is stored and not changed:
+                changed = True
+                trace.append("equality")
+                if action == "remove":
+                    graph.remove_node(stored)
+                elif action == "clear":
+                    graph.clear()
+                elif action == "type_error":
+                    raise TypeError("equality callback failed")
+                elif action == "value_error":
+                    raise ValueError("equality callback failed")
+                else:
+                    graph.add_edge("left", "right")
+            return True
+
+    stored, query = Node(), Node()
+    graph.add_node(stored)
+    armed = True
+    outcome = _membership_outcome(lib, cls_name, graph, query, form)
+    armed = False
+    return outcome, trace, len(graph), stored in graph
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("form", MEMBERSHIP_FORMS)
+@pytest.mark.parametrize(
+    "action", ["remove", "clear", "add_edge", "type_error", "value_error"]
+)
+def test_membership_equal_alias_callbacks_observe_reference_boundaries(
+    cls_name, form, action
+):
+    expected = _equality_reentry_probe(nx, cls_name, form, action)
+    assert expected[1] == ["hash", "equality"]
+    assert _equality_reentry_probe(fnx, cls_name, form, action) == expected

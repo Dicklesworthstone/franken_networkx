@@ -513,11 +513,32 @@ pub(crate) fn node_key_can_use_index_lookaside(key: &Bound<'_, PyAny>) -> bool {
     key.is_exact_instance_of::<PyString>() || key.is_exact_instance_of::<PyInt>()
 }
 
-/// The same question where networkx swallows the error instead of raising it:
-/// `n in G` and `G.has_node(n)` are `try: n in self._node except TypeError:
-/// return False`, so an unhashable key is simply absent (br-r37-c1-lvlu7).
-pub(crate) fn node_key_is_hashable(key: &Bound<'_, PyAny>) -> bool {
-    require_hashable_node_key(key).is_ok()
+/// Resolve membership without retaining a graph borrow across Python callbacks.
+/// The caller borrows the graph only inside `lookup`, after hashing and equality
+/// have run. NetworkX suppresses TypeError from either callback, but propagates
+/// every other exception. A failed hash must not be retried, and a successful
+/// hash is reused by the custom-object interner instead of calling Python twice.
+pub(crate) fn with_node_membership_key(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    lookup: impl FnOnce(&str) -> PyResult<bool>,
+) -> PyResult<bool> {
+    let result = (|| {
+        let known_hash = if node_key_hash_cannot_raise(key) {
+            None
+        } else {
+            Some(key.hash()?)
+        };
+        if key.cast::<PyString>().is_ok() || key.cast::<PyInt>().is_ok() {
+            return with_node_key_str(py, key, lookup)?;
+        }
+        let canonical = node_key_to_string_with_hash(py, key, known_hash)?;
+        lookup(&canonical)
+    })();
+    match result {
+        Err(error) if error.is_instance_of::<PyTypeError>(py) => Ok(false),
+        result => result,
+    }
 }
 
 /// The identity-int fast paths' `usize` view of an exact Python int, obtained
@@ -975,6 +996,14 @@ fn presized_set_slots(hashes: &[isize]) -> Vec<usize> {
 }
 
 fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String> {
+    node_key_to_string_with_hash(py, key, None)
+}
+
+fn node_key_to_string_with_hash(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    known_hash: Option<isize>,
+) -> PyResult<String> {
     // br-ctaxkey: `downcast::<PyString>()` is a cheap isinstance check that
     // builds NO Python exception on a non-string, unlike `extract::<String>()`
     // which constructs and discards a `PyErr` for every int / float node key.
@@ -1040,7 +1069,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     if key.cast::<PyFloat>().is_ok()
         && let Ok(f) = key.extract::<f64>()
     {
-        return float_key_canonical(py, key, f);
+        return float_key_canonical(py, key, f, known_hash);
     }
     // An EXACT tuple cannot satisfy `__index__` or `__float__`, so it answers
     // here or by repr and never touches the extract chain. Subclasses keep the
@@ -1060,7 +1089,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
             }
             return structural_tuple_canonical_key(py, effective, "");
         }
-        return custom_object_canonical_key(py, key, "");
+        return custom_object_canonical_key_with_hash(py, key, "", known_hash);
     }
     if let Ok(i) = key.extract::<i64>() {
         return Ok(i.to_string());
@@ -1090,7 +1119,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
             || f.into_pyobject(py)
                 .is_ok_and(|as_float| key.eq(&as_float).unwrap_or(false)))
     {
-        return float_key_canonical(py, key, f);
+        return float_key_canonical(py, key, f, known_hash);
     }
     // br-r37-c1-y7m24: all-int tuples — the node-key shape of grid_2d /
     // hypercube / kneser and most relabeled lattices — get their canonical
@@ -1108,7 +1137,7 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         if tuple_subclass_uses_tuple_equality(py, t) {
             return structural_tuple_canonical_key(py, effective, "");
         }
-        return custom_object_canonical_key(py, key, "");
+        return custom_object_canonical_key_with_hash(py, key, "", known_hash);
     }
     // A complex with zero imaginary part and a non-NaN real is ONE dict key with
     // its equal real (equal value + equal hash), so route the real through
@@ -1118,16 +1147,16 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
         let re = c.real();
         if c.imag() == 0.0 && !re.is_nan() {
             let as_float = re.into_pyobject(py)?;
-            return float_key_canonical(py, as_float.as_any(), re);
+            return float_key_canonical(py, as_float.as_any(), re, None);
         }
-        return custom_object_canonical_key(py, key, "");
+        return custom_object_canonical_key_with_hash(py, key, "", known_hash);
     }
     // br-r37-c1-epic-storage-architecture-yr2oc.5: for custom hashable objects,
     // use a weakref-backed hash-bucket interner + integer-hash equality check so
     // custom `__eq__`/`__hash__`, hash collisions, and same-repr distinct objects
     // match Python dict key semantics without retaining strong references that
     // would prevent cyclic GC collection of graph-referencing keys.
-    custom_object_canonical_key(py, key, "")
+    custom_object_canonical_key_with_hash(py, key, "", known_hash)
 }
 
 enum CustomKeyRef {
@@ -1323,7 +1352,16 @@ fn custom_object_canonical_key(
     key: &Bound<'_, PyAny>,
     prefix: &str,
 ) -> PyResult<String> {
-    let Ok(h) = key.hash() else {
+    custom_object_canonical_key_with_hash(py, key, prefix, None)
+}
+
+fn custom_object_canonical_key_with_hash(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    prefix: &str,
+    known_hash: Option<isize>,
+) -> PyResult<String> {
+    let Ok(h) = known_hash.map_or_else(|| key.hash(), Ok) else {
         let addr = key.as_ptr() as usize;
         return if prefix.is_empty() {
             Ok(format!("__fnx_id:{addr:x}"))
@@ -1484,7 +1522,12 @@ fn tuple_value_repr(py: Python<'_>, value: &Bound<'_, PyTuple>) -> PyResult<Stri
 
 /// The float half of `node_key_to_string`, shared by the concrete-type probe
 /// and the `__float__` fallback so the two cannot drift apart.
-fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResult<String> {
+fn float_key_canonical(
+    py: Python<'_>,
+    key: &Bound<'_, PyAny>,
+    f: f64,
+    known_hash: Option<isize>,
+) -> PyResult<String> {
     // br-r37-c1-dr1h9: the bound is EXCLUSIVE at 2**63. `i64::MAX as f64`
     // rounds UP to 2**63, so `f <= i64::MAX as f64` admitted 2**63 itself
     // and `f as i64` saturated it onto i64::MAX — aliasing the float 2**63
@@ -1556,7 +1599,7 @@ fn float_key_canonical(py: Python<'_>, key: &Bound<'_, PyAny>, f: f64) -> PyResu
             return Ok(as_float.repr()?.to_string());
         }
     }
-    custom_object_canonical_key(py, key, "")
+    custom_object_canonical_key_with_hash(py, key, "", known_hash)
 }
 
 /// A copy of `t` with bools, finite integral floats, numeric aliases, and
@@ -14210,42 +14253,8 @@ impl PyMultiGraph {
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
-    fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
-        // (bool excluded) that fits usize AND sits at its own index IS present —
-        // `node_index_matches_int` is the whole answer, so we skip both the
-        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
-        // A non-identity int (present at another index / absent) falls through
-        // to the String path, which stays correct.
-        if n.is_exact_instance_of::<PyInt>()
-            && let Some(i) = exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
-        {
-            return Ok(true);
-        }
-        // br-r37-c1-6n9vm: exact-`str` present-key set, as on PyGraph.
-        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. The
-        // identity-int path above fires only while index == value; once
-        // removals renumber the store it stops firing, and an int key then
-        // canonicalised on EVERY call instead of hitting this cache. Measured
-        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x and
-        // `has_node` 1.59-1.63x, on all four classes - against 0.87-1.08x on a
-        // freshly built one, which is why a clean-fixture probe sees nothing.
-        // `exact_str_node_is_present` is misnamed: its body is type-agnostic
-        // (value-keyed presence cache, then the generic canonical fallback).
-        if node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
-        }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison. nx is `try: n in self._node except TypeError:
-        // return False`; fnx canonicalises by reading the characters and never
-        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
-        // True for a node it can never be used to reach.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+    fn has_node(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Self::__contains__(slf, py, n)
     }
 
     #[pyo3(signature = (u, v, key=None))]
@@ -14472,9 +14481,10 @@ impl PyMultiGraph {
         Ok(slf.inner.node_count())
     }
 
-    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
-            drop(slf);
+    fn __contains__(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let graph = slf.try_borrow()?;
+        if let Some(mapping) = graph.instance_dict_gc.private_node_mapping(py)? {
+            drop(graph);
             return node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
@@ -14485,7 +14495,7 @@ impl PyMultiGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = exact_int_node_index(n)
-            && slf.inner.node_index_matches_int(i)
+            && graph.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -14501,18 +14511,14 @@ impl PyMultiGraph {
         // `exact_str_node_is_present` is misnamed: its body is type-agnostic
         // (value-keyed presence cache, then the generic canonical fallback).
         if node_key_can_use_index_lookaside(n) {
-            return slf.exact_str_node_is_present(py, n);
+            return graph.exact_str_node_is_present(py, n);
         }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison. nx is `try: n in self._node except TypeError:
-        // return False`; fnx canonicalises by reading the characters and never
-        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
-        // True for a node it can never be used to reach.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
+        // Hash/equality callbacks may mutate this graph. Resolve the key with
+        // no graph borrow, then consult the updated native store.
+        drop(graph);
+        with_node_membership_key(py, n, |canonical| {
+            Ok(slf.try_borrow()?.inner.has_node(canonical))
+        })
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -18951,44 +18957,8 @@ impl PyGraph {
     }
 
     /// Return True if graph has node n.
-    fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
-        // (bool excluded) that fits usize AND sits at its own index IS present —
-        // `node_index_matches_int` is the whole answer, so we skip both the
-        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
-        // A non-identity int (present at another index / absent) falls through
-        // to the String path, which stays correct.
-        if n.is_exact_instance_of::<PyInt>()
-            && let Some(i) = exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
-        {
-            return Ok(true);
-        }
-        // br-r37-c1-6n9vm: an exact `str` already proven present answers from
-        // the set, reusing the hash CPython cached in the object. The canonical
-        // rebuild below is 77.4% of this method's instructions.
-        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. The
-        // identity-int path above fires only while index == value; once
-        // removals renumber the store it stops firing, and an int key then
-        // canonicalised on EVERY call instead of hitting this cache. Measured
-        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x and
-        // `has_node` 1.59-1.63x, on all four classes - against 0.87-1.08x on a
-        // freshly built one, which is why a clean-fixture probe sees nothing.
-        // `exact_str_node_is_present` is misnamed: its body is type-agnostic
-        // (value-keyed presence cache, then the generic canonical fallback).
-        if node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
-        }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison. nx is `try: n in self._node except TypeError:
-        // return False`; fnx canonicalises by reading the characters and never
-        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
-        // True for a node it can never be used to reach.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+    fn has_node(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Self::__contains__(slf, py, n)
     }
 
     /// Return True if graph has edge (u, v).
@@ -19774,9 +19744,10 @@ impl PyGraph {
     }
 
     /// Membership test (called by ``n in G``).
-    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
-            drop(slf);
+    fn __contains__(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let graph = slf.try_borrow()?;
+        if let Some(mapping) = graph.instance_dict_gc.private_node_mapping(py)? {
+            drop(graph);
             return node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
@@ -19787,7 +19758,7 @@ impl PyGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = exact_int_node_index(n)
-            && slf.inner.node_index_matches_int(i)
+            && graph.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -19803,18 +19774,14 @@ impl PyGraph {
         // `exact_str_node_is_present` is misnamed: its body is type-agnostic
         // (value-keyed presence cache, then the generic canonical fallback).
         if node_key_can_use_index_lookaside(n) {
-            return slf.exact_str_node_is_present(py, n);
+            return graph.exact_str_node_is_present(py, n);
         }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison. nx is `try: n in self._node except TypeError:
-        // return False`; fnx canonicalises by reading the characters and never
-        // calls `__hash__`, so a `str` subclass with `__hash__ = None` reported
-        // True for a node it can never be used to reach.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
+        // Hash/equality callbacks may mutate this graph. Resolve the key with
+        // no graph borrow, then consult the updated native store.
+        drop(graph);
+        with_node_membership_key(py, n, |canonical| {
+            Ok(slf.try_borrow()?.inner.has_node(canonical))
+        })
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — the in-graph members of `nbunch`, in
@@ -25444,8 +25411,7 @@ fn borrowed_canonical_key_self_time_ab() {
 /// This pins the ANSWERS across that seam, on a graph that actually holds the
 /// boundary values as nodes, so neither the narrowing nor a future re-widening
 /// can change what membership reports. `has_node` and `__contains__` are asserted
-/// together because they are the same question and the fast path is duplicated
-/// into both.
+/// together because they are the same question and share the native slot.
 #[test]
 fn identity_int_membership_is_answered_across_the_i64_seam() {
     Python::initialize();
@@ -25468,8 +25434,12 @@ fn identity_int_membership_is_answered_across_the_i64_seam() {
         graph.add_node(py, &at_max, None)?;
         graph.add_node(py, &above, None)?;
 
-        let present = |graph: &PyGraph, n: &Bound<'_, PyAny>| -> PyResult<(bool, bool)> {
-            Ok((graph.has_node(py, n)?, graph.__contains__(py, n)?))
+        let graph = Py::new(py, graph)?;
+        let present = |graph: &Py<PyGraph>, n: &Bound<'_, PyAny>| -> PyResult<(bool, bool)> {
+            Ok((
+                PyGraph::has_node(graph.bind(py), py, n)?,
+                PyGraph::__contains__(graph.bind(py), py, n)?,
+            ))
         };
 
         for i in 0..3i64 {
@@ -25512,7 +25482,7 @@ fn identity_int_membership_is_answered_across_the_i64_seam() {
         // A negative key that IS a node stays findable — the fast path declines
         // it, the canonical path answers it, and that split must not leak.
         let negative_node = (-7i64).into_pyobject(py)?.into_any();
-        graph.add_node(py, &negative_node, None)?;
+        graph.borrow_mut(py).add_node(py, &negative_node, None)?;
         assert_eq!(
             present(&graph, &negative_node)?,
             (true, true),
@@ -25549,11 +25519,11 @@ fn cached_native_adjacency_view_stays_live_and_int_misses_invalidate() {
         );
 
         let missing = 1_000_003i64.into_pyobject(py)?.into_any();
-        assert!(!graph.borrow(py).has_node(py, &missing)?);
-        assert!(!graph.borrow(py).has_node(py, &missing)?);
+        assert!(!PyGraph::has_node(graph.bind(py), py, &missing)?);
+        assert!(!PyGraph::has_node(graph.bind(py), py, &missing)?);
         graph.borrow_mut(py).add_node(py, &missing, None)?;
         assert!(
-            graph.borrow(py).has_node(py, &missing)?,
+            PyGraph::has_node(graph.bind(py), py, &missing)?,
             "a node-set mutation must invalidate the remembered int miss"
         );
         Ok(())
@@ -25770,7 +25740,9 @@ fn add_node_entry_self_time_ladder() {
         // Every probe must ALREADY be present, or this is not a no-op control.
         for probe in &probes {
             assert!(
-                graph.has_node(py, probe.bind(py))?,
+                with_node_key_str(py, probe.bind(py), |canonical| {
+                    graph.inner.has_node(canonical)
+                })?,
                 "the entry-cost control is only meaningful on an already-present node"
             );
         }
@@ -26003,7 +25975,7 @@ fn lazy_node_attr_mirror_is_indistinguishable_from_an_eager_empty_one() {
         // Every node is present regardless of whether a mirror was built.
         for node in [&plain, &with_empty, &attributed] {
             assert!(
-                graph.has_node(py, node)?,
+                with_node_key_str(py, node, |canonical| graph.inner.has_node(canonical))?,
                 "every added node must be present"
             );
         }
@@ -26364,7 +26336,9 @@ fn add_node_attributed_self_time_ladder() {
             .collect();
         for probe in &probes {
             assert!(
-                graph.has_node(py, probe.bind(py))?,
+                with_node_key_str(py, probe.bind(py), |canonical| {
+                    graph.inner.has_node(canonical)
+                })?,
                 "the attributed entry-cost control is only meaningful on a present node"
             );
         }

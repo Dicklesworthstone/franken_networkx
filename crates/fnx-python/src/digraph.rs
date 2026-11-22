@@ -9,9 +9,9 @@ use crate::{
     NetworkXError, NodeIndexLookupCache, NodeNotFound, PyGraph, PyNodeKeyMap, PyObject,
     attr_map_to_pydict, canonical_node_key_in, collect_index_weight_attr_edges,
     compatibility_mode_from_py, compatibility_mode_name, edge_key_lookup_string,
-    node_key_is_hashable, node_key_to_string, py_dict_to_attr_map, py_dict_to_attr_map_with_mirror,
+    node_key_to_string, py_dict_to_attr_map, py_dict_to_attr_map_with_mirror,
     require_hashable_node_key, runtime_policy_from_state, runtime_policy_json, unwrap_infallible,
-    weighted_edge_triplet, with_node_key_str,
+    weighted_edge_triplet, with_node_key_str, with_node_membership_key,
 };
 use arrayvec::ArrayString;
 use fnx_classes::AttrMap;
@@ -7622,39 +7622,8 @@ impl PyMultiDiGraph {
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
-    fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
-        // (bool excluded) that fits usize AND sits at its own index IS present —
-        // `node_index_matches_int` is the whole answer, so we skip both the
-        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
-        // A non-identity int (present at another index / absent) falls through
-        // to the String path, which stays correct.
-        if n.is_exact_instance_of::<PyInt>()
-            && let Some(i) = crate::exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
-        {
-            return Ok(true);
-        }
-        // br-r37-c1-ic4cv: exact-`str` present-key set, as on the other three
-        // classes (br-r37-c1-6n9vm). CPython caches a string's hash inside the
-        // object; the canonical path rebuilt `"str:{len}:{s}"` and rehashed it
-        // on every probe.
-        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. See the
-        // undirected twin in lib.rs for the full account. The identity-int path
-        // above fires only while index == value; after removals renumber the
-        // store an int key otherwise canonicalises on EVERY call. Measured
-        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
-        // 1.59-1.63x, all four classes.
-        if crate::node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
-        }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison — see the undirected twin.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+    fn has_node(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Self::__contains__(slf, py, n)
     }
 
     /// Number of nodes (called by ``len(G)``).
@@ -7669,9 +7638,10 @@ impl PyMultiDiGraph {
         Ok(slf.inner.node_count())
     }
 
-    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
-            drop(slf);
+    fn __contains__(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        let graph = slf.try_borrow()?;
+        if let Some(mapping) = graph.instance_dict_gc.private_node_mapping(py)? {
+            drop(graph);
             return crate::node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
@@ -7682,7 +7652,7 @@ impl PyMultiDiGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = crate::exact_int_node_index(n)
-            && slf.inner.node_index_matches_int(i)
+            && graph.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -7695,15 +7665,14 @@ impl PyMultiDiGraph {
         // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
         // 1.59-1.63x, all four classes.
         if crate::node_key_can_use_index_lookaside(n) {
-            return slf.exact_str_node_is_present(py, n);
+            return graph.exact_str_node_is_present(py, n);
         }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison — see the undirected twin.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
+        // Hash/equality callbacks may mutate this graph. Resolve the key with
+        // no graph borrow, then consult the updated native store.
+        drop(graph);
+        with_node_membership_key(py, n, |canonical| {
+            Ok(slf.try_borrow()?.inner.has_node(canonical))
+        })
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
@@ -16361,36 +16330,8 @@ impl PyDiGraph {
         self.bump_edges_seq(); // br-r37-c1-jft0i
     }
 
-    fn has_node(&self, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
-        // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
-        // (bool excluded) that fits usize AND sits at its own index IS present —
-        // `node_index_matches_int` is the whole answer, so we skip both the
-        // `i.to_string()` heap alloc and the String-keyed `has_node` lookup.
-        // A non-identity int (present at another index / absent) falls through
-        // to the String path, which stays correct.
-        if n.is_exact_instance_of::<PyInt>()
-            && let Some(i) = crate::exact_int_node_index(n)
-            && self.inner.node_index_matches_int(i)
-        {
-            return Ok(true);
-        }
-        // br-r37-c1-6n9vm: exact-`str` present-key set, as on PyGraph.
-        // br-r37-c1-fov4a: exact `int` reaches the presence cache too. See the
-        // undirected twin in lib.rs for the full account. The identity-int path
-        // above fires only while index == value; after removals renumber the
-        // store an int key otherwise canonicalises on EVERY call. Measured
-        // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
-        // 1.59-1.63x, all four classes.
-        if crate::node_key_can_use_index_lookaside(n) {
-            return self.exact_str_node_is_present(py, n);
-        }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison — see the undirected twin.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| self.inner.has_node(canonical))
+    fn has_node(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+        Self::__contains__(slf, py, n)
     }
 
     /// Return True if directed edge (u, v) exists.
@@ -19507,13 +19448,14 @@ impl PyDiGraph {
         Ok(slf.inner.node_count())
     }
 
-    fn __contains__(slf: PyRef<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
+    fn __contains__(slf: &Bound<'_, Self>, py: Python<'_>, n: &Bound<'_, PyAny>) -> PyResult<bool> {
         // br-r37-c1-6n9vm: same present-key set as `has_node` — the two are the
         // same question and must not disagree, so they share the memo. It sits
         // below the private-storage probe and the identity-int path, both of
         // which answer without touching the node-key canonical at all.
-        if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
-            drop(slf);
+        let graph = slf.try_borrow()?;
+        if let Some(mapping) = graph.instance_dict_gc.private_node_mapping(py)? {
+            drop(graph);
             return crate::node_mapping_contains(&mapping, n);
         }
         // br-r37-c1-04z53 (cc): identity-int membership fast path. An exact int
@@ -19524,7 +19466,7 @@ impl PyDiGraph {
         // to the String path, which stays correct.
         if n.is_exact_instance_of::<PyInt>()
             && let Some(i) = crate::exact_int_node_index(n)
-            && slf.inner.node_index_matches_int(i)
+            && graph.inner.node_index_matches_int(i)
         {
             return Ok(true);
         }
@@ -19535,15 +19477,14 @@ impl PyDiGraph {
         // int/str penalty on a REMAPPED store: `n in G` 2.06-2.22x, `has_node`
         // 1.59-1.63x, all four classes.
         if crate::node_key_can_use_index_lookaside(n) {
-            return slf.exact_str_node_is_present(py, n);
+            return graph.exact_str_node_is_present(py, n);
         }
-        // br-r37-c1-lvlu7: an UNHASHABLE key is ABSENT, not an error and not a
-        // byte comparison — see the undirected twin.
-        if !node_key_is_hashable(n) {
-            return Ok(false);
-        }
-        // br-r37-c1-oe93x: borrowed canonical key — no String alloc per probe.
-        with_node_key_str(py, n, |canonical| slf.inner.has_node(canonical))
+        // Hash/equality callbacks may mutate this graph. Resolve the key with
+        // no graph borrow, then consult the updated native store.
+        drop(graph);
+        with_node_membership_key(py, n, |canonical| {
+            Ok(slf.try_borrow()?.inner.has_node(canonical))
+        })
     }
 
     /// br-cc-nbunchbulk: bulk nbunch filter — see PyGraph::_nbunch_present.
