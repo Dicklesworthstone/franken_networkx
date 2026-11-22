@@ -216,6 +216,98 @@ def test_default_simple_graph_keeps_its_count_only_snapshot(monkeypatch, graph_t
     assert calls == [True]
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("reader", ["is_multigraph", "__len__"])
+def test_class_reader_overrides_are_observed_before_snapshot(
+    graph_type, reader, monkeypatch
+):
+    def run(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)])
+        original = getattr(graph_class, reader)
+        events = []
+        failure = LookupError(f"{reader} provider")
+
+        def fail_reader(self):
+            if self is graph:
+                events.append(reader)
+                raise failure
+            return original(self)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, reader, fail_reader)
+            with pytest.raises(LookupError) as raised:
+                module.bellman_ford_predecessor_and_distance(graph, 0)
+            assert raised.value is failure
+        return events
+
+    assert run(fnx) == run(nx) == [reader]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_snapshot_admission_does_not_call_a_replaced_class_iterator(
+    graph_type, monkeypatch
+):
+    def run(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)])
+
+        def unexpected_iteration(self):
+            raise AssertionError("Bellman-Ford does not enumerate graph nodes")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, "__iter__", unexpected_iteration)
+            return module.bellman_ford_predecessor_and_distance(graph, 0)
+
+    assert run(fnx) == run(nx) == ({0: [], 1: [0], 2: [1]}, {0: 0, 1: 2, 2: 5})
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_class_adjacency_provider_is_not_replaced_with_native_storage(
+    graph_type, monkeypatch
+):
+    def run(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)])
+        edge = {"weight": 1}
+        rows = {0: {2: edge}, 1: {}, 2: {}}
+        if graph_type == "Graph":
+            rows[2][0] = edge
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, "_adj", property(lambda self: rows))
+            return module.bellman_ford_predecessor_and_distance(graph, 0)
+
+    assert run(fnx) == run(nx) == ({0: [], 2: [0]}, {0: 0, 2: 1})
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("heuristic", [False, True])
+def test_class_adjacency_provider_keeps_unreachable_negative_selfloops(
+    graph_type, heuristic, monkeypatch
+):
+    def run(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)])
+        graph.add_node(9)
+        edge = {"weight": 2}
+        rows = {0: {1: edge}, 1: {}, 2: {}, 9: {9: {"weight": -1}}}
+        if graph_type == "Graph":
+            rows[1][0] = edge
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, "_adj", property(lambda self: rows))
+            return _outcome(module, graph, heuristic=heuristic)
+
+    assert run(fnx) == run(nx) == (
+        "raise", "NetworkXUnbounded", "Negative cycle detected."
+    )
+
+
 @pytest.mark.parametrize("graph_type", GRAPH_TYPES)
 @pytest.mark.parametrize("heuristic", [False, True])
 def test_private_rows_and_subclasses_reach_the_live_solver(monkeypatch, graph_type, heuristic):
@@ -286,6 +378,118 @@ def test_weight_callbacks_keep_live_updates_and_order(graph_type, heuristic):
         return _ordered_typed(result), events
 
     assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("input_kind", ["native", "foreign", "view", "assigned"])
+@pytest.mark.parametrize("heuristic", [False, True])
+@pytest.mark.parametrize("mutation", ["weight", "negative_cycle", "raise"])
+def test_numeric_weight_providers_keep_later_rows_live(
+    graph_type, input_kind, heuristic, mutation
+):
+    def run(module):
+        graph_module = nx if input_kind == "foreign" else module
+        graph = getattr(graph_module, graph_type)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 100)])
+        if input_kind == "assigned":
+            first, later = {"weight": 1}, {"weight": 100}
+            rows = {0: {1: first}, 1: {2: later}, 2: {}}
+            if graph.is_directed():
+                graph._succ = rows
+                graph._pred = {0: {}, 1: {0: first}, 2: {1: later}}
+            else:
+                rows[1][0] = first
+                rows[2][1] = later
+            graph._adj = rows
+        events = []
+        failure = RuntimeError("weight changed before failure")
+
+        class UpdatingWeight(int):
+            def __radd__(self, other):
+                events.append(("add", other))
+                graph[1][2]["weight"] = 1
+                if mutation == "negative_cycle":
+                    graph.add_edge(2, 2, weight=-1)
+                elif mutation == "raise":
+                    raise failure
+                return other + int(self)
+
+        graph[0][1]["weight"] = UpdatingWeight(1)
+        queried = graph.subgraph([0, 1, 2]) if input_kind == "view" else graph
+        try:
+            result = module.bellman_ford_predecessor_and_distance(
+                queried, 0, heuristic=heuristic
+            )
+        except RuntimeError as error:
+            assert mutation == "raise" and error is failure
+            outcome = "raise", type(error).__name__, str(error)
+        except module.NetworkXUnbounded as error:
+            assert mutation == "negative_cycle"
+            outcome = "raise", type(error).__name__, str(error)
+        else:
+            assert mutation == "weight"
+            assert result[1][2] == 2
+            outcome = "return", _ordered_typed(result)
+        return outcome, events, graph[1][2]["weight"]
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("name", ["all_shortest_paths", "single_source_all_shortest_paths"])
+def test_bellman_ford_path_enumeration_uses_numeric_provider_updates(graph_type, name):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 100), (0, 2, 5)])
+
+        class UpdatingWeight(int):
+            def __radd__(self, other):
+                graph[1][2]["weight"] = 1
+                return other + int(self)
+
+        graph[0][1]["weight"] = UpdatingWeight(1)
+        if name == "all_shortest_paths":
+            return list(module.all_shortest_paths(
+                graph, 0, 2, weight="weight", method="bellman-ford"
+            ))
+        paths = dict(module.single_source_all_shortest_paths(
+            graph, 0, weight="weight", method="bellman-ford"
+        ))
+        return paths[2]
+
+    assert run(fnx) == run(nx) == [[0, 1, 2]]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_predecessor_numeric_providers_invalidate_cached_weights(
+    graph_type, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, graph_type)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 100)])
+        if cached and backend == "franken_networkx":
+            assert nx.dijkstra_path_length(graph, 0, 2, backend=backend) == 101
+            assert graph.__networkx_cache__["backends"][backend]
+        events = []
+
+        class UpdatingWeight(int):
+            def __radd__(self, other):
+                events.append(("add", other))
+                graph[1][2]["weight"] = 1
+                return other + int(self)
+
+        graph[0][1]["weight"] = UpdatingWeight(1)
+        result = nx.bellman_ford_predecessor_and_distance(graph, 0, backend=backend)
+        assert result[1][2] == 2
+        graph[0][1]["weight"] = 1
+        subsequent = nx.dijkstra_path_length(graph, 0, 2, backend=backend)
+        assert subsequent == 2
+        return _ordered_typed(result), events, subsequent
+
+    assert run("franken_networkx") == run("networkx")
 
 
 @pytest.mark.parametrize("graph_type", GRAPH_TYPES)

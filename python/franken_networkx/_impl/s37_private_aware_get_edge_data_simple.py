@@ -700,6 +700,24 @@ for _name, _property in _MULTIDIGRAPH_PUBLIC_ADJ_PROPERTIES.items():
 del _name, _property
 
 
+# Capture after private storage and cached public views have their final
+# descriptors. Bellman-Ford admission must inspect these identities before
+# reading an instance, so a later class provider cannot run inside the probe
+# or disappear behind the native adjacency snapshot.
+_BELLMAN_FORD_SNAPSHOT_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__getattribute__", "__dict__", "__contains__", "__iter__", "__len__",
+            "is_directed", "is_multigraph", "_adj", "_node", "adj", "nodes",
+            "edge_attr_dict_factory", "nodes_seq", "_native_adjacency_dict",
+            "_native_has_adj_py_keys", "_native_has_succ_py_keys",
+        )
+    }
+    for cls in (Graph, DiGraph)
+}
+
+
 # br-r37-c1-o1i86: capture the raw Rust __copy__ impls BEFORE the Python
 # override below replaces them. The Rust versions clone the inner graph
 # wholesale (node order, edge order, adjacency ROW content order all

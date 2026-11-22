@@ -544,6 +544,40 @@ def _bellman_ford_adjacency_entries(G):
             yield u, v, data
 
 
+def _bellman_ford_snapshot_adjacency(G, source, weight):
+    """Admit a snapshot only when no relaxation can change a later row.
+
+    A numeric subclass is a provider even when the weight selector is an
+    ordinary string: its arithmetic may replace an edge weight or introduce
+    a negative cycle. Node hashing and assigned graph readers can do the
+    same. Check their types without evaluating these protocols, then reuse
+    the ordinary scalar-row admission shared with weighted degree measures.
+    """
+    graph_type = type(G)
+    if graph_type is not Graph and graph_type is not DiGraph:
+        return None
+    namespace = vars(graph_type)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _BELLMAN_FORD_SNAPSHOT_READERS[graph_type].items()
+    ):
+        return None
+    storage = vars(G)
+    if (
+        not _is_plain_immutable_label(source)
+        or _weighted_query_uses_live_python_rows(G, weight)
+        or any(name in storage for name in (
+            "is_directed", "is_multigraph", "nodes_seq",
+            "_native_adjacency_dict", "_native_has_adj_py_keys",
+            "_native_has_succ_py_keys",
+        ))
+        or not _view_root_node_keys_are_stable(G, G.nodes_seq)
+        or _rows_hold_other_key_objects(G)
+    ):
+        return None
+    return _adc_native_weight_rows(G, weight)
+
+
 def bellman_ford_predecessor_and_distance(
     G, source, target=None, weight="weight", heuristic=False
 ):
@@ -577,16 +611,39 @@ def bellman_ford_predecessor_and_distance(
     # heuristic values must reach the shared engine unchanged: early cycle
     # detection can precede floating-point saturation, and custom truth values
     # are evaluated only when a relaxation improves a distance.
-    if (
-        heuristic is False
-        and type(G) in (Graph, DiGraph)
-        and not _weighted_query_uses_live_python_rows(G, weight)
-    ):
-        return _bellman_ford_pred_dist_inprocess(G, source, weight)
+    if heuristic is False:
+        adjacency = _bellman_ford_snapshot_adjacency(G, source, weight)
+        if adjacency is not None:
+            return _bellman_ford_pred_dist_inprocess(G, source, weight, adjacency)
 
     return _bellman_ford_predecessor_and_distance_inproc(
         G, source, target=target, weight=weight, heuristic=heuristic
     )
+
+
+def _bellman_ford_selfloop_edges(G, *, keys=False):
+    """Keep Bellman-Ford's initial loop scan on the live private rows.
+
+    Match the data=True forms of NetworkX's selfloop iterator, including
+    the kind read before opening the adjacency iterator. The public FNX
+    helper may use native loop storage, which cannot serve assigned rows
+    or a class adjacency provider here.
+    """
+    if G.is_multigraph():
+        if keys is True:
+            return (
+                (node, node, key, attrs)
+                for node, row in G._adj.items()
+                if node in row
+                for key, attrs in row[node].items()
+            )
+        return (
+            (node, node, attrs)
+            for node, row in G._adj.items()
+            if node in row
+            for attrs in row[node].values()
+        )
+    return ((node, node, row[node]) for node, row in G._adj.items() if node in row)
 
 
 def _bellman_ford_predecessor_and_distance_inproc(G, source, target=None, weight="weight", heuristic=False):
@@ -595,11 +652,11 @@ def _bellman_ford_predecessor_and_distance_inproc(G, source, target=None, weight
     if G.is_multigraph():
         if any(
             weight_fn(u, v, {k: d}) < 0
-            for u, v, k, d in selfloop_edges(G, keys=True, data=True)
+            for u, v, k, d in _bellman_ford_selfloop_edges(G, keys=True)
         ):
             raise NetworkXUnbounded("Negative cycle detected.")
     else:
-        if any(weight_fn(u, v, d) < 0 for u, v, d in selfloop_edges(G, data=True)):
+        if any(weight_fn(u, v, d) < 0 for u, v, d in _bellman_ford_selfloop_edges(G)):
             raise NetworkXUnbounded("Negative cycle detected.")
 
     dist = {source: 0}
@@ -614,15 +671,16 @@ def _bellman_ford_predecessor_and_distance_inproc(G, source, target=None, weight
     return (pred, dist)
 
 
-def _bellman_ford_pred_dist_inprocess(G, source, weight):
+def _bellman_ford_pred_dist_inprocess(G, source, weight, adjacency):
     """networkx ``bellman_ford_predecessor_and_distance`` (SPFA variant,
     heuristic=False — the public default) on a native adjacency snapshot. Byte-
-    identical (pred dict of lists, dist) to nx, no fnx->nx conversion."""
+    identical (pred dict of lists, dist) to nx, no fnx->nx conversion. The
+    caller admits callback-free scalar adjacency before entering this path."""
     from collections import deque as _deque
 
     g_succ = {
         u: {v: attrs.get(weight, 1) for v, attrs in row.items()}
-        for u, row in to_dict_of_dicts(G).items()
+        for u, row in adjacency.items()
     }
     # Negative self-loop is a negative cycle (matches nx).
     for u, nbrs in g_succ.items():
