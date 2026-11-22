@@ -135,6 +135,9 @@ _BIPARTITE_MATCHING_ALGORITHMS = frozenset(
 _MATCHING_PREDICATE_ALGORITHMS = frozenset(
     {"is_matching", "is_maximal_matching", "is_perfect_matching"}
 )
+_WEIGHTED_MATCHING_ALGORITHMS = frozenset(
+    {"max_weight_matching", "min_weight_matching"}
+)
 _BIPARTITE_PROJECTION_ALGORITHMS = frozenset(
     {
         "projected_graph", "weighted_projected_graph",
@@ -296,6 +299,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
 ) | (
     _BIPARTITE_MATCHING_ALGORITHMS
     | _MATCHING_PREDICATE_ALGORITHMS
+    | _WEIGHTED_MATCHING_ALGORITHMS
     | _BIPARTITE_PROJECTION_ALGORITHMS
     | _SUBSET_BETWEENNESS_INPUT_ALGORITHMS
     | _RESIDUAL_FLOW_ALGORITHMS
@@ -350,6 +354,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _CONNECTIVITY_BATCH_INPUT_ALGORITHMS
     | _BIPARTITE_MATCHING_ALGORITHMS
     | _MATCHING_PREDICATE_ALGORITHMS
+    | _WEIGHTED_MATCHING_ALGORITHMS
     | _BIPARTITE_PROJECTION_ALGORITHMS
     | _RESILIENCE_ALGORITHMS
     | _LEIDEN_ALGORITHMS
@@ -384,6 +389,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _WEIGHTED_MATCHING_ALGORITHMS:
+        # Edge readers and truth/numeric protocols belong to the caller.
+        # Recover it even after another algorithm cached a conversion; the
+        # matching entry point admits ordinary storage to native blossom.
+        return True
     if name in _CLUSTERING_INPUT_ALGORITHMS:
         # An undirected view can expose distinct reciprocal edge weights.
         # Selectors and attribute readers may also change later triangles;
@@ -2572,6 +2582,7 @@ class BackendInterface:
                             | _CLUSTERING_INPUT_ALGORITHMS
                             | _ISOMORPHISM_INPUT_ALGORITHMS
                             | _MATCHING_PREDICATE_ALGORITHMS
+                            | _WEIGHTED_MATCHING_ALGORITHMS
                         )
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",

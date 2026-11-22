@@ -1569,23 +1569,19 @@ def min_weight_matching(G, weight="weight", *, backend=None, **backend_kwargs):
         raise NetworkXNotImplemented("not implemented for directed type")
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
-    # br-r37-c1-fs3bl (structural): the delegation above stays - nx's per-pair tuple
-    # DIRECTION comes from the insertion order of the blossom algorithm's internal `mate`
-    # dict (matching_dict_to_set keeps whichever orientation it meets first), which no
-    # native kernel reproduces, and that is exactly what this bead reverted the Rust
-    # binding for. What does NOT need to be faithful is the CONVERSION: a matching depends
-    # only on structure and the weight attribute, so the node/edge attribute copy that
-    # `_networkx_graph_for_parity` performs is pure overhead here.
-    #
-    # Edge insertion ORDER is preserved because it is load-bearing: nx builds an inverted
-    # graph with `add_weighted_edges_from` over `G.edges(...)`, so the order edges arrive
-    # decides the blossom traversal and hence which orientation each pair ends up with.
-    # Verified byte-identical to the faithful path over 120 random graphs including
-    # permuted node insertion order and attributed graphs.
-    #
-    # 1g0lj.1: max_weight_matching now reproduces the mate order natively, so this is
-    # networkx's own body over it: the inverted graph is built the way networkx builds it
-    # (an fnx Graph keeps networkx's node and adjacency order for the same insertions).
+    # Ordinary storage can invert weights into a native graph while retaining
+    # edge insertion order, which controls blossom tie-breaking and pair
+    # orientation. Observable readers must keep the reference read boundary.
+    if _weighted_matching_uses_live_python_rows(G, weight, True):
+        # The reference body owns edge-view iteration and inversion order.
+        # A provider can change later weights during either pass, so neither
+        # materializing its edges nor converting G first is equivalent.
+        from .matching import _upstream_body
+
+        try:
+            return _upstream_body("min_weight_matching")(G, weight=weight)
+        except Exception as exc:
+            _raise_translated_networkx_exception(exc)
     if len(G.edges) == 0:
         native = _max_weight_matching_native(G, True, weight, min_weight=True)
         if native is not None:
@@ -1606,6 +1602,53 @@ def min_weight_matching(G, weight="weight", *, backend=None, **backend_kwargs):
 _min_weight_matching_impl = min_weight_matching
 
 
+def _weighted_matching_uses_live_python_rows(G, weight, maxcardinality=False):
+    """Reject observable readers before freezing a blossom problem.
+
+    Edge providers, numeric protocols and truth callbacks can change later
+    weights. Admission inspects their types without consuming them; ordinary
+    native and NetworkX graphs retain the existing indexed blossom kernel.
+    """
+    if (
+        type(weight) is not str
+        or type(maxcardinality) not in (bool, int, float, type(None))
+    ):
+        return True
+    if type(G) is Graph:
+        if (
+            not _greedy_color_native_graph(G)
+            or G.edge_attr_dict_factory is not dict
+            or not _view_root_node_keys_are_stable(G, G.nodes_seq)
+        ):
+            return True
+    elif type(G) is _nx.Graph:
+        if _weighted_query_uses_live_python_rows(G, weight) or any(
+            name in vars(G)
+            for name in (
+                "neighbors", "__iter__", "__getitem__", "__len__",
+                "number_of_nodes", "number_of_edges",
+            )
+        ):
+            return True
+    else:
+        return True
+
+    # Do not call get() on a custom mapping or on a dictionary containing
+    # custom keys: a colliding key's equality is itself an observable reader.
+    # These checks also admit owned write-watched native dictionaries whose
+    # read methods are the builtin dict implementations.
+    plain_keys = (str, int, float, bool, type(None))
+    for row in G.adj.values():
+        for attrs in row.values():
+            if not _attr_dict_has_plain_reads(attrs) or any(
+                type(key) not in plain_keys for key in attrs
+            ):
+                return True
+            if type(attrs.get(weight, 1)) not in (int, float, bool):
+                return True
+    return False
+
+
 def _max_weight_matching_native(G, maxcardinality, weight, min_weight=False):
     """networkx's ``max_weight_matching`` through the native port (1g0lj.1).
 
@@ -1617,6 +1660,8 @@ def _max_weight_matching_native(G, maxcardinality, weight, min_weight=False):
     where f64 arithmetic would not equal networkx's: a weight that is not an
     int or a finite float, or an int beyond 2**48.
     """
+    if _weighted_matching_uses_live_python_rows(G, weight, maxcardinality):
+        return None
     nodes = list(G)
     index = {n: i for i, n in enumerate(nodes)}
     adjacency = []
@@ -1646,13 +1691,12 @@ def _max_weight_matching_native(G, maxcardinality, weight, min_weight=False):
 
 
 def _max_weight_matching_structural_nx(G, maxcardinality, weight):
-    """In-process nx delegation for ``max_weight_matching`` preserving exact adjacency order."""
-    from franken_networkx.backend import _fnx_to_nx
+    """Run the reference blossom body on the caller's original graph."""
+    from .matching import _upstream_body
 
-    _H = G if isinstance(G, _nx.Graph) else _fnx_to_nx(G)
     try:
-        return _nx.algorithms.matching.max_weight_matching(
-            _H, maxcardinality=maxcardinality, weight=weight, backend="networkx"
+        return _upstream_body("max_weight_matching")(
+            G, maxcardinality=maxcardinality, weight=weight
         )
     except Exception as exc:
         _raise_translated_networkx_exception(exc)
