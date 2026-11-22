@@ -1,0 +1,67 @@
+# dsr quality check
+# argv: .venv/bin/maturin build --locked --jobs 1 --profile dev --out /workspace/scratch/a0e66904f12b/next_diagnostics/final-native-wheels && .venv/bin/python /workspace/scratch/a0e66904f12b/next_diagnostics/stage_native_candidate.py && PYTHONPATH=/workspace/scratch/a0e66904f12b/next_diagnostics/final-native-artifact ./scripts/run_pytest_guarded.sh tests/python/test_readwrite_audit_regressions.py -k json_graph_file -q --tb=short && PYTHONPATH=/workspace/scratch/a0e66904f12b/next_diagnostics/final-native-artifact ./scripts/run_pytest_guarded.sh tests/python/test_graph_operators_parity.py tests/python/test_spanning_tree_count_parity.py tests/python/test_node_link_kwarg_only_parity.py tests/python/test_node_link_data_native_parity.py -q --tb=short
+# cwd: /workspace/scratch/a0e66904f12b/next_native_candidate_wt
+# env: PATH=/workspace/scratch/a0e66904f12b/next_tools/bin:/workspace/scratch/a0e66904f12b/next_tools/cargo-home/bin:/usr/local/bin:/usr/bin:/bin
+# env: DSR_QUALITY_RUN_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/final-native-logs/franken_networkx_native_json_end_to_end/20261122T102434-00gAH8oq
+# env: DSR_QUALITY_TIMEOUT=1500
+# env: DSR_CACHE_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/cache
+# env: DSR_REPOS_FILE=/workspace/scratch/a0e66904f12b/next_diagnostics/native-end-to-end.yaml
+# env: DSR_CURRENT_CMD=quality
+# env: CARGO_TARGET_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/native-target
+# env: DSR_STATE_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/final-native-state
+# env: DSR_CURRENT_HOST=
+# env: CARGO_PROFILE_DEV_DEBUG=0
+# env: DSR_RUN_ID=run-1795361073-2
+# env: CARGO_HOME=/workspace/scratch/a0e66904f12b/next_tools/cargo-home
+# env: CARGO_PROFILE_TEST_DEBUG=0
+# env: RUSTFLAGS=-Z threads=1
+# env: CARGO_BUILD_JOBS=1
+# env: RUSTUP_HOME=/workspace/scratch/a0e66904f12b/next_tools/rustup-home
+# env: DSR_CURRENT_TOOL=
+# env: CARGO_INCREMENTAL=0
+# env: DSR_QUALITY_LOG_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/final-native-logs
+# env: DSR_RUST_NATIVE_ENV_NAMES
+# started_monotonic_ms: 2430951
+# timeout_seconds: 1500
+# ----
+🍹 Building a mixed python/rust project
+🐍 Found CPython 3.12 at /workspace/scratch/a0e66904f12b/franken_networkx_next/.venv/bin/python
+🔗 Found pyo3 bindings with abi3-py3.10 support
+📡 Using build options features from pyproject.toml
+   Compiling pyo3-log v0.13.5
+   Compiling fnx-algorithms v0.4.1 (/workspace/scratch/a0e66904f12b/next_native_candidate_wt/crates/fnx-algorithms)
+   Compiling fnx-readwrite v0.4.1 (/workspace/scratch/a0e66904f12b/next_native_candidate_wt/crates/fnx-readwrite)
+   Compiling fnx-generators v0.4.1 (/workspace/scratch/a0e66904f12b/next_native_candidate_wt/crates/fnx-generators)
+   Compiling fnx-convert v0.4.1 (/workspace/scratch/a0e66904f12b/next_native_candidate_wt/crates/fnx-convert)
+   Compiling fnx-views v0.4.1 (/workspace/scratch/a0e66904f12b/next_native_candidate_wt/crates/fnx-views)
+   Compiling fnx-python v0.4.1 (/workspace/scratch/a0e66904f12b/next_native_candidate_wt/crates/fnx-python)
+    Finished `dev` profile [unoptimized] target(s) in 1m 27s
+📦 Including files matching "python/fnx_backend_info.py"
+📦 Built wheel for abi3 Python ≥ 3.10 to /workspace/scratch/a0e66904f12b/next_diagnostics/final-native-wheels/franken_networkx-0.4.1-cp310-abi3-manylinux_2_35_x86_64.whl
+Fresh development-profile engineering wheel; no performance or release qualification
+wheel /workspace/scratch/a0e66904f12b/next_diagnostics/final-native-wheels/franken_networkx-0.4.1-cp310-abi3-manylinux_2_35_x86_64.whl
+wheel_sha256 f131a8267b9d09019c22bf3bbdb312ef9388584bf024e16accc3106ce3b30def
+python_sources_verified 155
+native /workspace/scratch/a0e66904f12b/next_diagnostics/final-native-artifact/franken_networkx/_fnx.abi3.so
+native_sha256 f53ceef9acca47d5f28a5232913a5a01195afe2d5e396eafb1c506d607ae986a
+[guarded-pytest] Setting virtual memory limit to 2 GB...
+[guarded-pytest] Running pytest with timeout 180s and RSS limit 512 MB...
+........................................................................ [ 60%]
+...............................................                          [100%]
+119 passed, 41 deselected in 2.73s
+[guarded-pytest] Setting virtual memory limit to 2 GB...
+[guarded-pytest] Running pytest with timeout 180s and RSS limit 512 MB...
+........................................................................ [  9%]
+........................................................................ [ 18%]
+........................................................................ [ 28%]
+........................................................................ [ 37%]
+.....................................ss................s..s.sss.......ss [ 46%]
+s...ss..s......sss...s..s..s...........s................................ [ 56%]
+........................................................................ [ 65%]
+s........s..s.......s....s...........s.................................. [ 75%]
+........................................................................ [ 84%]
+........................................................................ [ 93%]
+..............................................                           [100%]
+740 passed, 26 skipped in 33.52s
+
+# exit_code: 0

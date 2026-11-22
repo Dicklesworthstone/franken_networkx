@@ -1,0 +1,11 @@
+schema_version: "1.0.0"
+tools:
+  franken_networkx_native_json_candidate:
+    repo: Dicklesworthstone/franken_networkx
+    local_path: /workspace/scratch/a0e66904f12b/next_native_candidate_wt
+    language: rust
+    checks:
+      - cargo fmt --all -- --check
+      - cargo test --locked -j 1 -p fnx-readwrite standard_node_link_json -- --nocapture
+      - cargo check --locked -j 1 -p fnx-python --features extension-module
+      - /workspace/scratch/a0e66904f12b/franken_networkx_next/.venv/bin/maturin build --locked --jobs 1 --profile dev --out /workspace/scratch/a0e66904f12b/next_diagnostics/native-wheels

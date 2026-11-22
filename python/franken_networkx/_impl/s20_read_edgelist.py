@@ -631,14 +631,70 @@ def read_gml(
     return _read_gml_owned(path, label=label, destringizer=destringizer)
 
 
-def read_json_graph(path, *, mode=None):
-    """Read a graph serialized as JSON node-link format.
+def _json_graph_is_private_snapshot(data):
+    """Recognize the explicit private envelope without claiming mixed schemas."""
+    if not isinstance(data, dict) or "mode" not in data:
+        return False
+    if "graph" in data or "links" in data:
+        return False
+    nodes = data.get("nodes")
+    if isinstance(nodes, list) and any(isinstance(node, dict) for node in nodes):
+        return False
+    edges = data.get("edges")
+    if isinstance(edges, list) and any(
+        isinstance(edge, dict) and ("source" in edge or "target" in edge)
+        for edge in edges
+    ):
+        return False
+    return True
 
-    Supports optional `mode` ('strict' or 'hardened'). In hardened mode,
-    bounded recovery is performed for malformed JSON or invalid edge records,
-    logging events to the graph's decision record ledger.
+
+def read_json_graph(path, *, mode=None):
+    """Read standard node-link JSON, preserving all graph types and attributes.
+
+    Both current ``edges`` and historical ``links`` arrays are accepted. The
+    original standard document receives native validation before the owned
+    node-link constructor rebuilds its complete Python values. Invalid standard
+    records and incompatible metadata fail closed in both compatibility modes.
+    Explicit private snapshots and malformed JSON syntax retain the native
+    reader's existing bounded hardened recovery and decision records.
+    Paths may be compressed; caller-owned text or binary streams remain open.
     """
-    return _rust_read_json_graph(path, mode=mode)
+    if mode is not None:
+        with compatibility_mode(mode):
+            return read_json_graph(path)
+
+    import json
+
+    from .readwrite import _normalize_io_path
+
+    def read(source):
+        payload = source.read()
+        if isinstance(payload, str):
+            text = payload
+        elif isinstance(payload, (bytes, bytearray)):
+            text = payload.decode("utf-8")
+        else:
+            raise TypeError("file-like .read() must return str or bytes")
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return _rust_read_json_graph(_io.StringIO(text))
+        if _json_graph_is_private_snapshot(data):
+            return _rust_read_json_graph(_io.StringIO(text))
+
+        # Validate the actual input, including every rich record. A converted
+        # legacy snapshot would hide types, metadata and parallel edges from
+        # the policy owner. Raw native validation does not coerce JSON numbers;
+        # reconstruction uses the values decoded above, including large ints.
+        policy = _fnx.validate_node_link_json(text)
+        converted = node_link_graph(
+            data, edges="edges" if "edges" in data else "links"
+        )
+        _fnx.copy_readwrite_policy(policy, converted)
+        return converted
+
+    return _open_path_and_call(_normalize_io_path(path), "rb", read)
 
 
 def is_semiconnected(G):

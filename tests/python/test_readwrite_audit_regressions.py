@@ -16,6 +16,8 @@ a silent divergence.
 from __future__ import annotations
 
 import io
+import json
+import math
 
 import networkx as nx
 import pytest
@@ -389,3 +391,275 @@ class TestParseGmlLabelAndDestringizerParity:
                 getattr(fnx, name)(path, garbage_kw="x")
             with pytest.raises(TypeError):
                 getattr(nx, name)(path, garbage_kw="x")
+
+
+# ---------------------------------------------------------------------------
+# Standard node-link JSON file ingestion
+# ---------------------------------------------------------------------------
+
+
+class _JsonFileReadOnce:
+    """A caller-owned stream with no seek operation or repeated-read allowance."""
+
+    def __init__(self, payload):
+        self.payload = payload
+        self.reads = 0
+        self.closed = False
+
+    def read(self):
+        self.reads += 1
+        assert self.reads == 1
+        return self.payload
+
+    def close(self):
+        self.closed = True
+
+
+def _json_file_rich_graph(graph_type):
+    graph = getattr(nx, graph_type)()
+    large = 2**2000 + 17
+    pair = (3, "β")
+    graph.graph.update(
+        name="node-link α",
+        metadata={"values": [None, True, {"large": -large, "zero": -0.0}]},
+    )
+    graph.add_node(large, payload={"nested": [1, "one", False]})
+    graph.add_node(str(large), label="same spelling, distinct node")
+    graph.add_node(pair, payload=[{"active": True}, None])
+    graph.add_node("isolate", note="retained")
+    if graph.is_multigraph():
+        graph.add_edge(large, pair, key="primary", weight=large, tags=["a", {"b": 2}])
+        graph.add_edge(large, pair, key=-11, weight=-2, color="parallel")
+        graph.add_edge(pair, pair, key=19, weight=0)
+    else:
+        graph.add_edge(large, pair, weight=large, key=[1, {"ordinary": "attribute"}])
+        graph.add_edge(pair, pair, weight=0)
+    if graph.is_directed():
+        graph.add_edge(pair, large, weight=5)
+    return graph
+
+
+def _assert_json_file_policy(graph, mode, data, edge_field="edges"):
+    assert graph.mode == mode
+    records = [
+        record for record in graph.decision_records()
+        if record["operation"] == "read_json_graph"
+    ]
+    assert len(records) == 1
+    record = records[0]
+    assert record["mode"] == mode
+    assert record["action"] == "allow"
+    assert record["rationale"] == "standard node-link JSON validation completed"
+    evidence = {term["signal"]: term["observed_value"] for term in record["evidence"]}
+    assert evidence["node_records"] == str(len(data["nodes"]))
+    assert evidence["edge_records"] == str(len(data[edge_field]))
+    assert evidence["edge_field"] == edge_field
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize("edge_field", ["edges", "links"])
+@pytest.mark.parametrize("binary", [False, True])
+def test_json_graph_file_preserves_rich_graphs_and_original_policy(
+    graph_type, mode, edge_field, binary, monkeypatch
+):
+    original = _json_file_rich_graph(graph_type)
+    text = json.dumps(nx.node_link_data(original, edges=edge_field), ensure_ascii=False, indent=2)
+    data = json.loads(text)
+    expected = nx.node_link_graph(data, edges=edge_field)
+    expected_data = nx.node_link_data(expected)
+
+    def no_fallback(*args, **kwargs):
+        raise AssertionError("standard input must use the owned complete decoder")
+
+    monkeypatch.setattr(nx, "node_link_graph", no_fallback)
+    monkeypatch.setattr(fnx, "_rust_read_json_graph", no_fallback)
+    native_validate = fnx._fnx.validate_node_link_json
+    validated = []
+
+    def validate_original(payload, *args, **kwargs):
+        validated.append(payload)
+        return native_validate(payload, *args, **kwargs)
+
+    monkeypatch.setattr(fnx._fnx, "validate_node_link_json", validate_original)
+    stream = _JsonFileReadOnce(text.encode("utf-8") if binary else text)
+    actual = fnx.read_json_graph(stream, mode=mode)
+
+    assert type(actual) is getattr(fnx, graph_type)
+    assert fnx.node_link_data(actual) == expected_data
+    assert validated == [text]
+    assert stream.reads == 1
+    assert not stream.closed
+    assert type(next(iter(actual))) is int
+    assert next(iter(actual)) == 2**2000 + 17
+    assert math.copysign(1, actual.graph["metadata"]["values"][2]["zero"]) == -1
+    _assert_json_file_policy(actual, mode, data, edge_field)
+
+
+@pytest.mark.parametrize("suffix", [".json", ".json.gz", ".json.bz2"])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_json_graph_file_reads_paths_and_compressed_files(tmp_path, suffix, mode):
+    import bz2
+    import gzip
+
+    expected = _json_file_rich_graph("MultiDiGraph")
+    data = nx.node_link_data(expected)
+    content = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    path = tmp_path / ("graph" + suffix)
+    opener = gzip.open if suffix.endswith(".gz") else bz2.open if suffix.endswith(".bz2") else open
+    with opener(path, "wb") as stream:
+        stream.write(content)
+    actual = fnx.read_json_graph(path, mode=mode)
+    assert type(actual) is fnx.MultiDiGraph
+    assert fnx.node_link_data(actual) == nx.node_link_data(expected)
+    _assert_json_file_policy(actual, mode, data)
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_json_graph_file_accepts_custom_pathlike(tmp_path, mode):
+    path = tmp_path / "graph.json"
+    path.write_text('{"nodes":[],"edges":[]}', encoding="utf-8")
+
+    class Path:
+        def __fspath__(self):
+            return str(path)
+
+    actual = fnx.read_json_graph(Path(), mode=mode)
+    assert type(actual) is fnx.MultiGraph
+    assert len(actual) == 0
+    _assert_json_file_policy(actual, mode, {"nodes": [], "edges": []})
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("ambient", ["strict", "hardened"])
+@pytest.mark.parametrize("explicit", [None, "strict", "hardened"])
+def test_json_graph_file_honors_ambient_and_explicit_modes(graph_type, ambient, explicit):
+    data = nx.node_link_data(getattr(nx, graph_type)([(0, 1)]))
+    stream = io.StringIO(json.dumps(data))
+    previous = fnx.get_compatibility_mode()
+    with fnx.compatibility_mode(ambient):
+        actual = fnx.read_json_graph(stream, mode=explicit)
+        assert fnx.get_compatibility_mode() == ambient
+    assert fnx.get_compatibility_mode() == previous
+    assert type(actual) is getattr(fnx, graph_type)
+    assert not stream.closed
+    _assert_json_file_policy(actual, explicit or ambient, data)
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_json_graph_file_preserves_default_ids_aliases_and_implicit_nodes(mode):
+    data = {
+        "nodes": [{"id": 1, "first": 1}, {"id": True, "second": 2},
+                  {"name": "automatic"}, {"id": 2.0, "third": 3}],
+        "edges": [{"source": True, "target": 2.0, "weight": 1},
+                  {"source": 1.0, "target": False, "weight": 2},
+                  {"source": 1, "target": 2, "weight": 4}],
+    }
+    expected = nx.node_link_graph(data)
+    actual = fnx.read_json_graph(io.StringIO(json.dumps(data)), mode=mode)
+    assert type(actual) is fnx.MultiGraph
+    assert fnx.node_link_data(actual) == nx.node_link_data(expected)
+    assert [(type(node), node) for node in actual] == [
+        (type(node), node) for node in expected
+    ]
+    _assert_json_file_policy(actual, mode, data)
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_json_graph_file_preserves_nested_tuple_nodes_and_null_edge_key(mode):
+    data = {
+        "multigraph": True,
+        "nodes": [{"id": [1, None, [2, "nested"]]}],
+        "edges": [{"source": [1, None, [2, "nested"]], "target": [], "key": None}],
+    }
+    actual = fnx.read_json_graph(io.StringIO(json.dumps(data)), mode=mode)
+    assert list(actual) == [(1, None, (2, "nested")), ()]
+    assert list(actual.edges(keys=True)) == [((1, None, (2, "nested")), (), 0)]
+    _assert_json_file_policy(actual, mode, data)
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_json_graph_file_preserves_python_exponent_decoding(mode):
+    text = '{"graph":{"overflow":1e400},"nodes":[{"id":1e400}],"edges":[]}'
+    data = json.loads(text)
+    actual = fnx.read_json_graph(io.StringIO(text), mode=mode)
+    assert list(actual) == [float("inf")]
+    assert actual.graph["overflow"] == float("inf")
+    _assert_json_file_policy(actual, mode, data)
+
+
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{"nodes":[],"edges":[],"links":[]}',
+        '{"nodes":[],"edges":[],"schema_version":2}',
+        '{"nodes":[],"edges":[],"mode":"strict","graph":{}}',
+        '{"nodes":[],"edges":[],"directed":1}',
+        '{"nodes":[],"edges":[],"multigraph":"false"}',
+        '{"nodes":[],"edges":[],"graph":null}',
+        '{"nodes":[],"edges":[],"graph":{"__fnx_incompatible_codec":2}}',
+        '{"nodes":[],"edges":[],"graph":{"value":NaN}}',
+        '{"nodes":null,"edges":[]}',
+        '{"nodes":["old-style-node"],"edges":[]}',
+        '{"nodes":[{"id": null }],"edges":[]}',
+        '{"nodes":[{"id":{"unhashable":1}}],"edges":[]}',
+        '{"nodes":[{"id":0,"__fnx_incompatible_codec":2}],"edges":[]}',
+        '{"nodes":[],"edges":null}',
+        '{"nodes":[],"edges":[1]}',
+        '{"nodes":[],"edges":[{"source":0}]}',
+        '{"nodes":[],"edges":[{"source":0,"target":null}]}',
+        '{"nodes":[],"edges":[{"source":0,"target":1,"key": [1] }]}',
+        '{"nodes":[],"edges":[{"source":0,"target":1,"key": {"x":2} }]}',
+        '{"nodes":[],"edges":[{"source":0,"target":1,"__fnx_incompatible_codec":2}]}',
+        r'{"nodes":[],"edges":[{"source":0,"target":1,"\u005f_fnx_incompatible_codec":2}]}',
+    ],
+)
+def test_json_graph_file_standard_malformed_input_fails_closed(text, mode):
+    stream = _JsonFileReadOnce(text)
+    with pytest.raises(OSError, match="node-link"):
+        fnx.read_json_graph(stream, mode=mode)
+    assert stream.reads == 1
+    assert not stream.closed
+
+
+@pytest.mark.parametrize("directed", [None, False, True])
+@pytest.mark.parametrize("mode", ["strict", "hardened"])
+def test_json_graph_file_retains_private_snapshot_documents(directed, mode):
+    data = {
+        "mode": "strict", "graph_attrs": {"name": "snapshot"},
+        "nodes": ["left", "right", "isolate"],
+        "edges": [{"left": "left", "right": "right", "attrs": {"weight": 3}}],
+    }
+    if directed is not None:
+        data["directed"] = directed
+    stream = io.StringIO(json.dumps(data))
+    actual = fnx.read_json_graph(stream, mode=mode)
+    assert type(actual) is (fnx.DiGraph if directed else fnx.Graph)
+    assert list(actual) == ["left", "right", "isolate"]
+    assert list(actual.edges(data=True)) == [("left", "right", {"weight": 3})]
+    assert actual.graph == {"name": "snapshot"}
+    assert actual.mode == mode
+    assert not stream.closed
+    assert any(record["operation"] == "read_json_graph" for record in actual.decision_records())
+
+
+def test_json_graph_file_retains_native_legacy_recovery_and_incompatibility_rejection():
+    payload = {
+        "mode": "strict", "nodes": ["left", "right"],
+        "edges": [{"left": "", "right": "right", "attrs": {}}],
+    }
+    with pytest.raises(OSError):
+        fnx.read_json_graph(io.StringIO(json.dumps(payload)), mode="strict")
+    with pytest.warns(RuntimeWarning):
+        actual = fnx.read_json_graph(io.StringIO(json.dumps(payload)), mode="hardened")
+    assert list(actual) == ["left", "right"]
+    assert actual.number_of_edges() == 0
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+    payload["edges"] = [{
+        "left": "left", "right": "right", "attrs": {"__fnx_incompatible_codec": 2},
+    }]
+    for mode in ("strict", "hardened"):
+        with pytest.raises(OSError, match="incompatible edge metadata"):
+            fnx.read_json_graph(io.StringIO(json.dumps(payload)), mode=mode)

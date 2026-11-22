@@ -1,0 +1,46 @@
+# dsr quality check
+# argv: cargo test --locked -j 1 -p fnx-readwrite --lib standard_node_link_json -- --nocapture
+# cwd: /workspace/scratch/a0e66904f12b/franken_networkx_next
+# env: PATH=/workspace/scratch/a0e66904f12b/next_tools/bin:/workspace/scratch/a0e66904f12b/next_tools/cargo-home/bin:/usr/local/bin:/usr/bin:/bin
+# env: DSR_QUALITY_RUN_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/readwrite-logs/franken_networkx_readwrite_native_candidate/20261122T101950-6Eu8wG54
+# env: DSR_QUALITY_TIMEOUT=600
+# env: DSR_CACHE_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/cache
+# env: DSR_REPOS_FILE=/workspace/scratch/a0e66904f12b/next_diagnostics/readwrite-candidate.yaml
+# env: DSR_CURRENT_CMD=quality
+# env: CARGO_TARGET_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/native-target
+# env: DSR_STATE_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/readwrite-state
+# env: DSR_CURRENT_HOST=
+# env: CARGO_PROFILE_DEV_DEBUG=0
+# env: DSR_RUN_ID=run-1795360790-2
+# env: CARGO_HOME=/workspace/scratch/a0e66904f12b/next_tools/cargo-home
+# env: CARGO_PROFILE_TEST_DEBUG=0
+# env: RUSTFLAGS=-Z threads=1
+# env: CARGO_BUILD_JOBS=1
+# env: RUSTUP_HOME=/workspace/scratch/a0e66904f12b/next_tools/rustup-home
+# env: DSR_CURRENT_TOOL=
+# env: CARGO_INCREMENTAL=0
+# env: DSR_QUALITY_LOG_DIR=/workspace/scratch/a0e66904f12b/next_diagnostics/readwrite-logs
+# env: DSR_RUST_NATIVE_ENV_NAMES
+# started_monotonic_ms: 2178035
+# timeout_seconds: 600
+# ----
+   Compiling core_detect v1.0.0
+   Compiling regex-syntax v0.8.12
+   Compiling unarray v0.1.4
+   Compiling proptest v1.12.0
+   Compiling fnx-readwrite v0.4.1 (/workspace/scratch/a0e66904f12b/franken_networkx_next/crates/fnx-readwrite)
+    Finished `test` profile [unoptimized] target(s) in 9.51s
+     Running unittests src/lib.rs (/workspace/scratch/a0e66904f12b/next_diagnostics/native-target/debug/build/fnx-readwrite/0e375cf6df2ab934/out/fnx_readwrite-0e375cf6df2ab934)
+
+running 6 tests
+test tests::standard_node_link_json_uses_constructor_defaults_and_simple_key_attributes ... ok
+test tests::standard_node_link_json_preserves_unbounded_numeric_lexemes ... ok
+test tests::standard_node_link_json_rejects_malformed_records_with_native_decisions ... ok
+test tests::standard_node_link_json_bounds_tuple_validation_without_recursing ... ok
+test tests::standard_node_link_json_validates_all_graph_flags_and_edge_aliases ... ok
+test tests::standard_node_link_json_validates_records_beyond_ledger_retention_size ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 160 filtered out; finished in 0.04s
+
+
+# exit_code: 0

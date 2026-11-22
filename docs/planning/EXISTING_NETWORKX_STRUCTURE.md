@@ -3517,3 +3517,99 @@ Concurrent native and Python commits on main were preserved when publishing;
 they are outside these frozen-source receipts. Current-native compilation,
 canonical full DSR quality and release qualification remain open under
 `br-r37-c1-78u12`.
+
+## 110. Standard node-link JSON file ingestion
+
+`read_json_graph` accepts the standard node-link documents produced by
+`node_link_data` and `json.dump`, including all four graph classes, graph/node/
+edge attributes, parallel edge keys, implicit endpoint nodes, missing node IDs,
+and JSON arrays used as tuple node labels. The owned constructor supplies its
+existing defaults (`directed=False`, `multigraph=True`) when flags are absent.
+Current `edges` and historical `links` arrays are accepted; a document containing
+both arrays is ambiguous and fails closed. Explicit private snapshot envelopes
+retain the existing native reader and its bounded recovery behavior.
+
+The native readwrite engine validates the original standard document, including
+every record, flag, label/key domain, envelope field and reserved incompatible
+feature marker. Validation borrows raw JSON values, so integer IDs and attributes
+within the Python decoder's configured digit limit are never normalized through
+floating point or the native scalar attribute representation. The complete
+owned constructor receives the original Python JSON values and the resulting
+graph receives the actual native validation policy. Its policy carrier is not
+a decoded graph or a surrogate document and must not be returned as the
+ingestion result.
+
+Recognized standard documents with invalid structure, unsupported envelope
+fields or incompatible metadata fail closed in both modes. Hardened mode does
+not invent repairs for this new schema. Standard JSON syntax excludes NaN and
+Infinity literals; missing IDs, implicit endpoints and repeated ordinary records
+are constructor semantics, not recoveries. Tuple-label validation uses an
+iterative walk with a 128-level nesting limit. Callers may provide paths (including
+gzip/bzip2 files) or text/binary streams; streams are read once, remain open and
+are not rewound. Explicit and ambient compatibility modes govern both native
+validation and graph construction.
+
+DSR run `20261122T101950-6Eu8wG54` passed all six new native regression tests,
+the `fnx-readwrite` compile check, and formatting for the two changed Rust
+packages, with identical source snapshots before and after execution. Run
+`20261122T102434-00gAH8oq` then built a fresh development-profile extension from
+the frozen candidate and passed all 119 Python ingestion cases, followed by
+740 neighboring operator, spanning-count and node-link tests (26 existing
+skips). The staged wheel's Python sources were compared with the candidate
+before execution. This is current-candidate functional evidence; it makes no
+performance, release or full canonical qualification claim.
+
+## 111. Weighted spanning-tree count domains
+
+`number_of_spanning_trees` preserves the selected edge-value domain and accepts
+literal hashable attribute selectors; `weight=None` retains unit weights.
+Complex and nonfinite values use the existing owned Matrix-Tree builders and
+determinant, preserving their returned values, warnings and errors.
+Numeric-looking strings and invalid objects must not silently become native
+numbers or unit weights. Null-graph and directed-root errors retain their
+precedence, and disconnected graphs with valid inputs return literal integer
+zero.
+
+The directed cofactor uses incoming-degree sums and the requested root;
+undirected cofactors use the ordinary Laplacian. Parallel weights and self-loop
+cancellation follow the matrix builders. Ordinary unweighted and admitted
+finite builtin-real simple graphs retain the native kernel; integer totals
+above `2**53` are conservatively declined. Admission uses the shared weight
+scan, including live attribute mirrors and mutation-sensitive caching.
+
+The published 0.4.1 baseline DSR run `20261122T100333-ZI127YPY` reproduced 46
+failures and 66 passing controls across all graph types and direct/backend
+routes. DSR run `20261122T101126-GTOD1n70` passed the complete candidate count
+module (405 passed, 26 existing skips), including all 128 new cases, with the
+published 0.4.1 native extension and verified candidate Python sources. The
+expanded matrix covers native-route retention and changes to held edge-attribute
+dictionaries. The fresh extension run in section 110 repeated this complete
+module successfully. Neither run establishes release, performance or full
+canonical qualification.
+
+## 112. Stochastic normalization domains and graph copies
+
+`stochastic_graph` normalizes directed simple and keyed parallel graphs using a
+canonical shallow graph copy when requested. Imported graph metadata, arbitrary
+graph/node/edge attribute keys and nested shared values survive; graph and
+attribute dictionaries are independent under `copy=True`. The public out-degree
+reduction preserves exact integer totals, Decimal/Fraction arithmetic, Python
+compensated float sums, parallel multiplicity and integer-zero outputs.
+
+In-place normalization returns the original graph and retains completed edge
+updates if later numeric division fails. With `weight=None`, denominators are
+unweighted out-degrees and the written edge key is `None`, matching NetworkX.
+Native fused copy/in-place kernels remain admitted for ordinary native storage
+and positive builtin weights whose numerator total over a common binary
+denominator is at most `2**53`. Aliases, zero/negative/nonfinite values and other
+numeric domains use the owned public path. Directed whole-view degree iteration
+admits only string selectors to its string-only native kernel.
+
+The published 0.4.1 release baseline reproduced 17 failures and 13 passing
+controls across the initial 30 cases. The candidate adds 64 cases, including
+eight native-route controls, in `tests/python/test_graph_operators_parity.py`.
+DSR run `20261122T101126-GTOD1n70` passed all 320 tests in the complete operator
+module with the published 0.4.1 extension and verified candidate Python sources.
+The source and lockfile snapshots remained unchanged. The fresh extension run
+in section 110 repeated this complete module successfully. Neither run makes a
+performance, release or full-suite qualification claim.

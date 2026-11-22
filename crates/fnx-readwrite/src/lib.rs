@@ -28,6 +28,7 @@ use quick_xml::events::attributes::Attribute;
 use quick_xml::events::{BytesDecl, BytesEnd, BytesRef, BytesStart, BytesText, Event};
 use quick_xml::{Reader, Writer, XmlVersion};
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::io::Cursor;
@@ -730,6 +731,68 @@ impl EdgeListEngine {
             0.02,
         );
         Ok(serialized)
+    }
+
+    /// Validate an original standard node-link document without projecting its
+    /// labels, attributes or parallel edges into the private snapshot schema.
+    /// The returned empty graph carries only this validation's actual policy;
+    /// a complete decoder must reconstruct the original document before return.
+    /// Malformed standard documents fail closed in both compatibility modes.
+    pub fn validate_node_link_json(
+        &mut self,
+        input: &str,
+    ) -> Result<ReadWriteReport, ReadWriteError> {
+        self.dispatch.resolve(&DispatchRequest {
+            operation: "read_json_graph".to_owned(),
+            requested_backend: None,
+            required_features: set(["read_json_graph"]),
+            risk_probability: 0.09,
+            unknown_incompatible_feature: false,
+        })?;
+        let validated = match validate_node_link_document(input) {
+            Ok(validated) => validated,
+            Err(reason) => {
+                self.record("read_json_graph", DecisionAction::FailClosed, &reason, 1.0);
+                return Err(ReadWriteError::FailClosed {
+                    operation: "read_json_graph",
+                    reason,
+                });
+            }
+        };
+        self.runtime_policy.record(
+            "read_json_graph",
+            DecisionAction::Allow,
+            0.04,
+            "standard node-link JSON validation completed",
+            vec![
+                EvidenceTerm {
+                    signal: "node_records".into(),
+                    observed_value: validated.node_count.to_string().into(),
+                    log_likelihood_ratio: -1.0,
+                },
+                EvidenceTerm {
+                    signal: "edge_records".into(),
+                    observed_value: validated.edge_count.to_string().into(),
+                    log_likelihood_ratio: -1.0,
+                },
+                EvidenceTerm {
+                    signal: "directed".into(),
+                    observed_value: validated.directed.to_string().into(),
+                    log_likelihood_ratio: -1.0,
+                },
+                EvidenceTerm {
+                    signal: "multigraph".into(),
+                    observed_value: validated.multigraph.to_string().into(),
+                    log_likelihood_ratio: -1.0,
+                },
+                EvidenceTerm {
+                    signal: "edge_field".into(),
+                    observed_value: validated.edge_field.into(),
+                    log_likelihood_ratio: -1.0,
+                },
+            ],
+        );
+        Ok(self.finish_graph_report(Graph::new(self.mode), AttrMap::new(), Vec::new()))
     }
 
     pub fn read_json_graph(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
@@ -4443,6 +4506,146 @@ impl EdgeListEngine {
     }
 }
 
+type RawJsonObject<'a> = BTreeMap<String, &'a RawValue>;
+
+struct NodeLinkValidation {
+    directed: bool,
+    multigraph: bool,
+    node_count: usize,
+    edge_count: usize,
+    edge_field: &'static str,
+}
+
+fn node_link_json_object<'a>(input: &'a str, location: &str) -> Result<RawJsonObject<'a>, String> {
+    serde_json::from_str(input)
+        .map_err(|err| format!("node-link {location} must be a JSON object: {err}"))
+}
+
+fn node_link_json_flag(
+    object: &RawJsonObject<'_>,
+    field: &str,
+    default: bool,
+) -> Result<bool, String> {
+    match object.get(field) {
+        None => Ok(default),
+        Some(value) => serde_json::from_str(value.get())
+            .map_err(|_| format!("node-link `{field}` must be a bool when present")),
+    }
+}
+
+fn validate_node_link_attribute_names(
+    object: &RawJsonObject<'_>,
+    excluded: &[&str],
+    location: &str,
+) -> Result<(), String> {
+    for key in object.keys() {
+        if !excluded.contains(&key.as_str()) && key.starts_with("__fnx_incompatible") {
+            return Err(format!(
+                "node-link {location} contains incompatible metadata `{key}`"
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_node_link_label(value: &RawValue, location: &str) -> Result<(), String> {
+    // JSON arrays become tuple labels recursively. Null is hashable inside a
+    // tuple, but a bare null node is prohibited by the graph constructor.
+    // Walk iteratively and bound nesting rather than recurse on hostile input.
+    let mut pending = vec![(value, 0_usize)];
+    while let Some((item, depth)) = pending.pop() {
+        match item.get().as_bytes().first() {
+            Some(b'{') => {
+                return Err(format!(
+                    "node-link {location} contains an unhashable object"
+                ));
+            }
+            Some(b'n') if depth == 0 => {
+                return Err(format!("node-link {location} cannot be null"));
+            }
+            Some(b'[') => {
+                if depth >= 128 {
+                    return Err(format!("node-link {location} exceeds 128 tuple levels"));
+                }
+                let children: Vec<&RawValue> = serde_json::from_str(item.get())
+                    .map_err(|err| format!("invalid node-link {location}: {err}"))?;
+                pending.extend(children.into_iter().map(|child| (child, depth + 1)));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_node_link_document(input: &str) -> Result<NodeLinkValidation, String> {
+    let object = node_link_json_object(input, "document")?;
+    for field in object.keys() {
+        if !matches!(
+            field.as_str(),
+            "directed" | "multigraph" | "graph" | "nodes" | "edges" | "links"
+        ) {
+            return Err(format!("unsupported node-link document field `{field}`"));
+        }
+    }
+    let directed = node_link_json_flag(&object, "directed", false)?;
+    let multigraph = node_link_json_flag(&object, "multigraph", true)?;
+    let edge_field = match (object.contains_key("edges"), object.contains_key("links")) {
+        (true, true) => return Err("ambiguous node-link `edges` and `links` arrays".to_owned()),
+        (true, false) => "edges",
+        (false, true) => "links",
+        (false, false) => return Err("node-link document is missing `edges` or `links`".to_owned()),
+    };
+    if let Some(graph) = object.get("graph") {
+        let attrs = node_link_json_object(graph.get(), "graph attributes")?;
+        validate_node_link_attribute_names(&attrs, &[], "graph attributes")?;
+    }
+    let nodes = object
+        .get("nodes")
+        .ok_or_else(|| "node-link document is missing `nodes`".to_owned())?;
+    let nodes: Vec<&RawValue> = serde_json::from_str(nodes.get())
+        .map_err(|err| format!("node-link `nodes` must be an array: {err}"))?;
+    for (index, node) in nodes.iter().enumerate() {
+        let location = format!("node record {index}");
+        let fields = node_link_json_object(node.get(), &location)?;
+        if let Some(label) = fields.get("id") {
+            validate_node_link_label(label, &format!("{location} id"))?;
+        }
+        validate_node_link_attribute_names(&fields, &["id"], &location)?;
+    }
+    let edges = object
+        .get(edge_field)
+        .ok_or_else(|| format!("node-link document is missing `{edge_field}`"))?;
+    let edges: Vec<&RawValue> = serde_json::from_str(edges.get())
+        .map_err(|err| format!("node-link `{edge_field}` must be an array: {err}"))?;
+    for (index, edge) in edges.iter().enumerate() {
+        let location = format!("edge record {index}");
+        let fields = node_link_json_object(edge.get(), &location)?;
+        for endpoint in ["source", "target"] {
+            let label = fields
+                .get(endpoint)
+                .ok_or_else(|| format!("node-link {location} is missing `{endpoint}`"))?;
+            validate_node_link_label(label, &format!("{location} {endpoint}"))?;
+        }
+        if multigraph {
+            if let Some(key) = fields.get("key")
+                && matches!(key.get().as_bytes().first(), Some(b'[' | b'{'))
+            {
+                return Err(format!("node-link {location} key must be a scalar or null"));
+            }
+            validate_node_link_attribute_names(&fields, &["source", "target", "key"], &location)?;
+        } else {
+            validate_node_link_attribute_names(&fields, &["source", "target"], &location)?;
+        }
+    }
+    Ok(NodeLinkValidation {
+        directed,
+        multigraph,
+        node_count: nodes.len(),
+        edge_count: edges.len(),
+        edge_field,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // GML helpers
 // ---------------------------------------------------------------------------
@@ -6910,6 +7113,180 @@ mod tests {
             attrs.get("color"),
             Some(&CgseValue::String("blue".to_owned()))
         );
+    }
+
+    #[test]
+    fn standard_node_link_json_validates_all_graph_flags_and_edge_aliases() {
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            for directed in [false, true] {
+                for multigraph in [false, true] {
+                    for edge_field in ["edges", "links"] {
+                        let input = format!(
+                            r#"{{
+                                "directed":{directed},"multigraph":{multigraph},
+                                "graph":{{"nested":[true,null,{{"n":3}}]}},
+                                "nodes":[{{"id":""}},{{"id":[2,null,"α"]}},{{"name":"automatic"}}],
+                                "{edge_field}":[
+                                    {{"source":"","target":[2,null,"α"],"key":"one","tags":[1,{{"x":2}}]}},
+                                    {{"source":"","target":[2,null,"α"],"key":"two"}},
+                                    {{"source":"implicit","target":"implicit","key":17}}
+                                ]
+                            }}"#
+                        );
+                        let mut engine = EdgeListEngine::new(mode);
+                        let report = engine
+                            .validate_node_link_json(&input)
+                            .expect("complete node-link document validates");
+                        assert_eq!(report.graph.node_count(), 0, "policy carrier only");
+                        assert_eq!(report.graph.mode(), mode);
+                        assert!(report.warnings.is_empty());
+                        let records = report.graph.runtime_policy().decision_log().records();
+                        assert_eq!(records.len(), 1);
+                        let record = &records[0];
+                        assert_eq!(record.operation, "read_json_graph");
+                        assert_eq!(record.mode, mode);
+                        assert_eq!(record.action, DecisionAction::Allow);
+                        for signal in ["node_records", "edge_records"] {
+                            assert!(record.evidence.iter().any(|term| {
+                                term.signal == signal && term.observed_value == "3"
+                            }));
+                        }
+                        assert!(record.evidence.iter().any(|term| {
+                            term.signal == "edge_field" && term.observed_value == edge_field
+                        }));
+                        assert!(record.evidence.iter().any(|term| {
+                            term.signal == "directed" && term.observed_value == directed.to_string()
+                        }));
+                        assert!(record.evidence.iter().any(|term| {
+                            term.signal == "multigraph"
+                                && term.observed_value == multigraph.to_string()
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn standard_node_link_json_preserves_unbounded_numeric_lexemes() {
+        // serde_json::Value without arbitrary_precision would reject this
+        // integer and exponent. Validation must never normalize either one.
+        let integer = "9".repeat(600);
+        let input = format!(
+            r#"{{"graph":{{"weight":-{integer},"overflow":1e400}},
+                "nodes":[{{"id":{integer}}},{{"id":1e400}}],
+                "edges":[{{"source":{integer},"target":1e400,"key":{integer},"weight":{integer}}}]}}"#
+        );
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            let mut engine = EdgeListEngine::new(mode);
+            let report = engine
+                .validate_node_link_json(&input)
+                .expect("raw numbers do not need a native scalar representation");
+            assert_eq!(report.graph.runtime_policy(), engine.runtime_policy());
+        }
+    }
+
+    #[test]
+    fn standard_node_link_json_uses_constructor_defaults_and_simple_key_attributes() {
+        let defaults = super::validate_node_link_document(r#"{"nodes":[{}],"links":[]}"#)
+            .expect("omitted flags and node id are valid");
+        assert!(!defaults.directed);
+        assert!(defaults.multigraph);
+        assert_eq!(defaults.node_count, 1);
+        assert_eq!(defaults.edge_field, "links");
+
+        let mut engine = EdgeListEngine::strict();
+        engine
+            .validate_node_link_json(
+                r#"{"multigraph":false,"nodes":[{"id":[]}],
+                    "edges":[{"source":[],"target":"implicit","key":[1,{"x":2}]}]}"#,
+            )
+            .expect("a simple graph's key field is an ordinary JSON attribute");
+    }
+
+    #[test]
+    fn standard_node_link_json_rejects_malformed_records_with_native_decisions() {
+        let malformed = [
+            "{",
+            "[]",
+            r#"{"nodes":[],"edges":[],"schema_version":2}"#,
+            r#"{"nodes":[],"edges":[],"links":[]}"#,
+            r#"{"nodes":[],"edges":[],"directed":1}"#,
+            r#"{"nodes":[],"edges":[],"multigraph":"false"}"#,
+            r#"{"nodes":[],"edges":[],"multigraph":null}"#,
+            r#"{"nodes":[],"edges":[],"graph":[]}"#,
+            r#"{"nodes":[],"edges":[],"graph":{"__fnx_incompatible_v2":true}}"#,
+            r#"{"nodes":[],"edges":[],"graph":{"value":NaN}}"#,
+            r#"{"edges":[]}"#,
+            r#"{"nodes":[]}"#,
+            r#"{"nodes":null,"edges":[]}"#,
+            r#"{"nodes":[7],"edges":[]}"#,
+            r#"{"nodes":[{"id": null }],"edges":[]}"#,
+            r#"{"nodes":[{"id":{"x":1}}],"edges":[]}"#,
+            r#"{"nodes":[{"id":[1,{"x":2}]}],"edges":[]}"#,
+            r#"{"nodes":[{"id":1,"__fnx_incompatible_v2":true}],"edges":[]}"#,
+            r#"{"nodes":[],"edges":null}"#,
+            r#"{"nodes":[],"edges":[1]}"#,
+            r#"{"nodes":[],"edges":[{"source":0}]}"#,
+            r#"{"nodes":[],"edges":[{"target":0}]}"#,
+            r#"{"nodes":[],"edges":[{"source":null,"target":0}]}"#,
+            r#"{"nodes":[],"edges":[{"source":0,"target":{}}]}"#,
+            r#"{"nodes":[],"edges":[{"source":0,"target":1,"key": [1] }]}"#,
+            r#"{"nodes":[],"edges":[{"source":0,"target":1,"key": {"x":2} }]}"#,
+            r#"{"nodes":[],"edges":[{"source":0,"target":1,"\u005f_fnx_incompatible_v2":true}]}"#,
+        ];
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            for input in malformed {
+                let mut engine = EdgeListEngine::new(mode);
+                let error = engine
+                    .validate_node_link_json(input)
+                    .expect_err("invalid standard documents cannot recover as empty graphs");
+                assert!(matches!(
+                    error,
+                    ReadWriteError::FailClosed {
+                        operation: "read_json_graph",
+                        ..
+                    }
+                ));
+                let records = engine.evidence_ledger().records();
+                assert_eq!(records.len(), 1, "input={input}");
+                assert_eq!(records[0].action, DecisionAction::FailClosed);
+                assert_eq!(records[0].mode, mode);
+            }
+        }
+    }
+
+    #[test]
+    fn standard_node_link_json_validates_records_beyond_ledger_retention_size() {
+        let ordinary = r#"{"source":0,"target":1}"#;
+        let input = format!(
+            r#"{{"nodes":[],"edges":[{},{{"source":0,"target":1,"__fnx_incompatible_v2":true}}]}}"#,
+            vec![ordinary; 8_300].join(",")
+        );
+        let mut engine = EdgeListEngine::hardened();
+        engine
+            .validate_node_link_json(&input)
+            .expect_err("late incompatible metadata must not be hidden by a record limit");
+        let records = engine.evidence_ledger().records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].action, DecisionAction::FailClosed);
+        assert!(records[0].rationale.contains("edge record 8300"));
+    }
+
+    #[test]
+    fn standard_node_link_json_bounds_tuple_validation_without_recursing() {
+        let label = format!("{}null{}", "[".repeat(129), "]".repeat(129));
+        let input = format!(r#"{{"nodes":[{{"id":{label}}}],"edges":[]}}"#);
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            let mut engine = EdgeListEngine::new(mode);
+            engine
+                .validate_node_link_json(&input)
+                .expect_err("hostile tuple nesting is bounded in either mode");
+            assert_eq!(
+                engine.evidence_ledger().records()[0].action,
+                DecisionAction::FailClosed
+            );
+        }
     }
 
     #[test]

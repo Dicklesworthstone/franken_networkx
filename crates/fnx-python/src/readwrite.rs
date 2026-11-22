@@ -1690,6 +1690,20 @@ fn read_json_graph(
     }
 }
 
+/// Validate the original standard JSON document and return its policy carrier.
+/// The empty graph is deliberately not a projection of the document: the public
+/// reader must reconstruct all values with its complete node-link decoder.
+#[pyfunction]
+#[pyo3(signature = (text, mode=None))]
+fn validate_node_link_json(py: Python<'_>, text: &str, mode: Option<&str>) -> PyResult<PyGraph> {
+    let cmode = crate::resolve_compatibility_mode(mode)?;
+    let mut engine = EdgeListEngine::new(cmode);
+    let report = py
+        .allow_threads(|| engine.validate_node_link_json(text))
+        .map_err(rw_error_to_py)?;
+    report_to_pygraph(py, report)
+}
+
 // ---------------------------------------------------------------------------
 // GraphML
 // ---------------------------------------------------------------------------
@@ -4278,6 +4292,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(write_gexf_string_rust, m)?)?;
     m.add_function(wrap_pyfunction!(read_gml, m)?)?;
     m.add_function(wrap_pyfunction!(read_json_graph, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_node_link_json, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml_nx_int_noattr, m)?)?;
     m.add_function(wrap_pyfunction!(write_gml_nx_int_edge_attrs, m)?)?;

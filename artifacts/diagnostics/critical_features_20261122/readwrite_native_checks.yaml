@@ -1,0 +1,10 @@
+schema_version: "1.0.0"
+tools:
+  franken_networkx_readwrite_native_candidate:
+    repo: Dicklesworthstone/franken_networkx
+    local_path: /workspace/scratch/a0e66904f12b/franken_networkx_next
+    language: rust
+    checks:
+      - cargo fmt -p fnx-readwrite -p fnx-python -- --check
+      - cargo test --locked -j 1 -p fnx-readwrite --lib standard_node_link_json -- --nocapture
+      - cargo check --locked -j 1 -p fnx-readwrite
