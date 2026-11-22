@@ -635,3 +635,175 @@ class TestSquareClusteringParity:
 
         assert type(fnx_exc.value).__name__ == expected_type
         assert str(fnx_exc.value) == expected_message
+
+
+def _clustering_live_view(module, kind):
+    graph = module.DiGraph()
+    graph.add_weighted_edges_from(
+        [
+            (0, 1, 1), (1, 0, 10), (1, 2, 2),
+            (2, 1, 20), (2, 0, 3), (0, 2, 30),
+            (2, 3, 4), (3, 2, 5),
+        ]
+    )
+    if kind == "undirected":
+        return graph.to_undirected(as_view=True)
+    if kind == "filtered_undirected":
+        return module.subgraph_view(
+            graph.to_undirected(as_view=True), filter_node=lambda node: node != 3
+        )
+    if kind == "reverse":
+        return graph.reverse(copy=False)
+    return module.subgraph_view(
+        graph, filter_edge=lambda left, right: (left, right) != (1, 0)
+    )
+
+
+def _clustering_nodes(mode):
+    if mode == "all":
+        return None
+    if mode == "scalar":
+        return 0
+    if mode == "subset":
+        return [0, 2, 99]
+    return iter([0, 2, 99])
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize(
+    "kind", ["undirected", "filtered_undirected", "reverse", "filtered_directed"]
+)
+@pytest.mark.parametrize("mode", ["all", "scalar", "subset", "iterator"])
+def test_weighted_clustering_reads_each_view_endpoint(fnx, nx, source, kind, mode):
+    actual_graph = _clustering_live_view(fnx if source == "native" else nx, kind)
+    expected_graph = _clustering_live_view(nx, kind)
+    expected = nx.clustering(
+        expected_graph, nodes=_clustering_nodes(mode), weight="weight"
+    )
+    actual = fnx.clustering(
+        actual_graph, nodes=_clustering_nodes(mode), weight="weight"
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize(
+    "kind", ["undirected", "filtered_undirected", "reverse", "filtered_directed"]
+)
+@pytest.mark.parametrize("mode", ["all", "subset", "iterator"])
+def test_weighted_average_clustering_reads_each_view_endpoint(
+    fnx, nx, source, kind, mode
+):
+    actual_graph = _clustering_live_view(fnx if source == "native" else nx, kind)
+    expected_graph = _clustering_live_view(nx, kind)
+    expected = nx.average_clustering(
+        expected_graph, nodes=_clustering_nodes(mode), weight="weight"
+    )
+    actual = fnx.average_clustering(
+        actual_graph, nodes=_clustering_nodes(mode), weight="weight"
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("name", ["clustering", "average_clustering"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("asymmetric_topology", [False, True])
+def test_clustering_keeps_assigned_adjacency_rows(
+    fnx, nx, name, weight, asymmetric_topology
+):
+    def make(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 0)])
+        # A native triangle census is already cached before logical rows
+        # change, without any native topology revision.
+        module.triangles(graph)
+        graph._adj = {
+            0: {1: {"weight": 1}, 2: {"weight": 30}},
+            1: {0: {"weight": 10}, 2: {"weight": 2}},
+            2: {0: {"weight": 3}, 1: {"weight": 20}},
+        }
+        if asymmetric_topology:
+            del graph._adj[0][2]
+        return graph
+
+    assert getattr(fnx, name)(make(fnx), weight=weight) == getattr(nx, name)(
+        make(nx), weight=weight
+    )
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("name", ["clustering", "average_clustering"])
+@pytest.mark.parametrize("weighted", [False, True])
+def test_clustering_consumes_mutating_nbunch_between_rows(
+    fnx, nx, graph_class, name, weighted
+):
+    def run(module):
+        graph = getattr(module, graph_class)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 2), (1, 2, 4), (2, 0, 8), (0, 2, 8)]
+        )
+
+        def selected_nodes():
+            yield 0
+            graph[1][2]["weight"] = 16
+            graph.add_edge(2, 3, weight=1)
+            yield 1
+            yield 2
+
+        result = getattr(module, name)(
+            graph, nodes=selected_nodes(), weight="weight" if weighted else None
+        )
+        return result, graph[1][2]["weight"], list(graph.edges)
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("name", ["clustering", "average_clustering"])
+def test_clustering_observes_weight_arithmetic_mutation(fnx, nx, graph_class, name):
+    def run(module):
+        graph = getattr(module, graph_class)()
+        events = []
+
+        class Weight(float):
+            def __truediv__(self, other):
+                events.append((float(self), float(other)))
+                if len(events) == 1:
+                    graph[1][2]["weight"] = Weight(13)
+                return float(self) / float(other)
+
+        graph.add_weighted_edges_from(
+            [
+                (0, 1, Weight(2)), (1, 2, Weight(4)),
+                (2, 0, Weight(8)), (0, 2, Weight(8)),
+            ]
+        )
+        result = getattr(module, name)(graph, weight="weight")
+        return result, events, graph[1][2]["weight"]
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("name", ["clustering", "average_clustering"])
+def test_clustering_live_multigraph_still_rejects(fnx, nx, graph_class, name):
+    expected_graph = getattr(nx, graph_class)([(0, 1), (1, 2), (2, 0)])
+    actual_graph = getattr(fnx, graph_class)([(0, 1), (1, 2), (2, 0)])
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        getattr(nx, name)(expected_graph.copy(as_view=True), weight="weight")
+    with pytest.raises(fnx.NetworkXNotImplemented) as actual:
+        getattr(fnx, name)(actual_graph.copy(as_view=True), weight="weight")
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("name", ["clustering", "average_clustering"])
+def test_clustering_preserves_edge_count_provider(fnx, nx, source, name):
+    def make(module):
+        graph = module.Graph()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 4), (2, 0, 8)])
+        graph.number_of_edges = lambda: 0
+        return graph
+
+    assert getattr(fnx, name)(
+        make(fnx if source == "native" else nx), weight="weight"
+    ) == getattr(nx, name)(make(nx), weight="weight")

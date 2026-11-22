@@ -1502,19 +1502,21 @@ def _triangle_selection(G, nodes):
     return _global_nbunch_nodes(G, nodes), False
 
 
-def _triangles_and_degree_iter_local(G, nodes=None):
-    # br-r37-c1-undtriclus: snapshot adjacency once so the inner
-    # ``set(G[neighbor])`` calls become plain dict lookups, not PyO3
-    # round-trips.  Cuts ~10ms off a 100-node 1k-edge transitivity call.
-    # br-r37-c1-triloc: for nbunch / single-node calls, only snapshot the
-    # LOCAL universe (the queried nodes + their neighbors) instead of the
-    # whole graph — single-node clustering/triangles was O(V+E) (78-408x
-    # slower than nx); now O(deg). Whole-graph (nodes=None) keeps the full
-    # snapshot. Results are identical: counting triangles through node u
-    # only ever touches N(u) and the adjacency of each w in N(u).
-    if nodes is None:
+def _triangles_and_degree_iter_local(G, nodes=None, *, snapshot=True):
+    # Ordinary storage can reuse one local adjacency snapshot. Live graph
+    # providers instead expose each row at the point its triangle is counted.
+    if not snapshot:
+        node_rows = (
+            G.adj.items() if nodes is None
+            else ((node, G[node]) for node in G.nbunch_iter(nodes))
+        )
+        adj_snapshot = None
+    elif nodes is None:
         adj_snapshot = {u: set(G[u]) - {u} for u in G}
         node_iter = list(G)
+        node_rows = (
+            (node, adj_snapshot.get(node, set())) for node in node_iter
+        )
     else:
         node_iter = list(nodes)
         adj_snapshot = {}
@@ -1526,17 +1528,26 @@ def _triangles_and_degree_iter_local(G, nodes=None):
             for neighbor in neighbors:
                 if neighbor not in adj_snapshot:
                     adj_snapshot[neighbor] = set(G[neighbor]) - {neighbor}
+        node_rows = (
+            (node, adj_snapshot.get(node, set())) for node in node_iter
+        )
 
-    for node in node_iter:
-        neighbor_set = adj_snapshot.get(node, set())
+    for node, neighbors in node_rows:
+        neighbor_set = neighbors if snapshot else set(neighbors) - {node}
         generalized_degree = _Counter(
-            len(neighbor_set & adj_snapshot.get(neighbor, set())) for neighbor in neighbor_set
+            len(neighbor_set & (
+                adj_snapshot.get(neighbor, set()) if snapshot
+                else set(G[neighbor]) - {neighbor}
+            ))
+            for neighbor in neighbor_set
         )
         triangle_count = sum(size * _count for size, _count in generalized_degree.items())
         yield (node, len(neighbor_set), triangle_count, generalized_degree)
 
 
-def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
+def _weighted_triangles_and_degree_iter_local(
+    G, nodes=None, weight="weight", *, snapshot=True
+):
     import numpy as _np
 
     if weight is None or G.number_of_edges() == 0:
@@ -1546,11 +1557,16 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
             attrs.get(weight, 1) for _, _, attrs in G.edges(data=True)
         )
 
-    # br-r37-c1-undtriclus: snapshot adjacency + edge weights once.
-    # br-r37-c1-0g2tj follow-up: only the LOCAL universe for nbunch calls - the
-    # queried nodes and their neighbours, whose rows hold every edge the loops
-    # below read (see _directed_weighted_triangles_and_degree_iter_local).
-    if nodes is None:
+    # Only ordinary reciprocal storage admits a symmetric weight cache.
+    # Views may expose different data at each endpoint of the same edge;
+    # providers can also change a later row during normalization.
+    if not snapshot:
+        universe = ()
+        node_rows = (
+            G.adj.items() if nodes is None
+            else ((node, G[node]) for node in G.nbunch_iter(nodes))
+        )
+    elif nodes is None:
         universe = G
         node_iter = G
     else:
@@ -1563,7 +1579,8 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
             # than a row-by-row walk does.
             universe = G
     raw_adj_snapshot = {u: set(dict.fromkeys(G[u])) for u in universe}
-    # Symmetric weight cache for undirected.
+    if snapshot:
+        node_rows = ((node, raw_adj_snapshot.get(node, set())) for node in node_iter)
     weight_cache = {}
     if universe is G:
         for u, v, attrs in G.edges(data=True):
@@ -1574,18 +1591,22 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
                 weight_cache[frozenset((u, v))] = attrs.get(weight, 1) / max_weight
 
     def normalized_weight(u, v):
-        cached = weight_cache.get(frozenset((u, v)))
-        if cached is not None:
-            return cached
+        if snapshot:
+            cached = weight_cache.get(frozenset((u, v)))
+            if cached is not None:
+                return cached
         return G[u][v].get(weight, 1) / max_weight
 
-    for node in node_iter:
-        neighbor_set = raw_adj_snapshot.get(node, set()) - {node}
+    for node, neighbors in node_rows:
+        neighbor_set = (neighbors if snapshot else set(neighbors)) - {node}
         weighted_triangle_sum = 0.0
         seen_neighbors = set()
         for neighbor in neighbor_set:
             seen_neighbors.add(neighbor)
-            neighbor_neighbors = raw_adj_snapshot.get(neighbor, set()) - seen_neighbors
+            neighbor_neighbors = (
+                raw_adj_snapshot.get(neighbor, set()) if snapshot
+                else set(G[neighbor])
+            ) - seen_neighbors
             edge_weight = normalized_weight(node, neighbor)
             shared = neighbor_set & neighbor_neighbors
             if shared:
@@ -1602,18 +1623,13 @@ def _weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
         yield (node, len(neighbor_set), 2 * float(weighted_triangle_sum))
 
 
-def _directed_triangles_and_degree_iter_local(G, nodes=None):
-    # br-r37-c1-dirclust: previously called ``G.pred[u]`` / ``G.succ[u]``
-    # via PyO3 inside the outer per-node loop AND for each visited
-    # neighbour — for K_100-like digraphs this was 4 PyO3 round-trips
-    # per neighbour, ~21ms total on a 100-node 1k-edge graph
-    # (~5× slower than nx).  Snapshot pred/succ as plain dicts once;
-    # the entire inner loop becomes pure-Python set ops.
-    # br-r37-c1-qnj0n: for nbunch / single-node calls, only the LOCAL universe -
-    # the queried nodes and their predecessors and successors, the only rows
-    # networkx reads. Snapshotting every node made clustering(G, node) cost
-    # 56 ms beside a 32k-node component where networkx takes 7 us.
-    if nodes is None:
+def _directed_triangles_and_degree_iter_local(G, nodes=None, *, snapshot=True):
+    # Ordinary native calls retain the local predecessor/successor snapshot.
+    # A live nbunch is consumed only as its corresponding row is counted.
+    if not snapshot:
+        universe = ()
+        node_iter = G._pred if nodes is None else G.nbunch_iter(nodes)
+    elif nodes is None:
         universe = G
         node_iter = G
     else:
@@ -1626,13 +1642,25 @@ def _directed_triangles_and_degree_iter_local(G, nodes=None):
     succ_snapshot = {u: set(G.succ[u]) - {u} for u in universe}
 
     for node in node_iter:
-        predecessor_set = pred_snapshot.get(node, set())
-        successor_set = succ_snapshot.get(node, set())
+        predecessor_set = (
+            pred_snapshot.get(node, set()) if snapshot
+            else set(G._pred[node]) - {node}
+        )
+        successor_set = (
+            succ_snapshot.get(node, set()) if snapshot
+            else set(G._succ[node]) - {node}
+        )
 
         directed_triangle_count = 0
         for neighbor in _itertools.chain(predecessor_set, successor_set):
-            neighbor_predecessors = pred_snapshot.get(neighbor, set())
-            neighbor_successors = succ_snapshot.get(neighbor, set())
+            neighbor_predecessors = (
+                pred_snapshot.get(neighbor, set()) if snapshot
+                else set(G._pred[neighbor]) - {neighbor}
+            )
+            neighbor_successors = (
+                succ_snapshot.get(neighbor, set()) if snapshot
+                else set(G._succ[neighbor]) - {neighbor}
+            )
             directed_triangle_count += sum(
                 1
                 for third_node in _itertools.chain(

@@ -346,6 +346,155 @@ def _warm_live_input_cache(graph, monkeypatch):
     return convert_from_nx
 
 
+
+@pytest.mark.parametrize("algorithm", ["clustering", "average_clustering"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("nodes", [None, [0, 2]])
+@pytest.mark.parametrize("call_style", ["keyword", "positional", "automatic"])
+def test_backend_clustering_keeps_directional_view_weights(
+    algorithm, cached, nodes, call_style, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    source = nx.DiGraph()
+    source.add_weighted_edges_from(
+        [(0, 1, 1), (1, 0, 9), (1, 2, 2), (2, 1, 8), (2, 0, 3), (0, 2, 7)]
+    )
+    graph = source.to_undirected(as_view=True)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS[algorithm]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, algorithm, record_input)
+    if call_style == "automatic":
+        monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+
+    operation = getattr(nx, algorithm)
+    for reverse_weight in (9, 4):
+        # A directed source and its undirected view share live dictionaries.
+        # Editing one reciprocal weight must not overwrite the other endpoint.
+        source[1][0]["weight"] = reverse_weight
+        with monkeypatch.context() as oracle_patch:
+            # average_clustering calls clustering internally. Keep that
+            # oracle call in NetworkX even when testing automatic dispatch.
+            oracle_patch.setattr(nx.config.backend_priority, "algos", [])
+            expected = operation(
+                graph, nodes=nodes, weight="weight", backend="networkx"
+            )
+        if call_style == "positional":
+            actual = operation(graph, nodes, "weight", backend="franken_networkx")
+        elif call_style == "automatic":
+            actual = operation(graph, nodes=nodes, weight="weight")
+        else:
+            actual = operation(
+                graph, nodes=nodes, weight="weight", backend="franken_networkx"
+            )
+        assert actual == expected
+        assert received[-1] is graph
+        assert not graph.__networkx_cache__.get("backends")
+    assert len(received) == 2
+
+
+@pytest.mark.parametrize("algorithm", ["clustering", "average_clustering"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_backend_clustering_retains_plain_native_conversion(
+    algorithm, class_name, cached, weight, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    graph = getattr(nx, class_name)()
+    graph.add_weighted_edges_from(
+        [(0, 1, 2), (1, 2, 3), (2, 0, 4), (2, 3, 1), (3, 1, 2)]
+    )
+    operation = getattr(nx, algorithm)
+    expected = operation(graph, weight=weight, backend="networkx")
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS[algorithm]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, algorithm, record_input)
+    actual = operation(graph, weight=weight, backend="franken_networkx")
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert len(received) == 1
+    assert type(received[0]) is getattr(fnx, class_name)
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("algorithm", ["clustering", "average_clustering"])
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+def test_backend_clustering_preserves_size_provider_mutations(
+    algorithm, class_name, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+
+    def run(backend):
+        graph = getattr(nx, class_name)()
+        graph.add_weighted_edges_from(
+            [(0, 1, 1), (1, 2, 2), (2, 0, 3)], weight="cost"
+        )
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        events = []
+        count_edges = graph.number_of_edges
+
+        def number_of_edges():
+            events.append("count")
+            graph[1][2]["cost"] = 9
+            return count_edges()
+
+        graph.number_of_edges = number_of_edges
+        result = getattr(nx, algorithm)(
+            graph, weight="cost", backend=backend
+        )
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return result, events, graph[1][2]["cost"]
+
+    expected = run("networkx")
+    assert expected[1] == ["count"] and expected[2] == 9
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("algorithm", ["clustering", "average_clustering"])
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+def test_backend_clustering_preserves_multigraph_rejection(
+    algorithm, class_name
+):
+    graph = getattr(nx, class_name)([(0, 1), (1, 2), (2, 0)])
+    operation = getattr(nx, algorithm)
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        operation(graph, backend="networkx")
+    with pytest.raises(nx.NetworkXNotImplemented) as actual:
+        operation(graph, backend="franken_networkx")
+    assert str(actual.value) == str(expected.value)
+
+
 def _degree_connectivity_backend_graph(cls_name="Graph"):
     graph = getattr(nx, cls_name)()
     graph.add_nodes_from(range(4))

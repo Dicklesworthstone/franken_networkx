@@ -121,6 +121,7 @@ _ASSORTATIVITY_INPUT_ALGORITHMS = frozenset(
         "degree_assortativity_coefficient", "degree_pearson_correlation_coefficient",
     }
 )
+_CLUSTERING_INPUT_ALGORITHMS = frozenset({"clustering", "average_clustering"})
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
@@ -302,6 +303,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _LEIDEN_ALGORITHMS
     | _LOAD_PERCOLATION_ALGORITHMS
     | _ASSORTATIVITY_INPUT_ALGORITHMS
+    | _CLUSTERING_INPUT_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -353,6 +355,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _LEIDEN_ALGORITHMS
     | _LOAD_PERCOLATION_ALGORITHMS
     | _ASSORTATIVITY_INPUT_ALGORITHMS
+    | _CLUSTERING_INPUT_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -381,6 +384,13 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _CLUSTERING_INPUT_ALGORITHMS:
+        # An undirected view can expose distinct reciprocal edge weights.
+        # Selectors and attribute readers may also change later triangles;
+        # retain their original graph even when a conversion is cached.
+        return fnx._clustering_uses_live_python_rows(
+            graph, arguments.get("weight"), arguments.get("nodes")
+        )
     if name in _MATCHING_PREDICATE_ALGORITHMS:
         # Matching iterables, membership and has_edge providers own the read
         # order. Validation can finish before touching topology at all, and
@@ -2559,6 +2569,7 @@ class BackendInterface:
                     if (
                         name in (
                             _CORE_DECOMPOSITION_ALGORITHMS | _RESILIENCE_ALGORITHMS
+                            | _CLUSTERING_INPUT_ALGORITHMS
                             | _ISOMORPHISM_INPUT_ALGORITHMS
                             | _MATCHING_PREDICATE_ALGORITHMS
                         )

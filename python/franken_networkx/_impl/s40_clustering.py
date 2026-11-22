@@ -1,6 +1,8 @@
 
 
-def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="weight"):
+def _directed_weighted_triangles_and_degree_iter_local(
+    G, nodes=None, weight="weight", *, snapshot=True
+):
     import numpy as _np
 
     if weight is None or G.number_of_edges() == 0:
@@ -18,7 +20,10 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
     # its successor rows are the whole cache. Snapshotting and caching the
     # whole graph made weighted clustering(G, node) 0.26-0.37x networkx, whose
     # only whole-graph pass is the max-weight scan above.
-    if nodes is None:
+    if not snapshot:
+        universe = ()
+        node_iter = G._pred if nodes is None else G.nbunch_iter(nodes)
+    elif nodes is None:
         universe = G
         node_iter = G
     else:
@@ -50,25 +55,38 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
         }
 
     def normalized_weight(u, v):
-        cached = weight_cache.get((u, v))
-        if cached is not None:
-            return cached
+        if snapshot:
+            cached = weight_cache.get((u, v))
+            if cached is not None:
+                return cached
         return G[u][v].get(weight, 1) / max_weight
 
     for node in node_iter:
-        predecessor_set = pred_snapshot.get(node, set())
-        successor_set = succ_snapshot.get(node, set())
+        predecessor_set = (
+            pred_snapshot.get(node, set()) if snapshot
+            else set(G._pred[node]) - {node}
+        )
+        successor_set = (
+            succ_snapshot.get(node, set()) if snapshot
+            else set(G._succ[node]) - {node}
+        )
 
         directed_triangle_sum = 0.0
         for neighbor in predecessor_set:
-            neighbor_predecessors = pred_snapshot.get(neighbor, set())
-            neighbor_successors = succ_snapshot.get(neighbor, set())
-            w_jn = normalized_weight(neighbor, node)
+            neighbor_predecessors = (
+                pred_snapshot.get(neighbor, set()) if snapshot
+                else set(G._pred[neighbor]) - {neighbor}
+            )
+            neighbor_successors = (
+                succ_snapshot.get(neighbor, set()) if snapshot
+                else set(G._succ[neighbor]) - {neighbor}
+            )
+            w_jn = normalized_weight(neighbor, node) if snapshot else None
             c1 = predecessor_set & neighbor_predecessors
             if c1:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_jn * normalized_weight(third_node, node) * normalized_weight(third_node, neighbor))
+                        ((w_jn if snapshot else normalized_weight(neighbor, node)) * normalized_weight(third_node, node) * normalized_weight(third_node, neighbor))
                         for third_node in c1
                     ]
                 ).sum()
@@ -76,7 +94,7 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             if c2:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_jn * normalized_weight(third_node, node) * normalized_weight(neighbor, third_node))
+                        ((w_jn if snapshot else normalized_weight(neighbor, node)) * normalized_weight(third_node, node) * normalized_weight(neighbor, third_node))
                         for third_node in c2
                     ]
                 ).sum()
@@ -84,7 +102,7 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             if c3:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_jn * normalized_weight(node, third_node) * normalized_weight(third_node, neighbor))
+                        ((w_jn if snapshot else normalized_weight(neighbor, node)) * normalized_weight(node, third_node) * normalized_weight(third_node, neighbor))
                         for third_node in c3
                     ]
                 ).sum()
@@ -92,20 +110,26 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             if c4:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_jn * normalized_weight(node, third_node) * normalized_weight(neighbor, third_node))
+                        ((w_jn if snapshot else normalized_weight(neighbor, node)) * normalized_weight(node, third_node) * normalized_weight(neighbor, third_node))
                         for third_node in c4
                     ]
                 ).sum()
 
         for neighbor in successor_set:
-            neighbor_predecessors = pred_snapshot.get(neighbor, set())
-            neighbor_successors = succ_snapshot.get(neighbor, set())
-            w_nj = normalized_weight(node, neighbor)
+            neighbor_predecessors = (
+                pred_snapshot.get(neighbor, set()) if snapshot
+                else set(G._pred[neighbor]) - {neighbor}
+            )
+            neighbor_successors = (
+                succ_snapshot.get(neighbor, set()) if snapshot
+                else set(G._succ[neighbor]) - {neighbor}
+            )
+            w_nj = normalized_weight(node, neighbor) if snapshot else None
             c1 = predecessor_set & neighbor_predecessors
             if c1:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_nj * normalized_weight(third_node, node) * normalized_weight(third_node, neighbor))
+                        ((w_nj if snapshot else normalized_weight(node, neighbor)) * normalized_weight(third_node, node) * normalized_weight(third_node, neighbor))
                         for third_node in c1
                     ]
                 ).sum()
@@ -113,7 +137,7 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             if c2:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_nj * normalized_weight(third_node, node) * normalized_weight(neighbor, third_node))
+                        ((w_nj if snapshot else normalized_weight(node, neighbor)) * normalized_weight(third_node, node) * normalized_weight(neighbor, third_node))
                         for third_node in c2
                     ]
                 ).sum()
@@ -121,7 +145,7 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             if c3:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_nj * normalized_weight(node, third_node) * normalized_weight(third_node, neighbor))
+                        ((w_nj if snapshot else normalized_weight(node, neighbor)) * normalized_weight(node, third_node) * normalized_weight(third_node, neighbor))
                         for third_node in c3
                     ]
                 ).sum()
@@ -129,7 +153,7 @@ def _directed_weighted_triangles_and_degree_iter_local(G, nodes=None, weight="we
             if c4:
                 directed_triangle_sum += _np.cbrt(
                     [
-                        (w_nj * normalized_weight(node, third_node) * normalized_weight(neighbor, third_node))
+                        ((w_nj if snapshot else normalized_weight(node, neighbor)) * normalized_weight(node, third_node) * normalized_weight(neighbor, third_node))
                         for third_node in c4
                     ]
                 ).sum()
@@ -150,6 +174,8 @@ _TRIANGLE_CENSUS_CACHE_SENTINEL = object()
 
 
 def _triangle_census_cache_key(G):
+    if not _greedy_color_native_graph(G):
+        return None
     try:
         if G.is_directed() or G.is_multigraph():
             return None
@@ -226,14 +252,50 @@ def _store_triangle_census_snapshot(G, triangle_counts, start_key):
     return snapshot
 
 
+def _clustering_uses_live_python_rows(G, weight, nodes=None):
+    """Preserve rows and selectors whose reads can change later triangles."""
+    if _weighted_query_uses_live_python_rows(G, weight):
+        return True
+    if nodes is not None and not _is_plain_immutable_label(nodes):
+        if type(nodes) is not range and (
+            type(nodes) not in (list, tuple, set, frozenset, dict)
+            or any(not _is_plain_immutable_label(node) for node in nodes)
+        ):
+            return True
+    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES:
+        # The shared admission above checks ordinary NetworkX storage and
+        # views. Clustering additionally reads this public provider before
+        # its maximum-weight scan; conversion must not replace that read.
+        return "number_of_edges" in vars(G)
+    if (
+        not _greedy_color_native_graph(G)
+        or not _view_root_node_keys_are_stable(G, G.nodes_seq)
+    ):
+        return True
+    if weight is None:
+        return False
+    for _, _, attrs in G.edges(data=True):
+        # Owned write-watched dictionaries retain ordinary read semantics.
+        # Inspect types before touching a custom selector or numeric protocol.
+        if not _attr_dict_has_plain_reads(attrs):
+            return True
+        if any(type(key) not in (str, int, float, bool, type(None)) for key in attrs):
+            return True
+        if type(attrs.get(weight, 1)) not in (int, float, bool):
+            return True
+    return False
+
+
 def clustering(G, nodes=None, weight=None):
     """Compute the clustering coefficient for nodes."""
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    # br-r37-c1-c7xg2: materialize SubgraphView before crossing into
-    # Rust so the filter is honored. Pass-through for plain fnx graphs.
-    G = _coerce_arg_to_fnx_graph(G)
+    # Converting a view can merge its reciprocal attributes. Providers and
+    # lazy nbunches must keep reading the caller's graph as counting proceeds.
+    live_rows = _clustering_uses_live_python_rows(G, weight, nodes)
+    if not live_rows:
+        G = _coerce_arg_to_fnx_graph(G)
 
     # br-r37-c1-wh0x0: route the most common case (undirected, no
     # weight, all-nodes) through the Rust ``_raw_clustering`` binding
@@ -242,7 +304,8 @@ def clustering(G, nodes=None, weight=None):
     # path below stays in place for directed / weighted / nbunch /
     # single-node calls (the Rust impl is whole-graph only).
     if (
-        not G.is_directed()
+        not live_rows
+        and not G.is_directed()
         and weight is None
         and nodes is None
     ):
@@ -263,12 +326,19 @@ def clustering(G, nodes=None, weight=None):
             # match nx exactly.
             return {n: (0 if v == 0.0 else v) for n, v in raw.items()}
 
-    selected_nodes, single_node = _triangle_selection(G, nodes)
+    if live_rows:
+        selected_nodes, single_node = nodes, False
+    else:
+        selected_nodes, single_node = _triangle_selection(G, nodes)
 
     if G.is_directed():
         if weight is not None:
             triangle_data = _directed_weighted_triangles_and_degree_iter_local(
-                G, selected_nodes, weight
+                G, selected_nodes, weight, snapshot=not live_rows
+            )
+        elif live_rows:
+            triangle_data = _directed_triangles_and_degree_iter_local(
+                G, selected_nodes, snapshot=False
             )
         else:
             # br-r37-c1-0g2tj follow-up: networkx's exact integers counted
@@ -292,11 +362,18 @@ def clustering(G, nodes=None, weight=None):
     else:
         if weight is not None:
             triangle_data = _weighted_triangles_and_degree_iter_local(
-                G, selected_nodes, weight
+                G, selected_nodes, weight, snapshot=not live_rows
             )
             clustering_coefficients = {
                 node: 0 if triangle_count == 0 else triangle_count / (degree * (degree - 1))
                 for node, degree, triangle_count in triangle_data
+            }
+        elif live_rows:
+            clustering_coefficients = {
+                node: 0 if count == 0 else count / (degree * (degree - 1))
+                for node, degree, count, _ in _triangles_and_degree_iter_local(
+                    G, selected_nodes, snapshot=False
+                )
             }
         else:
             # br-r37-c1-mub4s: nodes= counts natively (the Python snapshot
@@ -307,14 +384,17 @@ def clustering(G, nodes=None, weight=None):
                 for node, (degree, triangle_count) in zip(selected_nodes, counts)
             }
 
-    if single_node:
+    if single_node or (live_rows and nodes in G):
         return clustering_coefficients[nodes]
     return clustering_coefficients
 
 
 def average_clustering(G, nodes=None, weight=None, count_zeros=True):
     """Compute the average clustering coefficient for the graph."""
-    if nodes is None and weight is None and count_zeros:
+    if (
+        nodes is None and weight is None and count_zeros
+        and not _clustering_uses_live_python_rows(G, weight, nodes)
+    ):
         snapshot = _cached_triangle_census_snapshot(G)
         if snapshot is not None and snapshot[5] is not None:
             return snapshot[5]
