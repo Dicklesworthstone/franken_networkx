@@ -240,6 +240,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "predecessor",
         "average_degree_connectivity",
         "average_neighbor_degree",
+        "common_neighbors",
         "minimum_cycle_basis",
         "min_edge_cover",
         "transitive_closure_dag",
@@ -407,6 +408,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "single_source_shortest_path_length", "predecessor", "bidirectional_shortest_path",
         "find_cycle",
         "average_degree_connectivity", "average_neighbor_degree",
+        "common_neighbors",
         "minimum_cycle_basis", "min_edge_cover",
         "group_betweenness_centrality", "group_closeness_centrality",
         "minimum_spanning_tree", "maximum_spanning_tree",
@@ -425,6 +427,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "common_neighbors":
+        # This is a local row query even on a large graph. Conversion reads
+        # unrelated providers and detaches row views before their callbacks
+        # can affect the intersection; a warm conversion is stale too.
+        return True
     if name in _LINK_PREDICTION_ALGORITHMS:
         # Pair validation is eager, but scores read adjacency and degree
         # providers at each next(). A conversion cached by another algorithm
@@ -2662,7 +2669,7 @@ class BackendInterface:
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis", "min_edge_cover",
-                            "voterank",
+                            "voterank", "common_neighbors",
                         }
                     ):
                         # Preserve graph-contract errors and user callback

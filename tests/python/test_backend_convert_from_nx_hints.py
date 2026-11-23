@@ -937,6 +937,123 @@ def test_backend_greedy_color_keeps_custom_degree_reads(cls_name, cached, monkey
     assert run("franken_networkx") == run("networkx")
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("automatic", [False, True])
+def test_backend_common_neighbors_reads_only_requested_view_rows(
+    cls_name, cached, automatic, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    if automatic:
+        monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    implementation = backend_module._SUPPORTED_ALGORITHMS["common_neighbors"]
+    inputs = []
+
+    @wraps(implementation)
+    def observed(*args, **kwargs):
+        inputs.append(args[0] if args else kwargs["G"])
+        return implementation(*args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "common_neighbors", observed)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_edges_from([(0, 1), (2, 1), (0, 3), (2, 3), (4, 5)])
+        armed = False
+        visits = []
+
+        def visible(u, v, *keys):
+            if armed:
+                visits.append((u, v, keys))
+                if u >= 4 or v >= 4:
+                    raise AssertionError("local query read an unrelated edge")
+            return True
+
+        view = nx.subgraph_view(graph, filter_edge=visible)
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(view, {}, backend=backend)
+            assert view.__networkx_cache__["backends"][backend]
+        armed = True
+        if automatic and backend == "franken_networkx":
+            result = nx.common_neighbors(view, 0, 2)
+        else:
+            result = nx.common_neighbors(view, 0, 2, backend=backend)
+        assert type(result) is set
+        if backend == "franken_networkx":
+            assert len(inputs) == 1 and inputs[0] is view
+            assert not view.__networkx_cache__.get("backends")
+        return list(result), visits
+
+    expected = run("networkx")
+    assert expected[0] == [1, 3]
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize(
+    "failure", [None, ValueError, nx.NetworkXNotImplemented],
+    ids=["mutation", "value-error", "graph-contract-error"],
+)
+def test_backend_common_neighbors_keeps_row_callbacks_and_invalidates_cache(
+    cls_name, cached, failure, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_edges_from([(0, 1), (2, 1), (2, 3)])
+        armed = changed = False
+        visits = []
+
+        class Rows(dict):
+            def __getitem__(self, node):
+                nonlocal changed
+                if armed:
+                    visits.append(node)
+                    if node == 2 and not changed:
+                        changed = True
+                        if failure is not None:
+                            raise failure("common-neighbor row callback")
+                        # Direct dictionary writes do not clear a previously
+                        # cached native conversion. The left keys view must
+                        # see the new edge before the right-side intersection.
+                        data = {0: {}} if cls_name == "MultiGraph" else {}
+                        dict.__getitem__(self, 0)[3] = data
+                        dict.__getitem__(self, 3)[0] = data
+                return dict.__getitem__(self, node)
+
+        graph._adj = Rows(graph._adj)
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        armed = True
+        try:
+            result = nx.common_neighbors(graph, 0, 2, backend=backend)
+        except Exception as error:
+            outcome = ("error", type(error), error.args)
+        else:
+            outcome = ("result", list(result))
+        finally:
+            armed = False
+        assert changed
+        assert visits == [0, 2]
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        return outcome, visits
+
+    expected = run("networkx")
+    if failure is None:
+        assert expected[0] == ("result", [1, 3])
+    else:
+        assert expected[0] == ("error", failure, ("common-neighbor row callback",))
+    assert run("franken_networkx") == expected
+
+
+
 @pytest.mark.parametrize("cls_name", CLASSES)
 @pytest.mark.parametrize("cached", [False, True])
 def test_backend_greedy_color_keeps_live_view_filters(cls_name, cached, monkeypatch):
