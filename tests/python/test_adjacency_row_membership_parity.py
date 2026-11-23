@@ -222,6 +222,347 @@ def test_native_multi_row_membership_allows_hash_reentry(
     assert results[0][1] == ["hash"]
 
 
+UNHASHED_ROW_DIRECTIONS = [
+    ("Graph", False),
+    ("MultiGraph", False),
+    ("DiGraph", False),
+    ("DiGraph", True),
+    ("MultiDiGraph", False),
+    ("MultiDiGraph", True),
+]
+
+
+def _unhashed_row_cursor(lib, graph, node, reverse):
+    if lib is fnx:
+        return graph._fnx_unhashed_neighbors_iter(node, reverse=reverse)
+    rows = graph._pred if reverse else graph._adj
+    return iter(rows[node])
+
+
+def _row_edge(reverse, neighbor):
+    return (neighbor, 0) if reverse else (0, neighbor)
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+@pytest.mark.parametrize("nested", [False, True], ids=["scalar", "tuple"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_unhashed_neighbor_cursor_does_not_hash_existing_labels(
+    cls_name, reverse, nested, warm
+):
+    """Native algorithm row iteration must not insert original label keys."""
+    for lib in (nx, fnx):
+        armed = False
+        events = []
+
+        class Label(int):
+            def __hash__(self):
+                if armed:
+                    events.append("hash")
+                    raise RuntimeError("existing neighbor was hashed")
+                return int.__hash__(self)
+
+            def __eq__(self, other):
+                if armed:
+                    events.append("eq")
+                    raise RuntimeError("existing neighbor was compared")
+                return int.__eq__(self, other)
+
+        labels = [Label(1), Label(2), Label(3)]
+        if nested:
+            labels = [(label,) for label in labels]
+        graph = getattr(lib, cls_name)()
+        graph.add_nodes_from([0, *labels])
+        graph.add_edges_from(_row_edge(reverse, label) for label in labels)
+        if warm:
+            assert [id(value) for value in _unhashed_row_cursor(lib, graph, 0, reverse)] == [
+                id(value) for value in labels
+            ]
+        armed = True
+        actual = list(_unhashed_row_cursor(lib, graph, 0, reverse))
+        armed = False
+        assert events == []
+        assert [id(value) for value in actual] == [id(value) for value in labels]
+
+
+def _drain_row_cursor(iterator):
+    output = []
+    while True:
+        try:
+            output.append(next(iterator))
+        except StopIteration:
+            return (output, "stop")
+        except RuntimeError as exc:
+            return (output, type(exc).__name__, exc.args)
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_unhashed_neighbor_cursor_does_not_hash_ordinary_object_labels(cls_name, reverse, warm):
+    for lib in (nx, fnx):
+        armed = False
+
+        class Label:
+            def __init__(self, value):
+                self.value = value
+
+            def __hash__(self):
+                if armed:
+                    raise RuntimeError("ordinary neighbor was hashed")
+                return self.value
+
+            def __eq__(self, other):
+                if armed:
+                    raise RuntimeError("ordinary neighbor was compared")
+                return isinstance(other, Label) and self.value == other.value
+
+        labels = [Label(197), Label(199)]
+        graph = getattr(lib, cls_name)()
+        graph.add_edges_from(_row_edge(reverse, label) for label in labels)
+        if warm:
+            list(_unhashed_row_cursor(lib, graph, 0, reverse))
+        armed = True
+        actual = list(_unhashed_row_cursor(lib, graph, 0, reverse))
+        armed = False
+        assert [id(value) for value in actual] == [id(value) for value in labels]
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+@pytest.mark.parametrize("label_kind", ["int_subclass", "numeric_alias"])
+def test_unhashed_neighbor_cursor_retains_first_equal_display_label(cls_name, reverse, label_kind):
+    """Existing dict keys retain identity; deletion permits a new first key."""
+    for lib in (nx, fnx):
+        class Label(int):
+            pass
+
+        first, second = (Label(1), Label(1)) if label_kind == "int_subclass" else (1.0, 1)
+        graph = getattr(lib, cls_name)()
+        graph.add_nodes_from([0, 1])
+        graph.add_edge(*_row_edge(reverse, first))
+        iterator = _unhashed_row_cursor(lib, graph, 0, reverse)
+        graph.add_edge(*_row_edge(reverse, second))
+        assert next(iterator) is first
+        assert next(_unhashed_row_cursor(lib, graph, 0, reverse)) is first
+        if graph.is_multigraph():
+            graph.remove_edge(*_row_edge(reverse, second))
+            assert next(_unhashed_row_cursor(lib, graph, 0, reverse)) is first
+        graph.remove_edge(*_row_edge(reverse, first))
+        graph.add_edge(*_row_edge(reverse, second))
+        assert next(_unhashed_row_cursor(lib, graph, 0, reverse)) is second
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+@pytest.mark.parametrize("consumed", [0, 1, 3])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "add",
+        "remove",
+        "replace_unseen",
+        "replace_seen",
+        "remove_readd_unseen",
+        "remove_readd_seen",
+        "parallel",
+        "unrelated",
+        "remove_neighbor_node",
+        "remove_edges_batch",
+        "remove_owner",
+        "remove_owner_readd",
+        "remove_nodes_owner_first",
+        "remove_nodes_owner_last",
+        "clear_edges",
+        "clear_edges_readd",
+        "clear",
+        "clear_readd",
+        "bulk_plain",
+        "bulk_attr",
+        "bulk_weighted",
+    ],
+)
+def test_unhashed_neighbor_cursor_preserves_live_row_mutations(
+    cls_name, reverse, consumed, mutation
+):
+    """Compare the actual cursor, including size and same-size edits.
+
+    Owner removal and graph clear detach rows, while clear_edges edits them
+    in place. Directed predecessor and successor self-loop handling differs.
+    Bulk inputs exceed the native batch threshold with only this private row
+    active, so a batch cannot silently bypass its mutation hooks.
+    """
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        graph.add_nodes_from(range(20))
+        graph.add_edges_from(_row_edge(reverse, neighbor) for neighbor in (1, 2, 3, 0))
+        iterator = _unhashed_row_cursor(lib, graph, 0, reverse)
+        prefix = [next(iterator) for _ in range(consumed)]
+        if mutation == "add":
+            graph.add_edge(*_row_edge(reverse, 4))
+        elif mutation == "remove":
+            graph.remove_edge(*_row_edge(reverse, 2))
+        elif mutation in ("replace_unseen", "replace_seen"):
+            graph.remove_edge(*_row_edge(reverse, 2 if mutation.endswith("unseen") else 1))
+            graph.add_edge(*_row_edge(reverse, 4))
+        elif mutation in ("remove_readd_unseen", "remove_readd_seen"):
+            neighbor = 2 if mutation.endswith("unseen") else 1
+            graph.remove_edge(*_row_edge(reverse, neighbor))
+            graph.add_edge(*_row_edge(reverse, neighbor))
+        elif mutation == "parallel":
+            graph.add_edge(*_row_edge(reverse, 2))
+        elif mutation == "unrelated":
+            graph.add_edge(7, 8)
+        elif mutation == "remove_neighbor_node":
+            graph.remove_node(2)
+        elif mutation == "remove_edges_batch":
+            graph.remove_edges_from([_row_edge(reverse, neighbor) for neighbor in (2, 3, 9)])
+        elif mutation in ("remove_owner", "remove_owner_readd"):
+            graph.remove_node(0)
+            if mutation == "remove_owner_readd":
+                graph.add_edge(*_row_edge(reverse, 9))
+        elif mutation == "remove_nodes_owner_first":
+            graph.remove_nodes_from([0, 2])
+        elif mutation == "remove_nodes_owner_last":
+            graph.remove_nodes_from([2, 0])
+        elif mutation in ("clear_edges", "clear_edges_readd"):
+            graph.clear_edges()
+            if mutation == "clear_edges_readd":
+                graph.add_edges_from(_row_edge(reverse, neighbor) for neighbor in (4, 5, 6, 0))
+        elif mutation in ("clear", "clear_readd"):
+            graph.clear()
+            if mutation == "clear_readd":
+                graph.add_edge(*_row_edge(reverse, 9))
+        elif mutation == "bulk_plain":
+            graph.add_edges_from([_row_edge(reverse, neighbor) for neighbor in range(4, 16)])
+        elif mutation == "bulk_attr":
+            graph.add_edges_from(
+                [(*_row_edge(reverse, neighbor), {"weight": neighbor}) for neighbor in range(4, 16)]
+            )
+        elif mutation == "bulk_weighted":
+            graph.add_weighted_edges_from(
+                [(*_row_edge(reverse, neighbor), neighbor) for neighbor in range(4, 16)]
+            )
+        else:
+            raise AssertionError(mutation)
+        outcome = _drain_row_cursor(iterator)
+        current = list(_unhashed_row_cursor(lib, graph, 0, reverse)) if 0 in graph else None
+        results.append((prefix, outcome, current))
+    assert results[1] == results[0]
+
+
+@pytest.mark.parametrize(
+    "cls_name,reverse",
+    [("MultiGraph", False), ("MultiDiGraph", False), ("MultiDiGraph", True)],
+)
+@pytest.mark.parametrize("last_edge", [False, True])
+def test_unhashed_neighbor_cursor_removes_only_last_parallel_edge(cls_name, reverse, last_edge):
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        for neighbor in (1, 2, 3):
+            graph.add_edge(*_row_edge(reverse, neighbor), key="first")
+            graph.add_edge(*_row_edge(reverse, neighbor), key="second")
+        iterator = _unhashed_row_cursor(lib, graph, 0, reverse)
+        prefix = next(iterator)
+        graph.remove_edge(*_row_edge(reverse, 2), key="first")
+        if last_edge:
+            graph.remove_edge(*_row_edge(reverse, 2), key="second")
+        results.append((prefix, _drain_row_cursor(iterator)))
+    assert results[1] == results[0]
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+def test_unhashed_neighbor_cursor_visits_label_cycles(cls_name, reverse):
+    import gc
+    import weakref
+
+    class Label:
+        pass
+
+    graph = getattr(fnx, cls_name)()
+    label = Label()
+    label.graph = graph
+    graph.add_edge(*_row_edge(reverse, label))
+    iterator = _unhashed_row_cursor(fnx, graph, 0, reverse)
+    assert next(iterator) is label
+    reference = weakref.ref(label)
+    del iterator, label, graph
+    gc.collect()
+    assert reference() is None
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+@pytest.mark.parametrize("nested", [False, True], ids=["scalar", "tuple"])
+@pytest.mark.parametrize("mutation", ["add", "remove_owner", "error"])
+def test_unhashed_neighbor_cursor_binds_after_source_hash(cls_name, reverse, nested, mutation):
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        owner = (0,) if nested else 0
+        graph.add_nodes_from([owner, 1])
+        events = []
+
+        class Source(int):
+            def __hash__(self):
+                events.append("hash")
+                if mutation == "error":
+                    graph.add_node(100 + len(events))
+                    raise LookupError("source hash failed", len(events))
+                if len(events) == 1:
+                    if mutation == "add":
+                        graph.add_edge(*((1, owner) if reverse else (owner, 1)))
+                    else:
+                        graph.remove_node(owner)
+                return int.__hash__(self)
+
+        source = (Source(0),) if nested else Source(0)
+        try:
+            outcome = ("ok", list(_unhashed_row_cursor(lib, graph, source, reverse)))
+        except Exception as exc:  # noqa: BLE001
+            outcome = ("error", type(exc).__name__, exc.args)
+        results.append((outcome, events, list(graph)))
+    assert results[1] == results[0]
+    assert results[0][1] == ["hash"]
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+def test_unhashed_neighbor_cursor_detaches_when_native_state_is_replaced(cls_name, reverse):
+    """Native pickle restoration replaces outer storage, like graph clear."""
+    graph = getattr(fnx, cls_name)()
+    graph.add_edges_from(_row_edge(reverse, neighbor) for neighbor in (1, 2, 3))
+    iterator = _unhashed_row_cursor(fnx, graph, 0, reverse)
+    assert next(iterator) == 1
+    replacement = getattr(fnx, cls_name)()
+    replacement.add_edges_from(_row_edge(reverse, neighbor) for neighbor in (5, 4))
+    graph.__setstate__(replacement.__getstate__())
+    assert list(iterator) == [2, 3]
+    assert list(_unhashed_row_cursor(fnx, graph, 0, reverse)) == [5, 4]
+    graph.add_edge(*_row_edge(reverse, 6))
+    assert list(_unhashed_row_cursor(fnx, graph, 0, reverse)) == [5, 4, 6]
+
+
+@pytest.mark.parametrize("cls_name,reverse", UNHASHED_ROW_DIRECTIONS)
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_unhashed_neighbor_cursor_hashes_ordinary_owner_once(cls_name, reverse, warm):
+    """Reuse the lookup hash when resolving an ordinary object owner."""
+    results = []
+    for lib in (nx, fnx):
+        events = []
+
+        class Owner:
+            def __hash__(self):
+                events.append("hash")
+                return 197
+
+        owner = Owner()
+        graph = getattr(lib, cls_name)()
+        graph.add_edge(*((1, owner) if reverse else (owner, 1)))
+        if warm:
+            list(_unhashed_row_cursor(lib, graph, owner, reverse))
+        events.clear()
+        values = list(_unhashed_row_cursor(lib, graph, owner, reverse))
+        results.append((values, events.copy()))
+    assert results[1] == results[0] == ([1], ["hash"])
+
+
 @pytest.mark.parametrize("cls_name,direction,native_method", NATIVE_MULTI_ROWS)
 def test_native_multi_row_binding_allows_custom_key_hash_reentry(
     cls_name, direction, native_method

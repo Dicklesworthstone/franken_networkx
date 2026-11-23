@@ -2711,6 +2711,52 @@ impl PyMultiDiGraph {
         })
     }
 
+    fn unhashed_neighbor_rows_active(&self) -> bool {
+        crate::NodeIterationMirrors::neighbor_rows_active(&self.node_iter_mirror)
+    }
+
+    fn unhashed_neighbor_row_by_canonical(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        reverse: bool,
+    ) -> PyResult<Py<PyDict>> {
+        if !self.inner.has_node(canonical) {
+            return Err(PyKeyError::new_err((canonical.to_owned(),)));
+        }
+        if reverse {
+            crate::NodeIterationMirrors::neighbor_row(
+                py,
+                &self.node_iter_mirror,
+                canonical,
+                true,
+                true,
+                || {
+                    self.inner
+                        .predecessors_iter(canonical)
+                        .into_iter()
+                        .flatten()
+                        .map(|neighbor| (neighbor, self.py_pred_key(py, canonical, neighbor)))
+                },
+            )
+        } else {
+            crate::NodeIterationMirrors::neighbor_row(
+                py,
+                &self.node_iter_mirror,
+                canonical,
+                true,
+                false,
+                || {
+                    self.inner
+                        .successors_iter(canonical)
+                        .into_iter()
+                        .flatten()
+                        .map(|neighbor| (neighbor, self.py_succ_key(py, canonical, neighbor)))
+                },
+            )
+        }
+    }
+
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
     }
@@ -2844,6 +2890,20 @@ impl PyMultiDiGraph {
         nbr: &str,
         successors: bool,
     ) -> PyResult<()> {
+        crate::NodeIterationMirrors::neighbor_insert(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            !successors,
+            nbr,
+            || {
+                if successors {
+                    self.py_succ_key(py, owner, nbr)
+                } else {
+                    self.py_pred_key(py, owner, nbr)
+                }
+            },
+        )?;
         let slot = if successors {
             &self.succ_key_rows
         } else {
@@ -2876,6 +2936,13 @@ impl PyMultiDiGraph {
         nbr: &str,
         successors: bool,
     ) -> PyResult<()> {
+        crate::NodeIterationMirrors::neighbor_remove(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            !successors,
+            nbr,
+        );
         let slot = if successors {
             &self.succ_key_rows
         } else {
@@ -2954,6 +3021,7 @@ impl PyMultiDiGraph {
     /// NOT this — there networkx clears only the outer mappings, so an in-flight
     /// iterator completes and fnx already matches by dropping the caches.
     fn direction_rows_clear_in_place(&self, py: Python<'_>) {
+        crate::NodeIterationMirrors::neighbor_clear_edges(py, &self.node_iter_mirror);
         for (_, _, rows, by_index) in [&self.succ_key_rows, &self.pred_key_rows]
             .into_iter()
             .flatten()
@@ -2974,6 +3042,7 @@ impl PyMultiDiGraph {
         [&self.succ_key_rows, &self.pred_key_rows]
             .into_iter()
             .any(|s| s.as_ref().is_some_and(|(_, _, rows, _)| !rows.is_empty()))
+            || self.unhashed_neighbor_rows_active()
     }
 
     /// A keydict is registered for the directed pair: it has edges, or it is a
@@ -7752,6 +7821,36 @@ impl PyMultiDiGraph {
         })
     }
 
+    /// A live native row cursor without hashing its existing display labels.
+    #[pyo3(signature = (n, *, reverse=false))]
+    fn _fnx_unhashed_neighbors_iter(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        let known_hash = if crate::node_key_hash_cannot_raise(n) {
+            None
+        } else {
+            Some(n.hash()?)
+        };
+        // Reuse the owner's single lookup hash outside the graph borrow.
+        let canonical = crate::node_key_to_string_with_hash(py, n, known_hash)?;
+        let row = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(n));
+            }
+            graph.unhashed_neighbor_row_by_canonical(py, &canonical, reverse)?
+        };
+        Ok(row
+            .bind(py)
+            .call_method0("values")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
     /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
     ///
     /// `nbunch_iter` filters with `n in <container>` once per node. networkx's
@@ -11138,6 +11237,7 @@ impl PyMultiDiGraph {
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
         self.inner = MultiDiGraph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
+        crate::NodeIterationMirrors::reset_neighbor_rows(&self.node_iter_mirror);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -12337,6 +12437,52 @@ impl PyDiGraph {
         })
     }
 
+    fn unhashed_neighbor_rows_active(&self) -> bool {
+        crate::NodeIterationMirrors::neighbor_rows_active(&self.node_iter_mirror)
+    }
+
+    fn unhashed_neighbor_row_by_canonical(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        reverse: bool,
+    ) -> PyResult<Py<PyDict>> {
+        if !self.inner.has_node(canonical) {
+            return Err(PyKeyError::new_err((canonical.to_owned(),)));
+        }
+        if reverse {
+            crate::NodeIterationMirrors::neighbor_row(
+                py,
+                &self.node_iter_mirror,
+                canonical,
+                true,
+                true,
+                || {
+                    self.inner
+                        .predecessors_iter(canonical)
+                        .into_iter()
+                        .flatten()
+                        .map(|neighbor| (neighbor, self.py_pred_key(py, canonical, neighbor)))
+                },
+            )
+        } else {
+            crate::NodeIterationMirrors::neighbor_row(
+                py,
+                &self.node_iter_mirror,
+                canonical,
+                true,
+                false,
+                || {
+                    self.inner
+                        .successors_iter(canonical)
+                        .into_iter()
+                        .flatten()
+                        .map(|neighbor| (neighbor, self.py_succ_key(py, canonical, neighbor)))
+                },
+            )
+        }
+    }
+
     /// True when the mirror has been materialised (so hooks must run).
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
@@ -12592,10 +12738,10 @@ impl PyDiGraph {
                 self.node_iter_mirror_insert(py, v_canonical)?;
             }
         }
-        if !self.succ_row_py.is_empty() {
+        if !self.succ_row_py.is_empty() || self.unhashed_neighbor_rows_active() {
             self.cached_succ_set_edge(py, u_canonical, v_canonical)?;
         }
-        if !self.pred_row_py.is_empty() {
+        if !self.pred_row_py.is_empty() || self.unhashed_neighbor_rows_active() {
             self.cached_pred_set_edge(py, v_canonical, u_canonical)?;
         }
         self.bump_edges_seq();
@@ -12978,6 +13124,9 @@ impl PyDiGraph {
         final_edge_bump: bool,
     ) -> PyResult<bool> {
         const PLAIN_EDGE_BATCH_MIN: usize = 8;
+        if self.unhashed_neighbor_rows_active() {
+            return Ok(false);
+        }
         if !self.succ_row_py.is_empty() || !self.pred_row_py.is_empty() {
             return self.add_plain_edge_batch_keeping_rows(py, ebunch_to_add, final_edge_bump);
         }
@@ -13024,6 +13173,9 @@ impl PyDiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         final_edge_bump: bool,
     ) -> PyResult<bool> {
+        if self.unhashed_neighbor_rows_active() {
+            return Ok(false);
+        }
         let owners = PySet::empty(py)?;
         for canonical in self.succ_row_py.keys().chain(self.pred_row_py.keys()) {
             owners.add(self.py_node_key(py, canonical))?;
@@ -13496,6 +13648,7 @@ impl PyDiGraph {
             || !self.pred_py_keys.is_empty()
             || !self.succ_row_py.is_empty()
             || !self.pred_row_py.is_empty()
+            || self.unhashed_neighbor_rows_active()
         {
             return Ok(false);
         }
@@ -13676,6 +13829,7 @@ impl PyDiGraph {
             || !self.pred_py_keys.is_empty()
             || !self.succ_row_py.is_empty()
             || !self.pred_row_py.is_empty()
+            || self.unhashed_neighbor_rows_active()
         {
             return Ok(false);
         }
@@ -13819,6 +13973,7 @@ impl PyDiGraph {
             || !self.edge_py_attrs.is_empty()
             || !self.succ_row_py.is_empty()
             || !self.pred_row_py.is_empty()
+            || self.unhashed_neighbor_rows_active()
             || !self.di_int_prefix_display_keys_are_plain_ints(py)
         {
             return Ok(false);
@@ -13906,7 +14061,10 @@ impl PyDiGraph {
         final_edge_bump: bool,
     ) -> PyResult<bool> {
         const ATTR_EDGE_BATCH_MIN: usize = 8;
-        if !self.succ_row_py.is_empty() || !self.pred_row_py.is_empty() {
+        if !self.succ_row_py.is_empty()
+            || !self.pred_row_py.is_empty()
+            || self.unhashed_neighbor_rows_active()
+        {
             return Ok(false);
         }
         // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge attr -> per-edge add_edge
@@ -14545,6 +14703,14 @@ impl PyDiGraph {
     }
 
     fn cached_succ_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        crate::NodeIterationMirrors::neighbor_insert(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            false,
+            nbr,
+            || self.py_succ_key(py, owner, nbr),
+        )?;
         let Some(row) = self.succ_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
         };
@@ -14555,6 +14721,14 @@ impl PyDiGraph {
     }
 
     fn cached_pred_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        crate::NodeIterationMirrors::neighbor_insert(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            true,
+            nbr,
+            || self.py_pred_key(py, owner, nbr),
+        )?;
         let Some(row) = self.pred_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
         };
@@ -14565,6 +14739,7 @@ impl PyDiGraph {
     }
 
     fn cached_succ_remove_key(&self, py: Python<'_>, owner: &str, nbr: &str) {
+        crate::NodeIterationMirrors::neighbor_remove(py, &self.node_iter_mirror, owner, false, nbr);
         if let Some(row) = self.succ_row_py.get(owner) {
             let py_nbr = self.py_succ_key(py, owner, nbr);
             let _ = row.bind(py).del_item(py_nbr);
@@ -14572,6 +14747,7 @@ impl PyDiGraph {
     }
 
     fn cached_pred_remove_key(&self, py: Python<'_>, owner: &str, nbr: &str) {
+        crate::NodeIterationMirrors::neighbor_remove(py, &self.node_iter_mirror, owner, true, nbr);
         if let Some(row) = self.pred_row_py.get(owner) {
             let py_nbr = self.py_pred_key(py, owner, nbr);
             let _ = row.bind(py).del_item(py_nbr);
@@ -14579,6 +14755,7 @@ impl PyDiGraph {
     }
 
     fn cached_directed_clear_edges_in_place(&self, py: Python<'_>) -> PyResult<()> {
+        crate::NodeIterationMirrors::neighbor_clear_edges(py, &self.node_iter_mirror);
         for row in self.succ_row_py.values() {
             row.bind(py).call_method0("clear")?;
         }
@@ -15561,6 +15738,7 @@ impl PyDiGraph {
             || !self.pred_py_keys.is_empty()
             || !self.succ_row_py.is_empty()
             || !self.pred_row_py.is_empty()
+            || self.unhashed_neighbor_rows_active()
         {
             return Ok(false);
         }
@@ -17287,6 +17465,7 @@ impl PyDiGraph {
             || !self.succ_row_py_by_index.is_empty()
             || !self.pred_row_py_by_index.is_empty()
             || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
         {
             return false;
         }
@@ -17316,6 +17495,7 @@ impl PyDiGraph {
             || !self.succ_row_py_by_index.is_empty()
             || !self.pred_row_py_by_index.is_empty()
             || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
         {
             return Ok(false);
         }
@@ -19571,6 +19751,36 @@ impl PyDiGraph {
         })
     }
 
+    /// A live native row cursor without hashing its existing display labels.
+    #[pyo3(signature = (n, *, reverse=false))]
+    fn _fnx_unhashed_neighbors_iter(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        let known_hash = if crate::node_key_hash_cannot_raise(n) {
+            None
+        } else {
+            Some(n.hash()?)
+        };
+        // Reuse the owner's single lookup hash outside the graph borrow.
+        let canonical = crate::node_key_to_string_with_hash(py, n, known_hash)?;
+        let row = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(n));
+            }
+            graph.unhashed_neighbor_row_by_canonical(py, &canonical, reverse)?
+        };
+        Ok(row
+            .bind(py)
+            .call_method0("values")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
     /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
     ///
     /// `nbunch_iter` filters with `n in <container>` once per node. networkx's
@@ -19916,6 +20126,7 @@ impl PyDiGraph {
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
         self.inner = DiGraph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
+        crate::NodeIterationMirrors::reset_neighbor_rows(&self.node_iter_mirror);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -21434,6 +21645,7 @@ impl PyMultiDiGraph {
         self.succ_key_rows.is_some()
             || self.pred_key_rows.is_some()
             || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
     }
 }
 

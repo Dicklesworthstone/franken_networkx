@@ -654,6 +654,9 @@ def _bulk_coerce_negative_depth_to_zero():
     # ``cutoff=0`` is falsy and acts as unbounded) so the
     # _DEPTH_EMPTY → 0 mapping the wrapper performs would change
     # behaviour.
+    # single_source_shortest_path_length admits its native integer bound
+    # itself and compares other providers in the live BFS loop. Coercing
+    # those providers here would discard their comparison callbacks.
     targets = {
         "dfs_edges": "depth_limit",
         "dfs_predecessors": "depth_limit",
@@ -662,7 +665,6 @@ def _bulk_coerce_negative_depth_to_zero():
         "dfs_preorder_nodes": "depth_limit",
         "dfs_tree": "depth_limit",
         "single_source_shortest_path": "cutoff",
-        "single_source_shortest_path_length": "cutoff",
         "single_target_shortest_path": "cutoff",
         "single_target_shortest_path_length": "cutoff",
         "all_pairs_shortest_path": "cutoff",

@@ -757,7 +757,9 @@ def bfs_edges(
     reverse: bool = False,
     depth_limit: Optional[int] = None,
     sort_neighbors: Optional[Any] = None,
-) -> list[tuple[Any, Any]]: ...
+    *,
+    callback_safe: bool = False,
+) -> Optional[list[tuple[Any, Any]]]: ...
 def bfs_tree(
     g: Union[Graph, DiGraph],
     source: Any,
@@ -1038,7 +1040,9 @@ def single_source_shortest_path_length(
     g: Graph,
     source: Any,
     cutoff: Optional[int] = None,
-) -> dict[Any, int]: ...
+    *,
+    callback_safe: bool = False,
+) -> Optional[dict[Any, int]]: ...
 
 # ---------------------------------------------------------------------------
 # Dominating set

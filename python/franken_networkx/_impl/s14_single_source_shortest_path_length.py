@@ -12,42 +12,73 @@ def single_source_shortest_path_length(G, source, cutoff=None):
     direction differently, which a materialized graph cannot represent.
     """
     root = _reverse_view_root(G)
-    if root is not None and (
-        cutoff is None or isinstance(cutoff, int) and 0 <= cutoff <= _sys.maxsize
-    ):
-        if source not in G:
-            raise NodeNotFound(f"Source {source} is not in G")
-        lengths = {source: 0}
-        for parent, node in _bfs_edges_raw(root, source, reverse=True, depth_limit=cutoff):
-            lengths[node] = lengths[parent] + 1
-        return lengths
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
-    if type(G) not in _CONCRETE_FNX_GRAPH_TYPES or _has_networkx_private_storage(G):
-        # Public Python adjacency is authoritative. A conversion can add
-        # reciprocal reachability or consume a row provider before the search.
-        # Match the oracle's level order and len(adj) early exit, not len(G).
-        adj = G._adj
-        count = len(adj)
-        seen = {source}
-        lengths = {source: 0}
-        frontier = [source]
-        level = 0
-        limit = float("inf") if cutoff is None else cutoff
-        while frontier and limit > level:
-            level += 1
-            current, frontier = frontier, []
-            for node in current:
-                for neighbor in adj[node]:
-                    if neighbor not in seen:
-                        seen.add(neighbor)
-                        frontier.append(neighbor)
-                        lengths[neighbor] = level
-                if len(seen) == count:
-                    return lengths
-        return lengths
-    # Rust returns results in BFS discovery order (br-r37-c1-bapbi), so no reordering needed.
-    return _raw_single_source_shortest_path_length(G, source, cutoff)
+    cutoff_type = type(cutoff)
+    native_cutoff = (
+        cutoff is None or cutoff_type is int or cutoff_type is float or cutoff_type is bool
+    )
+    if native_cutoff:
+        # Exact builtin values have no comparison/coercion providers. Keep
+        # their established native routes while leaving custom limits live.
+        native_limit = _normalize_bfs_depth_limit(cutoff)
+        if native_limit is _DEPTH_EMPTY:
+            native_limit = 0
+        elif native_limit is not None:
+            native_limit = min(native_limit, _sys.maxsize)
+    if root is not None and native_cutoff:
+        edges = _bfs_edges_raw(
+            root, source, reverse=True, depth_limit=native_limit, callback_safe=True
+        )
+        if edges is not None:
+            lengths = {source: 0}
+            for parent, node in edges:
+                lengths[node] = lengths[parent] + 1
+            return lengths
+    native_concrete = type(G) in _CONCRETE_FNX_GRAPH_TYPES and not _has_networkx_private_storage(G)
+    if native_concrete and native_cutoff:
+        # Native admission inspects only reached labels before any output
+        # hashing. A bounded search must not first scan the entire graph.
+        lengths = _raw_single_source_shortest_path_length(
+            G, source, native_limit, callback_safe=True
+        )
+        if lengths is not None:
+            return lengths
+    # Public Python adjacency is authoritative. A conversion can add
+    # reciprocal reachability or consume a row provider before the search.
+    # Custom node hashing can also change later rows, and output insertion
+    # must not call it under a native graph borrow. Match the oracle's
+    # level order and len(adj) early exit, not len(G).
+    adj = G._adj
+    native_root = G if native_concrete else root
+    seen = {source}
+    # The source's set insertion can change the graph before this count is
+    # captured; output-dictionary insertion happens after the count.
+    count = len(adj)
+    lengths = {source: 0}
+    frontier = [source]
+    level = 0
+    limit = float("inf") if cutoff is None else cutoff
+    while frontier and limit > level:
+        level += 1
+        current, frontier = frontier, []
+        for node in current:
+            # Cold public native rows may need an attribute-bearing dict.
+            # Traversal needs only its live keys, without rehashing stored
+            # labels while constructing that dict under a graph borrow.
+            neighbors = (
+                adj[node]
+                if native_root is None
+                else native_root._fnx_unhashed_neighbors_iter(node, reverse=root is not None)
+            )
+            for neighbor in neighbors:
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    frontier.append(neighbor)
+                    lengths[neighbor] = level
+            if len(seen) == count:
+                return lengths
+    return lengths
 
 # Algorithm functions — dominating set
 from franken_networkx._fnx import (

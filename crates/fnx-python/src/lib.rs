@@ -125,6 +125,42 @@ pub(crate) struct NodeIterationMirrors {
     keys: Option<Py<PyDict>>,
     values: Option<Py<PyDict>>,
     public_values: bool,
+    neighbor_rows: Option<std::sync::Arc<std::sync::Mutex<NeighborIterationRows>>>,
+}
+
+/// Private live adjacency cursors for callback-sensitive algorithms. These
+/// dictionaries hold display objects as values, never as hash-table keys.
+/// The existing edge mutation funnels maintain them alongside public rows.
+struct NeighborIterationRows {
+    directed: bool,
+    forward: rustc_hash::FxHashMap<String, Py<PyDict>>,
+    reverse: rustc_hash::FxHashMap<String, Py<PyDict>>,
+}
+
+impl NeighborIterationRows {
+    fn new(directed: bool) -> Self {
+        Self {
+            directed,
+            forward: rustc_hash::FxHashMap::default(),
+            reverse: rustc_hash::FxHashMap::default(),
+        }
+    }
+
+    fn rows(&self, reverse: bool) -> &rustc_hash::FxHashMap<String, Py<PyDict>> {
+        if reverse {
+            &self.reverse
+        } else {
+            &self.forward
+        }
+    }
+
+    fn rows_mut(&mut self, reverse: bool) -> &mut rustc_hash::FxHashMap<String, Py<PyDict>> {
+        if reverse {
+            &mut self.reverse
+        } else {
+            &mut self.forward
+        }
+    }
 }
 
 impl NodeIterationMirrors {
@@ -133,6 +169,7 @@ impl NodeIterationMirrors {
             keys: self.keys.as_ref().map(|dict| dict.clone_ref(py)),
             values: self.values.as_ref().map(|dict| dict.clone_ref(py)),
             public_values: self.public_values,
+            neighbor_rows: self.neighbor_rows.clone(),
         }
     }
 
@@ -234,11 +271,11 @@ impl NodeIterationMirrors {
         Ok(dict)
     }
 
-    fn unhashed_iter<'a, I>(
+    fn unhashed_dict<'a, I>(
         py: Python<'_>,
         slot: &std::sync::Mutex<Option<Self>>,
         nodes: impl FnOnce() -> I,
-    ) -> PyResult<PyObject>
+    ) -> PyResult<Py<PyDict>>
     where
         I: IntoIterator<Item = (&'a str, PyObject)>,
     {
@@ -262,12 +299,201 @@ impl NodeIterationMirrors {
                 .values = Some(dict.clone_ref(py));
             dict
         };
-        Ok(dict
+        Ok(dict)
+    }
+
+    fn unhashed_iter<'a, I>(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        nodes: impl FnOnce() -> I,
+    ) -> PyResult<PyObject>
+    where
+        I: IntoIterator<Item = (&'a str, PyObject)>,
+    {
+        Ok(Self::unhashed_dict(py, slot, nodes)?
             .bind(py)
             .call_method0("values")?
             .try_iter()?
             .into_any()
             .unbind())
+    }
+
+    fn neighbor_registry(
+        slot: &std::sync::Mutex<Option<Self>>,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<NeighborIterationRows>>> {
+        slot.lock().unwrap().as_ref()?.neighbor_rows.clone()
+    }
+
+    fn neighbor_registry_or_init(
+        slot: &std::sync::Mutex<Option<Self>>,
+        directed: bool,
+    ) -> std::sync::Arc<std::sync::Mutex<NeighborIterationRows>> {
+        slot.lock()
+            .unwrap()
+            .get_or_insert_with(Self::default)
+            .neighbor_rows
+            .get_or_insert_with(|| {
+                std::sync::Arc::new(std::sync::Mutex::new(NeighborIterationRows::new(directed)))
+            })
+            .clone()
+    }
+
+    pub(crate) fn neighbor_rows_active(slot: &std::sync::Mutex<Option<Self>>) -> bool {
+        Self::neighbor_registry(slot).is_some_and(|rows| {
+            let rows = rows.lock().unwrap();
+            !rows.forward.is_empty() || !rows.reverse.is_empty()
+        })
+    }
+
+    /// The owner has already been resolved, so no display-label lookup or
+    /// hash belongs here. A retained iterator owns this exact dictionary even
+    /// after its row is detached from the graph.
+    pub(crate) fn neighbor_row<'a, I>(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        owner: &str,
+        directed: bool,
+        reverse: bool,
+        neighbors: impl FnOnce() -> I,
+    ) -> PyResult<Py<PyDict>>
+    where
+        I: IntoIterator<Item = (&'a str, PyObject)>,
+    {
+        let registry = Self::neighbor_registry_or_init(slot, directed);
+        if let Some(row) = registry
+            .lock()
+            .unwrap()
+            .rows(reverse)
+            .get(owner)
+            .map(|row| row.clone_ref(py))
+        {
+            return Ok(row);
+        }
+        let row = PyDict::new(py);
+        for (canonical, label) in neighbors() {
+            row.set_item(canonical, label)?;
+        }
+        let row = row.unbind();
+        let mut registry = registry.lock().unwrap();
+        Ok(registry
+            .rows_mut(reverse)
+            .entry(owner.to_owned())
+            .or_insert(row)
+            .clone_ref(py))
+    }
+
+    pub(crate) fn neighbor_insert(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        owner: &str,
+        reverse: bool,
+        neighbor: &str,
+        label: impl FnOnce() -> PyObject,
+    ) -> PyResult<()> {
+        let Some(registry) = Self::neighbor_registry(slot) else {
+            return Ok(());
+        };
+        let row = registry
+            .lock()
+            .unwrap()
+            .rows(reverse)
+            .get(owner)
+            .map(|row| row.clone_ref(py));
+        if let Some(row) = row {
+            // A dict retains the first equal key object. Parallel edges and
+            // updates to an existing edge must retain that display identity.
+            if !row.bind(py).contains(neighbor)? {
+                row.bind(py).set_item(neighbor, label())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn neighbor_remove(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        owner: &str,
+        reverse: bool,
+        neighbor: &str,
+    ) {
+        let Some(registry) = Self::neighbor_registry(slot) else {
+            return;
+        };
+        let row = registry
+            .lock()
+            .unwrap()
+            .rows(reverse)
+            .get(owner)
+            .map(|row| row.clone_ref(py));
+        if let Some(row) = row {
+            let _ = row.bind(py).del_item(neighbor);
+        }
+    }
+
+    pub(crate) fn neighbor_clear_edges(py: Python<'_>, slot: &std::sync::Mutex<Option<Self>>) {
+        let Some(registry) = Self::neighbor_registry(slot) else {
+            return;
+        };
+        let rows: Vec<_> = {
+            let registry = registry.lock().unwrap();
+            registry
+                .forward
+                .values()
+                .chain(registry.reverse.values())
+                .map(|row| row.clone_ref(py))
+                .collect()
+        };
+        for row in rows {
+            row.bind(py).clear();
+        }
+    }
+
+    pub(crate) fn reset_neighbor_rows(slot: &std::sync::Mutex<Option<Self>>) {
+        let Some(registry) = Self::neighbor_registry(slot) else {
+            return;
+        };
+        Self::detach_neighbor_rows(&registry);
+    }
+
+    fn detach_neighbor_rows(registry: &std::sync::Mutex<NeighborIterationRows>) {
+        // Replacing outer storage detaches held rows without editing them.
+        // Drop Python references after releasing the registry lock.
+        let detached = {
+            let mut registry = registry.lock().unwrap();
+            (
+                std::mem::take(&mut registry.forward),
+                std::mem::take(&mut registry.reverse),
+            )
+        };
+        drop(detached);
+    }
+
+    fn neighbor_node_removed(&self, py: Python<'_>, canonical: &str) {
+        let Some(registry) = &self.neighbor_rows else {
+            return;
+        };
+        let (affected, detached) = {
+            let mut registry = registry.lock().unwrap();
+            let affected: Vec<_> = registry
+                .forward
+                .iter()
+                .filter(|(owner, _)| !registry.directed || owner.as_str() != canonical)
+                .map(|(_, row)| row.clone_ref(py))
+                .chain(registry.reverse.values().map(|row| row.clone_ref(py)))
+                .collect();
+            let detached = (
+                registry.forward.remove(canonical),
+                registry.reverse.remove(canonical),
+            );
+            (affected, detached)
+        };
+        // NetworkX removes the owner's self-loop from an undirected/pred row,
+        // but retains it in a detached successor row. Processing removed nodes
+        // in caller order also preserves rows detached by an earlier removal.
+        for row in affected {
+            let _ = row.bind(py).del_item(canonical);
+        }
+        drop(detached);
     }
 
     fn insert(
@@ -324,6 +550,7 @@ impl NodeIterationMirrors {
         if let Some(dict) = &self.values {
             let _ = dict.bind(py).del_item(canonical);
         }
+        self.neighbor_node_removed(py, canonical);
     }
 
     fn clear(&self, py: Python<'_>) {
@@ -333,11 +560,23 @@ impl NodeIterationMirrors {
         if let Some(dict) = &self.values {
             dict.bind(py).clear();
         }
+        if let Some(registry) = &self.neighbor_rows {
+            // Graph.clear drops outer adjacency maps; it does not empty held
+            // row dicts. Clear_edges has its own in-place operation above.
+            Self::detach_neighbor_rows(registry);
+        }
     }
 
     fn traverse(&self, visit: PyVisit<'_>) -> Result<(), PyTraverseError> {
         visit.call(&self.keys)?;
-        visit.call(&self.values)
+        visit.call(&self.values)?;
+        if let Some(registry) = &self.neighbor_rows {
+            let registry = registry.lock().unwrap();
+            for row in registry.forward.values().chain(registry.reverse.values()) {
+                visit.call(row)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -967,7 +1206,10 @@ impl PyMultiGraph {
     /// and nothing changes, once a row's key mirror or the dict-of-dicts
     /// cache was handed out.
     fn _fnx_reorder_rows_like(&mut self, source: PyRef<'_, Self>) -> bool {
-        if self.neighbor_key_rows.is_some() || self.dict_of_dicts_cache.is_some() {
+        if self.neighbor_key_rows.is_some()
+            || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
+        {
             return false;
         }
         self.inner.reorder_rows_like(&source.inner);
@@ -982,7 +1224,10 @@ impl PyMultiGraph {
     /// Keyed cells move wholesale. False, and nothing changes, once a row's
     /// key mirror or the dict-of-dicts cache was handed out.
     fn _fnx_set_row_orders(&mut self, py: Python<'_>, rows: &Bound<'_, PyAny>) -> PyResult<bool> {
-        if self.neighbor_key_rows.is_some() || self.dict_of_dicts_cache.is_some() {
+        if self.neighbor_key_rows.is_some()
+            || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
+        {
             return Ok(false);
         }
         let orders = rows_as_canonical_orders(py, rows)?;
@@ -5283,7 +5528,9 @@ impl PyGraph {
     /// adjacency that no longer exists.
     #[inline]
     pub(crate) fn py_adj_rows_live(&self) -> bool {
-        !self.adj_row_py.is_empty() || !self.neighbor_key_rows.is_empty()
+        !self.adj_row_py.is_empty()
+            || !self.neighbor_key_rows.is_empty()
+            || self.unhashed_neighbor_rows_active()
     }
 
     /// br-r37-c1-6n9vm: membership for an EXACT `str`, through the present-key
@@ -5495,6 +5742,35 @@ impl PyGraph {
                 .into_iter()
                 .map(|canonical| (canonical, self.py_node_key(py, canonical)))
         })
+    }
+
+    fn unhashed_neighbor_rows_active(&self) -> bool {
+        NodeIterationMirrors::neighbor_rows_active(&self.node_iter_mirror)
+    }
+
+    fn unhashed_neighbor_row_by_canonical(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        _reverse: bool,
+    ) -> PyResult<Py<PyDict>> {
+        if !self.inner.has_node(canonical) {
+            return Err(PyKeyError::new_err((canonical.to_owned(),)));
+        }
+        NodeIterationMirrors::neighbor_row(
+            py,
+            &self.node_iter_mirror,
+            canonical,
+            false,
+            false,
+            || {
+                self.inner
+                    .neighbors_iter(canonical)
+                    .into_iter()
+                    .flatten()
+                    .map(|neighbor| (neighbor, self.py_adj_key(py, canonical, neighbor)))
+            },
+        )
     }
 
     fn node_iter_mirror_insert(&mut self, py: Python<'_>, canonical: &str) -> PyResult<()> {
@@ -6316,6 +6592,14 @@ impl PyGraph {
     }
 
     fn cached_adj_set_edge(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        NodeIterationMirrors::neighbor_insert(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            false,
+            nbr,
+            || self.py_adj_key(py, owner, nbr),
+        )?;
         // br-r37-c1-3rtyk: the two rows are maintained INDEPENDENTLY. A node can
         // hold a key row without an attr row (it was read through `neighbors()`
         // and never through `G[n]`), so an early return on a missing attr row
@@ -6348,6 +6632,7 @@ impl PyGraph {
     /// BEFORE the store mutation and the display overrides are dropped; they
     /// call this beside their own `del_item` rather than reordering that.
     fn cached_neighbor_key_row_remove(&self, py: Python<'_>, owner: &str, nbr: &str) {
+        NodeIterationMirrors::neighbor_remove(py, &self.node_iter_mirror, owner, false, nbr);
         if let Some(row) = self.neighbor_key_rows.get(owner) {
             let py_nbr = self.py_adj_key(py, owner, nbr);
             let _ = row.bind(py).del_item(py_nbr);
@@ -6355,6 +6640,7 @@ impl PyGraph {
     }
 
     fn cached_adj_clear_edges_in_place(&self, py: Python<'_>) -> PyResult<()> {
+        NodeIterationMirrors::neighbor_clear_edges(py, &self.node_iter_mirror);
         for row in self.adj_row_py.values() {
             row.bind(py).call_method0("clear")?;
         }
@@ -7115,6 +7401,12 @@ impl PyGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        // The callback-free rows are maintained by the per-edge funnels.
+        // This batching path hashes owner labels and temporarily hides only
+        // the public mirrors, so it cannot preserve these live cursors.
+        if self.unhashed_neighbor_rows_active() {
+            return Ok(false);
+        }
         let owners = PySet::empty(py)?;
         for canonical in self.adj_row_py.keys().chain(self.neighbor_key_rows.keys()) {
             owners.add(self.py_node_key(py, canonical))?;
@@ -8724,6 +9016,14 @@ impl PyMultiGraph {
     /// code raises. Guarded by `is_empty()` at every call site so a graph nobody
     /// has asked neighbours of pays nothing.
     fn cached_neighbor_row_set(&mut self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        NodeIterationMirrors::neighbor_insert(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            false,
+            nbr,
+            || self.py_adj_key(py, owner, nbr),
+        )?;
         let Some(row) = self
             .neighbor_key_rows
             .as_ref()
@@ -8741,6 +9041,7 @@ impl PyMultiGraph {
     /// a parallel edge removal that leaves the pair connected must NOT remove
     /// the neighbour, and the caller decides that.
     fn cached_neighbor_row_remove(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
+        NodeIterationMirrors::neighbor_remove(py, &self.node_iter_mirror, owner, false, nbr);
         if let Some(row) = self
             .neighbor_key_rows
             .as_ref()
@@ -8798,6 +9099,7 @@ impl PyMultiGraph {
     /// mapping there, leaving each row dict intact, so an in-flight iterator
     /// completes — which fnx already matched by dropping the cache.
     fn neighbor_key_rows_clear_in_place(&self, py: Python<'_>) {
+        NodeIterationMirrors::neighbor_clear_edges(py, &self.node_iter_mirror);
         if let Some((_, _, rows, by_index)) = &self.neighbor_key_rows {
             for row in rows.values() {
                 let _ = row.bind(py).call_method0("clear");
@@ -8823,6 +9125,7 @@ impl PyMultiGraph {
         self.neighbor_key_rows
             .as_ref()
             .is_some_and(|(_, _, rows, _)| !rows.is_empty())
+            || self.unhashed_neighbor_rows_active()
     }
 
     /// br-r37-c1-z6uka: see PyGraph::derive_copy_adj_py_keys — nx's u-major
@@ -14658,6 +14961,37 @@ impl PyMultiGraph {
         })
     }
 
+    /// A live native row cursor without hashing its existing display labels.
+    #[pyo3(signature = (n, *, reverse=false))]
+    fn _fnx_unhashed_neighbors_iter(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        let known_hash = if node_key_hash_cannot_raise(n) {
+            None
+        } else {
+            Some(n.hash()?)
+        };
+        // The row lookup hashes its owner once, before borrowing the graph.
+        // Reuse that hash when the custom-object interner resolves the key.
+        let canonical = node_key_to_string_with_hash(py, n, known_hash)?;
+        let row = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(missing_key_error(n));
+            }
+            graph.unhashed_neighbor_row_by_canonical(py, &canonical, reverse)?
+        };
+        Ok(row
+            .bind(py)
+            .call_method0("values")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
     /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
     ///
     /// `nbunch_iter` filters with `n in <container>` once per node. networkx's
@@ -16729,6 +17063,7 @@ impl PyMultiGraph {
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
         self.inner = MultiGraph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
+        NodeIterationMirrors::reset_neighbor_rows(&self.node_iter_mirror);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -17002,6 +17337,35 @@ impl PyMultiGraph {
                 .into_iter()
                 .map(|canonical| (canonical, self.py_node_key(py, canonical)))
         })
+    }
+
+    fn unhashed_neighbor_rows_active(&self) -> bool {
+        NodeIterationMirrors::neighbor_rows_active(&self.node_iter_mirror)
+    }
+
+    fn unhashed_neighbor_row_by_canonical(
+        &self,
+        py: Python<'_>,
+        canonical: &str,
+        _reverse: bool,
+    ) -> PyResult<Py<PyDict>> {
+        if !self.inner.has_node(canonical) {
+            return Err(PyKeyError::new_err((canonical.to_owned(),)));
+        }
+        NodeIterationMirrors::neighbor_row(
+            py,
+            &self.node_iter_mirror,
+            canonical,
+            false,
+            false,
+            || {
+                self.inner
+                    .neighbors_iter(canonical)
+                    .into_iter()
+                    .flatten()
+                    .map(|neighbor| (neighbor, self.py_adj_key(py, canonical, neighbor)))
+            },
+        )
     }
 
     fn node_iter_mirror_active(&self) -> bool {
@@ -19933,6 +20297,37 @@ impl PyGraph {
         })
     }
 
+    /// A live native row cursor without hashing its existing display labels.
+    #[pyo3(signature = (n, *, reverse=false))]
+    fn _fnx_unhashed_neighbors_iter(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        let known_hash = if node_key_hash_cannot_raise(n) {
+            None
+        } else {
+            Some(n.hash()?)
+        };
+        // The row lookup hashes its owner once, before borrowing the graph.
+        // Reuse that hash when the custom-object interner resolves the key.
+        let canonical = node_key_to_string_with_hash(py, n, known_hash)?;
+        let row = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(missing_key_error(n));
+            }
+            graph.unhashed_neighbor_row_by_canonical(py, &canonical, reverse)?
+        };
+        Ok(row
+            .bind(py)
+            .call_method0("values")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
     /// br-r37-c1-vbe1o: the node-key mirror DICT, for membership tests.
     ///
     /// `nbunch_iter` filters with `n in <container>` once per node. networkx's
@@ -20596,6 +20991,7 @@ impl PyGraph {
             || !self.neighbor_key_rows.is_empty()
             || !self.neighbor_key_rows_by_index.is_empty()
             || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
         {
             return false;
         }
@@ -20619,6 +21015,7 @@ impl PyGraph {
             || !self.neighbor_key_rows.is_empty()
             || !self.neighbor_key_rows_by_index.is_empty()
             || self.dict_of_dicts_cache.is_some()
+            || self.unhashed_neighbor_rows_active()
         {
             return Ok(false);
         }
@@ -22506,6 +22903,7 @@ impl PyGraph {
     fn __setstate__(&mut self, py: Python<'_>, state: &Bound<'_, PyDict>) -> PyResult<()> {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
         self.inner = Graph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
+        NodeIterationMirrors::reset_neighbor_rows(&self.node_iter_mirror);
         self.node_key_map.clear();
         self.lazy_int_node_stop = 0;
         self.node_py_attrs.clear();

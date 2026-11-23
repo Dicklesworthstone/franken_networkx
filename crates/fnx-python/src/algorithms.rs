@@ -13019,9 +13019,23 @@ pub fn tree_broadcast_time(
 // BFS Traversal
 // ===========================================================================
 
+/// Per-row display aliases can hide a callback on an already-seen neighbor,
+/// which never appears in a BFS discovery result. Retain the live Python walk
+/// for that uncommon storage shape; inspecting the map's emptiness is O(1).
+fn traversal_has_display_aliases(gr: &GraphRef<'_>) -> bool {
+    match gr {
+        GraphRef::Undirected(pg) => !pg.adj_py_keys.is_empty(),
+        GraphRef::Directed { dg, .. } => !dg.succ_py_keys.is_empty() || !dg.pred_py_keys.is_empty(),
+        GraphRef::MultiUndirected { mg, .. } => !mg.adj_py_keys.is_empty(),
+        GraphRef::MultiDirected { mdg, .. } => {
+            !mdg.succ_py_keys.is_empty() || !mdg.pred_py_keys.is_empty()
+        }
+    }
+}
+
 /// Iterate over edges in a breadth-first search starting at source.
 #[pyfunction]
-#[pyo3(signature = (g, source, reverse=false, depth_limit=None, sort_neighbors=None))]
+#[pyo3(signature = (g, source, reverse=false, depth_limit=None, sort_neighbors=None, *, callback_safe=false))]
 pub fn bfs_edges(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
@@ -13029,8 +13043,12 @@ pub fn bfs_edges(
     reverse: bool,
     depth_limit: Option<usize>,
     sort_neighbors: Option<&Bound<'_, PyAny>>,
-) -> PyResult<Vec<(PyObject, PyObject)>> {
+    callback_safe: bool,
+) -> PyResult<Option<Vec<(PyObject, PyObject)>>> {
     let _ = sort_neighbors; // accepted for API compat, handled in Python wrapper
+    if callback_safe && !crate::NodeIterationMirrors::key_is_callback_free(source) {
+        return Ok(None);
+    }
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
     if !gr.has_node(&source_key) {
@@ -13038,6 +13056,14 @@ pub fn bfs_edges(
             "The node {} is not in the graph.",
             source.str()?
         )));
+    }
+    if callback_safe
+        && (traversal_has_display_aliases(&gr)
+            || !crate::NodeIterationMirrors::key_is_callback_free(
+                gr.py_node_key(py, &source_key).bind(py),
+            ))
+    {
+        return Ok(None);
     }
 
     if let GraphRef::MultiUndirected { mg, .. } = &gr {
@@ -13056,10 +13082,15 @@ pub fn bfs_edges(
                 .expect("BFS parent must be discovered before its child")
                 .clone_ref(py);
             let py_child = gr.py_row_key(py, parent, child);
+            if callback_safe
+                && !crate::NodeIterationMirrors::key_is_callback_free(py_child.bind(py))
+            {
+                return Ok(None);
+            }
             disp.insert(child, py_child.clone_ref(py));
             result.push((py_parent, py_child));
         }
-        return Ok(result);
+        return Ok(Some(result));
     }
 
     let edges = match &gr {
@@ -13133,15 +13164,24 @@ pub fn bfs_edges(
         Some((&source_key, source.clone().unbind())),
         reverse,
     );
-    Ok(edges
-        .iter()
-        .map(|(u, v)| {
-            (
-                gr.disp_or_node_key(py, &disp, u),
-                gr.disp_or_node_key(py, &disp, v),
-            )
-        })
-        .collect())
+    if callback_safe
+        && disp
+            .values()
+            .any(|key| !crate::NodeIterationMirrors::key_is_callback_free(key.bind(py)))
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        edges
+            .iter()
+            .map(|(u, v)| {
+                (
+                    gr.disp_or_node_key(py, &disp, u),
+                    gr.disp_or_node_key(py, &disp, v),
+                )
+            })
+            .collect(),
+    ))
 }
 
 /// Return an oriented tree constructed from a breadth-first search from source.
@@ -16357,15 +16397,30 @@ pub fn single_source_shortest_path(
 
 /// Return shortest path lengths from source (unweighted BFS).
 #[pyfunction]
-#[pyo3(signature = (g, source, cutoff=None))]
+#[pyo3(signature = (g, source, cutoff=None, *, callback_safe=false))]
 pub fn single_source_shortest_path_length(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     source: &Bound<'_, PyAny>,
     cutoff: Option<usize>,
+    callback_safe: bool,
 ) -> PyResult<PyObject> {
+    // Public wrappers opt into live fallback. Inspect only reached display
+    // objects, not every graph node: a cold cutoff-bounded query must retain
+    // its reach-bounded cost. No rejected key has been hashed at this boundary.
+    if callback_safe && !crate::NodeIterationMirrors::key_is_callback_free(source) {
+        return Ok(py.None());
+    }
     let gr = extract_graph(g)?;
     let source_key = node_key_to_string(py, source)?;
+    if callback_safe
+        && (traversal_has_display_aliases(&gr)
+            || !crate::NodeIterationMirrors::key_is_callback_free(
+                gr.py_node_key(py, &source_key).bind(py),
+            ))
+    {
+        return Ok(py.None());
+    }
     let dict = pyo3::types::PyDict::new(py);
     // br-r37-c1-6hpa9: nx's dict keys carry DISCOVERY objects — the source
     // as passed, every other node as its discovering parent's
@@ -16384,6 +16439,10 @@ pub fn single_source_shortest_path_length(
                     Some(p) => gr.py_row_key(py, p, node),
                     None => source.clone().unbind(),
                 };
+                if callback_safe && !crate::NodeIterationMirrors::key_is_callback_free(key.bind(py))
+                {
+                    return Ok(py.None());
+                }
                 dict.set_item(key, *length)?;
             }
         } else {
@@ -16400,6 +16459,10 @@ pub fn single_source_shortest_path_length(
                     Some(p) => gr.py_row_key(py, p, node),
                     None => source.clone().unbind(),
                 };
+                if callback_safe && !crate::NodeIterationMirrors::key_is_callback_free(key.bind(py))
+                {
+                    return Ok(py.None());
+                }
                 dict.set_item(key, *length)?;
             }
         }
@@ -16414,6 +16477,9 @@ pub fn single_source_shortest_path_length(
                 Some(p) => gr.py_row_key(py, p, node),
                 None => source.clone().unbind(),
             };
+            if callback_safe && !crate::NodeIterationMirrors::key_is_callback_free(key.bind(py)) {
+                return Ok(py.None());
+            }
             dict.set_item(key, *length)?;
         }
     } else {
@@ -16430,6 +16496,9 @@ pub fn single_source_shortest_path_length(
                 Some(p) => gr.py_row_key(py, p, node),
                 None => source.clone().unbind(),
             };
+            if callback_safe && !crate::NodeIterationMirrors::key_is_callback_free(key.bind(py)) {
+                return Ok(py.None());
+            }
             dict.set_item(key, *length)?;
         }
     };

@@ -776,3 +776,332 @@ def test_private_point_guard_keeps_ordinary_reverse_view_native_route(cls, name)
         sys.setprofile(previous)
     expected = "bidirectional_shortest_path" if name == "shortest_path" else name
     assert calls == [expected], calls
+
+
+def _hash_bfs_outcome(module, graph_type, shape, mutation, cutoff):
+    graph = getattr(module, graph_type)()
+    armed = False
+    calls = []
+
+    def plain(value):
+        return (value, "node") if shape == "tuple" else value
+
+    def number(value):
+        return int(value[0] if shape == "tuple" else value)
+
+    class Node(int):
+        def __hash__(self):
+            nonlocal armed
+            if armed:
+                armed = False
+                calls.append(int(self))
+                if mutation == "raise":
+                    raise RuntimeError("distance node callback")
+                if mutation == "add":
+                    graph.add_edge(plain(0), plain(2))
+                else:
+                    graph.remove_edge(plain(0), plain(1))
+            return int.__hash__(self)
+
+    nodes = [(Node(i), "node") if shape == "tuple" else Node(i) for i in range(4)]
+    graph.add_edges_from((nodes[i], nodes[(i + 1) % 4]) for i in range(4))
+    armed = True
+    try:
+        result = module.single_source_shortest_path_length(graph, nodes[0], cutoff=cutoff)
+    except Exception as error:
+        outcome = ("error", type(error).__name__, str(error))
+    else:
+        outcome = ("values", [(number(node), value) for node, value in result.items()])
+    armed = False
+    return outcome, calls, [(number(u), number(v)) for u, v in graph.edges()]
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("shape", ["scalar", "tuple"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "raise"])
+@pytest.mark.parametrize("cutoff", [None, 1])
+def test_distance_source_hash_keeps_live_graph_and_exception_boundary(graph_type, shape, mutation, cutoff):
+    expected = _hash_bfs_outcome(nx, graph_type, shape, mutation, cutoff)
+    actual = _hash_bfs_outcome(fnx, graph_type, shape, mutation, cutoff)
+    assert actual == expected
+    assert expected[1] == [0]
+    if mutation == "raise":
+        assert expected[0] == ("error", "RuntimeError", "distance node callback")
+    else:
+        assert expected[0][0] == "values"
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    "graph_type, reverse",
+    [("Graph", False), ("DiGraph", False), ("MultiGraph", False),
+     ("MultiDiGraph", False), ("DiGraph", True), ("MultiDiGraph", True)],
+)
+@pytest.mark.parametrize("shape", ["scalar", "tuple"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "raise"])
+def test_distance_discovered_hash_uses_live_rows(graph_type, reverse, shape, mutation):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        def plain(value):
+            return (value, "node") if shape == "tuple" else value
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    calls.append(int(self))
+                    if mutation == "raise":
+                        raise RuntimeError("discovered distance callback")
+                    u, v = (1, 3) if mutation == "add" else (1, 2)
+                    if reverse:
+                        u, v = v, u
+                    if mutation == "add":
+                        graph.add_edge(plain(u), plain(v))
+                    else:
+                        graph.remove_edge(plain(u), plain(v))
+                return int.__hash__(self)
+
+        custom = (Node(1), "node") if shape == "tuple" else Node(1)
+        nodes = [plain(0), custom, plain(2), plain(3)]
+        graph.add_nodes_from(nodes)
+        edges = [(nodes[i], nodes[i + 1]) for i in range(3)]
+        graph.add_edges_from([(v, u) for u, v in edges] if reverse else edges)
+        query_graph = graph.reverse(copy=False) if reverse else graph
+        armed = True
+        try:
+            result = module.single_source_shortest_path_length(query_graph, nodes[0])
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", [
+                (int(node[0] if shape == "tuple" else node), value)
+                for node, value in result.items()
+            ])
+        armed = False
+        outcomes.append((outcome, calls))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == [1]
+    assert outcomes[1][0][0] == ("error" if mutation == "raise" else "values")
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_distance_already_seen_row_alias_keeps_callback(graph_type):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        class Alias(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    calls.append(int(self))
+                    graph.add_edge(2, 3)
+                return int.__hash__(self)
+
+        graph.add_nodes_from(range(4))
+        graph.add_edges_from([(0, 1), (1, Alias(0)), (1, 2)])
+        armed = True
+        result = module.single_source_shortest_path_length(graph, 0)
+        armed = False
+        outcomes.append((list(result.items()), calls))
+    assert outcomes[0] == outcomes[1] == ([(0, 0), (1, 1), (2, 2), (3, 3)], [0])
+
+
+@needs_nx
+@pytest.mark.parametrize(
+    "graph_type, reverse",
+    [("Graph", False), ("DiGraph", False), ("MultiGraph", False),
+     ("MultiDiGraph", False), ("DiGraph", True), ("MultiDiGraph", True)],
+)
+@pytest.mark.parametrize("mutation", ["grow-row", "replace-neighbor", "remove-owner", "replace-owner"])
+def test_distance_callback_retains_current_row_cursor(graph_type, reverse, mutation):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        def add_neighbor(neighbor):
+            graph.add_edge(neighbor, 0) if reverse else graph.add_edge(0, neighbor)
+
+        def remove_neighbor(neighbor):
+            graph.remove_edge(neighbor, 0) if reverse else graph.remove_edge(0, neighbor)
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    calls.append(int(self))
+                    if mutation == "grow-row":
+                        add_neighbor(4)
+                    elif mutation == "replace-neighbor":
+                        remove_neighbor(2)
+                        add_neighbor(4)
+                    else:
+                        graph.remove_node(0)
+                        if mutation == "replace-owner":
+                            add_neighbor(4)
+                return int.__hash__(self)
+
+        custom = Node(1)
+        graph.add_nodes_from([0, custom, 2, 3, 4])
+        for neighbor in (custom, 2, 3):
+            add_neighbor(neighbor)
+        query_graph = graph.reverse(copy=False) if reverse else graph
+        armed = True
+        try:
+            result = module.single_source_shortest_path_length(query_graph, 0)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", [(int(node), length) for node, length in result.items()])
+        armed = False
+        outcomes.append((outcome, calls))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == [1]
+    if mutation == "grow-row":
+        assert outcomes[1][0] == ("error", "RuntimeError", "dictionary changed size during iteration")
+    else:
+        assert outcomes[1][0][0] == "values"
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("unreached_custom", [False, True])
+def test_distance_plain_reached_labels_keep_native_kernel(graph_type, unreached_custom, monkeypatch):
+    class Isolated(int):
+        pass
+
+    graph = getattr(fnx, graph_type)([(0, 1), (1, 2), (2, 3)])
+    if unreached_custom:
+        graph.add_node(Isolated(100))
+    namespace = fnx.single_source_shortest_path_length.__globals__
+    original = namespace["_raw_single_source_shortest_path_length"]
+    native_results = []
+
+    def native(*args, **kwargs):
+        result = original(*args, **kwargs)
+        native_results.append(result)
+        return result
+
+    monkeypatch.setitem(namespace, "_raw_single_source_shortest_path_length", native)
+    assert fnx.single_source_shortest_path_length(graph, 0, cutoff=1) == {0: 0, 1: 1}
+    assert native_results == [{0: 0, 1: 1}]
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_distance_preserves_callers_source_and_row_alias_identity(graph_type):
+    class Alias(int):
+        pass
+
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        graph.add_nodes_from([0, 1, 2])
+        source, neighbor = Alias(0), Alias(1)
+        graph.add_edge(0, neighbor)
+        graph.add_edge(1, 2)
+        result = module.single_source_shortest_path_length(graph, source)
+        keys = list(result)
+        assert keys[0] is source
+        assert keys[1] is neighbor
+        assert list(result.values()) == [0, 1, 2]
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("generic", [False, True], ids=["int-subclass", "ordinary-object"])
+@pytest.mark.parametrize("trigger", [0, 2, 3])
+@pytest.mark.parametrize("action", ["grow", "raise"])
+def test_distance_source_hash_order_controls_seen_count_boundary(graph_type, generic, trigger, action):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        def hashed():
+            if armed:
+                calls.append(len(calls) + 1)
+                if len(calls) == trigger:
+                    if action == "raise":
+                        raise RuntimeError("source hash boundary")
+                    graph.add_edge(1, 2)
+
+        if generic:
+            class Source:
+                def __hash__(self):
+                    hashed()
+                    return 1729
+
+                def __repr__(self):
+                    return "Source()"
+
+            source = Source()
+        else:
+            class Source(int):
+                def __hash__(self):
+                    hashed()
+                    return int.__hash__(self)
+
+            source = Source(0)
+        graph.add_edge(source, 1)
+        armed = True
+        try:
+            result = module.single_source_shortest_path_length(graph, source)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", [
+                ("source" if node is source else node, distance)
+                for node, distance in result.items()
+            ])
+        armed = False
+        outcomes.append((outcome, calls))
+    assert outcomes[0] == outcomes[1]
+    if trigger and action == "raise":
+        assert outcomes[1][0] == ("error", "RuntimeError", "source hash boundary")
+    else:
+        expected = [("source", 0), (1, 1)] + ([(2, 2)] if trigger == 2 else [])
+        assert outcomes[1][0] == ("values", expected)
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("cutoff", [-1, -5, 0.5, 1.5, float("inf"), float("-inf"), float("nan"), True, False, 2**80])
+def test_distance_non_native_cutoff_preserves_python_comparisons(graph_type, cutoff):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 3)])
+        outcomes.append(list(module.single_source_shortest_path_length(graph, 0, cutoff=cutoff).items()))
+    assert outcomes[0] == outcomes[1]
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_distance_cutoff_provider_runs_at_live_comparison_boundary(graph_type):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)([(0, 1)])
+        calls = []
+
+        class Cutoff(int):
+            def __gt__(self, level):
+                calls.append(level)
+                if level == 0:
+                    graph.add_edge(1, 2)
+                return int.__gt__(self, level)
+
+        result = module.single_source_shortest_path_length(graph, 0, cutoff=Cutoff(5))
+        outcomes.append((list(result.items()), calls))
+    assert outcomes[0] == outcomes[1] == ([(0, 0), (1, 1)], [0])
