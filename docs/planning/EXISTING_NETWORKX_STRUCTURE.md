@@ -2362,6 +2362,17 @@ its rank vector and results retain query order. Default, personalized and batch
 queries all use the reference's ordered dangling-rank sum, including on graphs
 with many sinks or isolated nodes.
 
+`google_matrix` captures the dense adjacency and validates its node selection
+before checking graph emptiness or reading personalization and dangling
+providers. Its default vector uses the whole graph's node count. Explicit
+personalization rejects exactly zero total; signed and nonfinite values
+otherwise retain NumPy normalization semantics. Explicit dangling vectors
+are normalized even when there are no dangling rows, without replacement by a
+default distribution. Dangling rows are replaced before final row normalization,
+preserving floating-point rounding, shape errors for partial selections and
+configured NumPy floating-point exceptions. Provider mutations affect the source
+graph after the matrix snapshot and do not change that snapshot.
+
 ## 70. DataFrame Export from Authoritative Graph Storage
 
 `to_pandas_edgelist` exports the graph's visible edges and attribute dictionaries,

@@ -743,64 +743,50 @@ def google_matrix(
     weight="weight",
     dangling=None,
 ):
-    """Return the Google PageRank matrix: alpha*S + (1-alpha)*v*e^T.
-
-    br-matsig: adds the ``dangling`` parameter nx exposes (weights used
-    to redistribute mass from dangling nodes instead of the uniform
-    teleport). Previously fnx rejected ``dangling=`` with a TypeError.
-    """
+    """Return the Google PageRank transition matrix in the selected node order."""
     import numpy as np
 
-    # br-r37-c1 (cc, verify phase): the google_matrix_rust native routing was a
-    # MEASURED 3x REGRESSION (0.34x vs nx, gnp(500,.05): fnx 15.6ms vs nx 5.5ms).
-    # The kernel returns a Python list-of-lists; the np.asarray conversion of n^2
-    # floats dwarfs nx's pure-numpy path. The numpy path below (0.80x) is much
-    # better. Reverted. (The dangling-redistribution bug fix below is retained.)
     if nodelist is None:
-        nodelist = list(G.nodes())
-    n = len(nodelist)
-    if n == 0:
-        # br-r37-c1-ct24s: nx returns to_numpy_array's 0 x 0 (np.array([[]]) is 1 x 0).
-        return np.zeros((0, 0))
-    A = to_numpy_array(G, nodelist=nodelist, weight=weight)
-    row_sums = A.sum(axis=1)
+        nodelist = list(G)
+
+    # Matrix conversion validates the selection and captures the graph before
+    # personalization or dangling providers can mutate it. The empty-graph
+    # shortcut belongs after conversion and refers to G, not to the selection.
+    transition = to_numpy_array(G, nodelist=nodelist, weight=weight)
+    node_count = len(G)
+    if node_count == 0:
+        return transition
 
     if personalization is None:
-        v = np.ones(n) / n
+        teleport = np.full(node_count, 1.0 / node_count)
     else:
-        v = np.array([personalization.get(node, 0) for node in nodelist], dtype=float)
-        s = v.sum()
-        v = v / s if s > 0 else np.ones(n) / n
+        teleport = np.array(
+            [personalization.get(node, 0) for node in nodelist], dtype=float
+        )
+        total = teleport.sum()
+        if total == 0:
+            raise ZeroDivisionError
+        teleport /= total
 
-    # br-r37-c1-gmdangling: nx redistributes a dangling node's mass using the
-    # dangling vector if given, otherwise the PERSONALIZATION vector v (NOT a
-    # uniform 1/n). Previously fnx used 1/n for dangling rows, diverging from nx
-    # whenever a dangling node coexisted with a non-uniform personalization.
     if dangling is None:
-        dangling_weights = v
+        dangling_weights = teleport
     else:
         dangling_weights = np.array(
             [dangling.get(node, 0) for node in nodelist], dtype=float
         )
-        total = dangling_weights.sum()
-        dangling_weights = dangling_weights / total if total > 0 else v
+        # Preserve NumPy's arithmetic and configured error behavior. A
+        # nonpositive or nonfinite total does not authorize a repair.
+        dangling_weights /= dangling_weights.sum()
 
-    # br-gmvec: vectorize the per-row Python normalization loop (was a
-    # ``for i in range(n)`` over the dense n x n matrix — 0.38-0.81x vs nx,
-    # whose google_matrix is fully numpy). Divide every row by its sum (using
-    # 1.0 for dangling rows to avoid div-by-zero; those rows are all-zero so the
-    # quotient stays zero), then overwrite the dangling rows with the RAW
-    # dangling vector — byte-identical to the loop above (which used the raw,
-    # un-renormalized ``dangling_weights`` for dangling rows, unlike nx's
-    # re-divide). Verified np.array_equal over 30 configs incl. personalization +
-    # dangling on sparse directed graphs. 1.06-1.22x vs nx.
-    dangling_idx = np.where(row_sums == 0)[0]
-    safe_sums = row_sums.copy()
-    safe_sums[dangling_idx] = 1.0
-    S = A / safe_sums[:, np.newaxis]
-    if dangling_idx.size:
-        S[dangling_idx] = dangling_weights
-    return alpha * S + (1 - alpha) * v[np.newaxis, :]
+    dangling_rows = np.flatnonzero(transition.sum(axis=1) == 0)
+    # Keep the assignment even for an empty row selection: NumPy's shape
+    # validation remains observable when nodelist selects only part of G.
+    transition[dangling_rows] = dangling_weights
+
+    # Normalize after replacing dangling rows. Even a normalized positive
+    # vector can have a floating-point sum different from one.
+    transition /= transition.sum(axis=1, keepdims=True)
+    return alpha * transition + (1 - alpha) * teleport
 
 
 def normalized_laplacian_spectrum(G, weight="weight"):
