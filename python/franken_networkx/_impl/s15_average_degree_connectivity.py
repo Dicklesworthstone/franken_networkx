@@ -911,9 +911,7 @@ from franken_networkx._fnx import (
 def _jaccard_native_scores(G, materialized):
     # br-r37-c1-lpjaccard (cc): native (common_count, union_size) + Python int-division
     # -> exact parity, no eager set(G[u])|set(G[v]) materialization. union==0 -> int 0.
-    rows = _raw_link_pred_jaccard_counts(G, materialized)
-    for (u, v), (_ru, _rv, common, union) in zip(materialized, rows):
-        yield (u, v, common / union if union else 0)
+    return _link_prediction_native_scores(G, materialized, "jaccard_coefficient")
 
 
 def _ra_native_scores(G, materialized):
@@ -921,17 +919,11 @@ def _ra_native_scores(G, materialized):
     # nx's G[u] order) + Python sum(1/d) -> float parity GUARANTEED (Python does every
     # float op), avoiding the eager list(G.neighbors(u)) materialization. Lazy: the
     # native call fires on first iteration, matching nx's generator semantics.
-    rows = _raw_link_pred_common_neighbor_degrees(G, materialized)
-    for (u, v), (_ru, _rv, degs) in zip(materialized, rows):
-        yield (u, v, sum(1.0 / d for d in degs))
+    return _link_prediction_native_scores(G, materialized, "resource_allocation_index")
 
 
 def _aa_native_scores(G, materialized):
-    import math
-
-    rows = _raw_link_pred_common_neighbor_degrees(G, materialized)
-    for (u, v), (_ru, _rv, degs) in zip(materialized, rows):
-        yield (u, v, sum(1.0 / math.log(d) for d in degs))
+    return _link_prediction_native_scores(G, materialized, "adamic_adar_index")
 
 
 def _pa_native_scores(G, materialized):
@@ -966,16 +958,96 @@ def _pa_native_scores(G, materialized):
         query (br-r37-c1-pa-degbatch), and a smaller one must not materialise
         degrees it will never read (br-r37-c1-pa-endpointbatch).
     """
-    if not materialized:
-        return
-    # The native scorer snapshots the integer adjacency degrees once, then
-    # resolves every endpoint pair through that vector.  Keeping the original
-    # Python pair objects here preserves NetworkX's generator payload while
-    # avoiding this wrapper's per-pair dictionary lookups.
-    for (u, v), (_raw_u, _raw_v, score) in zip(
-        materialized, _raw_preferential_attachment(G, materialized)
-    ):
-        yield (u, v, int(score))
+    return _link_prediction_native_scores(G, materialized, "preferential_attachment")
+
+
+def _link_prediction_native_scores(G, pairs, metric):
+    """Reuse native batches only while the caller's graph stays unchanged.
+
+    The public result is a live iterator: callers may change the topology,
+    replace an accessor, or edit their pair list between scores. Native rows
+    are a cache keyed by topology and endpoint values, not a frozen result.
+    Only builtin containers and primitive endpoint/neighbor labels can be
+    inspected ahead of the current pair without running a caller's iterator
+    or hash callback. Admission touches only the queried adjacency rows.
+    """
+    import math
+
+    # Resolve the shared implementation before returning the iterator; its
+    # lazy module load is independent of the graph reads at each next().
+    has_native_access = _adc_has_native_graph_access
+    raw_neighbors = _GRAPH_NEIGHBORS
+    token = None
+    rows = {}
+    plain_keys = (str, int, bool)
+
+    def predict(u, v):
+        nonlocal token, rows
+        if (
+            type(pairs) not in (list, tuple)
+            or type(u) not in plain_keys or type(v) not in plain_keys
+            or not has_native_access(G)
+        ):
+            return _link_prediction_score(G, u, v, metric)
+        current = (G.nodes_seq, G.edges_seq)
+        if current != token:
+            token = current
+            rows = {}
+            # The raw reader returns display objects without hashing them or
+            # constructing attribute dictionaries. Inspect only endpoints'
+            # rows: a five-pair query must not scan unrelated graph nodes.
+            if not G._native_has_adj_py_keys():
+                batch = []
+                safe_rows = {}
+                for pair in pairs:
+                    if type(pair) not in (list, tuple) or len(pair) != 2:
+                        continue
+                    a, b = pair
+                    if type(a) not in plain_keys or type(b) not in plain_keys:
+                        continue
+                    if metric == "preferential_attachment":
+                        # This metric reads only endpoint degrees. Inspecting
+                        # their neighbors would turn a hub query into a walk.
+                        if a in G and b in G:
+                            batch.append((a, b))
+                        continue
+                    for endpoint in (a, b):
+                        if endpoint not in safe_rows:
+                            try:
+                                neighbors = raw_neighbors(G, endpoint)
+                            except NodeNotFound:
+                                safe_rows[endpoint] = False
+                            else:
+                                safe_rows[endpoint] = all(
+                                    type(node) in plain_keys for node in neighbors
+                                )
+                    if safe_rows[a] and safe_rows[b]:
+                        batch.append((a, b))
+                if batch:
+                    if metric == "jaccard_coefficient":
+                        values = _raw_link_pred_jaccard_counts(G, batch)
+                    elif metric == "preferential_attachment":
+                        values = _raw_preferential_attachment(G, batch)
+                    else:
+                        values = _raw_link_pred_common_neighbor_degrees(G, batch)
+                    rows = {pair: value[2:] for pair, value in zip(batch, values)}
+        value = rows.get((u, v))
+        if value is None:
+            # The caller can replace a pair or remove one of its endpoints
+            # after eager validation. Let the normal reader raise at this
+            # score, without validating unrelated future pairs again.
+            return _link_prediction_score(G, u, v, metric)
+        if metric == "jaccard_coefficient":
+            common, union = value
+            return common / union if union else 0
+        if metric == "preferential_attachment":
+            return int(value[0])
+        if metric == "adamic_adar_index":
+            return sum(1 / math.log(degree) for degree in value[0])
+        return sum(1 / degree for degree in value[0])
+
+    # Capture iter(pairs) now, like the reference's generator expression.
+    return ((u, v, predict(u, v)) for u, v in pairs)
 
 
 def _link_prediction_validate_ebunch(G, ebunch):
@@ -985,8 +1057,9 @@ def _link_prediction_validate_ebunch(G, ebunch):
     G. fnx's native implementations silently return 0.0 scores. Also
     reject MultiGraph inputs with NetworkXNotImplemented to match nx.
 
-    Materializes the ebunch into a list so the generator can be walked
-    twice (once for validation, once inside the native call).
+    Validation consumes the supplied iterable once, then scoring iterates
+    that same object. In particular, a one-shot iterator stays exhausted;
+    copying it would change both its result and its observable read order.
     """
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
@@ -997,14 +1070,18 @@ def _link_prediction_validate_ebunch(G, ebunch):
     # multigraph is checked first so a MultiDiGraph reports 'multigraph', as nx.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    materialized = list(ebunch) if ebunch is not None else None
-    if materialized is not None:
-        for u, v in materialized:
+    return _link_prediction_validate_pairs(G, ebunch)
+
+
+def _link_prediction_validate_pairs(G, ebunch):
+    """Keep pair validation eager and preserve the supplied iterable."""
+    if ebunch is not None:
+        for u, v in ebunch:
             if u not in G:
                 raise NodeNotFound(f"Node {u} not in G.")
             if v not in G:
                 raise NodeNotFound(f"Node {v} not in G.")
-    return materialized
+    return ebunch
 
 
 def _link_prediction_lazy_delegate(name, G, materialized):
@@ -1030,115 +1107,25 @@ def _link_prediction_lazy_delegate(name, G, materialized):
 
 
 def _link_prediction_compute(G, materialized, metric):
-    """Pure-Python link-prediction scorer over the fnx graph.
+    """Read the caller's graph when each score is requested."""
+    pairs = non_edges(G) if materialized is None else materialized
+    return ((u, v, _link_prediction_score(G, u, v, metric)) for u, v in pairs)
 
-    br-r37-c1-lpconv: the previous path delegated to networkx, which performed
-    a full fnx->nx graph conversion (O(V+E)) for EVERY call regardless of
-    ebunch size -- so scoring a handful of candidate pairs on an n=2000 graph
-    cost ~114 ms vs networkx's ~0.02 ms (thousands of times slower). This
-    reproduces networkx's exact algorithm directly on the fnx graph:
 
-    * pair order = networkx's ``non_edges`` (``nodes.pop()`` + ``nodes - N(u)``
-      over CPython sets) for the default ebunch;
-    * common neighbours iterate ``G.neighbors(u)`` (networkx's ``G[u]`` order),
-      filtered by membership in ``N(v)`` and ``w not in (u, v)``;
-    * scores use the builtin ``sum`` (same compensated summation as networkx),
-      so the floats are byte-identical, and the empty sum is int ``0``.
+def _link_prediction_score(G, u, v, metric):
+    """Evaluate one score without retaining adjacency or degree snapshots."""
+    if metric == "preferential_attachment":
+        return G.degree(u) * G.degree(v)
+    if metric == "jaccard_coefficient":
+        union_size = len(set(G[u]) | set(G[v]))
+        if union_size == 0:
+            return 0
+        return len(common_neighbors(G, u, v)) / union_size
+    if metric == "adamic_adar_index":
+        import math
 
-    Adjacency sets / degrees are memoized lazily, so a small ebunch only touches
-    its endpoints (no whole-graph materialization) while the default ebunch
-    still computes each neighbour set once.
-    """
-    import math
-
-    nbr_order_cache = {}
-    nbr_set_cache = {}
-    deg_cache = {}
-
-    def nbr_order(n):
-        r = nbr_order_cache.get(n)
-        if r is None:
-            r = list(G.neighbors(n))
-            nbr_order_cache[n] = r
-        return r
-
-    def nbr_set(n):
-        r = nbr_set_cache.get(n)
-        if r is None:
-            r = set(nbr_order(n))
-            nbr_set_cache[n] = r
-        return r
-
-    def deg(n):
-        r = deg_cache.get(n)
-        if r is None:
-            r = G.degree(n)
-            deg_cache[n] = r
-        return r
-
-    # br-r37-c1-pa-degbatch (cc): degree-using metrics over a large/default ebunch
-    # win from ONE batched G.degree() snapshot instead of N lazy per-node G.degree
-    # PyO3 calls (preferential_attachment 0.78x -> WIN, ~3.4x on the degree path;
-    # also speeds resource_allocation/adamic_adar's 1/deg(w) terms). jaccard uses
-    # set-union not degree, so skip it. Small explicit ebunches stay lazy (the
-    # whole-graph snapshot would materialize unused degrees); the default (None)
-    # ebunch touches every node so it always pays. Same values as lazy G.degree(n).
-    if metric != "jaccard_coefficient" and (
-        materialized is None or len(materialized) >= G.number_of_nodes()
-    ):
-        deg_cache.update(G.degree())
-    elif metric == "preferential_attachment" and materialized:
-        # br-r37-c1-pa-endpointbatch (cc): preferential_attachment uses ONLY the
-        # endpoint degrees deg(u)*deg(v). For an explicit ebunch smaller than the
-        # graph (the prior branch's full-snapshot guard misses it) the lazy deg()
-        # path made N per-node G.degree(n) PyO3 calls -> 0.24x. Batch the distinct
-        # endpoints' degrees in ONE native G.degree(nbunch) call -> 0.24x -> 1.71x
-        # (beats nx), byte-identical (same ints as lazy G.degree(n)).
-        deg_cache.update(G.degree({endpoint for pair in materialized for endpoint in pair}))
-
-    if metric == "resource_allocation_index":
-
-        def predict(u, v):
-            nv = nbr_set(v)
-            return sum(1 / deg(w) for w in nbr_order(u) if w in nv and w != u and w != v)
-
-    elif metric == "adamic_adar_index":
-
-        def predict(u, v):
-            nv = nbr_set(v)
-            return sum(
-                1 / math.log(deg(w))
-                for w in nbr_order(u)
-                if w in nv and w != u and w != v
-            )
-
-    elif metric == "jaccard_coefficient":
-
-        def predict(u, v):
-            nu = nbr_set(u)
-            nv = nbr_set(v)
-            union_size = len(nu | nv)
-            if union_size == 0:
-                return 0
-            ncommon = sum(
-                1 for w in nbr_order(u) if w in nv and w != u and w != v
-            )
-            return ncommon / union_size
-
-    else:  # preferential_attachment
-
-        def predict(u, v):
-            return deg(u) * deg(v)
-
-    if materialized is None:
-        nodes = set(G)
-        while nodes:
-            u = nodes.pop()
-            for v in nodes - nbr_set(u):
-                yield (u, v, predict(u, v))
-    else:
-        for u, v in materialized:
-            yield (u, v, predict(u, v))
+        return sum(1 / math.log(G.degree(node)) for node in common_neighbors(G, u, v))
+    return sum(1 / G.degree(node) for node in common_neighbors(G, u, v))
 
 
 def jaccard_coefficient(G, ebunch=None):
@@ -1149,7 +1136,6 @@ def jaccard_coefficient(G, ebunch=None):
     computed directly on the fnx graph (no fnx->nx conversion) in nx's exact
     non_edges order.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     # br-r37-c1-lpjaccard (cc): explicit ebunch on a simple Graph -> native counts.
     if materialized is not None and type(G) is Graph:
@@ -1164,7 +1150,6 @@ def adamic_adar_index(G, ebunch=None):
     conversion); pair order matches nx's non_edges iteration order and
     zero-score values are int 0.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     # br-r37-c1-lpdegnative (cc): explicit ebunch on a simple Graph -> native
     # common-neighbor degrees + Python sum (float parity guaranteed). Default ebunch
@@ -1180,7 +1165,6 @@ def preferential_attachment(G, ebunch=None):
     br-r37-c1-lpconv: ``deg(u) * deg(v)`` computed directly on the fnx graph
     (no fnx->nx conversion); returns (u, v, int_score) in nx's non_edges order.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     # br-r37-c1-z00k8: explicit ebunch on a simple Graph -> dedicated endpoint-degree
     # scorer, the sibling jaccard/adamic_adar/resource_allocation already had. The
@@ -1198,7 +1182,6 @@ def resource_allocation_index(G, ebunch=None):
     conversion); pair order matches nx's non_edges iteration order and
     zero-score values are int 0.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     materialized = _link_prediction_validate_ebunch(G, ebunch)
     # br-r37-c1-lpdegnative (cc): explicit ebunch on a simple Graph -> native path.
     if materialized is not None and type(G) is Graph:

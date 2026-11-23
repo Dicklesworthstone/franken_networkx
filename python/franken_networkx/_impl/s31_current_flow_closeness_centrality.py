@@ -1342,7 +1342,7 @@ def _lp_community_of(G, node, community):
     attrs = G.nodes[node]
     try:
         return attrs[community]
-    except (KeyError, TypeError) as err:
+    except KeyError as err:
         raise NetworkXAlgorithmError(
             f"No community information available for Node {node}"
         ) from err
@@ -1369,48 +1369,20 @@ def cn_soundarajan_hopcroft(G, ebunch=None, community="community"):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    def _gen():
-        # br-r37-c1-shlazy: lazily memoize neighbour sets so a small ebunch only
-        # touches its endpoints instead of snapshotting the whole adjacency. The
-        # old whole-graph snapshot was the entire cost for a small ebunch
-        # (~340x slower than nx on a 10-pair ebunch over n=2000); the default
-        # all-non-edges path still computes each neighbour set once. Score is an
-        # integer count, so the result is byte-identical.
-        nbr_set_cache = {}
-        comm_cache = {}
+    def predict(u, v):
+        u_community = _lp_community_of(G, u, community)
+        v_community = _lp_community_of(G, v, community)
+        common = common_neighbors(G, u, v)
+        bonus = (
+            sum(_lp_community_of(G, node, community) == u_community for node in common)
+            if u_community == v_community else 0
+        )
+        return len(common) + bonus
 
-        def nbr_set(x):
-            r = nbr_set_cache.get(x)
-            if r is None:
-                r = set(G.neighbors(x))
-                nbr_set_cache[x] = r
-            return r
-
-        def comm(x):
-            # memoize the per-node community lookup (a PyO3 node-attr access);
-            # default ebunch revisits the same w across many pairs. A missing
-            # community still raises NetworkXAlgorithmError (never cached).
-            if x in comm_cache:
-                return comm_cache[x]
-            c = _lp_community_of(G, x, community)
-            comm_cache[x] = c
-            return c
-
-        eb = non_edges(G) if ebunch is None else ebunch
-        for u, v in eb:
-            u_comm = comm(u)
-            v_comm = comm(v)
-            nv = nbr_set(v)
-            same = u_comm == v_comm
-            score = 0
-            for w in nbr_set(u):
-                if w in nv and w != u and w != v:
-                    score += 1
-                    if same and comm(w) == u_comm:
-                        score += 1
-            yield (u, v, score)
-
-    return _gen()
+    pairs = _link_prediction_validate_pairs(G, ebunch)
+    if pairs is None:
+        pairs = non_edges(G)
+    return ((u, v, predict(u, v)) for u, v in pairs)
 
 
 def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
@@ -1430,68 +1402,21 @@ def ra_index_soundarajan_hopcroft(G, ebunch=None, community="community"):
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
 
-    def _gen():
-        # br-r37-c1-shlazy: lazily memoize neighbour lists/sets/degrees so a
-        # small ebunch only touches its endpoints (the old whole-graph snapshot
-        # was ~500x slower than nx on a 10-pair ebunch over n=2000). Common
-        # neighbours are iterated in G.neighbors(u) order and summed with the
-        # builtin sum (nx's exact common_neighbors order + compensated sum), so
-        # the score is now BYTE-identical to nx (the old set-order naive fold
-        # drifted by ULPs on ~28% of cases).
-        nbr_order_cache = {}
-        nbr_set_cache = {}
-        deg_cache = {}
-        comm_cache = {}
+    def predict(u, v):
+        u_community = _lp_community_of(G, u, community)
+        v_community = _lp_community_of(G, v, community)
+        if u_community != v_community:
+            return 0
+        return sum(
+            1 / G.degree(node)
+            for node in common_neighbors(G, u, v)
+            if _lp_community_of(G, node, community) == u_community
+        )
 
-        def nbr_order(x):
-            r = nbr_order_cache.get(x)
-            if r is None:
-                r = list(G.neighbors(x))
-                nbr_order_cache[x] = r
-            return r
-
-        def nbr_set(x):
-            r = nbr_set_cache.get(x)
-            if r is None:
-                r = set(nbr_order(x))
-                nbr_set_cache[x] = r
-            return r
-
-        def deg(x):
-            r = deg_cache.get(x)
-            if r is None:
-                r = G.degree(x)
-                deg_cache[x] = r
-            return r
-
-        def comm(x):
-            # memoize the per-node community lookup (PyO3 node-attr access);
-            # a missing community still raises NetworkXAlgorithmError.
-            if x in comm_cache:
-                return comm_cache[x]
-            c = _lp_community_of(G, x, community)
-            comm_cache[x] = c
-            return c
-
-        eb = non_edges(G) if ebunch is None else ebunch
-        for u, v in eb:
-            u_comm = comm(u)
-            v_comm = comm(v)
-            if u_comm != v_comm:
-                # br-shratype: nx returns int 0 here (no division on early
-                # return); match exactly so type-sensitive callers don't
-                # diverge.
-                yield (u, v, 0)
-                continue
-            nv = nbr_set(v)
-            score = sum(
-                1 / deg(w)
-                for w in nbr_order(u)
-                if w in nv and w != u and w != v and comm(w) == u_comm
-            )
-            yield (u, v, score)
-
-    return _gen()
+    pairs = _link_prediction_validate_pairs(G, ebunch)
+    if pairs is None:
+        pairs = non_edges(G)
+    return ((u, v, predict(u, v)) for u, v in pairs)
 
 
 def _assortativity_has_native_graph_access(G, *, allow_multigraph=False):

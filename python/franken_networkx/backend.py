@@ -159,6 +159,14 @@ _DEGREE_CENTRALITY_ALGORITHMS = frozenset(
 _EXTENDED_TRAVERSAL_ALGORITHMS = frozenset(
     {"generic_bfs_edges", "bfs_labeled_edges", "dfs_labeled_edges", "bfs_beam_edges"}
 )
+_LINK_PREDICTION_ALGORITHMS = frozenset(
+    {
+        "jaccard_coefficient", "adamic_adar_index",
+        "resource_allocation_index", "preferential_attachment",
+        "cn_soundarajan_hopcroft", "ra_index_soundarajan_hopcroft",
+        "within_inter_cluster", "common_neighbor_centrality",
+    }
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -208,7 +216,10 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "node_attribute_xy",
         "node_degree_xy",
     }
-) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS | _EXTENDED_TRAVERSAL_ALGORITHMS
+) | (
+    _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS
+    | _EXTENDED_TRAVERSAL_ALGORITHMS | _LINK_PREDICTION_ALGORITHMS
+)
 
 # User callbacks must receive the original attribute dictionaries and observe
 # their own mutations. The ordinary string-weight/eager calls keep using the
@@ -384,6 +395,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _CLUSTERING_INPUT_ALGORITHMS
     | _DEGREE_CENTRALITY_ALGORITHMS
     | _EXTENDED_TRAVERSAL_ALGORITHMS
+    | _LINK_PREDICTION_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -413,6 +425,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _LINK_PREDICTION_ALGORITHMS:
+        # Pair validation is eager, but scores read adjacency and degree
+        # providers at each next(). A conversion cached by another algorithm
+        # must not detach those reads or the effects of a pair iterator.
+        return True
     if name in _EXTENDED_TRAVERSAL_ALGORITHMS:
         # Neighbor/value/sort callbacks and source iterables run as the walk
         # advances. Keep their original graph even on a conversion-cache hit,
@@ -1486,6 +1503,10 @@ _SUPPORTED_ALGORITHMS = {
     "adamic_adar_index": fnx.adamic_adar_index,
     "preferential_attachment": fnx.preferential_attachment,
     "resource_allocation_index": fnx.resource_allocation_index,
+    "cn_soundarajan_hopcroft": fnx.cn_soundarajan_hopcroft,
+    "ra_index_soundarajan_hopcroft": fnx.ra_index_soundarajan_hopcroft,
+    "within_inter_cluster": fnx.within_inter_cluster,
+    "common_neighbor_centrality": fnx.common_neighbor_centrality,
     # Reciprocity
     "overall_reciprocity": fnx.overall_reciprocity,
     "reciprocity": fnx.reciprocity,
@@ -2636,6 +2657,7 @@ class BackendInterface:
                             | _MATCHING_PREDICATE_ALGORITHMS
                             | _WEIGHTED_MATCHING_ALGORITHMS
                             | _DEGREE_CENTRALITY_ALGORITHMS
+                            | _LINK_PREDICTION_ALGORITHMS
                         )
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",

@@ -318,51 +318,22 @@ def within_inter_cluster(G, ebunch=None, delta=0.001, community="community"):
         # NetworkXError) for this precondition; match exactly.
         raise NetworkXAlgorithmError("Delta must be greater than zero")
 
-    if ebunch is None:
-        # Default: all non-existing edges.
-        ebunch_iter = non_edges(G)
-    else:
-        ebunch_iter = ebunch
+    def predict(u, v):
+        u_community = _lp_community_of(G, u, community)
+        v_community = _lp_community_of(G, v, community)
+        if u_community != v_community:
+            return 0
+        common = common_neighbors(G, u, v)
+        within = {
+            node for node in common
+            if _lp_community_of(G, node, community) == u_community
+        }
+        return len(within) / (len(common - within) + delta)
 
-    adjacency_cache = {}
-    community_cache = {}
-
-    def _neighbors(node):
-        cached = adjacency_cache.get(node)
-        if cached is None:
-            cached = set(G.neighbors(node))
-            adjacency_cache[node] = cached
-        return cached
-
-    def _community_of(node):
-        # br-shcomm: nx raises NetworkXAlgorithmError, not NetworkXError,
-        # with a specific message. Match the contract so callers catching
-        # the algorithm-error base class don't diverge.
-        if node in community_cache:
-            return community_cache[node]
-        attrs = G.nodes[node]
-        try:
-            value = attrs[community]
-        except (KeyError, TypeError) as err:
-            raise NetworkXAlgorithmError(
-                f"No community information available for Node {node}"
-            ) from err
-        community_cache[node] = value
-        return value
-
-    def _generate():
-        for u, v in ebunch_iter:
-            cu = _community_of(u)
-            cv = _community_of(v)
-            if cu != cv:
-                yield (u, v, 0)
-                continue
-            common = (_neighbors(u) & _neighbors(v)) - {u, v}
-            within_count = sum(1 for w in common if _community_of(w) == cu)
-            inter_count = len(common) - within_count
-            yield (u, v, within_count / (inter_count + delta))
-
-    return _generate()
+    pairs = _link_prediction_validate_pairs(G, ebunch)
+    if pairs is None:
+        pairs = non_edges(G)
+    return ((u, v, predict(u, v)) for u, v in pairs)
 
 
 def gnc_graph(n, create_using=None, seed=None):
