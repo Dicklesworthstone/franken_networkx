@@ -13033,12 +13033,85 @@ fn traversal_has_display_aliases(gr: &GraphRef<'_>) -> bool {
     }
 }
 
-/// A per-row endpoint alias can run Python even when every stored node key
-/// is plain. Keep snapshot admission independent of label hashing.
+/// Snapshot admission must also account for adjacency display objects: an
+/// endpoint alias can run Python even when every stored node key is plain.
 #[pyfunction]
 pub fn _graph_has_row_key_aliases(g: &Bound<'_, PyAny>) -> PyResult<bool> {
     let gr = extract_graph(g)?;
     Ok(traversal_has_display_aliases(&gr))
+}
+
+/// Cold ordinary-key dictionaries still hash their Python edge keys. The
+/// live reverse-copy route supports only callback-free keys until that
+/// separate nested-key storage boundary has its own canonical cursor.
+#[pyfunction]
+pub fn _closeness_multiedge_keys_are_callback_free(g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let py = g.py();
+    let graph = g.extract::<PyRef<'_, PyMultiDiGraph>>()?;
+    Ok(graph
+        .edge_py_keys
+        .values()
+        .all(|key| crate::NodeIterationMirrors::key_is_callback_free(key.bind(py))))
+}
+
+/// Live node cursor for constructing a reversed copy without hashing source
+/// labels. The caller resolves data immediately before copying each node.
+#[pyfunction]
+pub fn _closeness_live_node_keys(g: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+    let py = g.py();
+    let gr = extract_graph(g)?;
+    let mirror = match &gr {
+        GraphRef::Undirected(graph) => &graph.node_iter_mirror,
+        GraphRef::Directed { dg, .. } => &dg.node_iter_mirror,
+        GraphRef::MultiUndirected { mg, .. } => &mg.node_iter_mirror,
+        GraphRef::MultiDirected { mdg, .. } => &mdg.node_iter_mirror,
+    };
+    crate::NodeIterationMirrors::canonical_iter(py, mirror, || {
+        gr.nodes_ordered()
+            .into_iter()
+            .map(|canonical| (canonical, gr.py_node_key(py, canonical)))
+    })
+}
+
+#[pyfunction]
+pub fn _closeness_live_node_data(
+    g: &Bound<'_, PyAny>,
+    canonical: &str,
+) -> PyResult<(PyObject, Py<PyDict>)> {
+    let py = g.py();
+    let label = {
+        let gr = extract_graph(g)?;
+        if !gr.has_node(canonical) {
+            return Err(PyKeyError::new_err(canonical.to_owned()));
+        }
+        gr.py_node_key(py, canonical)
+    };
+    let attrs = if let Ok(mut graph) = g.extract::<PyRefMut<'_, PyDiGraph>>() {
+        graph.materialize_node_py_attrs(py, canonical)
+    } else if let Ok(mut graph) = g.extract::<PyRefMut<'_, PyMultiDiGraph>>() {
+        graph.materialize_node_py_attrs(py, canonical)
+    } else {
+        return Err(PyTypeError::new_err(
+            "closeness reverse copy requires a directed graph",
+        ));
+    };
+    Ok((label, attrs))
+}
+
+/// A source row keeps both display labels and the actual data references
+/// live across edits, including after removal of its owner from the graph.
+#[pyfunction]
+pub fn _closeness_live_row_items(g: &Bound<'_, PyAny>, canonical: &str) -> PyResult<PyObject> {
+    let py = g.py();
+    if let Ok(mut graph) = g.extract::<PyRefMut<'_, PyDiGraph>>() {
+        return graph.unhashed_neighbor_data_items_by_canonical(py, g, canonical, false);
+    }
+    if let Ok(mut graph) = g.extract::<PyRefMut<'_, PyMultiDiGraph>>() {
+        return graph.unhashed_neighbor_data_items_by_canonical(py, g, canonical, false);
+    }
+    Err(PyTypeError::new_err(
+        "closeness reverse copy requires a directed graph",
+    ))
 }
 
 /// Iterate over edges in a breadth-first search starting at source.
@@ -30760,8 +30833,15 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tree_broadcast_center, m)?)?;
     m.add_function(wrap_pyfunction!(tree_broadcast_time, m)?)?;
     // BFS traversal
-    m.add_function(wrap_pyfunction!(_graph_has_row_key_aliases, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_edges, m)?)?;
+    m.add_function(wrap_pyfunction!(_graph_has_row_key_aliases, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        _closeness_multiedge_keys_are_callback_free,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(_closeness_live_node_keys, m)?)?;
+    m.add_function(wrap_pyfunction!(_closeness_live_node_data, m)?)?;
+    m.add_function(wrap_pyfunction!(_closeness_live_row_items, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_tree, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_predecessors, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_successors, m)?)?;

@@ -135,6 +135,41 @@ struct NeighborIterationRows {
     directed: bool,
     forward: rustc_hash::FxHashMap<String, Py<PyDict>>,
     reverse: rustc_hash::FxHashMap<String, Py<PyDict>>,
+    data: Option<NeighborDataRows>,
+}
+
+/// Copy-only rows retain the actual edge attribute or parallel-key dictionary.
+/// Label-only traversals never create these rows or materialize edge data.
+struct NeighborDataRows {
+    graph: PyObject,
+    forward: rustc_hash::FxHashMap<String, Py<PyDict>>,
+    reverse: rustc_hash::FxHashMap<String, Py<PyDict>>,
+}
+
+impl NeighborDataRows {
+    fn new(graph: PyObject) -> Self {
+        Self {
+            graph,
+            forward: rustc_hash::FxHashMap::default(),
+            reverse: rustc_hash::FxHashMap::default(),
+        }
+    }
+
+    fn rows(&self, reverse: bool) -> &rustc_hash::FxHashMap<String, Py<PyDict>> {
+        if reverse {
+            &self.reverse
+        } else {
+            &self.forward
+        }
+    }
+
+    fn rows_mut(&mut self, reverse: bool) -> &mut rustc_hash::FxHashMap<String, Py<PyDict>> {
+        if reverse {
+            &mut self.reverse
+        } else {
+            &mut self.forward
+        }
+    }
 }
 
 impl NeighborIterationRows {
@@ -143,6 +178,7 @@ impl NeighborIterationRows {
             directed,
             forward: rustc_hash::FxHashMap::default(),
             reverse: rustc_hash::FxHashMap::default(),
+            data: None,
         }
     }
 
@@ -318,6 +354,23 @@ impl NodeIterationMirrors {
             .unbind())
     }
 
+    /// Live canonical node keys let copy loops read each node's attributes
+    /// when that node is consumed without hashing its display object.
+    pub(crate) fn canonical_iter<'a, I>(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        nodes: impl FnOnce() -> I,
+    ) -> PyResult<PyObject>
+    where
+        I: IntoIterator<Item = (&'a str, PyObject)>,
+    {
+        Ok(Self::unhashed_dict(py, slot, nodes)?
+            .bind(py)
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
     fn neighbor_registry(
         slot: &std::sync::Mutex<Option<Self>>,
     ) -> Option<std::sync::Arc<std::sync::Mutex<NeighborIterationRows>>> {
@@ -341,8 +394,69 @@ impl NodeIterationMirrors {
     pub(crate) fn neighbor_rows_active(slot: &std::sync::Mutex<Option<Self>>) -> bool {
         Self::neighbor_registry(slot).is_some_and(|rows| {
             let rows = rows.lock().unwrap();
-            !rows.forward.is_empty() || !rows.reverse.is_empty()
+            !rows.forward.is_empty()
+                || !rows.reverse.is_empty()
+                || rows
+                    .data
+                    .as_ref()
+                    .is_some_and(|data| !data.forward.is_empty() || !data.reverse.is_empty())
         })
+    }
+
+    pub(crate) fn neighbor_data_context(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        owner: &str,
+        reverse: bool,
+    ) -> Option<(Py<PyDict>, PyObject)> {
+        let registry = Self::neighbor_registry(slot)?;
+        let registry = registry.lock().unwrap();
+        let data = registry.data.as_ref()?;
+        let row = data.rows(reverse).get(owner)?;
+        Some((row.clone_ref(py), data.graph.clone_ref(py)))
+    }
+
+    pub(crate) fn register_neighbor_data_row(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        owner: &str,
+        directed: bool,
+        reverse: bool,
+        graph: &Bound<'_, PyAny>,
+        row: Py<PyDict>,
+    ) -> Py<PyDict> {
+        let registry = Self::neighbor_registry_or_init(slot, directed);
+        let selected = {
+            let mut registry = registry.lock().unwrap();
+            let data = registry
+                .data
+                .get_or_insert_with(|| NeighborDataRows::new(graph.clone().unbind()));
+            let rows = data.rows_mut(reverse);
+            if let Some(existing) = rows.get(owner) {
+                existing.clone_ref(py)
+            } else {
+                rows.insert(owner.to_owned(), row.clone_ref(py));
+                row.clone_ref(py)
+            }
+        };
+        drop(row);
+        selected
+    }
+
+    /// Preserve the first equal display key, but replace the actual value
+    /// when graph storage replaces an edge's dictionary. A held old tuple
+    /// keeps its old value, just as an already-yielded Python dict item does.
+    pub(crate) fn neighbor_data_insert(
+        row: &Bound<'_, PyDict>,
+        neighbor: &str,
+        label: impl FnOnce() -> PyObject,
+        attrs: PyObject,
+    ) -> PyResult<()> {
+        let label = match row.get_item(neighbor)? {
+            Some(current) => current.cast::<PyTuple>()?.get_item(0)?.unbind(),
+            None => label(),
+        };
+        row.set_item(neighbor, (label, attrs))
     }
 
     /// The owner has already been resolved, so no display-label lookup or
@@ -419,13 +533,21 @@ impl NodeIterationMirrors {
         let Some(registry) = Self::neighbor_registry(slot) else {
             return;
         };
-        let row = registry
-            .lock()
-            .unwrap()
-            .rows(reverse)
-            .get(owner)
-            .map(|row| row.clone_ref(py));
-        if let Some(row) = row {
+        let rows = {
+            let registry = registry.lock().unwrap();
+            [
+                registry
+                    .rows(reverse)
+                    .get(owner)
+                    .map(|row| row.clone_ref(py)),
+                registry
+                    .data
+                    .as_ref()
+                    .and_then(|data| data.rows(reverse).get(owner))
+                    .map(|row| row.clone_ref(py)),
+            ]
+        };
+        for row in rows.into_iter().flatten() {
             let _ = row.bind(py).del_item(neighbor);
         }
     }
@@ -436,12 +558,21 @@ impl NodeIterationMirrors {
         };
         let rows: Vec<_> = {
             let registry = registry.lock().unwrap();
-            registry
+            let mut rows: Vec<_> = registry
                 .forward
                 .values()
                 .chain(registry.reverse.values())
                 .map(|row| row.clone_ref(py))
-                .collect()
+                .collect();
+            if let Some(data) = &registry.data {
+                rows.extend(
+                    data.forward
+                        .values()
+                        .chain(data.reverse.values())
+                        .map(|row| row.clone_ref(py)),
+                );
+            }
+            rows
         };
         for row in rows {
             row.bind(py).clear();
@@ -463,6 +594,7 @@ impl NodeIterationMirrors {
             (
                 std::mem::take(&mut registry.forward),
                 std::mem::take(&mut registry.reverse),
+                registry.data.take(),
             )
         };
         drop(detached);
@@ -474,17 +606,42 @@ impl NodeIterationMirrors {
         };
         let (affected, detached) = {
             let mut registry = registry.lock().unwrap();
-            let affected: Vec<_> = registry
+            let mut affected: Vec<_> = registry
                 .forward
                 .iter()
                 .filter(|(owner, _)| !registry.directed || owner.as_str() != canonical)
                 .map(|(_, row)| row.clone_ref(py))
                 .chain(registry.reverse.values().map(|row| row.clone_ref(py)))
                 .collect();
-            let detached = (
+            if let Some(data) = &registry.data {
+                affected.extend(
+                    data.forward
+                        .iter()
+                        .filter(|(owner, _)| !registry.directed || owner.as_str() != canonical)
+                        .map(|(_, row)| row.clone_ref(py))
+                        .chain(data.reverse.values().map(|row| row.clone_ref(py))),
+                );
+            }
+            let detached_labels = (
                 registry.forward.remove(canonical),
                 registry.reverse.remove(canonical),
             );
+            let detached_data = registry.data.as_mut().map(|data| {
+                (
+                    data.forward.remove(canonical),
+                    data.reverse.remove(canonical),
+                )
+            });
+            let empty_data = if registry
+                .data
+                .as_ref()
+                .is_some_and(|data| data.forward.is_empty() && data.reverse.is_empty())
+            {
+                registry.data.take()
+            } else {
+                None
+            };
+            let detached = (detached_labels, detached_data, empty_data);
             (affected, detached)
         };
         // NetworkX removes the owner's self-loop from an undirected/pred row,
@@ -574,6 +731,12 @@ impl NodeIterationMirrors {
             let registry = registry.lock().unwrap();
             for row in registry.forward.values().chain(registry.reverse.values()) {
                 visit.call(row)?;
+            }
+            if let Some(data) = &registry.data {
+                visit.call(&data.graph)?;
+                for row in data.forward.values().chain(data.reverse.values()) {
+                    visit.call(row)?;
+                }
             }
         }
         Ok(())

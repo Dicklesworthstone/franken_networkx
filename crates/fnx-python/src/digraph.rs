@@ -2757,6 +2757,119 @@ impl PyMultiDiGraph {
         }
     }
 
+    fn unhashed_neighbor_data_row_by_canonical(
+        &mut self,
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        canonical: &str,
+        reverse: bool,
+    ) -> PyResult<Py<PyDict>> {
+        if !self.inner.has_node(canonical) {
+            return Err(PyKeyError::new_err((canonical.to_owned(),)));
+        }
+        if let Some((row, _)) = crate::NodeIterationMirrors::neighbor_data_context(
+            py,
+            &self.node_iter_mirror,
+            canonical,
+            reverse,
+        ) {
+            return Ok(row);
+        }
+        let neighbors: Vec<String> = if reverse {
+            self.inner
+                .predecessors_iter(canonical)
+                .into_iter()
+                .flatten()
+                .map(str::to_owned)
+                .collect()
+        } else {
+            self.inner
+                .successors_iter(canonical)
+                .into_iter()
+                .flatten()
+                .map(str::to_owned)
+                .collect()
+        };
+        let row = PyDict::new(py);
+        for neighbor in neighbors {
+            let (source, target, label) = if reverse {
+                (
+                    neighbor.as_str(),
+                    canonical,
+                    self.py_pred_key(py, canonical, &neighbor),
+                )
+            } else {
+                (
+                    canonical,
+                    neighbor.as_str(),
+                    self.py_succ_key(py, canonical, &neighbor),
+                )
+            };
+            let keys = self.live_keydict(py, graph, source, target)?;
+            row.set_item(neighbor.as_str(), (label, keys))?;
+        }
+        Ok(crate::NodeIterationMirrors::register_neighbor_data_row(
+            py,
+            &self.node_iter_mirror,
+            canonical,
+            true,
+            reverse,
+            graph,
+            row.unbind(),
+        ))
+    }
+
+    pub(crate) fn unhashed_neighbor_data_items_by_canonical(
+        &mut self,
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        canonical: &str,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        Ok(self
+            .unhashed_neighbor_data_row_by_canonical(py, graph, canonical, reverse)?
+            .bind(py)
+            .call_method0("items")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
+    fn cached_unhashed_neighbor_data_set(
+        &mut self,
+        py: Python<'_>,
+        owner: &str,
+        neighbor: &str,
+        reverse: bool,
+    ) -> PyResult<()> {
+        let Some((row, graph)) = crate::NodeIterationMirrors::neighbor_data_context(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            reverse,
+        ) else {
+            return Ok(());
+        };
+        let (source, target) = if reverse {
+            (neighbor, owner)
+        } else {
+            (owner, neighbor)
+        };
+        let keys = self.live_keydict(py, graph.bind(py), source, target)?;
+        crate::NodeIterationMirrors::neighbor_data_insert(
+            row.bind(py),
+            neighbor,
+            || {
+                if reverse {
+                    self.py_pred_key(py, owner, neighbor)
+                } else {
+                    self.py_succ_key(py, owner, neighbor)
+                }
+            },
+            keys.into_any().unbind(),
+        )
+    }
+
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
     }
@@ -5256,6 +5369,10 @@ impl PyMultiDiGraph {
                 graph.cached_direction_row_set(py, &target, &source, false)?;
             }
         }
+        // The pair's actual keydict and public keys are now committed. This
+        // also refreshes an existing neighbor value without moving its key.
+        graph.cached_unhashed_neighbor_data_set(py, &source, &target, false)?;
+        graph.cached_unhashed_neighbor_data_set(py, &target, &source, true)?;
         graph.bump_edges_seq();
         if graph.direction_rows_live() {
             graph.restamp_direction_rows();
@@ -7029,7 +7146,8 @@ impl PyMultiDiGraph {
         }
         // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
         self.bump_edges_seq();
-        if self.direction_rows_live() {
+        let live_direction_rows = self.direction_rows_live();
+        if live_direction_rows {
             self.restamp_direction_rows();
         }
         // br-paralleladd (bt): for a clean auto-add, external is None and
@@ -7078,6 +7196,13 @@ impl PyMultiDiGraph {
                 row.bind(py)
                     .set_item(public_key.bind(py), py_dict.bind(py))?;
             }
+        }
+        if live_direction_rows {
+            // Data rows may hydrate a previously unseen pair's keydict.
+            // Publish its display-key alias and complete attribute dict first,
+            // or hydration would retain a phantom internal integer key.
+            self.cached_unhashed_neighbor_data_set(py, &u_canonical, &v_canonical, false)?;
+            self.cached_unhashed_neighbor_data_set(py, &v_canonical, &u_canonical, true)?;
         }
         Ok(public_key)
     }
@@ -7842,6 +7967,34 @@ impl PyMultiDiGraph {
                 return Err(crate::missing_key_error(n));
             }
             graph.unhashed_neighbor_row_by_canonical(py, &canonical, reverse)?
+        };
+        Ok(row
+            .bind(py)
+            .call_method0("values")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
+    #[pyo3(signature = (n, *, reverse=false))]
+    fn _fnx_unhashed_neighbor_data_items(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        let known_hash = if crate::node_key_hash_cannot_raise(n) {
+            None
+        } else {
+            Some(n.hash()?)
+        };
+        let canonical = crate::node_key_to_string_with_hash(py, n, known_hash)?;
+        let row = {
+            let mut graph = slf.borrow_mut();
+            if !graph.inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(n));
+            }
+            graph.unhashed_neighbor_data_row_by_canonical(py, slf.as_any(), &canonical, reverse)?
         };
         Ok(row
             .bind(py)
@@ -11238,6 +11391,7 @@ impl PyMultiDiGraph {
         let mode = compatibility_mode_from_py(state.get_item("mode")?.as_ref())?;
         self.inner = MultiDiGraph::with_runtime_policy(runtime_policy_from_state(state, mode)?);
         crate::NodeIterationMirrors::reset_neighbor_rows(&self.node_iter_mirror);
+        self.live_keydict_rows.detach_all(py);
         self.node_key_map.clear();
         self.node_py_attrs.clear();
         self.edge_py_attrs.clear();
@@ -12481,6 +12635,119 @@ impl PyDiGraph {
                 },
             )
         }
+    }
+
+    fn unhashed_neighbor_data_row_by_canonical(
+        &mut self,
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        canonical: &str,
+        reverse: bool,
+    ) -> PyResult<Py<PyDict>> {
+        if !self.inner.has_node(canonical) {
+            return Err(PyKeyError::new_err((canonical.to_owned(),)));
+        }
+        if let Some((row, _)) = crate::NodeIterationMirrors::neighbor_data_context(
+            py,
+            &self.node_iter_mirror,
+            canonical,
+            reverse,
+        ) {
+            return Ok(row);
+        }
+        let neighbors: Vec<String> = if reverse {
+            self.inner
+                .predecessors_iter(canonical)
+                .into_iter()
+                .flatten()
+                .map(str::to_owned)
+                .collect()
+        } else {
+            self.inner
+                .successors_iter(canonical)
+                .into_iter()
+                .flatten()
+                .map(str::to_owned)
+                .collect()
+        };
+        let row = PyDict::new(py);
+        for neighbor in neighbors {
+            let (source, target, label) = if reverse {
+                (
+                    neighbor.as_str(),
+                    canonical,
+                    self.py_pred_key(py, canonical, &neighbor),
+                )
+            } else {
+                (
+                    canonical,
+                    neighbor.as_str(),
+                    self.py_succ_key(py, canonical, &neighbor),
+                )
+            };
+            let attrs = self.materialize_edge_py_attrs(py, source, target);
+            row.set_item(neighbor.as_str(), (label, attrs))?;
+        }
+        Ok(crate::NodeIterationMirrors::register_neighbor_data_row(
+            py,
+            &self.node_iter_mirror,
+            canonical,
+            true,
+            reverse,
+            graph,
+            row.unbind(),
+        ))
+    }
+
+    pub(crate) fn unhashed_neighbor_data_items_by_canonical(
+        &mut self,
+        py: Python<'_>,
+        graph: &Bound<'_, PyAny>,
+        canonical: &str,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        Ok(self
+            .unhashed_neighbor_data_row_by_canonical(py, graph, canonical, reverse)?
+            .bind(py)
+            .call_method0("items")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
+    fn cached_unhashed_neighbor_data_set(
+        &mut self,
+        py: Python<'_>,
+        owner: &str,
+        neighbor: &str,
+        reverse: bool,
+    ) -> PyResult<()> {
+        let Some((row, _)) = crate::NodeIterationMirrors::neighbor_data_context(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            reverse,
+        ) else {
+            return Ok(());
+        };
+        let (source, target) = if reverse {
+            (neighbor, owner)
+        } else {
+            (owner, neighbor)
+        };
+        let attrs = self.materialize_edge_py_attrs(py, source, target);
+        crate::NodeIterationMirrors::neighbor_data_insert(
+            row.bind(py),
+            neighbor,
+            || {
+                if reverse {
+                    self.py_pred_key(py, owner, neighbor)
+                } else {
+                    self.py_succ_key(py, owner, neighbor)
+                }
+            },
+            attrs.into_any(),
+        )
     }
 
     /// True when the mirror has been materialised (so hooks must run).
@@ -14711,6 +14978,7 @@ impl PyDiGraph {
             nbr,
             || self.py_succ_key(py, owner, nbr),
         )?;
+        self.cached_unhashed_neighbor_data_set(py, owner, nbr, false)?;
         let Some(row) = self.succ_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
         };
@@ -14729,6 +14997,7 @@ impl PyDiGraph {
             nbr,
             || self.py_pred_key(py, owner, nbr),
         )?;
+        self.cached_unhashed_neighbor_data_set(py, owner, nbr, true)?;
         let Some(row) = self.pred_row_py.get(owner).map(|row| row.clone_ref(py)) else {
             return Ok(());
         };
@@ -19772,6 +20041,34 @@ impl PyDiGraph {
                 return Err(crate::missing_key_error(n));
             }
             graph.unhashed_neighbor_row_by_canonical(py, &canonical, reverse)?
+        };
+        Ok(row
+            .bind(py)
+            .call_method0("values")?
+            .try_iter()?
+            .into_any()
+            .unbind())
+    }
+
+    #[pyo3(signature = (n, *, reverse=false))]
+    fn _fnx_unhashed_neighbor_data_items(
+        slf: &Bound<'_, Self>,
+        n: &Bound<'_, PyAny>,
+        reverse: bool,
+    ) -> PyResult<PyObject> {
+        let py = slf.py();
+        let known_hash = if crate::node_key_hash_cannot_raise(n) {
+            None
+        } else {
+            Some(n.hash()?)
+        };
+        let canonical = crate::node_key_to_string_with_hash(py, n, known_hash)?;
+        let row = {
+            let mut graph = slf.borrow_mut();
+            if !graph.inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(n));
+            }
+            graph.unhashed_neighbor_data_row_by_canonical(py, slf.as_any(), &canonical, reverse)?
         };
         Ok(row
             .bind(py)

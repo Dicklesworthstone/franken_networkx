@@ -1189,6 +1189,279 @@ def test_undirected_closeness_plain_single_source_does_not_scan_other_components
     assert fnx.closeness_centrality(graph, u=0) == 0.5
 
 
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("shape", ["scalar", "tuple"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "raise"])
+@pytest.mark.parametrize("wf_improved", [False, True])
+def test_directed_closeness_node_hash_precedes_live_reverse_edges(
+    graph_type, shape, mutation, wf_improved
+):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        def plain(value):
+            return (value, "node") if shape == "tuple" else value
+
+        def number(value):
+            return int(value[0] if shape == "tuple" else value)
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    calls.append(int(self))
+                    if mutation == "raise":
+                        raise RuntimeError("directed closeness node callback")
+                    if mutation == "add":
+                        graph.add_edge(plain(0), plain(2))
+                    else:
+                        graph.remove_edge(plain(0), plain(1))
+                return int.__hash__(self)
+
+        nodes = [(Node(value), "node") if shape == "tuple" else Node(value) for value in range(4)]
+        graph.add_edges_from((nodes[i], nodes[(i + 1) % 4]) for i in range(4))
+        armed = True
+        try:
+            scores = module.closeness_centrality(graph, wf_improved=wf_improved)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", [(number(node), score) for node, score in scores.items()])
+        armed = False
+        outcomes.append((outcome, calls, [(number(u), number(v)) for u, v in graph.edges()]))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == [0]
+    if mutation == "raise":
+        assert outcomes[1][0] == ("error", "RuntimeError", "directed closeness node callback")
+    else:
+        assert outcomes[1][0][0] == "values"
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_directed_closeness_custom_source_alias_runs_after_reverse_copy(graph_type):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 3), (3, 0)])
+        armed = True
+        calls = []
+
+        class Source(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    calls.append(int(self))
+                    graph.add_edge(0, 2)
+                return int.__hash__(self)
+
+        score = module.closeness_centrality(graph, u=Source(2))
+        armed = False
+        outcomes.append((score, calls, list(graph.edges())))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == [2]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+@pytest.mark.parametrize("subset", [False, True], ids=["all-nodes", "single-node"])
+@pytest.mark.parametrize("mutation", [
+    "detach", "detach-readd", "replace-later", "replace-later-detach",
+    "replace-later-detach-readd", "add-detach", "remove-later", "swap-neighbor",
+])
+def test_directed_closeness_reverse_copy_retains_live_edge_data(
+    graph_type, warm, subset, mutation
+):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        events = []
+
+        class Marker:
+            def __init__(self, name):
+                self.name = name
+
+            def __deepcopy__(self, memo):
+                events.append(("copy", self.name))
+                return self.name
+
+        class Alias(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    events.append(("hash", int(self)))
+                    if mutation.startswith("replace-later"):
+                        graph.remove_edge(0, 2)
+                        graph.add_edge(0, 2, marker=Marker("updated-later"))
+                    elif mutation == "remove-later":
+                        graph.remove_edge(0, 2)
+                    elif mutation == "swap-neighbor":
+                        graph.remove_edge(0, 2)
+                        graph.add_edge(0, 4, marker=Marker("new-neighbor"))
+                    elif mutation == "add-detach":
+                        graph.add_edge(0, 4, marker=Marker("added-before-detach"))
+                    if "detach" in mutation:
+                        graph.remove_node(0)
+                        if mutation.endswith("readd"):
+                            graph.add_edge(0, 2, marker=Marker("replacement-owner"))
+                return int.__hash__(self)
+
+        graph.add_nodes_from(range(5))
+        graph.add_edge(0, Alias(1), marker=Marker("first"))
+        graph.add_edge(0, 2, marker=Marker("original-later"))
+        graph.add_edge(2, 3, marker=Marker("future-row"))
+        source = 3 if subset else None
+        if warm:
+            module.closeness_centrality(graph, u=source)
+            events.clear()
+        armed = True
+        try:
+            scores = module.closeness_centrality(graph, u=source)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", scores if subset else list(scores.items()))
+        armed = False
+        outcomes.append((outcome, events, list(graph.edges())))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1][:2] == [("copy", "first"), ("hash", 1)]
+    if mutation.startswith("replace-later"):
+        assert outcomes[1][1][2] == ("copy", "updated-later")
+    if mutation in ("detach", "replace-later-detach", "add-detach", "remove-later"):
+        assert outcomes[1][0] == ("error", "RuntimeError", "dictionary changed size during iteration")
+    else:
+        assert outcomes[1][0][0] == "values"
+
+
+@pytest.mark.parametrize("shape", ["scalar", "tuple", "frozenset"])
+@pytest.mark.parametrize("custom", [False, True], ids=["builtin", "custom"])
+def test_directed_closeness_edge_key_admission_does_not_hash_keys(shape, custom):
+    from franken_networkx._fnx import _closeness_multiedge_keys_are_callback_free
+
+    armed = False
+    calls = []
+
+    class Meta(type):
+        def __eq__(self, other):
+            if armed:
+                raise AssertionError("edge-key admission compared a custom metaclass")
+            return type.__eq__(self, other)
+
+        __hash__ = type.__hash__
+
+    class Key(int, metaclass=Meta):
+        def __hash__(self):
+            if armed:
+                calls.append(int(self))
+                raise AssertionError("edge-key admission hashed a stored key")
+            return int.__hash__(self)
+
+    key = Key(7) if custom else 7
+    if shape == "tuple":
+        key = (key, "edge")
+    elif shape == "frozenset":
+        key = frozenset((key, "edge"))
+    graph = fnx.MultiDiGraph()
+    graph.add_edge(0, 1, key=key)
+    armed = True
+    assert _closeness_multiedge_keys_are_callback_free(graph) is not custom
+    assert calls == []
+
+
+def test_directed_closeness_custom_edge_keys_keep_prior_reverse_route(monkeypatch):
+    class Node(int):
+        pass
+
+    class Key(int):
+        pass
+
+    graph = fnx.MultiDiGraph()
+    graph.add_edge(Node(0), 1, key=Key(7))
+    graph.add_edge(1, 2)
+    namespace = fnx.closeness_centrality.__globals__
+
+    def unexpected_new_cursor(*args):
+        raise AssertionError("custom edge keys entered the new reverse cursor")
+
+    monkeypatch.setitem(namespace, "_closeness_live_node_keys", unexpected_new_cursor)
+    scores = fnx.closeness_centrality(graph)
+    assert list(scores.items()) == [(0, 0.0), (1, 0.5), (2, 2 / 3)]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("subset", [False, True], ids=["all-nodes", "single-node"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_directed_closeness_plain_labels_keep_native_distance_route(
+    graph_type, subset, warm, monkeypatch
+):
+    graph = getattr(fnx, graph_type)([(0, 1), (1, 2), (2, 3)])
+    expected_graph = getattr(nx, graph_type)([(0, 1), (1, 2), (2, 3)])
+    source = 3 if subset else None
+    if warm:
+        fnx.closeness_centrality(graph, u=source)
+    namespace = fnx.closeness_centrality.__globals__
+    name = "_raw_single_target_shortest_path_length" if subset else "_raw_closeness_centrality"
+    original = namespace[name]
+    native_calls = []
+
+    def native(*args, **kwargs):
+        native_calls.append(True)
+        return original(*args, **kwargs)
+
+    def unexpected_reverse_copy(*args):
+        raise AssertionError("ordinary directed closeness rebuilt the graph")
+
+    monkeypatch.setitem(namespace, name, native)
+    monkeypatch.setitem(namespace, "_closeness_reverse_copy", unexpected_reverse_copy)
+    assert fnx.closeness_centrality(graph, u=source) == nx.closeness_centrality(expected_graph, u=source)
+    assert native_calls == [True]
+
+
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+@pytest.mark.parametrize("subset", [False, True], ids=["all-nodes", "single-node"])
+def test_directed_closeness_string_key_replacement_copies_each_real_key_once(warm, subset):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = module.MultiDiGraph()
+        armed = False
+        events = []
+
+        class Marker:
+            def __init__(self, name):
+                self.name = name
+
+            def __deepcopy__(self, memo):
+                nonlocal armed
+                events.append("copy:" + self.name)
+                if armed and self.name == "first":
+                    armed = False
+                    events.append("replace:later")
+                    graph.remove_edge(0, 2, key="later")
+                    graph.add_edge(0, 2, key="later", marker=Marker("replacement"))
+                return self.name
+
+        graph.add_nodes_from(range(5))
+        graph.add_edge(0, 1, key="first", marker=Marker("first"))
+        graph.add_edge(0, 2, key="later", marker=Marker("original-later"))
+        graph.add_edge(2, 3, key="future", marker=Marker("future"))
+        source = 3 if subset else None
+        if warm:
+            module.closeness_centrality(graph, u=source)
+            events.clear()
+        armed = True
+        scores = module.closeness_centrality(graph, u=source)
+        armed = False
+        outcomes.append((scores if subset else list(scores.items()), events, list(graph.edges(keys=True))))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == ["copy:first", "replace:later", "copy:replacement", "copy:future"]
+    assert outcomes[1][2] == [(0, 1, "first"), (0, 2, "later"), (2, 3, "future")]
+
+
 @pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
 @pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "native"])
 @pytest.mark.parametrize(

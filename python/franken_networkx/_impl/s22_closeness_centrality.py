@@ -1,4 +1,15 @@
-from franken_networkx._fnx import _graph_has_row_key_aliases
+from franken_networkx._fnx import (
+    _closeness_live_node_data,
+    _closeness_live_node_keys,
+    _closeness_live_row_items,
+    _closeness_multiedge_keys_are_callback_free,
+    _graph_has_row_key_aliases,
+)
+
+
+_CLOSENESS_REVERSE_METHODS = {
+    graph_class: graph_class.reverse for graph_class in (DiGraph, MultiDiGraph)
+}
 
 
 def _closeness_uses_live_python_rows(G, distance=None, wf_improved=True):
@@ -37,17 +48,26 @@ def _closeness_uses_live_python_rows(G, distance=None, wf_improved=True):
 
 
 def _closeness_unweighted_node_callbacks(G, u, distance):
-    """Retain live label protocols for concrete undirected hop distances."""
+    """Retain live label protocols for concrete hop-distance searches."""
     graph_class = type(G)
-    if distance is not None or (graph_class is not Graph and graph_class is not MultiGraph):
+    if distance is not None or not any(
+        graph_class is candidate for candidate in _CONCRETE_FNX_GRAPH_TYPES
+    ):
         return False
     if _has_networkx_private_storage(G):
+        return False
+    if graph_class is MultiDiGraph and not _closeness_multiedge_keys_are_callback_free(G):
+        # The ordinary-key nested row still has its established materializing
+        # boundary. Do not move unsupported key protocols onto the new route.
         return False
     if u is not None:
         # The single-source search admits its own reached labels. Only the
         # caller's source needs inspection here: the fast scalar wrapper's
         # extra membership check would otherwise move its hash callbacks.
-        return not _view_filter_node_key_is_stable(u)
+        if not _view_filter_node_key_is_stable(u):
+            return True
+        if graph_class in (Graph, MultiGraph):
+            return False
     # An all-node kernel freezes distances before hashing output labels.
     # Endpoint aliases remain observable even for already-seen neighbors.
     return _graph_has_row_key_aliases(G) or not _view_root_node_keys_are_stable(
@@ -55,10 +75,54 @@ def _closeness_unweighted_node_callbacks(G, u, distance):
     )
 
 
+def _closeness_reverse_copy(G):
+    """Retain the node and edge construction order of a directed reverse copy."""
+    graph_class = type(G)
+    if graph_class is not DiGraph and graph_class is not MultiDiGraph:
+        return G.reverse()
+    reverse = _CLOSENESS_REVERSE_METHODS.get(graph_class)
+    if (
+        reverse is None
+        or graph_class.reverse is not reverse
+        or "reverse" in vars(G)
+        or _has_networkx_private_storage(G)
+    ):
+        return G.reverse()
+    multigraph = graph_class is MultiDiGraph
+    if multigraph and not _closeness_multiedge_keys_are_callback_free(G):
+        return G.reverse()
+    if (
+        not _graph_has_row_key_aliases(G)
+        and _view_root_node_keys_are_stable(G, G.nodes_seq)
+        and _conversion_native_deepcopy_safe(G, multigraph=multigraph)
+    ):
+        return G.reverse()
+
+    # Canonical cursors bind live dictionaries without hashing source labels.
+    # Insertions into the new graph retain their own label protocols, and a
+    # detached source row keeps its original data references until exhausted.
+    with compatibility_mode(G.mode):
+        result = graph_class()
+    result.graph.update(_deepcopy(G.graph))
+    for canonical in _closeness_live_node_keys(G):
+        node, attrs = _closeness_live_node_data(G, canonical)
+        result.add_nodes_from(((node, _deepcopy(attrs)),))
+    for source_key in _closeness_live_node_keys(G):
+        source, _ = _closeness_live_node_data(G, source_key)
+        for _, (target, data) in _closeness_live_row_items(G, source_key):
+            if multigraph:
+                for key, attrs in data.items():
+                    result.add_edges_from(((target, source, key, _deepcopy(attrs)),))
+            else:
+                result.add_edges_from(((target, source, _deepcopy(data)),))
+    result.drain_decision_records()
+    return result
+
+
 def _closeness_centrality_inproc(G, u=None, distance=None, wf_improved=True):
     """Compute closeness from live source rows without a conversion snapshot."""
     if G.is_directed():
-        G = G.reverse()
+        G = _closeness_reverse_copy(G) if distance is None else G.reverse()
     nodes = G.nodes if u is None else [u]
     scores = {}
     for source in nodes:
@@ -111,8 +175,8 @@ def closeness_centrality(
         float if u is specified.
     """
     _validate_backend_dispatch_keywords("closeness_centrality", backend, backend_kwargs)
-    if _closeness_uses_live_python_rows(G, distance, wf_improved) or (
-        _closeness_unweighted_node_callbacks(G, u, distance)
+    if _closeness_unweighted_node_callbacks(G, u, distance) or (
+        _closeness_uses_live_python_rows(G, distance, wf_improved)
     ):
         return _closeness_centrality_inproc(G, u, distance, wf_improved)
     G = _coerce_arg_to_fnx_graph(G)
