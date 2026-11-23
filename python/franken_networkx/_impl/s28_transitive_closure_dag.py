@@ -580,6 +580,37 @@ def generate_random_paths(
     )
 
 
+def _johnson_can_use_native_weights(G, weight):
+    """Admit stored weights without consuming observable graph readers."""
+    graph_type = type(G)
+    if (graph_type is not Graph and graph_type is not DiGraph) or type(weight) is not str:
+        return False
+    # The reader registry is captured after the final graph descriptors are
+    # installed. Reuse its static checks before reading instance attributes:
+    # a caller's replacement edge provider is not part of Johnson's protocol.
+    namespace = vars(graph_type)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _SPECTRAL_CENTRALITY_NATIVE_READERS[graph_type].items()
+    ):
+        return False
+    if (
+        _weighted_query_uses_live_python_rows(G, weight)
+        or not _greedy_color_native_graph(G)
+        or not _view_root_node_keys_are_stable(G, G.nodes_seq)
+    ):
+        return False
+    for _, _, attrs in G.edges(data=True):
+        # Write-watched dictionaries remain native unless their reads change.
+        # Inspect keys without looking up the weight: a custom key's equality
+        # can itself change later rows of the graph.
+        if not _attr_dict_has_plain_reads(attrs) or any(
+            type(key) not in (str, int, float, bool, type(None)) for key in attrs
+        ):
+            return False
+    return True
+
+
 def johnson(G, weight="weight"):
     """All-pairs shortest paths using Johnson's algorithm.
 
@@ -611,11 +642,11 @@ def johnson(G, weight="weight"):
     finite numeric weights include a negative edge and whose synced Rust attrs
     are all integer-typed, preserving the proof surface for tie/order parity.
     """
-    if (
-        type(G) in (Graph, DiGraph)
-        and not _has_networkx_private_storage(G)
-        and isinstance(weight, str)
-    ):
+    # Johnson must decide whether to reweight from the same edge readers used
+    # during relaxation. A custom attribute dictionary can expose negative
+    # weights through get() even when its stored values are nonnegative;
+    # inspecting only native storage would incorrectly select plain Dijkstra.
+    if _johnson_can_use_native_weights(G, weight):
         fast_result = None
         if _native_check_dijkstra_weights_fast is not None and not G.is_multigraph():
             try:

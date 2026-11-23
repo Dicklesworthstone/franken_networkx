@@ -252,3 +252,156 @@ def test_backend_johnson_callable_retains_live_edge_identity(prewarmed, position
     assert nx.shortest_path_length(
         graph, "a", "t", weight="weight", backend="franken_networkx"
     ) == 5
+
+
+def _johnson_with_attribute_readers(module, graph_type, scenario, route, monkeypatch=None):
+    """Expose weights through the public mapping rather than stored scalars."""
+    graph = getattr(module, graph_type)()
+    reads = []
+    changed = False
+
+    class EdgeAttributes(dict):
+        def get(self, key, default=None):
+            nonlocal changed
+            if key != "weight":
+                return dict.get(self, key, default)
+            edge = dict.get(self, "edge")
+            reads.append(edge)
+            if scenario == "mutating" and edge == ("s", "a") and not changed:
+                changed = True
+                later = graph["a"]["b"]
+                if graph.is_multigraph():
+                    later = later[0]
+                later["effective_weight"] = -5
+            return dict.get(self, "effective_weight", default)
+
+    if module is nx:
+        graph.edge_attr_dict_factory = EdgeAttributes
+    edges = [("s", "a", 4), ("s", "b", 1), ("a", "b", 3), ("b", "t", 2)]
+    if scenario == "negative-cycle" and graph.is_directed():
+        edges.append(("b", "a", 4))
+    for source, target, stored_weight in edges:
+        effective_weight = (
+            -5 if (source, target) == ("a", "b")
+            and scenario in ("negative", "negative-cycle")
+            else stored_weight
+        )
+        graph.add_edge(
+            source, target, weight=stored_weight,
+            effective_weight=effective_weight, edge=(source, target),
+        )
+    if module is fnx:
+        # Native graphs own their write-watched dictionaries. Patch their
+        # existing read method rather than replacing native/private storage,
+        # as consumers of those escaped dictionaries are allowed to do.
+        rows = [attrs for _, _, attrs in graph.edges(data=True)]
+        for cls in {type(attrs) for attrs in rows}:
+            monkeypatch.setattr(cls, "get", EdgeAttributes.get)
+    # Construction is outside the query's observable read boundary.
+    reads.clear()
+    try:
+        if route == "backend":
+            result = nx.johnson(graph, backend="franken_networkx")
+        elif route == "reference":
+            result = nx.johnson(graph, backend="networkx")
+        else:
+            result = fnx.johnson(graph)
+    except Exception as error:
+        outcome = ("raised", type(error).__name__, str(error))
+    else:
+        outcome = ("returned", [
+            (source, list(paths.items())) for source, paths in result.items()
+        ])
+    return outcome, reads, changed
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("scenario", ["positive", "negative", "negative-cycle", "mutating"])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input", "backend"])
+def test_johnson_uses_effective_weights_and_live_attribute_readers(
+    graph_type, scenario, route, monkeypatch
+):
+    """Stored positive weights cannot prove Dijkstra is valid for custom readers.
+
+    The same reader may provide a negative edge, reveal a negative cycle, or
+    change a later edge while Bellman-Ford establishes its reweighting. Match
+    paths, dictionary order, exceptions and the complete read sequence.
+    """
+    expected = _johnson_with_attribute_readers(nx, graph_type, scenario, "reference")
+    module = fnx if route == "native-input" else nx
+    actual = _johnson_with_attribute_readers(module, graph_type, scenario, route, monkeypatch)
+    assert actual == expected
+    assert expected[1], "the query must consume the supplied attribute reader"
+    if scenario in ("negative", "mutating") and "DiGraph" in graph_type:
+        paths = dict(dict(expected[0][1])["s"])
+        assert paths["t"] == ["s", "a", "b", "t"]
+    if scenario == "negative-cycle":
+        assert expected[0][0:2] == ("raised", "NetworkXUnbounded")
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("location", ["instance", "class"])
+def test_johnson_does_not_consume_replaced_edge_provider(graph_type, location, monkeypatch):
+    graph = _make_weighted(fnx, [("s", "a", 2), ("a", "t", 1)], directed=graph_type == "DiGraph")
+    oracle = _make_weighted(nx, [("s", "a", 2), ("a", "t", 1)], directed=graph_type == "DiGraph")
+    expected = nx.johnson(oracle, backend="networkx")
+
+    def edges_were_read(*args, **kwargs):
+        raise AssertionError("Johnson consumes private adjacency, not an edge provider")
+
+    if location == "class":
+        monkeypatch.setattr(type(graph), "edges", property(edges_were_read))
+    else:
+        graph.edges = edges_were_read
+    assert fnx.johnson(graph) == expected
+
+
+@needs_nx
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("negative_cycle", [False, True])
+@pytest.mark.parametrize("route", ["native-input", "networkx-input"])
+def test_johnson_weight_selector_mutates_before_reweighting(graph_type, negative_cycle, route):
+    # These direct entrypoints have the same selector-hash boundary. NetworkX's
+    # backend dispatcher additionally hashes weight selectors while building
+    # its conversion metadata, before the backend implementation is invoked.
+    def run(module, reference=False):
+        graph = getattr(module, graph_type)()
+        graph.add_weighted_edges_from([
+            ("s", "a", 4), ("s", "b", 1), ("a", "b", 3), ("b", "t", 2),
+        ])
+        if negative_cycle and graph.is_directed():
+            graph.add_edge("b", "a", weight=4)
+        hashes = []
+        changed = False
+
+        class WeightSelector(str):
+            def __hash__(self):
+                nonlocal changed
+                hashes.append("weight")
+                if not changed:
+                    changed = True
+                    graph["a"]["b"]["weight"] = -5
+                return str.__hash__(self)
+
+        weight = WeightSelector("weight")
+        try:
+            if reference:
+                result = nx.johnson(graph, weight=weight, backend="networkx")
+            else:
+                result = fnx.johnson(graph, weight=weight)
+        except Exception as error:
+            outcome = ("raised", type(error).__name__, str(error))
+        else:
+            outcome = ("returned", [
+                (source, list(paths.items())) for source, paths in result.items()
+            ])
+        return outcome, hashes, changed
+
+    expected = run(nx, reference=True)
+    actual = run(fnx if route == "native-input" else nx)
+    assert actual == expected
+    assert expected[2]
+    if negative_cycle or graph_type == "Graph":
+        assert expected[0][0:2] == ("raised", "NetworkXUnbounded")
