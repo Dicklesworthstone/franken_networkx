@@ -261,6 +261,89 @@ def test_native_bfs_state_participates_in_cyclic_garbage_collection():
 
 
 @pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+def test_bfs_labeled_edges_uses_adjacency_without_public_getitem(graph_type):
+    class StoredAdjacencyGraph(getattr(nx, graph_type)):
+        fail_on_getitem = False
+
+        def __getitem__(self, node):
+            if self.fail_on_getitem:
+                raise AssertionError("labeled BFS must use the stored adjacency")
+            return super().__getitem__(node)
+
+    graph = StoredAdjacencyGraph()
+    graph.add_edges_from([(0, 1), (1, 2), (2, 0), (1, 3)])
+    graph.fail_on_getitem = True
+    expected = list(nx.bfs_labeled_edges(graph, [0], backend="networkx"))
+    assert list(fnx.bfs_labeled_edges(graph, [0])) == expected
+
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+@pytest.mark.parametrize("replacement_point", ["sources", "is_directed", "resume"])
+def test_bfs_labeled_edges_retains_the_selected_adjacency_provider(
+    graph_type, replacement_point
+):
+    def run(module):
+        graph = getattr(nx, graph_type)([(0, 1), (1, 2)])
+        replacement = getattr(nx, graph_type)()
+        replacement.add_nodes_from(graph)
+        replacement.add_edge(0, 2)
+        original = graph._adj
+        events = []
+
+        def replace_adjacency():
+            events.append("replace")
+            graph._adj = replacement._adj
+
+        sources = [0]
+        if replacement_point == "sources":
+            class Sources:
+                def __iter__(self):
+                    replace_adjacency()
+                    return iter([0])
+
+            sources = Sources()
+        elif replacement_point == "is_directed":
+            original_is_directed = graph.is_directed
+
+            def is_directed():
+                replace_adjacency()
+                return original_is_directed()
+
+            graph.is_directed = is_directed
+
+        kwargs = {"backend": "networkx"} if module is nx else {}
+        walk = module.bfs_labeled_edges(graph, sources, **kwargs)
+        assert events == []
+        first = next(walk)
+        if replacement_point == "resume":
+            replace_adjacency()
+        result = [first, *walk]
+        assert events == ["replace"]
+        assert graph._adj is not original
+        assert result == [(0, 1, "tree"), (1, 2, "tree")]
+        return result
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+def test_bfs_labeled_edges_retains_live_rows_within_selected_adjacency(graph_type):
+    def run(module):
+        graph = getattr(nx, graph_type)()
+        graph.add_nodes_from(range(4))
+        graph.add_edges_from([(0, 1), (1, 2)])
+        kwargs = {"backend": "networkx"} if module is nx else {}
+        walk = module.bfs_labeled_edges(graph, [0], **kwargs)
+        first = next(walk)
+        graph.add_edge(1, 3)
+        return first, list(walk)
+
+    expected = run(nx)
+    assert (1, 3, "tree") in expected[1]
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
 @pytest.mark.parametrize("function", DFS_FUNCTIONS)
 def test_dfs_observes_changes_to_rows_not_opened_yet(graph_type, function):
     observations = []

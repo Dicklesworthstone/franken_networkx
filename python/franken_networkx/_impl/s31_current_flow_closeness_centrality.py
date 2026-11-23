@@ -1206,6 +1206,10 @@ def bfs_labeled_edges(G, sources):
     """
     if sources in G:
         sources = [sources]
+    # Retain the adjacency provider selected before source iteration and the
+    # directedness query. Those providers may replace G._adj; already-opened
+    # traversals keep this mapping while still observing changes to its rows.
+    neighbors = G._adj
     directed = G.is_directed()
     visited = set()
     # nx trick: undirected uses visited.add (so 'level' edges fire once on first
@@ -1215,7 +1219,7 @@ def bfs_labeled_edges(G, sources):
     queue = _deque(depth.items())
     while queue:
         u, du = queue.popleft()
-        for v in G[u]:
+        for v in neighbors[u]:
             if v not in depth:
                 depth[v] = dv = du + 1
                 queue.append((v, dv))

@@ -1124,6 +1124,12 @@ and acquiring the row's iterator are separate observable operations, with the
 latter deferred until the row is consumed. Callback-raised `StopIteration`
 becomes `RuntimeError` with the original cause, as it does in a Python generator.
 
+Labeled BFS selects the stored adjacency mapping after source membership is
+checked and before querying directedness or consuming a source iterable.
+It keeps that mapping across yields, even if a provider replaces `G._adj`.
+Changes within the selected mapping's rows remain visible. Traversal does
+not invoke a subclass's public `__getitem__` in place of this stored provider.
+
 DFS emits a forward result before marking the child visited and opening its
 row on the next advancement. Preorder emits each component root before its
 first row lookup; postorder emits completed rows and omits nodes stopped by
