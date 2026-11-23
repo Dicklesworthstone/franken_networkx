@@ -234,3 +234,101 @@ def test_average_neighbor_degree_respects_instance_degree_provider(fnx, nx, grap
     expected, expected_events = run(nx)
     _assert_neighbor_degree_values(actual, expected)
     assert actual_events == expected_events
+
+
+@pytest.mark.parametrize("graph_type,source,target", _NEIGHBOR_DEGREE_DIRECTIONS)
+@pytest.mark.parametrize("weight", [None, "cost"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_average_neighbor_degree_respects_class_degree_providers(
+    fnx, nx, monkeypatch, graph_type, source, target, weight, warm
+):
+    """A class descriptor owns its reads even when ordinary views are cached."""
+    def run(lib):
+        graph_class = getattr(lib, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3), (2, 3, 5)], weight="cost")
+        names = ("degree",) if graph_type == "Graph" else (
+            "degree", "in_degree", "out_degree"
+        )
+        if warm:
+            for name in (*names, "adj"):
+                getattr(graph, name)
+        events = []
+        changed = False
+
+        def descriptor(name, offset):
+            def degree_provider(nodes=None, weight=None):
+                nonlocal changed
+                events.append(("call", name, nodes, weight))
+                if not changed:
+                    changed = True
+                    graph.add_edge(0, 2, cost=11)
+                return [(3, offset), (0, offset + 2), (2, offset + 4), (1, offset + 6)]
+
+            def read(owner):
+                assert owner is graph
+                events.append(("read", name))
+                return degree_provider
+
+            return property(read)
+
+        with monkeypatch.context() as patch:
+            for offset, name in enumerate(names, start=7):
+                patch.setattr(graph_class, name, descriptor(name, offset))
+            result = lib.average_neighbor_degree(
+                graph, source=source, target=target, weight=weight
+            )
+        assert changed
+        assert graph.has_edge(0, 2)
+        return result, events
+
+    actual, actual_events = run(fnx)
+    expected, expected_events = run(nx)
+    _assert_neighbor_degree_values(actual, expected)
+    assert actual_events == expected_events
+
+
+@pytest.mark.parametrize("graph_type,source,target", _NEIGHBOR_DEGREE_DIRECTIONS)
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_average_neighbor_degree_respects_class_adjacency_providers(
+    fnx, nx, monkeypatch, graph_type, source, target, warm
+):
+    """Provider rows may differ from the native topology and expose read order."""
+    def run(lib):
+        graph_class = getattr(lib, graph_type)
+        graph = graph_class([(0, 1), (0, 2), (0, 3), (1, 2)])
+        names = ("adj",) if graph_type == "Graph" else ("succ", "pred")
+        if warm:
+            for name in (*names, "degree"):
+                getattr(graph, name)
+        events = []
+
+        class Rows(dict):
+            def __init__(self, name):
+                super().__init__({0: {3: {}}, 1: {0: {}}, 2: {1: {}}, 3: {2: {}}})
+                self.name = name
+
+            def __getitem__(self, node):
+                events.append(("row", self.name, node))
+                return super().__getitem__(node)
+
+        def descriptor(name):
+            rows = Rows(name)
+
+            def read(owner):
+                assert owner is graph
+                events.append(("read", name))
+                return rows
+
+            return property(read)
+
+        with monkeypatch.context() as patch:
+            for name in names:
+                patch.setattr(graph_class, name, descriptor(name))
+            result = lib.average_neighbor_degree(graph, source=source, target=target)
+        return result, events
+
+    actual, actual_events = run(fnx)
+    expected, expected_events = run(nx)
+    _assert_neighbor_degree_values(actual, expected)
+    assert actual_events == expected_events

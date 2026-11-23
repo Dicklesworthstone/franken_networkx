@@ -1499,6 +1499,22 @@ _SPECTRAL_CENTRALITY_NATIVE_READERS = {
 }
 
 
+# Both native average-neighbor kernels bypass the public degree and row
+# readers. Class-level replacements must retain the same live provider path
+# as instance replacements, including after a normal view has been cached.
+_AVERAGE_NEIGHBOR_DEGREE_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__len__", "__iter__", "__getitem__", "__getattribute__", "__dict__",
+            "is_directed", "is_multigraph", "nodes", "degree", "in_degree",
+            "out_degree", "adj", "succ", "pred",
+        )
+    }
+    for cls in (Graph, DiGraph)
+}
+
+
 _CONVERSION_NATIVE_NODE_KEYS = {
     cls: cls._native_node_keys for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
 }

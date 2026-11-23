@@ -421,6 +421,25 @@ def degree_assortativity_coefficient(
     )
 
 
+def _average_neighbor_degree_can_use_native(G):
+    """Keep replaced degree and adjacency readers on the live Python path."""
+    graph_type = type(G)
+    if graph_type is not Graph and graph_type is not DiGraph:
+        return False
+    # Inspect the class before reading instance storage: even __dict__ or
+    # __getattribute__ can be a provider. The registry is captured after the
+    # final cached degree and adjacency descriptors have been installed.
+    namespace = vars(graph_type)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _AVERAGE_NEIGHBOR_DEGREE_NATIVE_READERS[graph_type].items()
+    ):
+        return False
+    return _adc_has_native_graph_access(G) and not any(
+        name in vars(G) for name in ("is_directed", "is_multigraph")
+    )
+
+
 def average_neighbor_degree(
     G,
     source="out",
@@ -440,9 +459,7 @@ def average_neighbor_degree(
     # caller's graph while the measure is computed. Keep those rows live in
     # the Python path below instead of snapshotting them before iteration.
     native_graph = (
-        type(G) in (Graph, DiGraph)
-        and _adc_has_native_graph_access(G)
-        and not any(name in vars(G) for name in ("is_directed", "is_multigraph"))
+        _average_neighbor_degree_can_use_native(G)
         and type(source) is str
         and type(target) is str
     )
