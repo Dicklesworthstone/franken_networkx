@@ -241,6 +241,90 @@ def kernighan_lin_bisection(
     return part1, part2
 
 
+_SEMISYNCHRONOUS_NATIVE_READERS = {
+    name: vars(_fnx.Graph).get(name)
+    for name in (
+        "__len__", "__iter__", "__getitem__", "__getattribute__", "__dict__",
+        "is_directed", "is_multigraph", "nodes", "degree", "adj", "_adj",
+        "_node", "nodes_seq", "_native_adjacency_keys",
+    )
+}
+
+
+def _semisynchronous_can_snapshot(G):
+    """Inspect graph readers and labels without running their callbacks."""
+    if type(G) is not _fnx.Graph:
+        return False
+    strategies = _fnx.coloring.STRATEGIES
+    canonical = _fnx.coloring._FNX_STRATEGY_OVERRIDES["strategy_largest_first"]
+    if (
+        type(strategies) is not dict
+        or any(type(name) is not str for name in strategies)
+        or dict.get(strategies, "largest_first") is not canonical
+    ):
+        return False
+    namespace = vars(type(G))
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _SEMISYNCHRONOUS_NATIVE_READERS.items()
+    ):
+        return False
+    return (
+        _fnx._greedy_color_native_graph(G)
+        and _fnx._view_root_node_keys_are_stable(G, G.nodes_seq)
+    )
+
+
+def _semisynchronous_label_propagation_live(G, colors=None):
+    """Color first, then propagate labels through the caller's live rows."""
+    from collections import Counter, defaultdict
+
+    if colors is None:
+        # The canonical callable selects the existing owned largest-first
+        # loop, without its native string-selected shortcut. A custom default
+        # strategy keeps its public lookup and callback boundary instead.
+        strategies = _fnx.coloring.STRATEGIES
+        canonical = _fnx.coloring._FNX_STRATEGY_OVERRIDES["strategy_largest_first"]
+        if (
+            type(strategies) is dict
+            and all(type(name) is str for name in strategies)
+            and dict.get(strategies, "largest_first") is canonical
+        ):
+            colors = _fnx.coloring.greedy_color(G, strategy=canonical)
+        else:
+            colors = _fnx.coloring.greedy_color(G)
+    color_groups = defaultdict(set)
+    for node, color in colors.items():
+        color_groups[color].add(node)
+    labels = {node: label for label, node in enumerate(G)}
+
+    def most_frequent(node):
+        if not G[node]:
+            return {labels[node]}
+        frequencies = Counter(labels[neighbor] for neighbor in G[node])
+        highest = max(frequencies.values())
+        return {
+            label for label, frequency in frequencies.items()
+            if frequency == highest
+        }
+
+    def complete():
+        return all(
+            labels[node] in most_frequent(node)
+            for node in G if len(G[node]) > 0
+        )
+
+    while not complete():
+        for nodes in color_groups.values():
+            for node in nodes:
+                best = most_frequent(node)
+                if len(best) == 1:
+                    labels[node] = best.pop()
+                elif len(best) > 1 and labels[node] not in best:
+                    labels[node] = max(best)
+    return _community_groups(labels).values()
+
+
 def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     """Community sets via the semi-synchronous label-propagation method.
 
@@ -258,31 +342,33 @@ def label_propagation_communities(G, *, backend=None, **backend_kwargs):
     labels are the same 0..n-1 ints; the Prec-Max tie-break (``max`` of the
     most-frequent label set) and the final node-order grouping all match.
 
-    Directed graphs raise (nx is ``@not_implemented_for('directed')``);
-    multigraph / view / non-fnx graphs delegate to nx.
+    Directed graphs raise (nx is ``@not_implemented_for('directed')``).
+    Views, private rows, multigraphs and custom graph/node protocols use the
+    owned live solver. Ordinary native Graph inputs retain the index solver.
     """
     _fnx._validate_backend_dispatch_keywords(
         "label_propagation_communities", backend, backend_kwargs
     )
     if G.is_directed():
         raise _fnx.NetworkXNotImplemented("not implemented for directed type")
+    if not _semisynchronous_can_snapshot(G):
+        return _semisynchronous_label_propagation_live(G)
 
     from collections import defaultdict
 
+    colors = _fnx.coloring.greedy_color(G)
+    # A registered coloring strategy can replace graph readers or labels.
+    # Reuse its result without invoking that provider a second time.
+    if not _semisynchronous_can_snapshot(G):
+        return _semisynchronous_label_propagation_live(G, colors=colors)
     node_list = list(G)
     n = len(node_list)
     idx = {u: i for i, u in enumerate(node_list)}
     adj = [None] * n
-    _nak = getattr(G, "_native_adjacency_keys", None)
-    if type(G) is _fnx.Graph and _nak is not None:
-        for node, nbrs in _nak():
-            adj[idx[node]] = [idx[v] for v in nbrs]
-    else:
-        for u in node_list:
-            adj[idx[u]] = [idx[v] for v in G[u]]
+    for node, nbrs in _fnx.Graph._native_adjacency_keys(G):
+        adj[idx[node]] = [idx[v] for v in nbrs]
 
     # Colour classes in nx's exact order (greedy_color dict order).
-    colors = _fnx.coloring.greedy_color(G)
     color_buckets = {}
     color_order = []
     for node, color in colors.items():

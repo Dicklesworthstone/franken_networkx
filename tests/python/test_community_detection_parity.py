@@ -520,6 +520,119 @@ def test_cnm_filtered_providers_keep_their_read_order(kind, entrypoint, monkeypa
     assert run(True) == run(False)
 
 
+@pytest.mark.parametrize("entrypoint", ["direct", "backend", "cached_backend"])
+@pytest.mark.parametrize("kind", ["Graph", "MultiGraph"])
+def test_semisynchronous_coloring_mutations_reach_propagation(
+    entrypoint, kind, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(use_fnx):
+        graph = getattr(nx, kind)()
+        graph.add_edges_from([(0, 1), (2, 3)])
+        if use_fnx and entrypoint == "cached_backend":
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        degree = graph.degree
+        events = []
+        changed = False
+
+        def live_degree(node):
+            nonlocal changed
+            events.append(node)
+            if not changed:
+                changed = True
+                graph.add_edges_from([(0, 2), (0, 3), (1, 2), (1, 3)])
+            return degree(node)
+
+        graph.degree = live_degree
+        if use_fnx and entrypoint == "direct":
+            result = fnx.community.label_propagation_communities(graph)
+        else:
+            result = ncom.label_propagation_communities(
+                graph, backend="franken_networkx" if use_fnx else "networkx"
+            )
+        # The provider runs and the partition is finished before return.
+        events_at_return = list(events)
+        topology = list(graph.edges())
+        if use_fnx and entrypoint != "direct":
+            assert not graph.__networkx_cache__.get("backends")
+        graph.clear()
+        partition = [set(part) for part in result]
+        return partition, events_at_return, topology
+
+    expected = run(False)
+    assert expected[0] == [{0, 1, 2, 3}]
+    assert expected[1] == [0, 1, 2, 3]
+    assert run(True) == expected
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_semisynchronous_backend_reads_current_filtered_view(prewarmed, monkeypatch):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(dispatched):
+        root = nx.complete_graph(4)
+        visible = {frozenset((0, 1)), frozenset((2, 3))}
+        events = []
+
+        def edge_filter(u, v):
+            events.append((u, v))
+            return frozenset((u, v)) in visible
+
+        graph = nx.subgraph_view(root, filter_edge=edge_filter)
+        if dispatched and prewarmed:
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        # Changing a filter's captured state does not invoke a graph mutator.
+        # A previously cached conversion still contains the disconnected pairs.
+        visible.update(frozenset(edge) for edge in root.edges())
+        events.clear()
+        result = ncom.label_propagation_communities(
+            graph, backend="franken_networkx" if dispatched else "networkx"
+        )
+        partition = [set(part) for part in result]
+        if dispatched:
+            assert not graph.__networkx_cache__.get("backends")
+        return partition, events
+
+    expected = run(False)
+    assert expected[0] == [{0, 1, 2, 3}]
+    assert expected[1]
+    assert run(True) == expected
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+@pytest.mark.parametrize("error_type", [LookupError, nx.NetworkXNotImplemented])
+def test_semisynchronous_backend_preserves_coloring_errors(
+    prewarmed, error_type, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(dispatched):
+        graph = nx.path_graph(4)
+        if dispatched and prewarmed:
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        events = []
+
+        def degree(node):
+            events.append(node)
+            raise error_type("coloring provider failed")
+
+        graph.degree = degree
+        with pytest.raises(error_type) as caught:
+            ncom.label_propagation_communities(
+                graph, backend="franken_networkx" if dispatched else "networkx"
+            )
+        if dispatched:
+            assert not graph.__networkx_cache__.get("backends")
+        return caught.value.args, events
+
+    assert run(True) == run(False) == (("coloring provider failed",), [0])
+
+
+
 def test_cnm_instance_method_provider_is_not_probed_twice():
     outcomes = []
     for community in (fnx.community, ncom):

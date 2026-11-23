@@ -1436,3 +1436,230 @@ def test_community_backend_automatic_priority_runs_owned_algorithm(name):
         sys.setprofile(previous_profile)
     assert actual == expected
     assert calls, "automatic priority must execute the owned community implementation"
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("view", [False, True], ids=["graph", "view"])
+def test_semisynchronous_label_propagation_reads_assigned_rows(class_name, view):
+    outcomes = []
+    for module in (fnx, nx):
+        root = getattr(module, class_name)([(0, 1), (2, 3)])
+        rows = {node: {} for node in range(4)}
+        for u in range(4):
+            for v in range(u + 1, 4):
+                attrs = {0: {}} if root.is_multigraph() else {}
+                rows[u][v] = rows[v][u] = attrs
+        root._adj = rows
+        graph = module.subgraph_view(root) if view else root
+        result = module.community.label_propagation_communities(graph)
+        assert isinstance(result, ValuesView)
+        outcomes.append(_community_frozensets(result))
+    assert outcomes[0] == outcomes[1] == {frozenset(range(4))}
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("input_kind", _COMMUNITY_INPUT_KINDS)
+@pytest.mark.parametrize("mutation", ["join", "disconnect"])
+def test_semisynchronous_label_propagation_degree_callbacks_change_live_graph(
+    class_name, input_kind, mutation
+):
+    def run(module, graph_module):
+        root = getattr(graph_module, class_name)([(0, 1), (2, 3)])
+        graph = (
+            graph_module.subgraph_view(root)
+            if input_kind.endswith("_view") else root
+        )
+        ordinary_degree = graph.degree
+        changes = []
+
+        def degree(node, weight=None):
+            if not changes:
+                changes.append(mutation)
+                if mutation == "join":
+                    root.add_edges_from([(0, 2), (0, 3), (1, 2), (1, 3)])
+                else:
+                    root.remove_edges_from(list(root.edges()))
+            return ordinary_degree(node, weight=weight)
+
+        graph.degree = degree
+        result = module.community.label_propagation_communities(graph)
+        assert isinstance(result, ValuesView)
+        return _community_frozensets(result), changes, sorted(root.edges())
+
+    actual_module = nx if input_kind.startswith("networkx") else fnx
+    expected = run(nx, nx)
+    assert expected[0] == (
+        {frozenset(range(4))} if mutation == "join"
+        else {frozenset([node]) for node in range(4)}
+    )
+    assert run(fnx, actual_module) == expected
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_semisynchronous_label_propagation_class_degree_provider_can_add_nodes(
+    monkeypatch, prewarmed
+):
+    def run(module):
+        graph = module.Graph([(0, 1), (2, 3)])
+        ordinary_degree = graph.degree
+        if prewarmed:
+            module.community.label_propagation_communities(graph)
+        calls = []
+
+        def degree_provider(self):
+            assert self is graph
+            if not calls:
+                calls.append("added")
+                graph.add_edges_from(
+                    (u, v) for u in range(5) for v in range(u + 1, 5)
+                )
+            return ordinary_degree
+
+        with monkeypatch.context() as patch:
+            patch.setattr(module.Graph, "degree", property(degree_provider))
+            result = module.community.label_propagation_communities(graph)
+        return _community_frozensets(result), calls, sorted(graph.edges())
+
+    expected = run(nx)
+    assert expected[0] == {frozenset(range(5))}
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+def test_semisynchronous_label_propagation_reads_rows_after_coloring(class_name):
+    def run(module):
+        visits = []
+        armed = False
+
+        class LiveRows(getattr(module, class_name)):
+            def __getitem__(self, node):
+                if armed:
+                    visits.append(node)
+                    if len(visits) == 5:
+                        self.add_edges_from([(0, 2), (0, 3), (1, 2), (1, 3)])
+                return super().__getitem__(node)
+
+        graph = LiveRows([(0, 1), (2, 3)])
+        # Coloring reads one row per node. The fifth read is the first
+        # completion probe, after coloring but before label propagation.
+        graph.degree = lambda node: 1
+        armed = True
+        result = module.community.label_propagation_communities(graph)
+        return _community_frozensets(result), sorted(graph.edges())
+
+    expected = run(nx)
+    assert expected[0] == {frozenset(range(4))}
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+def test_semisynchronous_label_propagation_degree_errors_precede_row_reads(class_name):
+    def run(module):
+        events = []
+
+        class ObservedRows(getattr(module, class_name)):
+            def __getitem__(self, node):
+                events.append(("row", node))
+                return super().__getitem__(node)
+
+        graph = ObservedRows([(0, 1), (2, 3)])
+        events.clear()
+
+        def fail_degree(node):
+            events.append(("degree", node))
+            raise ValueError("degree provider failed")
+
+        graph.degree = fail_degree
+        with pytest.raises(ValueError, match="degree provider failed") as error:
+            module.community.label_propagation_communities(graph)
+        return error.value.args, events
+
+    expected = run(nx)
+    assert expected == (("degree provider failed",), [("degree", 0)])
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_semisynchronous_label_propagation_plain_graph_keeps_index_solver(
+    monkeypatch, prewarmed
+):
+    graph = fnx.path_graph(7)
+    expected = _community_frozensets(nx.community.label_propagation_communities(nx.path_graph(7)))
+    if prewarmed:
+        list(graph.nodes)
+        list(graph.adj)
+        list(graph.degree)
+        fnx.community.label_propagation_communities(graph)
+
+    def refuse_live_solver(graph):
+        raise AssertionError("ordinary native graph lost its index-space solver")
+
+    monkeypatch.setattr(
+        fnx.community, "_semisynchronous_label_propagation_live", refuse_live_solver
+    )
+    result = fnx.community.label_propagation_communities(graph)
+    assert isinstance(result, ValuesView)
+    assert _community_frozensets(result) == expected
+    graph.clear()
+    assert _community_frozensets(result) == expected
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_semisynchronous_label_propagation_rechecks_coloring_mutations(
+    monkeypatch, prewarmed
+):
+    def run(module):
+        graph = module.Graph([(0, 1), (2, 3)])
+        if prewarmed:
+            module.community.label_propagation_communities(graph)
+        calls = []
+
+        def replace_rows(current, colors):
+            assert current is graph
+            calls.append("strategy")
+            rows = {node: {} for node in range(4)}
+            for u in range(4):
+                for v in range(u + 1, 4):
+                    rows[u][v] = rows[v][u] = {}
+            graph._adj = rows
+            return list(graph)
+
+        with monkeypatch.context() as patch:
+            patch.setitem(module.coloring.STRATEGIES, "largest_first", replace_rows)
+            result = module.community.label_propagation_communities(graph)
+        return _community_frozensets(result), calls
+
+    expected = run(nx)
+    assert expected == ({frozenset(range(4))}, ["strategy"])
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("prewarmed", [False, True])
+def test_semisynchronous_label_propagation_keeps_late_coloring_edges_live(
+    monkeypatch, prewarmed
+):
+    def run(module):
+        graph = module.Graph()
+        graph.add_nodes_from([1, 0, 2, 3])
+        graph.add_edges_from([(1, 2), (0, 3)])
+        if prewarmed:
+            module.community.label_propagation_communities(graph)
+        calls = []
+
+        def late_edge(current, colors):
+            assert current is graph
+            calls.append("strategy")
+            yield from (1, 0, 2, 3)
+            # Nodes 1 and 0 already have the same color. This late edge
+            # makes their update order observable; their color-set order
+            # differs from the insertion order of the native index bucket.
+            current.add_edge(1, 0)
+
+        with monkeypatch.context() as patch:
+            patch.setitem(module.coloring.STRATEGIES, "largest_first", late_edge)
+            result = module.community.label_propagation_communities(graph)
+        return _community_frozensets(result), calls
+
+    expected = run(nx)
+    assert expected == ({frozenset(range(4))}, ["strategy"])
+    assert run(fnx) == expected

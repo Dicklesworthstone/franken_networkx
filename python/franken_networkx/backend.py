@@ -247,6 +247,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "number_of_spanning_trees",
         "quotient_graph",
         "greedy_modularity_communities",
+        "label_propagation_communities",
         "minimum_spanning_tree",
         "maximum_spanning_tree",
         "greedy_color",
@@ -399,7 +400,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _LINK_PREDICTION_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
-        "greedy_color",
+        "label_propagation_communities", "greedy_color",
         "floyd_warshall", "floyd_warshall_predecessor_and_distance", "floyd_warshall_numpy",
         "bellman_ford_predecessor_and_distance", "goldberg_radzik",
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
@@ -624,6 +625,12 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
     if name == "quotient_graph":
         # Block attributes contain live induced views of the original graph.
         # Node and edge providers can also mutate later block computations.
+        return True
+    if name == "label_propagation_communities":
+        # Coloring runs before label propagation and may change topology.
+        # Keep the original degree and adjacency providers, including when
+        # another algorithm already populated the conversion cache. The
+        # public entry point admits an ordinary native snapshot itself.
         return True
     if name == "greedy_modularity_communities":
         # The owned merge iterator reads live weight and resolution providers;
@@ -2669,7 +2676,7 @@ class BackendInterface:
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis", "min_edge_cover",
-                            "voterank", "common_neighbors",
+                            "voterank", "common_neighbors", "label_propagation_communities",
                         }
                     ):
                         # Preserve graph-contract errors and user callback

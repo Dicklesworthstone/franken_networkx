@@ -2266,7 +2266,22 @@ Seed validation remains at the public call boundary where specified.
 Conversion caches are invalidated around lazy provider execution, including
 advancement, close and failure. A later native query must observe attribute
 writes made by random or graph callbacks. Eager community algorithms keep
-their eager computation boundary and ordinary native conversion route.
+their eager computation boundary. Semi-synchronous label propagation keeps
+the original graph through backend dispatch, including warm conversion caches,
+and admits an ordinary native snapshot at its own algorithm boundary.
+
+Semi-synchronous label propagation finishes largest-first coloring before
+initializing labels or capturing propagation rows. Degree providers may change
+the graph during coloring; subsequent completion checks and label updates read
+the resulting live adjacency. Color classes retain their set iteration order,
+isolated nodes retain their labels, and ties use the Prec-Max rule. Assigned
+private rows, graph views, custom labels and graph readers use the owned live
+solver. Ordinary callback-free native graphs with the canonical largest-first
+coloring strategy retain the index-space solver. Custom coloring strategies may
+invalidate color-class independence and must preserve live set-ordered updates.
+The returned values view contains the completed partition: edits after the
+call returns cannot change it. Coloring errors propagate before propagation
+reads, with the same exception type through backend dispatch.
 
 ## 65. Weighted Query Dispatch and Live Source Collections
 
