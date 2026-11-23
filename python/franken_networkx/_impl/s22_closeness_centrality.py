@@ -1,3 +1,6 @@
+from franken_networkx._fnx import _graph_has_row_key_aliases
+
+
 def _closeness_uses_live_python_rows(G, distance=None, wf_improved=True):
     """Keep topology, reverse-copy and option providers on the caller's graph."""
     if type(wf_improved) is not bool:
@@ -31,6 +34,25 @@ def _closeness_uses_live_python_rows(G, distance=None, wf_improved=True):
         if type(nodes) is not nx.classes.reportviews.NodeView or nodes._nodes is not G._node:
             return True
     return G.is_directed()
+
+
+def _closeness_unweighted_node_callbacks(G, u, distance):
+    """Retain live label protocols for concrete undirected hop distances."""
+    graph_class = type(G)
+    if distance is not None or (graph_class is not Graph and graph_class is not MultiGraph):
+        return False
+    if _has_networkx_private_storage(G):
+        return False
+    if u is not None:
+        # The single-source search admits its own reached labels. Only the
+        # caller's source needs inspection here: the fast scalar wrapper's
+        # extra membership check would otherwise move its hash callbacks.
+        return not _view_filter_node_key_is_stable(u)
+    # An all-node kernel freezes distances before hashing output labels.
+    # Endpoint aliases remain observable even for already-seen neighbors.
+    return _graph_has_row_key_aliases(G) or not _view_root_node_keys_are_stable(
+        G, G.nodes_seq
+    )
 
 
 def _closeness_centrality_inproc(G, u=None, distance=None, wf_improved=True):
@@ -89,7 +111,9 @@ def closeness_centrality(
         float if u is specified.
     """
     _validate_backend_dispatch_keywords("closeness_centrality", backend, backend_kwargs)
-    if _closeness_uses_live_python_rows(G, distance, wf_improved):
+    if _closeness_uses_live_python_rows(G, distance, wf_improved) or (
+        _closeness_unweighted_node_callbacks(G, u, distance)
+    ):
         return _closeness_centrality_inproc(G, u, distance, wf_improved)
     G = _coerce_arg_to_fnx_graph(G)
 

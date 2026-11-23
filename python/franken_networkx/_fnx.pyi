@@ -751,6 +751,8 @@ def powerlaw_cluster_graph(n: int, m: int, p: float, seed: int) -> Graph: ...
 # Traversal — BFS
 # ---------------------------------------------------------------------------
 
+def _graph_has_row_key_aliases(g: Graph | DiGraph | MultiGraph | MultiDiGraph) -> bool: ...
+
 def bfs_edges(
     g: Union[Graph, DiGraph],
     source: Any,

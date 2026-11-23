@@ -960,6 +960,236 @@ def test_harmonic_selection_precedes_graph_snapshot(
 
 
 @pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("shape", ["scalar", "tuple"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "raise"])
+@pytest.mark.parametrize("wf_improved", [False, True])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_undirected_closeness_node_hash_keeps_live_scores(
+    graph_type, shape, mutation, wf_improved, warm
+):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        callbacks = []
+
+        def plain(value):
+            return (value, "node") if shape == "tuple" else value
+
+        def number(value):
+            return int(value[0] if shape == "tuple" else value)
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    callbacks.append(int(self))
+                    if mutation == "raise":
+                        raise RuntimeError("closeness node callback")
+                    if mutation == "add":
+                        graph.add_edge(plain(0), plain(2))
+                    else:
+                        graph.remove_edge(plain(0), plain(1))
+                return int.__hash__(self)
+
+        nodes = [
+            (Node(value), "node") if shape == "tuple" else Node(value)
+            for value in range(4)
+        ]
+        graph.add_edges_from((nodes[i], nodes[(i + 1) % 4]) for i in range(4))
+        if warm:
+            module.closeness_centrality(graph, wf_improved=wf_improved)
+        armed = True
+        try:
+            scores = module.closeness_centrality(graph, wf_improved=wf_improved)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", [(number(node), score) for node, score in scores.items()])
+        armed = False
+        outcomes.append((outcome, callbacks, [(number(u), number(v)) for u, v in graph.edges()]))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == [0]
+    if mutation == "raise":
+        assert outcomes[1][0] == ("error", "RuntimeError", "closeness node callback")
+    else:
+        assert outcomes[1][0][0] == "values"
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("generic", [False, True], ids=["int-alias", "object"])
+@pytest.mark.parametrize("trigger", [0, 2, 3])
+@pytest.mark.parametrize("action", ["add", "raise"])
+@pytest.mark.parametrize("wf_improved", [False, True])
+def test_undirected_closeness_single_source_hash_order(
+    graph_type, generic, trigger, action, wf_improved
+):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        class Source(object if generic else int):
+            def __new__(cls):
+                return object.__new__(cls) if generic else int.__new__(cls, 0)
+
+            def __hash__(self):
+                if armed:
+                    calls.append(len(calls) + 1)
+                    if len(calls) == trigger:
+                        if action == "raise":
+                            raise RuntimeError("closeness source callback")
+                        graph.add_edge(1, 3)
+                return 1729 if generic else int.__hash__(self)
+
+            def __repr__(self):
+                return "Source()"
+
+        source = Source()
+        graph.add_edges_from([(source if generic else 0, 1), (1, 2), (2, 3)])
+        armed = True
+        try:
+            score = module.closeness_centrality(graph, u=source, wf_improved=wf_improved)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("value", score)
+        armed = False
+        outcomes.append((outcome, calls))
+    assert outcomes[0] == outcomes[1]
+    if action == "raise" and trigger:
+        assert outcomes[1][0] == ("error", "RuntimeError", "closeness source callback")
+    else:
+        assert outcomes[1][0][0] == "value"
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("subset", [False, True], ids=["all-nodes", "single-node"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "raise"])
+def test_undirected_closeness_plain_nodes_keep_row_alias_callback(graph_type, subset, mutation):
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = []
+
+        class Alias(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    calls.append(int(self))
+                    if mutation == "raise":
+                        raise RuntimeError("closeness row alias callback")
+                    if mutation == "add":
+                        graph.add_edge(2, 3)
+                    else:
+                        graph.remove_edge(1, 2)
+                return int.__hash__(self)
+
+        graph.add_nodes_from(range(4))
+        graph.add_edges_from([(0, Alias(1)), (1, 2)])
+        assert all(type(node) is int for node in graph)
+        armed = True
+        try:
+            scores = module.closeness_centrality(graph, u=0 if subset else None)
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        else:
+            outcome = ("values", scores if subset else list(scores.items()))
+        armed = False
+        outcomes.append((outcome, calls, list(graph.edges())))
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[1][1] == [1]
+    if mutation == "raise":
+        assert outcomes[1][0] == ("error", "RuntimeError", "closeness row alias callback")
+    else:
+        assert outcomes[1][0][0] == "values"
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("shape", ["scalar", "tuple"])
+def test_undirected_closeness_admission_does_not_compare_label_metaclass(graph_type, shape):
+    calls = []
+    armed = False
+
+    class Meta(type):
+        def __eq__(self, other):
+            if armed:
+                calls.append(other)
+                raise AssertionError("label admission compared a custom metaclass")
+            return type.__eq__(self, other)
+
+        __hash__ = type.__hash__
+
+    class Node(int, metaclass=Meta):
+        pass
+
+    nodes = [(Node(value), "node") if shape == "tuple" else Node(value) for value in range(3)]
+    graph = getattr(fnx, graph_type)([(nodes[0], nodes[1]), (nodes[1], nodes[2])])
+    armed = True
+    scores = fnx.closeness_centrality(graph)
+    assert list(scores.values()) == [2 / 3, 1.0, 2 / 3]
+    assert calls == []
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+def test_undirected_closeness_stable_node_cache_tracks_insert_and_remove(graph_type, monkeypatch):
+    namespace = fnx.closeness_centrality.__globals__
+    original = namespace["_raw_closeness_centrality"]
+    native_calls = []
+
+    def native(*args, **kwargs):
+        native_calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setitem(namespace, "_raw_closeness_centrality", native)
+    outcomes = []
+    for module in (fnx, nx):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2)])
+        armed = False
+
+        class Isolated(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    graph.add_edge(2, 4)
+                return int.__hash__(self)
+
+        module.closeness_centrality(graph)
+        node = Isolated(4)
+        graph.add_node(node)
+        armed = True
+        scores = module.closeness_centrality(graph)
+        armed = False
+        outcomes.append(list(scores.items()))
+        graph.remove_node(node)
+        module.closeness_centrality(graph)
+    assert outcomes[0] == outcomes[1]
+    assert native_calls == [True, True]
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
+def test_undirected_closeness_plain_single_source_does_not_scan_other_components(graph_type, monkeypatch):
+    graph = getattr(fnx, graph_type)([(0, 1)])
+
+    class Isolated(int):
+        pass
+
+    graph.add_node(Isolated(9))
+    namespace = fnx.closeness_centrality.__globals__
+
+    def unexpected_scan(*args):
+        raise AssertionError("single-source closeness scanned all node labels")
+
+    monkeypatch.setitem(namespace, "_view_root_node_keys_are_stable", unexpected_scan)
+    assert fnx.closeness_centrality(graph, u=0) == 0.5
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "MultiGraph"])
 @pytest.mark.parametrize("owner", [nx, fnx], ids=["networkx", "native"])
 @pytest.mark.parametrize(
     "selection",

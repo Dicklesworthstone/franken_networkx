@@ -482,9 +482,12 @@ def _view_filter_node_key_is_stable(node):
     pending = [node]
     while pending:
         value = pending.pop()
-        if type(value) in (str, int, float, bool, complex, bytes, type(None)):
+        value_type = type(value)
+        if type(value_type) is not type:
+            return False
+        if value_type in (str, int, float, bool, complex, bytes, type(None)):
             continue
-        if type(value) in (tuple, frozenset):
+        if value_type in (tuple, frozenset):
             pending.extend(value)
             continue
         return False

@@ -13033,6 +13033,14 @@ fn traversal_has_display_aliases(gr: &GraphRef<'_>) -> bool {
     }
 }
 
+/// A per-row endpoint alias can run Python even when every stored node key
+/// is plain. Keep snapshot admission independent of label hashing.
+#[pyfunction]
+pub fn _graph_has_row_key_aliases(g: &Bound<'_, PyAny>) -> PyResult<bool> {
+    let gr = extract_graph(g)?;
+    Ok(traversal_has_display_aliases(&gr))
+}
+
 /// Iterate over edges in a breadth-first search starting at source.
 #[pyfunction]
 #[pyo3(signature = (g, source, reverse=false, depth_limit=None, sort_neighbors=None, *, callback_safe=false))]
@@ -30752,6 +30760,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(tree_broadcast_center, m)?)?;
     m.add_function(wrap_pyfunction!(tree_broadcast_time, m)?)?;
     // BFS traversal
+    m.add_function(wrap_pyfunction!(_graph_has_row_key_aliases, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_edges, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_tree, m)?)?;
     m.add_function(wrap_pyfunction!(bfs_predecessors, m)?)?;
