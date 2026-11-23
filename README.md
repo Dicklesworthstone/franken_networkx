@@ -45,7 +45,7 @@ That contract is checked by a Python parity test suite of about 1,100 files, by 
 | GIL release on heavy work | n/a (pure Python) | yes; hundreds of `py.allow_threads(...)` sites |
 | Declared import/signature surface | NetworkX 3.6.1 FeatureUniverse | **4,129 / 4,129 strictly present**; 0 partial, 0 missing (the classifier rejects shapes declared only through `__signature__`/`__module__` metadata, on classes and functions) |
 | NetworkX's own test suite, fnx as backend | 6,816 tests pass on plain NetworkX 3.6.1 (0 fail) | **6,815 pass, 0 fail, 0 error** with fnx as the backend (2026-09-24; 80 skipped against plain NetworkX's 78 skipped and 1 xfailed). `artifacts/upstream_suite/ratchet_v1.json` holds that floor with no allowed failures, and DSR fails on any failure |
-| Backend-dispatch surface | n/a | **421** algorithms registered in `backend.py` |
+| Backend-dispatch surface | n/a | **425** algorithms registered in `backend.py` |
 | Tie-break determinism | implicit | explicit **CGSE** (13-variant `TieBreakPolicy`) |
 | Complexity audit | none | `ComplexityWitness` per call, length-prefixed Blake3 decision-path ledger |
 | Strict vs hardened parsing | n/a | mode-aware `CgsePolicyEngine` with fail-closed defaults |
@@ -81,7 +81,7 @@ The discipline difference is enforced by tooling, not goodwill:
 | **graph-tool** | `Graph` with vertex/edge property maps | no; C++/Python hybrid API | no | strong for analytics + statistics | Boost-backed, very fast, but requires a custom build pipeline (no PyPI wheel). |
 | **rustworkx** | `PyGraph`/`PyDiGraph` with integer node IDs | partial; explicit conversion API | no; integer-index based | growing | High-quality Rust core; intentionally not a drop-in replacement. |
 | **graspologic** / **networkx-cuda** / **cugraph** | various, often GPU-backed | partial; mostly nx-shaped but algorithm coverage varies widely | varies | varies | Often optimize the inner loop of specific algorithms (PageRank, BFS, connected components) but require additional toolchains (CUDA, conda channels). |
-| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and every test of NetworkX's own suite that runs in backend mode passing, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 421 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
+| **FrankenNetworkX** | `fnx.*` compatibility layer + backend dispatch | **near-complete**; 100% strict import/signature coverage and every test of NetworkX's own suite that runs in backend mode passing, with fallback on unsupported paths | scoped; explicit CGSE `TieBreakPolicy` on owned paths | 4,129 present / 0 partial / 0 missing applicable paths; 425 backend-dispatchable algorithms | Pre-built ABI3 wheels. The generated FeatureUniverse states every gap and exclusion. |
 
 The honest summary: if the only thing you need is "PageRank on a huge graph as fast as possible" and you don't care about API shape or tie-break semantics, igraph or graph-tool or a GPU library may beat fnx on raw throughput for that single call. If you have an existing NetworkX codebase and you want it to *just work* without rewriting and without subtle behavior changes, fnx is built for that case.
 
@@ -173,7 +173,7 @@ assert list(fnx.topological_sort(D)) == [1, 2, 3]
 
 ## Algorithm Catalog
 
-FrankenNetworkX implements paths across 25+ algorithm families. The table below is a high-level inventory. The canonical, machine-checked surface list lives in [`docs/coverage.md`](docs/coverage.md) (4,926 qualified NetworkX 3.6.1 FeatureUniverse rows, including explicit exclusions) and [`python/franken_networkx/backend.py`](python/franken_networkx/backend.py) (the 421 algorithms wired into the NetworkX dispatcher).
+FrankenNetworkX implements paths across 25+ algorithm families. The table below is a high-level inventory. The canonical, machine-checked surface list lives in [`docs/coverage.md`](docs/coverage.md) (4,926 qualified NetworkX 3.6.1 FeatureUniverse rows, including explicit exclusions) and [`python/franken_networkx/backend.py`](python/franken_networkx/backend.py) (the 425 algorithms wired into the NetworkX dispatcher).
 
 | Family | Selected Functions |
 |--------|--------------------|
@@ -221,7 +221,7 @@ The full surface list is in [`docs/coverage.md`](docs/coverage.md). To use a spe
                 ┌──────────────────────────────────────────────────────────┐
                 │                Python package: franken_networkx          │
                 │   __init__.py  •  backend.py  •  backend_info.py         │
-                │   _fnx.pyi (stubs)  •  421 algorithms in backend dispatch│
+                │   _fnx.pyi (stubs)  •  425 algorithms in backend dispatch│
                 └────────────────────────────┬─────────────────────────────┘
                                              │  PyO3 / ABI3-py310
                                              ▼
@@ -2399,7 +2399,7 @@ FrankenNetworkX is honest about what it does not do today:
 ## FAQ
 
 **Is it really a drop-in replacement?**
-Across the pinned 3.6.1 declared import-and-signature FeatureUniverse, all 4,129 applicable paths are strictly present (100.0%), with 0 partial and 0 missing. The 421 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
+Across the pinned 3.6.1 declared import-and-signature FeatureUniverse, all 4,129 applicable paths are strictly present (100.0%), with 0 partial and 0 missing. The 425 algorithms in `backend.py` are the dispatch registry, not a proof that every NetworkX path or behavior is covered; behavioral claims remain scoped to their conformance fixtures.
 
 **Why are iteration orders such a big deal?**
 NetworkX users often write code that implicitly depends on `dict` insertion order or BFS visit order or `connected_components` set ordering. If a "faster NetworkX" returns the same set of correct answers but in a different order, downstream code breaks subtly. CGSE + the parity tests + the iteration-order audit ledger collectively make iteration order a first-class API contract.
@@ -2756,7 +2756,7 @@ franken_networkx/
 │   └── fnx-python/            # PyO3 bindings (cdylib)
 ├── python/franken_networkx/   # Python package surface
 │   ├── __init__.py            # 843 FNX root exports; not the NetworkX coverage denominator
-│   ├── backend.py             # 421 algorithms wired into nx dispatch
+│   ├── backend.py             # 425 algorithms wired into nx dispatch
 │   ├── backend_info.py        # backend metadata for nx registration
 │   └── _fnx.pyi               # type stubs
 ├── tests/python/              # ~1,100 parity / conformance / metamorphic / fuzz / hypothesis / golden test files

@@ -156,6 +156,9 @@ _RESIDUAL_FLOW_ALGORITHMS = frozenset(
 _DEGREE_CENTRALITY_ALGORITHMS = frozenset(
     {"degree_centrality", "in_degree_centrality", "out_degree_centrality"}
 )
+_EXTENDED_TRAVERSAL_ALGORITHMS = frozenset(
+    {"generic_bfs_edges", "bfs_labeled_edges", "dfs_labeled_edges", "bfs_beam_edges"}
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -205,7 +208,7 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "node_attribute_xy",
         "node_degree_xy",
     }
-) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS
+) | _COMPONENT_ITERATORS | _COMMUNITY_ITERATOR_ALGORITHMS | _EXTENDED_TRAVERSAL_ALGORITHMS
 
 # User callbacks must receive the original attribute dictionaries and observe
 # their own mutations. The ordinary string-weight/eager calls keep using the
@@ -380,6 +383,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _ASSORTATIVITY_INPUT_ALGORITHMS
     | _CLUSTERING_INPUT_ALGORITHMS
     | _DEGREE_CENTRALITY_ALGORITHMS
+    | _EXTENDED_TRAVERSAL_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "greedy_color",
@@ -409,6 +413,12 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _EXTENDED_TRAVERSAL_ALGORITHMS:
+        # Neighbor/value/sort callbacks and source iterables run as the walk
+        # advances. Keep their original graph even on a conversion-cache hit,
+        # and discard conversions after each resume in case a provider wrote
+        # attributes directly without calling a graph mutator.
+        return True
     if name == "voterank":
         # Each election reads the caller's node and edge providers. A cached
         # conversion may retain nodes hidden since a view was first queried.
@@ -1446,6 +1456,9 @@ _SUPPORTED_ALGORITHMS = {
     "bfs_successors": fnx.bfs_successors,
     "bfs_layers": fnx.bfs_layers,
     "descendants_at_distance": fnx.descendants_at_distance,
+    "generic_bfs_edges": fnx.generic_bfs_edges,
+    "bfs_labeled_edges": fnx.bfs_labeled_edges,
+    "bfs_beam_edges": fnx.bfs_beam_edges,
     # Traversal — DFS
     "dfs_edges": fnx.dfs_edges,
     "dfs_tree": fnx.dfs_tree,
@@ -1453,6 +1466,7 @@ _SUPPORTED_ALGORITHMS = {
     "dfs_successors": fnx.dfs_successors,
     "dfs_preorder_nodes": fnx.dfs_preorder_nodes,
     "dfs_postorder_nodes": fnx.dfs_postorder_nodes,
+    "dfs_labeled_edges": fnx.dfs_labeled_edges,
     # DAG
     "topological_sort": fnx.topological_sort,
     "topological_generations": fnx.topological_generations,

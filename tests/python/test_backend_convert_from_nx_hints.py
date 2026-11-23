@@ -2010,3 +2010,180 @@ def test_backend_convert_from_nx_e2e_jsonl_emission():
     )
     assert len(records) == 4
 
+
+_EXTENDED_TRAVERSAL_CASES = [
+    ("generic_bfs_edges", {"source": 0, "depth_limit": 2}),
+    ("bfs_labeled_edges", {"sources": [0, 6]}),
+    ("dfs_labeled_edges", {"source": 0, "depth_limit": 2, "sort_neighbors": sorted}),
+    ("bfs_beam_edges", {"source": 0, "value": lambda node: node, "width": 2}),
+]
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "native"])
+@pytest.mark.parametrize("automatic", [False, True])
+@pytest.mark.parametrize("algorithm, kwargs", _EXTENDED_TRAVERSAL_CASES)
+def test_backend_extended_traversals_are_available_and_match_reference(
+    algorithm, kwargs, cls_name, input_module, automatic, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    expected_graph = getattr(nx, cls_name)()
+    expected_graph.add_nodes_from(range(7))
+    expected_graph.add_edges_from(
+        [(0, 2), (0, 1), (2, 3), (1, 3), (3, 4), (4, 2), (2, 2)]
+    )
+    graph = getattr(input_module, cls_name)(expected_graph)
+    expected = list(getattr(nx, algorithm)(expected_graph, backend="networkx", **kwargs))
+    implementation = backend_module._SUPPORTED_ALGORITHMS[algorithm]
+    inputs = []
+
+    @wraps(implementation)
+    def observed(*args, **options):
+        inputs.append(args[0] if args else options["G"])
+        return implementation(*args, **options)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, algorithm, observed)
+    if automatic:
+        monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+        result = getattr(nx, algorithm)(G=graph, **kwargs)
+    else:
+        result = getattr(nx, algorithm)(G=graph, backend="franken_networkx", **kwargs)
+    assert list(result) == expected
+    assert len(inputs) == 1 and inputs[0] is graph
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("cls_name", CLASSES)
+@pytest.mark.parametrize("algorithm", [case[0] for case in _EXTENDED_TRAVERSAL_CASES])
+def test_backend_extended_traversals_observe_live_rows_across_yields(
+    algorithm, cls_name, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_nodes_from(range(8))
+        graph.add_edges_from([(0, 1), (0, 2), (1, 3), (2, 4)])
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        kwargs = {"value": lambda node: node} if algorithm == "bfs_beam_edges" else {}
+        walk = getattr(nx, algorithm)(graph, 0, backend=backend, **kwargs)
+        # Changes after the function call must reach the first graph read.
+        graph.add_edge(4, 7)
+        first = next(walk)
+        # Neither BFS's pending frontier nor DFS has opened node 3 yet.
+        graph.add_edge(3, 5)
+        result = first, list(walk)
+        assert any(edge[:2] == (3, 5) for edge in result[1])
+        assert any(edge[:2] == (4, 7) for edge in result[1])
+        return result
+
+    assert run("franken_networkx") == run("networkx")
+
+
+@pytest.mark.parametrize("algorithm", [case[0] for case in _EXTENDED_TRAVERSAL_CASES])
+def test_backend_extended_traversal_close_releases_source_and_clears_conversions(
+    algorithm, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    graph = nx.DiGraph([(0, 1), (1, 2)])
+    graph_ref = weakref.ref(graph)
+    kwargs = {"value": lambda node: node} if algorithm == "bfs_beam_edges" else {}
+    walk = getattr(nx, algorithm)(graph, 0, backend="franken_networkx", **kwargs)
+    next(walk)
+    nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx")
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    walk.close()
+    assert not graph.__networkx_cache__.get("backends")
+    del graph
+    gc.collect()
+    assert graph_ref() is None
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("failure", [None, RuntimeError, StopIteration], ids=["success", "error", "stop"])
+@pytest.mark.parametrize("algorithm", [case[0] for case in _EXTENDED_TRAVERSAL_CASES])
+def test_backend_extended_traversal_providers_preserve_timing_and_clear_caches(
+    algorithm, failure, cached, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = nx.DiGraph()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 5), (0, 3, 1)])
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+        events = []
+        changed = False
+
+        def mutate():
+            nonlocal changed
+            if not changed:
+                changed = True
+                # Build a conversion inside the provider, then change an
+                # attribute directly, bypassing graph-method invalidation.
+                assert nx.dijkstra_path_length(
+                    graph, 0, 2, backend="franken_networkx"
+                ) == 6
+                assert graph.__networkx_cache__["backends"]["franken_networkx"]
+                graph[1][2]["weight"] = 1
+                if failure is not None:
+                    raise failure("traversal provider stopped")
+
+        def neighbors(node):
+            events.append(("neighbors", node))
+            mutate()
+            return graph.neighbors(node)
+
+        def value(node):
+            events.append(("value", node))
+            mutate()
+            return node
+
+        def sort_neighbors(nodes):
+            events.append(("sort",))
+            mutate()
+            return sorted(nodes)
+
+        class Sources:
+            def __iter__(self):
+                events.append(("sources",))
+                mutate()
+                return iter([0])
+
+        if algorithm == "generic_bfs_edges":
+            walk = nx.generic_bfs_edges(graph, 0, neighbors, backend=backend)
+        elif algorithm == "bfs_beam_edges":
+            walk = nx.bfs_beam_edges(graph, 0, value, backend=backend)
+        elif algorithm == "dfs_labeled_edges":
+            walk = nx.dfs_labeled_edges(graph, 0, sort_neighbors=sort_neighbors, backend=backend)
+        else:
+            walk = nx.bfs_labeled_edges(graph, Sources(), backend=backend)
+        assert events == []
+        observations = []
+        try:
+            while True:
+                item = next(walk)
+                observations.append(("yield", item, events.copy()))
+                if changed and backend == "franken_networkx":
+                    assert not graph.__networkx_cache__.get("backends")
+                    assert nx.dijkstra_path_length(graph, 0, 2, backend=backend) == 2
+        except StopIteration:
+            observations.append(("stop", events.copy()))
+        except Exception as error:
+            cause = error.__cause__
+            observations.append((
+                "error", type(error), error.args,
+                None if cause is None else (type(cause), cause.args), events.copy(),
+            ))
+        assert changed
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+            assert nx.dijkstra_path_length(graph, 0, 2, backend=backend) == 2
+        return observations
+
+    assert run("franken_networkx") == run("networkx")
+

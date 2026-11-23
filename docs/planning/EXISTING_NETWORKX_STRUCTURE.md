@@ -1303,6 +1303,12 @@ before and after execution, including failures and individual lazy advances,
 because in-place attribute writes do not invoke NetworkX's cache-clearing
 graph mutators. Callback-free eager calls retain normal cache reuse.
 
+Generic BFS, labeled BFS and DFS, and beam BFS are available through explicit
+and automatic NetworkX backend dispatch. Both cold calls and warmed conversion
+caches retain the original graph. Neighbor, sort, beam-value and source-iterator
+providers execute when the owned walk advances. Their mutations remain live,
+and conversions are invalidated after each advancement, failure and close.
+
 `tests/python/test_backend_convert_from_nx_hints.py` exercises public backend
 dispatch with cold and pre-populated caches, mutations before and between
 yields, multigraph callback dictionaries, native-cache reuse, and input
