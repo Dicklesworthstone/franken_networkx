@@ -244,10 +244,242 @@ def test_gexf_mode_validation_checks_later_parallel_records(directed, invalid, m
         conversions.append(value)
         return value
 
+    if mode == "hardened" and invalid == "numeric":
+        # The native policy retains only the malformed scalar as text. The
+        # complete decoder must now retain both edges around that recovery.
+        expected = nx.read_gexf(BytesIO(payload.replace(b'type="long"', b'type="string"')))
+        actual = fnx.read_gexf(BytesIO(payload), node_type=node_type, mode=mode)
+        _assert_same(actual, expected)
+        assert conversions == ["a", "b", "a", "b", "a", "b"]
+        assert any(record["action"] == "full_validate" for record in actual.decision_records())
+        return
     expected_error = OSError if mode == "strict" else fnx.NetworkXNotImplemented
     with pytest.raises(expected_error):
         fnx.read_gexf(BytesIO(payload), node_type=node_type, mode=mode)
     assert conversions == []
+
+
+def _scalar_recovery_document(kind, valid, default, directed, *, repaired=False):
+    # Independent oracle input declares a string alternative for each title.
+    # Only malformed values select it; valid values/defaults keep their type.
+    rank = "r_text" if repaired else "r"
+    history = "h_text" if repaired else "h"
+    return _reader_document(
+        '<attributes class="node" mode="static">'
+        f'<attribute id="r" title="rank" type="{kind}"><default>{default}</default></attribute>'
+        '<attribute id="r_text" title="rank" type="string"/>'
+        '<attribute id="big" title="count" type="long"/>'
+        '<attribute id="_fnx_recovered_0" title="tag" type="string"/>'
+        '</attributes><attributes class="node" mode="dynamic">'
+        '<attribute id="h" title="history" type="long"/>'
+        '<attribute id="h_text" title="history" type="string"/>'
+        '</attributes><attributes class="edge" mode="static">'
+        f'<attribute id="r" title="rank" type="{kind}"><default>{default}</default></attribute>'
+        '<attribute id="r_text" title="rank" type="string"/>'
+        '<attribute id="big" title="count" type="long"/>'
+        '</attributes><nodes><node id="01" label="First"><attvalues>'
+        f'<attvalue for="r" value="{valid}"/>'
+        '<attvalue for="_fnx_recovered_0" value="preserved"/>'
+        '</attvalues></node><node id="1" label="Merged"><attvalues>'
+        f'<attvalue for="{rank}" value="  not-a-scalar  "/>'
+        f'<attvalue for="{history}" value="bad-history" start="0.0" end="1.0"/>'
+        '<attvalue for="h" value="2" start="1.0" end="2.0"/>'
+        '</attvalues></node><node id="9" label="Parent">'
+        '<viz:size value="2.5"/><spells><spell start="0.0" end="2.0"/></spells>'
+        '<nodes><node id="7" label="Child"><attvalues>'
+        f'<attvalue for="r" value="{valid}"/>'
+        f'<attvalue for="big" value="{2**90 + 1}"/>'
+        '</attvalues></node></nodes></node></nodes><edges>'
+        '<edge id="first" source="01" target="9"><attvalues>'
+        f'<attvalue for="{rank}" value="  not-a-scalar  "/>'
+        '</attvalues></edge><edge id="second" source="01" target="9"><attvalues>'
+        f'<attvalue for="r" value="{valid}"/>'
+        f'<attvalue for="big" value="{-2**90 - 1}"/>'
+        '</attvalues></edge><edge id="merge" source="1" target="9"/></edges>',
+        graph_attributes=(
+            f'defaultedgetype="{"directed" if directed else "undirected"}" '
+            'mode="dynamic" timeformat="double" name="Recovered measurements"'
+        ),
+    )
+
+
+@pytest.mark.parametrize("kind,valid,default", (
+    ("long", "17", "11"), ("double", "1.25", "0.5"), ("boolean", "true", "false"),
+))
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("typed_labels", (False, True))
+def test_repaired_scalar_document_preserves_owned_gexf_decoding(
+    monkeypatch, kind, valid, default, directed, typed_labels,
+):
+    payload = _scalar_recovery_document(kind, valid, default, directed)
+    clean = _scalar_recovery_document(kind, valid, default, directed, repaired=True)
+    options = {"node_type": int} if typed_labels else {}
+    expected = nx.read_gexf(BytesIO(clean), **options)
+    _forbid_gexf_delegation(monkeypatch)
+    repaired = readwrite._gexf_repaired_values_payload(payload)
+    assert repaired is not None
+    # This checks XML repair and the complete decoder independently of the
+    # native policy gate, which is exercised by the public tests below.
+    actual = readwrite._read_gexf_owned(repaired, **options)
+    _assert_same(actual, expected)
+    node = 7 if typed_labels else "7"
+    assert type(actual.nodes[node]["rank"]) is {"long": int, "double": float, "boolean": bool}[kind]
+    assert type(actual.nodes[node]["count"]) is int
+    assert type(actual.graph["node_default"]["rank"]) is type(expected.graph["node_default"]["rank"])
+
+
+@pytest.mark.parametrize("extra", ("doctype", "cdata", "duplicate-key", "invalid-default", "native-boolean"))
+def test_scalar_document_repair_declines_unrepresentable_inputs(extra):
+    payload = _scalar_recovery_document("long", "17", "11", False)
+    if extra == "doctype":
+        payload = b'<!DOCTYPE gexf [<!ENTITY value "not-a-scalar">]>' + payload
+    elif extra == "cdata":
+        payload = payload.replace(b'<default>11</default>', b'<default><![CDATA[11]]></default>')
+    elif extra == "duplicate-key":
+        payload = payload.replace(
+            b'<attribute id="r_text"', b'<attribute id="r" title="collision" type="string"/><attribute id="r_text"', 1,
+        )
+    elif extra == "invalid-default":
+        payload = payload.replace(b'<default>11</default>', b'<default>invalid</default>')
+    else:
+        payload = payload.replace(b'type="long"', b'type="boolean"').replace(b'value="17"', b'value=" TRUE "')
+        payload = payload.replace(b'<default>11</default>', b'<default>true</default>')
+    assert readwrite._gexf_repaired_values_payload(payload) is None
+
+
+@pytest.mark.parametrize("kind,valid,default", (
+    ("long", "17", "11"), ("double", "1.25", "0.5"), ("boolean", "true", "false"),
+))
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("typed_labels", (False, True))
+@pytest.mark.parametrize("entrypoint", ("top_level", "readwrite", "parse"))
+def test_scalar_recovery_keeps_complete_gexf_data(
+    monkeypatch, kind, valid, default, directed, typed_labels, entrypoint,
+):
+    payload = _scalar_recovery_document(kind, valid, default, directed)
+    clean = _scalar_recovery_document(kind, valid, default, directed, repaired=True)
+    options = {"node_type": int} if typed_labels else {}
+    expected = nx.read_gexf(BytesIO(clean), **options)
+    _forbid_gexf_delegation(monkeypatch)
+    stream = BytesIO(payload)
+    with fnx.compatibility_mode("strict"):
+        if entrypoint == "parse":
+            with fnx.compatibility_mode("hardened"):
+                actual = readwrite.parse_gexf(payload, **options)
+        else:
+            reader = fnx.read_gexf if entrypoint == "top_level" else readwrite.read_gexf
+            actual = reader(stream, mode="hardened", **options)
+        assert fnx.get_compatibility_mode() == "strict"
+    _assert_same(actual, expected)
+    assert actual.is_multigraph()
+    assert actual.number_of_edges() == 3
+    assert actual.mode == "hardened"
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+    assert not stream.closed
+    assert stream.getvalue() == payload
+
+
+@pytest.mark.parametrize("extra", (
+    '<node/>',
+    '<node id="bad"><attvalues><attvalue for="missing" value="1"/></attvalues></node>',
+    "incompatible-key",
+    "invalid-direction",
+))
+def test_scalar_recovery_does_not_authorize_structural_repairs(extra):
+    payload = _scalar_recovery_document("long", "17", "11", False)
+    if extra == "incompatible-key":
+        payload = payload.replace(b'title="rank"', b'title="__fnx_incompatible_future"')
+    elif extra == "invalid-direction":
+        payload = payload.replace(b'defaultedgetype="undirected"', b'defaultedgetype="bogus"')
+    else:
+        payload = payload.replace(b'<nodes><node id="01"', extra.encode() + b'<nodes><node id="01"', 1)
+    conversions = []
+
+    def node_type(value):
+        conversions.append(value)
+        return value
+
+    with pytest.raises((OSError, fnx.NetworkXNotImplemented)):
+        fnx.read_gexf(BytesIO(payload), node_type=node_type, mode="hardened")
+    assert conversions == []
+
+
+@pytest.mark.parametrize("extra", ("malformed-default", "native-boolean"))
+def test_scalar_recovery_preserves_existing_simple_native_values(extra):
+    payload = _policy_payload().replace(b'value="5"', b'value="not-an-int"')
+    if extra == "malformed-default":
+        payload = payload.replace(
+            b'title="rank" type="long"/>',
+            b'title="rank" type="long"><default>untyped</default></attribute>',
+        )
+    else:
+        payload = payload.replace(
+            b'</attributes>', b'<attribute id="flag" title="flag" type="boolean"/></attributes>',
+        ).replace(
+            b'</attvalues>', b'<attvalue for="flag" value=" TRUE "/></attvalues>',
+        )
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+    assert actual.nodes["0"]["rank"] == "not-an-int"
+    if extra == "malformed-default":
+        assert actual.graph["node_default"]["rank"] == "untyped"
+    else:
+        assert actual.nodes["0"]["flag"] is True
+    assert actual.mode == "hardened"
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+
+def test_scalar_recovery_rechecks_entire_gexf_beyond_retained_ledger(monkeypatch):
+    payload = _document(
+        '<attributes class="edge"><attribute id="r" title="rank" type="long"/></attributes>'
+        '<nodes><node/><node id="a"/><node id="b"/></nodes><edges>'
+        + '<edge source="a" target="b"/>' * 8300
+        + '<edge source="a" target="b"><attvalues>'
+        '<attvalue for="r" value="not-an-int"/></attvalues></edge></edges>'
+    )
+    validate = fnx._fnx.validate_gexf
+    validations = []
+
+    def capture_validation(*args, **kwargs):
+        graph = validate(*args, **kwargs)
+        validations.append(graph.decision_records())
+        return graph
+
+    monkeypatch.setattr(fnx._fnx, "validate_gexf", capture_validation)
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+    # The early structural recovery was evicted; checking only the remaining
+    # scalar warnings would incorrectly admit the original malformed graph.
+    assert len(validations) == 1  # The strict recheck raises before returning.
+    assert not any("node missing id" in record["rationale"] for record in validations[0])
+    assert any("attr parse failed" in record["rationale"] for record in validations[0])
+
+
+def test_early_scalar_recovery_survives_eviction_from_gexf_ledger(monkeypatch):
+    payload = _document(
+        '<attributes class="node"><attribute id="r" title="rank" type="long"/></attributes>'
+        '<nodes><node id="a"><attvalues><attvalue for="r" value="not-an-int"/>'
+        '</attvalues></node><node id="b"/></nodes><edges>'
+        + '<edge source="a" target="b"/>' * 8300 + '</edges>'
+    )
+    expected = nx.read_gexf(BytesIO(payload.replace(b'type="long"', b'type="string"')))
+    _forbid_gexf_delegation(monkeypatch)
+    validate = fnx._fnx.validate_gexf
+    validations = []
+
+    def capture_validation(*args, **kwargs):
+        graph = validate(*args, **kwargs)
+        validations.append(graph.decision_records())
+        return graph
+
+    monkeypatch.setattr(fnx._fnx, "validate_gexf", capture_validation)
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+    _assert_same(actual, expected)
+    assert actual.number_of_edges() == 8300
+    assert len(validations) == 2
+    assert not any(record["action"] == "full_validate" for record in validations[0])
+    # Retain the policy owner's real ledger; do not invent an evicted entry.
+    assert actual.decision_records() == validations[0]
+    assert actual.mode == "hardened"
 
 
 @pytest.mark.parametrize("mode", ("strict", "hardened"))

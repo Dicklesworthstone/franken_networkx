@@ -3177,6 +3177,134 @@ def _read_gexf_payload(path):
     return raw.encode("utf-8") if isinstance(raw, str) else raw
 
 
+def _gexf_repaired_values_payload(payload):
+    """Retain native scalar-to-string recoveries without flattening the graph.
+
+    Each malformed value gets a string declaration with the same title and
+    mode. Its original declaration still types valid values and defaults.
+    The caller must strictly validate the complete rewritten document before
+    using it; a bounded native ledger cannot prove there were no other repairs.
+    """
+    from xml.parsers import expat
+    from xml.etree.ElementTree import Element, ParseError, fromstring, tostring
+
+    class UnsupportedRepair(Exception):
+        pass
+
+    def reject_xml_rewrite(*args):
+        raise UnsupportedRepair
+
+    parser = expat.ParserCreate()
+    parser.StartDoctypeDeclHandler = reject_xml_rewrite
+    parser.StartCdataSectionHandler = reject_xml_rewrite
+    try:
+        parser.Parse(payload, True)
+        root = fromstring(payload)
+    except (expat.ExpatError, ParseError, LookupError, UnsupportedRepair):
+        return None
+    namespaces = {details["NS_GEXF"] for details in GEXFReader.versions.values()}
+    namespace = root.tag.removesuffix("gexf")
+    if namespace not in {"{" + value + "}" for value in namespaces}:
+        return None
+    graphs = root.findall(namespace + "graph")
+    if len(graphs) != 1 or sum(1 for _ in root.iter(namespace + "graph")) != 1:
+        return None
+    graph = graphs[0]
+    groups = graph.findall(namespace + "attributes")
+    if len(groups) != sum(1 for _ in root.iter(namespace + "attributes")):
+        return None
+    declarations = {}
+    identifiers = set()
+    supported = {"boolean", "integer", "int", "long", "float", "double",
+                 "string", "liststring", "anyURI"}
+
+    def decodable(kind, value):
+        # The native recovery path also accepts defaults and boolean spellings
+        # that the complete decoder cannot represent. Leave those documents
+        # on their established recovery route instead of introducing an error.
+        if value is None:
+            return False
+        try:
+            if kind in ("integer", "int", "long"):
+                int(value)
+            elif kind in ("float", "double"):
+                float(value)
+            elif kind == "boolean":
+                GEXFReader.convert_bool[value]
+        except (TypeError, ValueError, KeyError, OverflowError):
+            return False
+        return True
+
+    declaration_count = 0
+    for group in groups:
+        scope = group.get("class")
+        if scope not in ("node", "edge"):
+            return None
+        for declaration in group.findall(namespace + "attribute"):
+            declaration_count += 1
+            key, title, kind = (declaration.get(name) for name in ("id", "title", "type"))
+            if not key or not title or kind not in supported or (scope, key) in declarations:
+                return None
+            default = declaration.find(namespace + "default")
+            if default is not None and not decodable(kind, default.text):
+                return None
+            identifiers.add(key)
+            declarations[scope, key] = group, title, kind
+    if declaration_count != sum(1 for _ in root.iter(namespace + "attribute")):
+        return None
+
+    repairs = {}
+    malformed_value = False
+    for scope in ("node", "edge"):
+        for item in graph.iter(namespace + scope):
+            values = item.find(namespace + "attvalues")
+            if values is None:
+                continue
+            for value in values.findall(namespace + "attvalue"):
+                key, raw = value.get("for"), value.get("value")
+                definition = declarations.get((scope, key))
+                if definition is None:
+                    continue
+                if raw is None:
+                    return None
+                group, title, kind = definition
+                scalar = raw.strip()
+                if kind in ("integer", "int", "long"):
+                    valid = _re.fullmatch(r"[+-]?[0-9]+", scalar) is not None
+                elif kind in ("float", "double"):
+                    valid = _re.fullmatch(
+                        r"[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+                        r"(?:[eE][+-]?[0-9]+)?|inf(?:inity)?|nan)",
+                        scalar, _re.IGNORECASE,
+                    ) is not None
+                elif kind == "boolean":
+                    valid = scalar.lower() in {"true", "false", "0", "1"}
+                else:
+                    continue
+                if valid:
+                    if not decodable(kind, raw):
+                        return None
+                    continue
+                # Native decoding already represents an empty value as text.
+                # Preserve that representation during another scalar repair,
+                # but do not let an empty value alone authorize this route.
+                malformed_value = malformed_value or bool(raw)
+                repair_key = repairs.get((scope, key))
+                if repair_key is None:
+                    index = len(repairs)
+                    repair_key = f"_fnx_recovered_{index}"
+                    while repair_key in identifiers:
+                        index += 1
+                        repair_key = f"_fnx_recovered_{index}"
+                    identifiers.add(repair_key)
+                    repairs[scope, key] = repair_key
+                    group.append(Element(namespace + "attribute", {
+                        "id": repair_key, "title": title, "type": "string",
+                    }))
+                value.set("for", repair_key)
+    return tostring(root, encoding="utf-8") if malformed_value else None
+
+
 def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backend=None, **backend_kwargs):
     """Read GEXF into an fnx graph.
 
@@ -3215,6 +3343,23 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     recovered = any(
         record["action"] == "full_validate" for record in graph.decision_records()
     )
+    # A bounded ledger can evict an early scalar recovery after many valid
+    # records. Inspect hardened rich documents before treating that ledger
+    # tail as evidence that the original XML is clean.
+    repaired = _gexf_repaired_values_payload(raw) if (
+        recovered or (needs_decoder and graph.mode == "hardened")
+    ) else None
+    if repaired is not None:
+        recovered = True
+        try:
+            checked = _fnx.validate_gexf(_BytesIO(repaired), mode="strict")
+        except OSError:
+            # Numeric recovery never licenses an unrelated structural repair.
+            pass
+        else:
+            if not any(record["action"] == "full_validate" for record in checked.decision_records()):
+                raw = repaired
+                recovered = False
     if needs_decoder and not recovered:
         converted = _read_gexf_owned(
             raw, node_type=node_type, relabel=relabel, version=version
