@@ -897,6 +897,12 @@ provider runs at the reference iteration boundary, and its graph mutations
 affect subsequent adjacency reads. Spectral admission inspects reader
 identity without invoking it; an assigned `edges` provider must not be called
 merely to build a snapshot when the iteration itself only reads adjacency.
+Class-level reader replacements and inherited providers follow the same
+contract. Admission resolves the original descriptors without invoking them,
+then keeps changed readers on the owned live iteration. Backend dispatch
+checks the original NetworkX graph before conversion, including when a warm
+conversion already exists. Mutations and exceptions from those providers
+invalidate cached conversions before later algorithms reuse the source.
 Owned per-graph edge-dictionary subclasses remain eligible for numeric sparse
 iteration when their reads are unchanged builtins. Overridden reads retain
 their call order through the owned iteration without an admission-time probe.

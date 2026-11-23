@@ -893,6 +893,85 @@ def test_iterative_centrality_reads_assigned_node_count_live(
 
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("reader", ["number_of_nodes", "__getitem__"])
+@pytest.mark.parametrize("action", ["edge", "error"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_iterative_centrality_class_readers_keep_live_effects(
+    fnx, nx, monkeypatch, algorithm, graph_type, reader, action, weight, warm
+):
+    def outcome(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from(
+            [(0, 1, 0.5), (1, 2, 0.25), (2, 3, 0.75), (3, 0, 0.5)]
+        )
+        if warm:
+            getattr(module, algorithm)(graph, weight=weight)
+        original = getattr(graph_class, reader)
+        events = []
+
+        def provider(current, *args):
+            if current is graph:
+                events.append((reader, args))
+                if len(events) == 1:
+                    if action == "error":
+                        raise LookupError("class centrality provider")
+                    current.add_edge(0, 2, weight=0.125)
+            return original(current, *args)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, reader, provider)
+            if module is fnx:
+                fnx._spectral_centrality_can_snapshot(graph, None, weight)
+                assert events == []
+                assert not graph.has_edge(0, 2)
+            if action == "error":
+                with pytest.raises(LookupError) as error:
+                    getattr(module, algorithm)(graph, weight=weight)
+                result = error.value.args
+            else:
+                result = getattr(module, algorithm)(graph, weight=weight)
+        return result, events, graph.has_edge(0, 2)
+
+    expected, expected_events, expected_edge = outcome(nx)
+    actual, actual_events, actual_edge = outcome(fnx)
+    if action == "error":
+        assert actual == expected == ("class centrality provider",)
+    else:
+        assert list(actual) == list(expected)
+        assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+    assert actual_events == expected_events
+    assert expected_events
+    assert actual_edge is expected_edge is (action == "edge")
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_iterative_centrality_does_not_probe_class_edge_descriptors(
+    fnx, nx, monkeypatch, algorithm, graph_type
+):
+    def outcome(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class()
+        graph.add_weighted_edges_from(
+            [(0, 1, 0.5), (1, 2, 0.25), (2, 3, 0.75), (3, 0, 0.5)]
+        )
+
+        def edges(current):
+            raise AssertionError("power iteration does not read the edges descriptor")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph_class, "edges", property(edges))
+            if module is fnx:
+                fnx._spectral_centrality_can_snapshot(graph, None, "weight")
+            return getattr(module, algorithm)(graph, weight="weight")
+
+    assert outcome(fnx) == pytest.approx(outcome(nx), rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 def test_iterative_centrality_does_not_read_assigned_edge_provider(
     fnx, nx, algorithm, graph_type
 ):

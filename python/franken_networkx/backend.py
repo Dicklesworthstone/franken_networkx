@@ -15,6 +15,8 @@ import inspect
 import weakref
 from contextvars import ContextVar
 
+from networkx import DiGraph as _NetworkXDiGraph, Graph as _NetworkXGraph
+
 import franken_networkx as fnx
 
 # br-r37-c1-xykjs: bulk native adjacency+attrs dump for the _fnx_to_nx parity
@@ -318,6 +320,17 @@ _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
 )
 _SPECTRAL_INPUT_ALGORITHMS = frozenset({"eigenvector_centrality", "katz_centrality"})
+_SPECTRAL_REFERENCE_READERS = {
+    cls: {
+        name: inspect.getattr_static(cls, name, None)
+        for name in (
+            "__len__", "__iter__", "__getitem__", "__getattribute__", "__dict__",
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nodes", "edges", "adj", "succ", "pred",
+        )
+    }
+    for cls in (_NetworkXGraph, _NetworkXDiGraph)
+}
 _FLOW_SOLVER_INPUT_ALGORITHMS = frozenset(
     {"maximum_flow", "maximum_flow_value", "minimum_cut", "minimum_cut_value"}
 )
@@ -1011,9 +1024,16 @@ def _spectral_dispatch_uses_live_providers(name, graph, arguments):
     the original graph, even if another algorithm populated that cache first.
     Inspect types before reading a provider so admission has no side effects.
     """
-    import networkx as nx
-
-    if type(graph) not in (nx.Graph, nx.DiGraph):
+    graph_type = type(graph)
+    if graph_type is not _NetworkXGraph and graph_type is not _NetworkXDiGraph:
+        return True
+    # A class replacement is just as observable as an instance provider.
+    # Resolve inherited descriptors statically: DiGraph inherits several
+    # Graph readers, and checking only its namespace would miss those changes.
+    if any(
+        inspect.getattr_static(graph_type, name, None) is not reader
+        for name, reader in _SPECTRAL_REFERENCE_READERS[graph_type].items()
+    ):
         return True
     storage = vars(graph)
     if "_graph" in storage or any(

@@ -1486,6 +1486,19 @@ def _subgraph_with_view(subgraph_impl):
 
 
 _CONVERSION_EDGE_ATTR_DEEPCOPY = _EdgeAttrDict.__deepcopy__
+_SPECTRAL_CENTRALITY_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__len__", "__iter__", "__getitem__", "__getattribute__", "__dict__",
+            "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
+            "nodes", "edges", "degree", "adj", "succ", "pred",
+        )
+    }
+    for cls in (Graph, DiGraph)
+}
+
+
 _CONVERSION_NATIVE_NODE_KEYS = {
     cls: cls._native_node_keys for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
 }

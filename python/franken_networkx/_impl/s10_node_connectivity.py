@@ -615,10 +615,20 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
     # adjacency boundary. Admit them statically before probing edges or start
     # keys: a sparse snapshot must not skip those callbacks or introduce reads
     # of an assigned edge provider which the power iteration never uses.
-    if (
-        not _greedy_color_native_graph(G)
-        or type(G).__iter__ is not _SPECTRAL_PUBLIC_NODE_ITERATORS[type(G)]
+    graph_type = type(G)
+    if graph_type is not Graph and graph_type is not DiGraph:
+        return False
+    # Class-level readers are providers too. Inspect their descriptors before
+    # touching the instance: a replacement __getattribute__ or __dict__ can
+    # otherwise run while admission is deciding whether to retain live reads.
+    # The registry is captured after the final public descriptors are installed.
+    namespace = vars(graph_type)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _SPECTRAL_CENTRALITY_NATIVE_READERS[graph_type].items()
     ):
+        return False
+    if not _greedy_color_native_graph(G):
         return False
     # Iterating a graph does not hash its labels in NetworkX. Building the
     # initial score dictionary does, and a label callback can change the

@@ -1252,6 +1252,69 @@ def test_backend_spectral_size_reader_keeps_mutations_and_errors(
     assert run("franken_networkx") == expected
 
 
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("reader", ["number_of_nodes", "__getitem__"])
+@pytest.mark.parametrize("raises", [False, True])
+def test_backend_spectral_class_readers_keep_original_inputs(
+    algorithm, cls_name, cached, reader, raises, monkeypatch
+):
+    from franken_networkx.backend import _spectral_dispatch_uses_live_providers
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(backend):
+        graph = getattr(nx, cls_name)()
+        graph.add_weighted_edges_from([(0, 1, 1), (1, 2, 1), (2, 0, 1)])
+        if cached and backend == "franken_networkx":
+            nx.dijkstra_path_length(graph, 0, 1, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        events = []
+        # DiGraph inherits both readers. Replacing the base descriptor must
+        # be detected even though DiGraph's own namespace stays unchanged.
+        original = getattr(nx.Graph, reader)
+
+        def provider(current, *args):
+            if current is graph:
+                events.append((reader, args))
+                if len(events) == 1:
+                    # Direct attribute writes do not clear NetworkX's cache.
+                    graph._adj[0][1]["weight"] = 4
+                    if raises:
+                        raise LookupError("class reader changed the source")
+            return original(current, *args)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(nx.Graph, reader, provider)
+            if backend == "franken_networkx":
+                _spectral_dispatch_uses_live_providers(
+                    algorithm, graph, {"weight": "weight"}
+                )
+                assert events == []
+                assert graph._adj[0][1]["weight"] == 1
+            call = getattr(nx, algorithm)
+            if raises:
+                with pytest.raises(LookupError) as error:
+                    call(graph, weight="weight", max_iter=1000, backend=backend)
+                answer = error.value.args
+            else:
+                answer = list(call(
+                    graph, weight="weight", max_iter=1000, tol=1e-10, backend=backend
+                ).items())
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+            assert nx.dijkstra_path_length(graph, 0, 1, backend=backend) == (
+                4 if graph.is_directed() else 2
+            )
+        return answer, events, graph._adj[0][1]["weight"]
+
+    expected = run("networkx")
+    assert expected[1]
+    assert expected[2] == 4
+    assert run("franken_networkx") == expected
+
+
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("cached", [False, True])
 def test_backend_spectral_admission_does_not_hash_custom_nodes(
