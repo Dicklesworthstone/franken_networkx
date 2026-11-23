@@ -1212,15 +1212,9 @@ def attr_matrix(
     """
     import numpy as np
 
-    # br-r37-c1-attrmtxcoo: vectorised fast path for the common case
-    # (node_attr=None, simple Graph/DiGraph, edge_attr None or "weight"). The
-    # general path below builds per-edge attr dicts via to_edgelist_simple (~8ms
-    # @1500 edges) and scatters with scalar ``M[i,j] += value`` (~8ms more) —
-    # ~2x slower than nx. Instead read native f64 COO arrays in the rc/node
-    # ordering (adjacency_nodelist_typed_arrays remaps endpoints) and scatter
-    # vectorised with np.add.at. attr_matrix's M is float64 (np.zeros default)
-    # unless dtype is pinned, so no int/float inference is needed; the undirected
-    # COO is already symmetric. ~3.3x self-speedup, beats nx.
+    # Scatter native COO indices for ordinary simple graphs. Unit-weight
+    # matrices depend only on topology: no real edge-attribute name can serve
+    # as an absent-key sentinel because callers can store that key themselves.
     if (
         node_attr is None
         and not callable(edge_attr)
@@ -1228,19 +1222,33 @@ def attr_matrix(
         and not G.is_multigraph()
         and type(G) in (Graph, DiGraph)
         and not _has_networkx_private_storage(G)
-        and _native_adjacency_nodelist_typed_arrays is not None
-        # br-r37-c1-64xcg: the native scatter drops an edge whose endpoint is
-        # not in rc_order; networkx raises KeyError, so such a call takes the
-        # loop below, which raises it.
+        and (
+            (edge_attr is None and _native_adjacency_index_arrays is not None)
+            or (
+                edge_attr == "weight"
+                and _native_adjacency_nodelist_typed_arrays is not None
+            )
+        )
+        # Missing edge endpoints must reach the general path's KeyError.
         and (rc_order is None or not any(G.degree(x) for x in set(G).difference(rc_order)))
     ):
         _ordering = list(rc_order) if rc_order is not None else list({n for n in G})
         _N = len(_ordering)
-        # edge_attr=None => unit weights regardless of any "weight" attr: probe a
-        # sentinel attr no edge carries so every value defaults to 1.0.
-        _wattr = "weight" if edge_attr == "weight" else "\x00__fnx_attr_matrix_unit__"
-        _sync_rust_edge_attrs(G, edge_only=True)
-        _res = _native_adjacency_nodelist_typed_arrays(G, _ordering, _wattr, 1.0)
+        _res = None
+        if edge_attr is None:
+            # The topology exporter retains the first occurrence of a repeated
+            # node, while attr_matrix's index retains the last. Leave duplicate
+            # orders to the general path instead of changing their positions.
+            if len(set(_ordering)) == _N:
+                _indices = _native_adjacency_index_arrays(G, _ordering, None)
+                if _indices is not None:
+                    _rows, _cols = _indices
+                    _res = (_rows, _cols, np.ones(len(_rows)), False)
+        else:
+            _sync_rust_edge_attrs(G, edge_only=True)
+            _res = _native_adjacency_nodelist_typed_arrays(
+                G, _ordering, "weight", 1.0
+            )
         if _res is not None:
             _rows, _cols, _data, _ = _res
             M = np.zeros((_N, _N), dtype=dtype, order=order)
@@ -1253,8 +1261,6 @@ def attr_matrix(
                 np.asarray(_data, dtype=M.dtype),
             )
             if normalized:
-                # br-r37-c1-6zlfk: nx's in-place division - a row with no
-                # edges is 0/0, NaN (the old code divided it by 1).
                 M /= M.sum(axis=1).reshape((M.shape[0], 1))
             if rc_order is None:
                 return M, _ordering

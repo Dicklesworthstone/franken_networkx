@@ -253,3 +253,106 @@ def test_bethe_hessian_unsized_nodelist_is_not_consumed(namespace, kind, r):
             pytest.fail("an unsized nodelist must not produce a matrix")
         assert list(nodelist) == [0, 1]
     assert outcomes[0] == outcomes[1]
+
+
+# Unit attribute matrices count topology even when edge dictionaries contain
+# keys that look internal. No user attribute name is reserved as a sentinel.
+_UNIT_MATRIX_ATTRIBUTE = "\x00__fnx_attr_matrix_unit__"
+
+
+def _unit_attribute_graph(lib, graph_type):
+    graph = getattr(lib, graph_type)()
+    graph.add_nodes_from([0, 1, 2, 3])
+    graph.add_edges_from([
+        (0, 1, {_UNIT_MATRIX_ATTRIBUTE: 7.0, "weight": 19, None: 23}),
+        (1, 2, {_UNIT_MATRIX_ATTRIBUTE: -2.0, "weight": 29, None: 31}),
+        (2, 2, {_UNIT_MATRIX_ATTRIBUTE: 0.25, "weight": 37, None: 41}),
+    ])
+    if graph.is_multigraph():
+        graph.add_edge(0, 1, **{_UNIT_MATRIX_ATTRIBUTE: 13, "weight": 43})
+    return graph
+
+
+def _assert_attribute_matrix_equal(actual, expected):
+    import numpy as np
+
+    if isinstance(expected, tuple):
+        assert actual[1] == expected[1]
+        actual, expected = actual[0], expected[0]
+    assert actual.dtype == expected.dtype
+    np.testing.assert_array_equal(actual, expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("namespace", ["top_level", "linalg"])
+@pytest.mark.parametrize(
+    "rc_order",
+    [None, [3, 2, 0, 1], [2, 0, 1], [0, 1, 0, 2, 3]],
+    ids=["default", "reordered", "omit_isolate", "duplicate"],
+)
+@pytest.mark.parametrize(
+    ("dtype", "normalized"),
+    [(None, False), ("int64", False), ("float32", False), (None, True)],
+)
+def test_unit_attr_matrix_ignores_all_edge_attribute_keys(
+    graph_type, namespace, rc_order, dtype, normalized
+):
+    import numpy as np
+
+    options = dict(
+        edge_attr=None, rc_order=rc_order, dtype=dtype, normalized=normalized
+    )
+    function = getattr(fnx if namespace == "top_level" else fnx_linalg, "attr_matrix")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        expected = nx.attr_matrix(_unit_attribute_graph(nx, graph_type), **options)
+        actual = function(_unit_attribute_graph(fnx, graph_type), **options)
+    _assert_attribute_matrix_equal(actual, expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("value", [0, -7, float("inf"), float("nan"), "not a weight"])
+def test_unit_attr_matrix_ignores_mutated_escaped_attributes(graph_type, value):
+    import numpy as np
+
+    graphs = [
+        _unit_attribute_graph(lib, graph_type)
+        for lib in (fnx, nx)
+    ]
+    for lib, graph in zip((fnx, nx), graphs):
+        # Materialize a matrix first, then bypass ordinary dict write hooks.
+        # Unit matrices must remain independent of those values and any cache.
+        lib.attr_matrix(graph, rc_order=[0, 1, 2, 3])
+        attrs = graph[0][1]
+        dict.__setitem__(attrs, _UNIT_MATRIX_ATTRIBUTE, value)
+        dict.__setitem__(attrs, "weight", value)
+        dict.__setitem__(attrs, None, value)
+    np.testing.assert_array_equal(
+        fnx.attr_matrix(graphs[0], rc_order=[0, 1, 2, 3]),
+        nx.attr_matrix(graphs[1], rc_order=[0, 1, 2, 3]),
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("edge_attr", ["weight", _UNIT_MATRIX_ATTRIBUTE])
+def test_explicit_attr_matrix_selector_still_uses_edge_values(graph_type, edge_attr):
+    import numpy as np
+
+    graph = _unit_attribute_graph(fnx, graph_type)
+    expected_graph = _unit_attribute_graph(nx, graph_type)
+    np.testing.assert_array_equal(
+        fnx.attr_matrix(graph, edge_attr=edge_attr, rc_order=[2, 0, 1, 3]),
+        nx.attr_matrix(expected_graph, edge_attr=edge_attr, rc_order=[2, 0, 1, 3]),
+    )
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+def test_unit_attr_matrix_falls_back_without_topology_exporter(monkeypatch, graph_type):
+    import numpy as np
+
+    monkeypatch.setattr(fnx, "_native_adjacency_index_arrays", None)
+    graph = _unit_attribute_graph(fnx, graph_type)
+    expected_graph = _unit_attribute_graph(nx, graph_type)
+    np.testing.assert_array_equal(
+        fnx.attr_matrix(graph, rc_order=[0, 1, 2, 3]),
+        nx.attr_matrix(expected_graph, rc_order=[0, 1, 2, 3]),
+    )

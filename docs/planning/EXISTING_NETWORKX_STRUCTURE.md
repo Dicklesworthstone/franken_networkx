@@ -3619,3 +3619,19 @@ module with the published 0.4.1 extension and verified candidate Python sources.
 The source and lockfile snapshots remained unchanged. The fresh extension run
 in section 110 repeated this complete module successfully. Neither run makes a
 performance, release or full-suite qualification claim.
+
+## 113. Attribute Matrix Unit-Weight Topology
+
+`attr_matrix(..., edge_attr=None)` counts graph incidences without inspecting
+edge values. All attribute keys remain available to callers, including literal
+`None` keys and strings that resemble internal sentinels. Mutating those values
+through a held edge dictionary cannot change a unit-weight matrix.
+
+Ordinary simple graphs use the existing topology-only COO exporter, retaining
+directed orientation, one contribution per self-loop, and the requested row and
+column ordering. An omitted isolated node is allowed; an omitted edge endpoint
+retains the general path's error. Duplicate row orders retain the last-position
+index semantics of the owned general builder. Explicit weighted selectors
+continue to use their actual edge values, including a key that formerly served
+as an internal sentinel. Dtype, normalization and namespace aliases preserve
+the same public contract.
