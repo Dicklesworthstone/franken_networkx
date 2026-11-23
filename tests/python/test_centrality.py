@@ -7,6 +7,79 @@ import pytest
 from conftest import assert_dicts_close
 
 
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("shape", ["subclass", "object", "tuple"])
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("action", ["current-edge", "later-edge", "add-node", "remove-node", "raise"])
+def test_degree_centrality_node_callbacks_keep_live_scores(
+    fnx, nx, graph_type, shape, warm, action
+):
+    def outcome(module):
+        armed = changed = False
+        graph = getattr(module, graph_type)()
+
+        def callback():
+            nonlocal changed
+            if armed and not changed:
+                changed = True
+                if action == "raise":
+                    raise LookupError("degree centrality node callback")
+                if action == "current-edge":
+                    graph.add_edge(labels[0], labels[2])
+                elif action == "later-edge":
+                    graph.add_edge(labels[1], labels[3])
+                elif action == "add-node":
+                    graph.add_node(9)
+                else:
+                    graph.remove_node(labels[3])
+
+        class IntKey(int):
+            def __hash__(self):
+                callback()
+                return int.__hash__(self)
+
+        class ObjectKey:
+            def __init__(self, value):
+                self.value = value
+
+            def __hash__(self):
+                callback()
+                return hash(self.value)
+
+            def __eq__(self, other):
+                return isinstance(other, ObjectKey) and self.value == other.value
+
+        labels = [
+            ObjectKey(i) if shape == "object" else (IntKey(i),) if shape == "tuple" else IntKey(i)
+            for i in range(4)
+        ]
+        graph.add_edges_from(zip(labels, labels[1:]))
+        if warm:
+            list(graph)
+            list(graph.degree())
+        armed = True
+        try:
+            result, failure = module.degree_centrality(graph), None
+        except Exception as exc:
+            result, failure = None, (type(exc), exc.args)
+        armed = False
+
+        def plain(node):
+            if isinstance(node, ObjectKey):
+                return node.value
+            return int(node[0] if isinstance(node, tuple) else node)
+
+        values = None if result is None else [(plain(node), score) for node, score in result.items()]
+        return values, failure, changed, [plain(node) for node in graph], [
+            (plain(u), plain(v)) for u, v in graph.edges()
+        ]
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert expected[2], "the reference must exercise the node callback"
+    assert actual == expected
+
+
 @pytest.mark.conformance
 class TestCentrality:
     def test_degree_centrality(self, fnx, nx, path_graph):

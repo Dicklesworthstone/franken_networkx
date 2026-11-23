@@ -1083,9 +1083,19 @@ def degree_centrality(G, *, backend=None, **backend_kwargs):
     # multigraph branch (was returning NaN on singletons) and the
     # simple-graph branch (Rust path returns float 1.0 — type drift).
     if len(G) <= 1:
-        return {v: 1 for v in G}
+        return {v: 1 for v in _spectral_centrality_nodes(G)}
     if _degree_centrality_can_use_native(G):
-        return _raw_degree_centrality(G)
+        if _view_root_node_keys_are_stable(G, G.nodes_seq):
+            return _raw_degree_centrality(G)
+        # Node hashing belongs to the degree lookup and result insertion.
+        # A custom label can change the graph at either boundary. The native
+        # result builder holds a graph borrow while hashing its output keys;
+        # even dropping that borrow would leave already-computed degrees stale.
+        # Keep the node cursor hash-free and fetch each degree only when its
+        # result is about to be emitted, outside that native result builder.
+        s = 1.0 / (len(G) - 1.0)
+        degrees = G.degree
+        return {node: degrees[node] * s for node in _spectral_centrality_nodes(G)}
     # A degree provider owns both the result's node domain and the order of
     # reads. Views may expose asymmetric rows, and a provider can change G
     # between yields. Converting first discards these observable semantics.
