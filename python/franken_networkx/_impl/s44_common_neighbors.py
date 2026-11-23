@@ -36,6 +36,22 @@ def common_neighbors(G, u, v):
             raise NetworkXError("v is not in the graph.")
         return G._adj[u].keys() & G._adj[v].keys() - {u, v}
     rows_are_dicts = _nx_rows_are_dicts(G)
+    if not rows_are_dicts or (
+        type(G) in _CONCRETE_FNX_GRAPH_TYPES
+        and _PRIVATE_ADJ_OVERRIDE in vars(G)
+    ):
+        # Filtered/union rows and assigned adjacency mappings are live
+        # providers. Materializing the whole graph reads unrelated nodes,
+        # edges and attributes before the two rows this query actually uses.
+        # Keep the left keys view live while the right row is evaluated:
+        # its provider can change the left row before the intersection.
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if u not in G:
+            raise NetworkXError("u is not in the graph.")
+        if v not in G:
+            raise NetworkXError("v is not in the graph.")
+        return G._adj[u].keys() & (G._adj[v].keys() - {u, v})
     G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
@@ -53,14 +69,7 @@ def common_neighbors(G, u, v):
         u_row, v_row = _raw_nbrs(G, u), _raw_nbrs(G, v)
     else:
         u_row, v_row = G.adj[u], G.adj[v]
-    if rows_are_dicts:
-        return dict.fromkeys(u_row).keys() & (dict.fromkeys(v_row).keys() - {u, v})
-    # KeysView's - and & : each side a set grown one add at a time, the &
-    # walking the rest.
-    uv = {u, v}
-    rest = {w for w in v_row if w not in uv}
-    u_keys = dict.fromkeys(u_row)
-    return {w for w in rest if w in u_keys}
+    return dict.fromkeys(u_row).keys() & (dict.fromkeys(v_row).keys() - {u, v})
 
 
 def _is_networkx_graph(G):

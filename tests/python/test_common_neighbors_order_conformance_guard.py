@@ -207,3 +207,116 @@ def test_common_neighbors_directed_is_not_implemented(view):
     with pytest.raises(nx.NetworkXNotImplemented) as got:
         fnx.common_neighbors(fg, 0, 99)
     assert got.value.args == want.value.args
+
+
+_LOCAL_PREDICTORS = [
+    "common_neighbors",
+    "jaccard_coefficient",
+    "adamic_adar_index",
+    "resource_allocation_index",
+    "preferential_attachment",
+    "cn_soundarajan_hopcroft",
+    "ra_index_soundarajan_hopcroft",
+    "within_inter_cluster",
+    "common_neighbor_centrality",
+]
+
+
+@pytest.mark.parametrize(
+    "name,class_name",
+    [(name, "Graph") for name in _LOCAL_PREDICTORS]
+    + [("common_neighbors", "MultiGraph")],
+)
+@pytest.mark.parametrize("view_kind", ["filtered", "copy_filtered", "union_filtered"])
+def test_common_neighbor_queries_do_not_read_unrelated_view_rows(name, class_name, view_kind):
+    def run(module):
+        parent_class = class_name
+        if view_kind == "union_filtered":
+            parent_class = "DiGraph" if class_name == "Graph" else "MultiDiGraph"
+        graph = getattr(module, parent_class)()
+        graph.add_nodes_from(range(6), community=0)
+        graph.add_edges_from([(0, 1), (2, 1), (0, 3), (2, 3), (4, 5)])
+        if view_kind == "union_filtered":
+            graph = graph.to_undirected(as_view=True)
+
+        def visible(u, v, *keys):
+            if u >= 4 or v >= 4:
+                raise AssertionError("a local query inspected an unrelated edge")
+            return True
+
+        view = module.subgraph_view(graph, filter_edge=visible)
+        if view_kind == "copy_filtered":
+            view = view.copy(as_view=True)
+        if name == "common_neighbors":
+            return list(module.common_neighbors(view, 0, 2))
+        # Other CCPA settings intentionally compute all-pairs distances at
+        # call time. The alpha=1 branch only needs the queried neighbor rows.
+        kwargs = {"alpha": 1} if name == "common_neighbor_centrality" else {}
+        return list(getattr(module, name)(view, [(0, 2)], **kwargs))
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph"])
+def test_common_neighbors_retains_left_keys_during_right_row_lookup(class_name):
+    def run(module):
+        graph = getattr(module, class_name)()
+        graph.add_nodes_from(range(4))
+        visits = []
+
+        def edge_data():
+            return {0: {}} if class_name == "MultiGraph" else {}
+
+        class Rows(dict):
+            def __getitem__(self, node):
+                visits.append(node)
+                if node == 2:
+                    # The left keys view already exists. Its contents must
+                    # reflect this write before the intersection is evaluated.
+                    attrs = edge_data()
+                    dict.__getitem__(self, 0)[3] = attrs
+                    dict.__getitem__(self, 3)[0] = attrs
+                return dict.__getitem__(self, node)
+
+        graph._adj = Rows({
+            0: {1: edge_data()},
+            1: {0: edge_data(), 2: edge_data()},
+            2: {1: edge_data(), 3: edge_data()},
+            3: {2: edge_data()},
+        })
+        graph._node = {node: {} for node in range(4)}
+        visits.clear()
+        return list(module.common_neighbors(graph, 0, 2)), visits
+
+    assert run(fnx) == run(nx) == ([1, 3], [0, 2])
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "MultiGraph", "DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("u,v", [(99, 0), (0, 99), ([0], 1), (0, [1])])
+def test_common_neighbors_validates_before_reading_assigned_rows(class_name, u, v):
+    def run(module):
+        graph = getattr(module, class_name)()
+        graph.add_nodes_from([0, 1])
+        visits = []
+
+        class Rows(dict):
+            def __getitem__(self, node):
+                visits.append(node)
+                raise AssertionError("invalid query read an adjacency row")
+
+            def __iter__(self):
+                visits.append("iterate")
+                raise AssertionError("invalid query traversed the adjacency mapping")
+
+        graph._adj = Rows({0: {}, 1: {}})
+        graph._node = {0: {}, 1: {}}
+        error_type = (
+            nx.NetworkXNotImplemented if "DiGraph" in class_name else nx.NetworkXError
+        )
+        with pytest.raises(error_type) as error:
+            module.common_neighbors(graph, u, v)
+        return error.value.args, visits
+
+    expected = run(nx)
+    assert expected[1] == []
+    assert run(fnx) == expected
