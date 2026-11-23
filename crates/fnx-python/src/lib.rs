@@ -113,15 +113,18 @@ pub(crate) fn python_sum_total(total: f64, comp: f64) -> f64 {
 /// attacker-controlled hash boundary.
 pub(crate) type PyNodeKeyMap<K, V> = HashMap<K, V, rustc_hash::FxBuildHasher>;
 
-/// Separate live dictionaries for public key iteration and callback-free
-/// internal iteration. The latter uses canonical strings as keys and keeps
-/// the original Python labels as values, so creating an iterator never hashes
-/// existing labels under a graph borrow. Both dictionaries are updated by the
-/// same node mutation hooks and retain CPython's live iterator semantics.
+/// Separate live dictionaries for key lookup and callback-free iteration.
+/// The latter uses canonical strings as keys and keeps the original Python
+/// labels as values, so creating an iterator never hashes existing labels
+/// under a graph borrow. Public iteration retains a key iterator for built-in
+/// labels and uses the value iterator when labels have user protocols. Both
+/// dictionaries share the node mutation hooks and CPython's live iterator
+/// semantics.
 #[derive(Default)]
 pub(crate) struct NodeIterationMirrors {
     keys: Option<Py<PyDict>>,
     values: Option<Py<PyDict>>,
+    public_values: bool,
 }
 
 impl NodeIterationMirrors {
@@ -129,7 +132,80 @@ impl NodeIterationMirrors {
         Self {
             keys: self.keys.as_ref().map(|dict| dict.clone_ref(py)),
             values: self.values.as_ref().map(|dict| dict.clone_ref(py)),
+            public_values: self.public_values,
         }
+    }
+
+    /// Admission must not execute the protocols whose presence it checks.
+    /// Exact tuple/frozenset contents are inspected iteratively so deeply
+    /// nested labels do not consume the Rust call stack. A built-in container
+    /// is unsafe too when hashing or comparing one of its elements can call
+    /// Python; checking only the outer type would miss that boundary.
+    pub(crate) fn key_is_callback_free(label: &Bound<'_, PyAny>) -> bool {
+        let mut key = label.clone();
+        let mut pending = Vec::new();
+        loop {
+            if node_key_hash_cannot_raise(&key)
+                || key.is_none()
+                || key.is_exact_instance_of::<pyo3::types::PyBytes>()
+                || key.is_exact_instance_of::<pyo3::types::PyComplex>()
+            {
+                // Exact scalar operations cannot run user callbacks.
+            } else if let Ok(tuple) = key.cast_exact::<PyTuple>() {
+                pending.extend(tuple.iter());
+            } else if let Ok(set) = key.cast_exact::<pyo3::types::PyFrozenSet>() {
+                pending.extend(set.iter());
+            } else {
+                return false;
+            }
+            let Some(next) = pending.pop() else {
+                return true;
+            };
+            key = next;
+        }
+    }
+
+    fn public_iter<'a, I>(
+        py: Python<'_>,
+        slot: &std::sync::Mutex<Option<Self>>,
+        nodes: impl FnOnce() -> I,
+    ) -> PyResult<PyObject>
+    where
+        I: IntoIterator<Item = (&'a str, PyObject)>,
+    {
+        let cached = slot
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|mirrors| mirrors.clone_ref(py));
+        if let Some(mirrors) = cached {
+            if mirrors.public_values {
+                return Self::unhashed_iter(py, slot, nodes);
+            }
+            if let Some(dict) = mirrors.keys {
+                return Ok(dict.bind(py).try_iter()?.into_any().unbind());
+            }
+        }
+
+        // Cold graph iteration is not a dict insertion in NetworkX: no label
+        // hash or equality callback belongs here. Only populate a key mirror
+        // when those calls are unobservable; otherwise retain the original
+        // objects as VALUES under canonical keys. Releasing the graph borrow
+        // before hashing would still invoke callbacks at the wrong boundary.
+        let nodes: Vec<_> = nodes().into_iter().collect();
+        if nodes
+            .iter()
+            .all(|(_, label)| Self::key_is_callback_free(label.bind(py)))
+        {
+            let dict = Self::keys_or_init(py, slot, || nodes.into_iter().map(|(_, label)| label))?;
+            return Ok(dict.bind(py).try_iter()?.into_any().unbind());
+        }
+        let iterator = Self::unhashed_iter(py, slot, || nodes)?;
+        slot.lock()
+            .unwrap()
+            .get_or_insert_with(Self::default)
+            .public_values = true;
+        Ok(iterator)
     }
 
     fn keys_or_init<I>(
@@ -451,44 +527,18 @@ pub(crate) fn exact_int_or_str_node(key: &Bound<'_, PyAny>) -> bool {
     key.is_exact_instance_of::<PyString>() || key.is_exact_instance_of::<PyInt>()
 }
 
-/// `PyObject_Hash`, reporting a failure the way a DICT SUBSCRIPT reports it.
+/// Check hashability at the same callback boundary as a dict lookup.
 ///
-/// br-r37-c1-q32e6: CPython 3.14 gives a dict subscript a longer `TypeError`
-/// than a bare hash does —
-/// ```text
-/// d[k]      cannot use 'X' as a dict key (unhashable type: 'X')
-/// hash(k)   unhashable type: 'X'
-/// ```
-///
-/// networkx reaches every node and edge key through a real dict, so it always
-/// produces the first. fnx pre-checks hashability with `hash()` — deliberately,
-/// to reproduce networkx's ORDERING and its partial-graph state
-/// (br-r37-c1-baqyi, br-r37-c1-n4c8l) — and so produced the second. A 76-cell
-/// sweep of the public spellings that can meet an unhashable key found 43
-/// divergent against live networkx and ALL 43 differing on the message alone:
-/// same exception type, same ordering, same partial state.
-///
-/// THE MESSAGE IS NOT SPELLED OUT HERE, on purpose. Hard-coding CPython's
-/// wording pins fnx to one version of it and it has already changed once. On
-/// the branch where the hash has ALREADY failed — the rare one — this looks the
-/// key up in an empty dict and returns whatever error that raises, so fnx says
-/// what the running interpreter says, on every version, for free.
-///
-/// The fast path is untouched: exact `str` / `int` / `float` / `bool` never
-/// reach here, and a hashable key still costs exactly one `PyObject_Hash`.
+/// A real empty dict supplies the running interpreter's error wording (which
+/// differs from bare `hash` on CPython 3.14). It also invokes a custom hash
+/// exactly once: retrying a failed hash through a dict would run user code a
+/// second time, possibly replacing the original exception or mutating the
+/// graph. No key is inserted, retained, or compared with another key.
 pub(crate) fn hash_key_as_dict_would(key: &Bound<'_, PyAny>) -> PyResult<()> {
-    match key.hash() {
-        Ok(_) => Ok(()),
-        Err(hash_err) => {
-            let probe = PyDict::new(key.py());
-            match probe.get_item(key) {
-                // The key is unhashable, so this ALWAYS raises; the `Ok` arm is
-                // unreachable and keeps the original error rather than invent one.
-                Err(dict_err) => Err(dict_err),
-                Ok(_) => Err(hash_err),
-            }
-        }
-    }
+    static HASH_PROBE: pyo3::sync::PyOnceLock<Py<PyDict>> = pyo3::sync::PyOnceLock::new();
+    let py = key.py();
+    let probe = HASH_PROBE.get_or_init(py, || PyDict::new(py).unbind());
+    probe.bind(py).get_item(key).map(|_| ())
 }
 
 /// Can hashing this key be ruled out as a source of exceptions?
@@ -5438,6 +5488,15 @@ impl PyGraph {
         })
     }
 
+    pub(crate) fn native_node_iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        NodeIterationMirrors::public_iter(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| (canonical, self.py_node_key(py, canonical)))
+        })
+    }
+
     fn node_iter_mirror_insert(&mut self, py: Python<'_>, canonical: &str) -> PyResult<()> {
         let Some(dict) = self
             .node_iter_mirror
@@ -5480,13 +5539,10 @@ impl PyGraph {
     }
 
     fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
-        let Some(dict) = self
-            .node_iter_mirror
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dict| dict.clone_ref(py))
-        else {
+        let Some(dict) = self.node_iter_mirror.lock().unwrap().as_mut().map(|dict| {
+            dict.public_values = false;
+            dict.clone_ref(py)
+        }) else {
             return Ok(());
         };
         dict.clear(py);
@@ -10267,17 +10323,20 @@ impl MultiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
         let key_ptr = v.as_ptr() as usize;
-        if self.hit_key_ptr.load(Ordering::Relaxed) == key_ptr
-            && self.hit_nodes_seq.load(Ordering::Relaxed) == g.nodes_seq
-            && self.hit_edges_seq.load(Ordering::Relaxed) == g.edges_seq
+        if v.is_exact_instance_of::<PyString>()
+            && self.hit_key_ptr.load(Ordering::Relaxed) == key_ptr
         {
-            return Ok(true);
+            let g = self.graph.borrow(py);
+            if self.hit_nodes_seq.load(Ordering::Relaxed) == g.nodes_seq
+                && self.hit_edges_seq.load(Ordering::Relaxed) == g.edges_seq
+            {
+                return Ok(true);
+            }
         }
         // br-r37-c1-mh4sg: networkx answers this with a dict probe, which
         // HASHES v, so an unhashable key is a TypeError and not False.
-        // `node_key_to_string` canonicalises by VALUE and never hashes, so
+        // `node_key_to_string` can canonicalise by VALUE without hashing, so
         // `['x'] in row` quietly returned False here. Exactly the gap
         // br-r37-c1-espyz closed on the simple `AtlasView`; the multi views were
         // missed because the Python `AdjacencyView.__contains__` in front of
@@ -10287,6 +10346,15 @@ impl MultiAtlasView {
         // str/int/float/bool, which are always hashable, so the common shape
         // pays one type check and never hashes.
         require_hashable_node_key(v)?;
+        // Hashing and canonicalizing a custom label may mutate this graph.
+        // Resolve it before borrowing, then query the updated topology. Exact
+        // strings/integers retain the indexed route without canonicalization.
+        let canonical = if node_key_can_use_index_lookaside(v) {
+            None
+        } else {
+            Some(node_key_to_string(py, v)?)
+        };
+        let g = self.graph.borrow(py);
         // br-r37-c1-2ndmw: INDEX PATH. The string path below builds a canonical
         // for `v` and then hashes BOTH node keys inside `has_edge` — three
         // O(node key length) operations for a question that is O(1) once both
@@ -10318,7 +10386,10 @@ impl MultiAtlasView {
             }
             return Ok(true);
         }
-        let v_canon = node_key_to_string(py, v)?;
+        let v_canon = match canonical {
+            Some(canonical) => canonical,
+            None => node_key_to_string(py, v)?,
+        };
         Ok(
             g.inner.has_edge(&self.node, &v_canon)
                 || g.has_live_edge_key_view(&self.node, &v_canon),
@@ -14553,15 +14624,13 @@ impl PyMultiGraph {
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
     /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
-        // Serve iteration from the live node_iter_mirror dict_keyiterator
-        // (matching nx) instead of rebuilding a Vec<PyObject> per call.
+        // Reuse the live mirror without invoking existing labels' protocols.
         let py = slf.py();
         if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
             drop(slf);
             return Ok(mapping.try_iter()?.into_any().unbind());
         }
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
@@ -14575,8 +14644,7 @@ impl PyMultiGraph {
     /// the raw iteration needs a name of its own.
     fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Internal live iteration for algorithms whose first label hash belongs
@@ -14598,10 +14666,9 @@ impl PyMultiGraph {
     /// — measured 0.70x against networkx over a 1000-node nbunch, which is
     /// ~15 ns per node and the whole gap.
     ///
-    /// The mirror is the same dict `_fnx_native_node_iter` above iterates, so it
-    /// is already maintained and authoritative; only its ITERATOR was reachable
-    /// from Python. Handing out the dict makes fnx's membership container the
-    /// same KIND of object networkx's is.
+    /// The lookup mirror is kept live alongside the callback-free iteration
+    /// mirror. Exposing its dict gives Python callers the same kind of
+    /// membership container that NetworkX uses.
     ///
     /// Callers must treat it as READ-ONLY — it is the live mirror, not a copy.
     /// The `_fnx_` name marks it private for that reason. Dict membership also
@@ -14692,25 +14759,30 @@ impl PyMultiGraph {
     }
 
     fn _native_adjacency_row(
-        slf: PyRef<'_, Self>,
+        slf: &Bound<'_, Self>,
         n: &Bound<'_, PyAny>,
     ) -> PyResult<Py<MultiAtlasView>> {
         let py = slf.py();
+        // Custom-key canonicalization can invoke Python. Borrow only after
+        // those callbacks, so the row binds the current graph state.
         let canonical = node_key_to_string(py, n)?;
-        if !slf.inner.has_node(&canonical) {
-            return Err(missing_key_error(n));
-        }
         // br-r37-c1-2ndmw: resolve this row's POSITION once, here, where the
         // canonical already exists — the row view is cached per node, so every
         // later membership test on it reuses this instead of re-hashing the
         // node key. Stamped with `nodes_seq` so a renumbering invalidates it.
-        let node_pos = slf
-            .inner
-            .get_node_index(&canonical)
-            .map(|index| (slf.nodes_seq, index));
+        let node_pos = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(missing_key_error(n));
+            }
+            graph
+                .inner
+                .get_node_index(&canonical)
+                .map(|index| (graph.nodes_seq, index))
+        };
         Py::new(
             py,
-            MultiAtlasView::new_with_pos(Py::from(slf), canonical, node_pos),
+            MultiAtlasView::new_with_pos(slf.clone().unbind(), canonical, node_pos),
         )
     }
 
@@ -14772,7 +14844,7 @@ impl PyMultiGraph {
             }
         }
         let Some(fallback) = MULTIGRAPH_GETITEM_FALLBACK.get(py) else {
-            return Ok(Self::_native_adjacency_row(slf.borrow(), n)?.into_any());
+            return Ok(Self::_native_adjacency_row(slf, n)?.into_any());
         };
         Ok(fallback.bind(py).call1((slf, n))?.unbind())
     }
@@ -16923,6 +16995,15 @@ impl PyMultiGraph {
         })
     }
 
+    pub(crate) fn native_node_iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        NodeIterationMirrors::public_iter(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| (canonical, self.py_node_key(py, canonical)))
+        })
+    }
+
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
     }
@@ -16969,13 +17050,10 @@ impl PyMultiGraph {
     }
 
     fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
-        let Some(dict) = self
-            .node_iter_mirror
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dict| dict.clone_ref(py))
-        else {
+        let Some(dict) = self.node_iter_mirror.lock().unwrap().as_mut().map(|dict| {
+            dict.public_values = false;
+            dict.clone_ref(py)
+        }) else {
             return Ok(());
         };
         dict.clear(py);
@@ -17069,10 +17147,7 @@ impl MultiGraphNodeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // Serve from the live node_iter_mirror dict_keyiterator (matching nx)
-        // instead of rebuilding a Vec<PyObject> of every display key per call.
-        let mirror = self.graph.borrow(py).node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        self.graph.borrow(py).native_node_iter(py)
     }
 
     #[pyo3(signature = (data=false, default=None))]
@@ -19831,8 +19906,7 @@ impl PyGraph {
             drop(slf);
             return Ok(mapping.try_iter()?.into_any().unbind());
         }
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
@@ -19846,8 +19920,7 @@ impl PyGraph {
     /// the raw iteration needs a name of its own.
     fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Live native node order without hashing the existing display labels.
@@ -19868,10 +19941,9 @@ impl PyGraph {
     /// — measured 0.70x against networkx over a 1000-node nbunch, which is
     /// ~15 ns per node and the whole gap.
     ///
-    /// The mirror is the same dict `_fnx_native_node_iter` above iterates, so it
-    /// is already maintained and authoritative; only its ITERATOR was reachable
-    /// from Python. Handing out the dict makes fnx's membership container the
-    /// same KIND of object networkx's is.
+    /// The lookup mirror is kept live alongside the callback-free iteration
+    /// mirror. Exposing its dict gives Python callers the same kind of
+    /// membership container that NetworkX uses.
     ///
     /// Callers must treat it as READ-ONLY — it is the live mirror, not a copy.
     /// The `_fnx_` name marks it private for that reason. Dict membership also

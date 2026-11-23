@@ -339,13 +339,11 @@ pub struct PyDiGraph {
     /// order for `edges(data=<key>)`. This caches dict lookup by edge, not
     /// attr values, so edge-attr mutations remain visible.
     pub(crate) edges_attr_dicts_cache: Option<(u64, u64, Vec<Py<PyDict>>)>,
-    /// Incremental mirror of PyGraph::node_iter_mirror — a live ``{node: None}``
-    /// PyDict kept in insertion order. ``iter(G)`` / ``list(G.nodes())`` return
-    /// its ``dict_keyiterator`` directly (matching nx's ``iter(self._nodes)``)
-    /// instead of rebuilding a ``Vec<PyObject>`` of every display key per call
-    /// (was 6-15x slower than nx). It is mutated IN PLACE by every node add /
-    /// remove / clear hook so mutation-during-iteration raises CPython's native
-    /// "dictionary changed size during iteration" exactly as nx does.
+    /// Live node dictionaries shared with PyGraph's iteration strategy.
+    /// Built-in labels use a key iterator; custom labels use canonical keys
+    /// and an original-label value iterator to avoid hashing during iteration.
+    /// Both dictionaries retain insertion order and are mutated in place by
+    /// node add/remove/clear hooks, preserving CPython's live cursor semantics.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<crate::NodeIterationMirrors>>,
     pub(crate) instance_dict_gc: crate::InstanceDictGc,
 }
@@ -735,8 +733,8 @@ pub struct PyMultiDiGraph {
     /// (u, v, key) tuples for edges(keys=True, data=False, no nbunch).
     pub(crate) edges_with_keys_cache: Option<(u64, u64, Vec<PyObject>)>,
     /// Incremental node-iteration mirror — see PyDiGraph::node_iter_mirror.
-    /// Live `{node: None}` dict serving iter(G)/list(G.nodes()) as a
-    /// dict_keyiterator, mutated in place by node add/remove/clear hooks.
+    /// Live key and canonical-value dictionaries serving node iteration
+    /// without custom-label callbacks, maintained by node mutation hooks.
     pub(crate) node_iter_mirror: std::sync::Mutex<Option<crate::NodeIterationMirrors>>,
     /// br-r37-c1-ic4cv: the present-key memo the other three classes already
     /// carry (br-r37-c1-6n9vm). MultiDiGraph was the only class without this
@@ -2704,6 +2702,15 @@ impl PyMultiDiGraph {
         })
     }
 
+    pub(crate) fn native_node_iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        crate::NodeIterationMirrors::public_iter(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| (canonical, self.py_node_key(py, canonical)))
+        })
+    }
+
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
     }
@@ -2750,13 +2757,10 @@ impl PyMultiDiGraph {
     }
 
     fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
-        let Some(dict) = self
-            .node_iter_mirror
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dict| dict.clone_ref(py))
-        else {
+        let Some(dict) = self.node_iter_mirror.lock().unwrap().as_mut().map(|dict| {
+            dict.public_values = false;
+            dict.clone_ref(py)
+        }) else {
             return Ok(());
         };
         dict.clear(py);
@@ -4632,19 +4636,30 @@ impl MultiDiAtlasView {
     }
 
     fn __contains__(&self, py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
-        let g = self.graph.borrow(py);
         let key_ptr = v.as_ptr() as usize;
-        if self.hit_key_ptr.load(Ordering::Relaxed) == key_ptr
-            && self.hit_nodes_seq.load(Ordering::Relaxed) == g.nodes_seq
-            && self.hit_edges_seq.load(Ordering::Relaxed) == g.edges_seq
+        if v.is_exact_instance_of::<PyString>()
+            && self.hit_key_ptr.load(Ordering::Relaxed) == key_ptr
         {
-            return Ok(true);
+            let g = self.graph.borrow(py);
+            if self.hit_nodes_seq.load(Ordering::Relaxed) == g.nodes_seq
+                && self.hit_edges_seq.load(Ordering::Relaxed) == g.edges_seq
+            {
+                return Ok(true);
+            }
         }
         // br-r37-c1-mh4sg: see MultiAtlasView::__contains__ — networkx hashes
         // this key, so an unhashable one is a TypeError and not False. Same gap
         // br-r37-c1-espyz closed on the simple AtlasView, masked here by the
         // explicit hash in the Python AdjacencyView sitting in front.
         crate::require_hashable_node_key(v)?;
+        // Custom protocols run before the graph borrow; their topology edits
+        // must be visible to the membership query that follows them.
+        let canonical = if crate::node_key_can_use_index_lookaside(v) {
+            None
+        } else {
+            Some(node_key_to_string(py, v)?)
+        };
+        let g = self.graph.borrow(py);
         // br-r37-c1-2ndmw: INDEX PATH, the directed twin of
         // `MultiAtlasView::__contains__`. The string path below canonicalises
         // `v` and then hashes BOTH endpoint keys inside `has_edge` — three
@@ -4684,7 +4699,10 @@ impl MultiDiAtlasView {
                 return Ok(true);
             }
         }
-        let v_canon = node_key_to_string(py, v)?;
+        let v_canon = match canonical {
+            Some(canonical) => canonical,
+            None => node_key_to_string(py, v)?,
+        };
         let (source, target) = self.endpoint_pair(v_canon);
         Ok(g.inner.has_edge(&source, &target) || g.has_live_edge_key_view(&source, &target))
     }
@@ -7707,15 +7725,13 @@ impl PyMultiDiGraph {
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
     /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
-        // Serve iteration from the live node_iter_mirror dict_keyiterator
-        // (matching nx) instead of rebuilding a Vec<PyObject> per call.
+        // Reuse the live mirror without invoking existing labels' protocols.
         let py = slf.py();
         if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
             drop(slf);
             return Ok(mapping.try_iter()?.into_any().unbind());
         }
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
@@ -7723,8 +7739,7 @@ impl PyMultiDiGraph {
     /// the undirected twin for why the two must stay separable.
     fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Live native node order without hashing the existing display labels.
@@ -7745,10 +7760,9 @@ impl PyMultiDiGraph {
     /// — measured 0.70x against networkx over a 1000-node nbunch, which is
     /// ~15 ns per node and the whole gap.
     ///
-    /// The mirror is the same dict `_fnx_native_node_iter` above iterates, so it
-    /// is already maintained and authoritative; only its ITERATOR was reachable
-    /// from Python. Handing out the dict makes fnx's membership container the
-    /// same KIND of object networkx's is.
+    /// The lookup mirror is kept live alongside the callback-free iteration
+    /// mirror. Exposing its dict gives Python callers the same kind of
+    /// membership container that NetworkX uses.
     ///
     /// Callers must treat it as READ-ONLY — it is the live mirror, not a copy.
     /// The `_fnx_` name marks it private for that reason. Dict membership also
@@ -7760,27 +7774,31 @@ impl PyMultiDiGraph {
     }
 
     fn _native_successor_row(
-        slf: PyRef<'_, Self>,
+        slf: &Bound<'_, Self>,
         n: &Bound<'_, PyAny>,
     ) -> PyResult<Py<MultiDiAtlasView>> {
         let py = slf.py();
+        // Canonicalization may call user protocols; bind the row afterward.
         let canonical = node_key_to_string(py, n)?;
-        if !slf.inner.has_node(&canonical) {
-            return Err(crate::missing_key_error(n));
-        }
         // br-r37-c1-2ndmw: resolve this row's POSITION once, here, where the
         // canonical already exists. The row view is reused for every membership
         // test on it, so this replaces an O(node key length) canonicalisation
         // per probe with one lookup. Stamped with `nodes_seq` so a renumbering
         // invalidates it. Mirrors `_native_multi_row` on the undirected side.
-        let node_pos = slf
-            .inner
-            .get_node_index(&canonical)
-            .map(|index| (slf.nodes_seq, index));
+        let node_pos = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(n));
+            }
+            graph
+                .inner
+                .get_node_index(&canonical)
+                .map(|index| (graph.nodes_seq, index))
+        };
         Py::new(
             py,
             MultiDiAtlasView::new_with_pos(
-                Py::from(slf),
+                slf.clone().unbind(),
                 canonical,
                 MultiDiAdjKind::Successors,
                 node_pos,
@@ -7825,27 +7843,31 @@ impl PyMultiDiGraph {
     }
 
     fn _native_predecessor_row(
-        slf: PyRef<'_, Self>,
+        slf: &Bound<'_, Self>,
         n: &Bound<'_, PyAny>,
     ) -> PyResult<Py<MultiDiAtlasView>> {
         let py = slf.py();
+        // Canonicalization may call user protocols; bind the row afterward.
         let canonical = node_key_to_string(py, n)?;
-        if !slf.inner.has_node(&canonical) {
-            return Err(crate::missing_key_error(n));
-        }
         // br-r37-c1-2ndmw: resolve this row's POSITION once, here, where the
         // canonical already exists. The row view is reused for every membership
         // test on it, so this replaces an O(node key length) canonicalisation
         // per probe with one lookup. Stamped with `nodes_seq` so a renumbering
         // invalidates it. Mirrors `_native_multi_row` on the undirected side.
-        let node_pos = slf
-            .inner
-            .get_node_index(&canonical)
-            .map(|index| (slf.nodes_seq, index));
+        let node_pos = {
+            let graph = slf.borrow();
+            if !graph.inner.has_node(&canonical) {
+                return Err(crate::missing_key_error(n));
+            }
+            graph
+                .inner
+                .get_node_index(&canonical)
+                .map(|index| (graph.nodes_seq, index))
+        };
         Py::new(
             py,
             MultiDiAtlasView::new_with_pos(
-                Py::from(slf),
+                slf.clone().unbind(),
                 canonical,
                 MultiDiAdjKind::Predecessors,
                 node_pos,
@@ -8106,7 +8128,7 @@ impl PyMultiDiGraph {
             }
         }
         let Some(fallback) = crate::MULTIDIGRAPH_GETITEM_FALLBACK.get(py) else {
-            return Ok(Self::_native_successor_row(slf.borrow(), n)?.into_any());
+            return Ok(Self::_native_successor_row(slf, n)?.into_any());
         };
         Ok(fallback.bind(py).call1((slf, n))?.unbind())
     }
@@ -11264,10 +11286,7 @@ impl MultiDiGraphNodeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // Serve from the live node_iter_mirror dict_keyiterator (matching nx)
-        // instead of rebuilding a Vec<PyObject> of every display key per call.
-        let mirror = self.graph.borrow(py).node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        self.graph.borrow(py).native_node_iter(py)
     }
 
     #[pyo3(signature = (data=false, default=None))]
@@ -12309,6 +12328,15 @@ impl PyDiGraph {
         })
     }
 
+    pub(crate) fn native_node_iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        crate::NodeIterationMirrors::public_iter(py, &self.node_iter_mirror, || {
+            self.inner
+                .nodes_ordered()
+                .into_iter()
+                .map(|canonical| (canonical, self.py_node_key(py, canonical)))
+        })
+    }
+
     /// True when the mirror has been materialised (so hooks must run).
     fn node_iter_mirror_active(&self) -> bool {
         self.node_iter_mirror.lock().unwrap().is_some()
@@ -12356,13 +12384,10 @@ impl PyDiGraph {
     }
 
     fn node_iter_mirror_clear(&self, py: Python<'_>) -> PyResult<()> {
-        let Some(dict) = self
-            .node_iter_mirror
-            .lock()
-            .unwrap()
-            .as_ref()
-            .map(|dict| dict.clone_ref(py))
-        else {
+        let Some(dict) = self.node_iter_mirror.lock().unwrap().as_mut().map(|dict| {
+            dict.public_values = false;
+            dict.clone_ref(py)
+        }) else {
             return Ok(());
         };
         dict.clear(py);
@@ -19519,18 +19544,13 @@ impl PyDiGraph {
     /// br-r37-c1-l7ww9: assigned `_node` storage wins, as it does for `__len__`
     /// and `__contains__` — an ordinary graph pays one bool test for the check.
     fn __iter__(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
-        // Serve iteration from the live node_iter_mirror dict — a
-        // ``dict_keyiterator`` (matching nx's ``iter(self._nodes)``) instead of
-        // rebuilding a Vec<PyObject> of every display key per call. The mirror's
-        // in-place mutation hooks give nx's native "changed size during
-        // iteration" semantics for free.
+        // Both mirrors preserve CPython's live mutation and cursor semantics.
         let py = slf.py();
         if let Some(mapping) = slf.instance_dict_gc.private_node_mapping(py)? {
             drop(slf);
             return Ok(mapping.try_iter()?.into_any().unbind());
         }
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Iterate node keys from the NATIVE store, ignoring any assigned `_node`
@@ -19538,8 +19558,7 @@ impl PyDiGraph {
     /// the undirected twin for why the two must stay separable.
     fn _fnx_native_node_iter(slf: PyRef<'_, Self>) -> PyResult<PyObject> {
         let py = slf.py();
-        let mirror = slf.node_iter_mirror_or_init(py)?;
-        Ok(mirror.bind(py).call_method0("__iter__")?.unbind())
+        slf.native_node_iter(py)
     }
 
     /// Live native node order without hashing the existing display labels.
@@ -19560,10 +19579,9 @@ impl PyDiGraph {
     /// — measured 0.70x against networkx over a 1000-node nbunch, which is
     /// ~15 ns per node and the whole gap.
     ///
-    /// The mirror is the same dict `_fnx_native_node_iter` above iterates, so it
-    /// is already maintained and authoritative; only its ITERATOR was reachable
-    /// from Python. Handing out the dict makes fnx's membership container the
-    /// same KIND of object networkx's is.
+    /// The lookup mirror is kept live alongside the callback-free iteration
+    /// mirror. Exposing its dict gives Python callers the same kind of
+    /// membership container that NetworkX uses.
     ///
     /// Callers must treat it as READ-ONLY — it is the live mirror, not a copy.
     /// The `_fnx_` name marks it private for that reason. Dict membership also
@@ -20108,13 +20126,9 @@ impl DiNodeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // NoData (list(G.nodes()) / for n in G.nodes()) serves the SAME live
-        // node_iter_mirror dict that PyDiGraph.__iter__ uses -> a
-        // ``dict_keyiterator`` (matching nx) in O(1) instead of rebuilding a
-        // Vec<PyObject> of every display key per call (was 15x slower than nx).
+        // NoData uses the same callback-free live iteration as the graph.
         if matches!(self.data, ViewData::NoData) {
-            let mirror = self.graph.borrow(py).node_iter_mirror_or_init(py)?;
-            return Ok(mirror.bind(py).call_method0("__iter__")?.unbind());
+            return self.graph.borrow(py).native_node_iter(py);
         }
         let g = self.graph.borrow(py);
         let nodes: Vec<String> = g

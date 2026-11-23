@@ -160,3 +160,104 @@ def test_repeated_iteration_is_stable_and_matches_networkx(cls_name):
     gfx.add_edge("a", "zz")
     for _ in range(3):
         assert list(rfx) == list(rnx)
+
+
+NATIVE_MULTI_ROWS = [
+    ("MultiGraph", "adj", "_native_adjacency_row"),
+    ("MultiDiGraph", "succ", "_native_successor_row"),
+    ("MultiDiGraph", "pred", "_native_predecessor_row"),
+]
+
+
+def _native_multi_row(lib, graph, direction, native_method, node):
+    if lib is fnx:
+        return getattr(graph, native_method)(node)
+    return getattr(graph, direction)[node]
+
+
+@pytest.mark.parametrize("cls_name,direction,native_method", NATIVE_MULTI_ROWS)
+@pytest.mark.parametrize("nested", [False, True], ids=["scalar", "tuple"])
+@pytest.mark.parametrize("mutation", ["add", "remove", "error"])
+def test_native_multi_row_membership_allows_hash_reentry(
+    cls_name, direction, native_method, nested, mutation
+):
+    """Hash once, outside the graph borrow, then observe the updated row.
+
+    These deliberately call the native row rather than its Python wrapper:
+    the wrapper's own guard otherwise masks a second, borrowed hash. A hash
+    that raises after mutation must preserve both its first exception and
+    exactly the side effects of NetworkX's single dict lookup.
+    """
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        other = (1,) if nested else 1
+        graph.add_nodes_from([0, other])
+        edge = (other, 0) if direction == "pred" else (0, other)
+        if mutation == "remove":
+            graph.add_edge(*edge)
+        row = _native_multi_row(lib, graph, direction, native_method, 0)
+        events = []
+
+        class Probe(int):
+            def __hash__(self):
+                events.append("hash")
+                if mutation == "error":
+                    graph.add_node(100 + len(events))
+                    raise LookupError("row hash failed", len(events))
+                if len(events) == 1:
+                    if mutation == "add":
+                        graph.add_edge(*edge)
+                    else:
+                        graph.remove_edge(*edge)
+                return int.__hash__(self)
+
+        probe = (Probe(1),) if nested else Probe(1)
+        try:
+            outcome = ("ok", probe in row)
+        except Exception as exc:  # noqa: BLE001
+            outcome = ("error", type(exc).__name__, exc.args)
+        results.append((outcome, events, list(graph), list(graph.edges(keys=True))))
+    assert results[1] == results[0]
+    assert results[0][1] == ["hash"]
+
+
+@pytest.mark.parametrize("cls_name,direction,native_method", NATIVE_MULTI_ROWS)
+def test_native_multi_row_binding_allows_custom_key_hash_reentry(
+    cls_name, direction, native_method
+):
+    """Resolving an existing custom node can safely mutate graph topology.
+
+    Generic custom-key canonicalization has separate hash-count semantics;
+    this regression fixes the graph-borrow boundary and resulting row only.
+    """
+    results = []
+    for lib in (nx, fnx):
+        graph = getattr(lib, cls_name)()
+        armed = False
+        mutated = False
+
+        class Node:
+            def __hash__(self):
+                nonlocal mutated
+                if armed and not mutated:
+                    mutated = True
+                    graph.add_edge("during-hash", "new-neighbor")
+                return 197
+
+        node = Node()
+        edge = ("neighbor", node) if direction == "pred" else (node, "neighbor")
+        graph.add_edge(*edge)
+        armed = True
+        row = _native_multi_row(lib, graph, direction, native_method, node)
+        armed = False
+        results.append(
+            (
+                list(row),
+                len(row),
+                mutated,
+                graph.has_edge("during-hash", "new-neighbor"),
+                graph.number_of_nodes(),
+            )
+        )
+    assert results[1] == results[0]

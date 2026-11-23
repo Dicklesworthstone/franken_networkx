@@ -285,16 +285,12 @@ impl NodeView {
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<PyObject> {
-        // br-r37-c1-spg9n: the NoData path (list(G.nodes()) / for n in G.nodes())
-        // serves the SAME cached node_iter_mirror dict that PyGraph.__iter__ uses
-        // -> a ``dict_keyiterator`` (matching nx's ``iter(self._nodes)``) instead
-        // of rebuilding a Vec<PyObject> of every node display key per call. Was
-        // ~10x slower than nx AND the wrong iterator type (NodeViewIterator); the
-        // mirror gives both parity speed and nx's iterator type + its native
-        // "changed size during iteration" semantics.
+        // NoData shares the graph's live node dictionaries. Exact built-in
+        // labels keep a dict_keyiterator; custom labels use the value mirror
+        // without hashing or comparing existing labels. Both retain native
+        // dictionary mutation and cursor semantics.
         if matches!(self.data, NodeViewData::NoData) {
-            let mirror = self.graph.borrow(py).node_iter_mirror_or_init(py)?;
-            return Ok(mirror.bind(py).call_method0("__iter__")?.unbind());
+            return self.graph.borrow(py).native_node_iter(py);
         }
         let nodes: Vec<String> = {
             let g = self.graph.borrow(py);
