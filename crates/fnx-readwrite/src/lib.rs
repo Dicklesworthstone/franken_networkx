@@ -2928,6 +2928,22 @@ impl EdgeListEngine {
     }
 
     pub fn read_gexf(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.read_gexf_report(input, false)
+    }
+
+    /// Validate complete GEXF input before an owned decoder reconstructs it.
+    ///
+    /// Parallel edges are valid here and every record is checked. The report's
+    /// simple graph is only a policy-carrying projection, not the decoded graph.
+    pub fn validate_gexf(&mut self, input: &str) -> Result<ReadWriteReport, ReadWriteError> {
+        self.read_gexf_report(input, true)
+    }
+
+    fn read_gexf_report(
+        &mut self,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<ReadWriteReport, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "read_gexf".to_owned(),
             requested_backend: None,
@@ -2952,7 +2968,13 @@ impl EdgeListEngine {
             warnings.push(warning.clone());
             self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
         }
-        self.read_gexf_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.read_gexf_into(
+            &mut graph,
+            &mut graph_attrs,
+            &mut warnings,
+            input,
+            validation_only,
+        )?;
         self.record(
             "read_gexf",
             DecisionAction::Allow,
@@ -2963,6 +2985,22 @@ impl EdgeListEngine {
     }
 
     pub fn read_digraph_gexf(&mut self, input: &str) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.read_digraph_gexf_report(input, false)
+    }
+
+    /// Directed twin of `validate_gexf`; the report is not a decoded multigraph.
+    pub fn validate_digraph_gexf(
+        &mut self,
+        input: &str,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
+        self.read_digraph_gexf_report(input, true)
+    }
+
+    fn read_digraph_gexf_report(
+        &mut self,
+        input: &str,
+        validation_only: bool,
+    ) -> Result<DiReadWriteReport, ReadWriteError> {
         self.dispatch.resolve(&DispatchRequest {
             operation: "read_gexf".to_owned(),
             requested_backend: None,
@@ -2987,7 +3025,13 @@ impl EdgeListEngine {
             warnings.push(warning.clone());
             self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
         }
-        self.read_gexf_into(&mut graph, &mut graph_attrs, &mut warnings, input)?;
+        self.read_gexf_into(
+            &mut graph,
+            &mut graph_attrs,
+            &mut warnings,
+            input,
+            validation_only,
+        )?;
         self.record(
             "read_gexf",
             DecisionAction::Allow,
@@ -3117,6 +3161,7 @@ impl EdgeListEngine {
         graph_attrs: &mut AttrMap,
         warnings: &mut Vec<String>,
         input: &str,
+        validation_only: bool,
     ) -> Result<(), ReadWriteError>
     where
         G: GraphLike,
@@ -3124,7 +3169,7 @@ impl EdgeListEngine {
         let mut reader = Reader::from_str(input);
         reader.config_mut().trim_text(true);
 
-        let mut attr_defs: BTreeMap<String, GexfAttrDef> = BTreeMap::new();
+        let mut attr_defs: BTreeMap<String, BTreeMap<String, GexfAttrDef>> = BTreeMap::new();
         let mut current_attr_class: Option<String> = None;
         let mut current_node: Option<String> = None;
         let mut current_edge: Option<(String, String)> = None;
@@ -3148,6 +3193,7 @@ impl EdgeListEngine {
                         &mut current_edge_skip,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
+                        validation_only,
                     )?;
                 }
                 Ok(Event::Empty(ref element)) => {
@@ -3164,6 +3210,7 @@ impl EdgeListEngine {
                         &mut current_edge_skip,
                         &mut pending_node_attrs,
                         &mut pending_edge_attrs,
+                        validation_only,
                     )?;
                     self.handle_gexf_end_element(
                         xml_local_name(element.name().as_ref()),
@@ -3218,13 +3265,14 @@ impl EdgeListEngine {
         graph: &mut G,
         graph_attrs: &mut AttrMap,
         warnings: &mut Vec<String>,
-        attr_defs: &mut BTreeMap<String, GexfAttrDef>,
+        attr_defs: &mut BTreeMap<String, BTreeMap<String, GexfAttrDef>>,
         current_attr_class: &mut Option<String>,
         current_node: &mut Option<String>,
         current_edge: &mut Option<(String, String)>,
         current_edge_skip: &mut bool,
         pending_node_attrs: &mut AttrMap,
         pending_edge_attrs: &mut AttrMap,
+        validation_only: bool,
     ) -> Result<(), ReadWriteError>
     where
         G: GraphLike,
@@ -3278,10 +3326,11 @@ impl EdgeListEngine {
                     self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
                     return Ok(());
                 }
-                attr_defs.insert(
-                    id,
+                let class = current_attr_class.clone().unwrap_or_default();
+                attr_defs.entry(id).or_default().insert(
+                    class.trim().to_ascii_lowercase(),
                     GexfAttrDef {
-                        class: current_attr_class.clone().unwrap_or_default(),
+                        class,
                         title,
                         attr_type,
                     },
@@ -3367,6 +3416,13 @@ impl EdgeListEngine {
                     warnings.push(warning.clone());
                     self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
                     *current_edge_skip = true;
+                } else if graph.has_edge(&source, &target) && validation_only {
+                    self.record(
+                        "read_gexf",
+                        DecisionAction::Allow,
+                        "gexf parallel edges require multigraph reconstruction",
+                        0.10,
+                    );
                 } else if graph.has_edge(&source, &target) {
                     let warning = format!(
                         "gexf multiedge not supported: source={source:?} target={target:?}"
@@ -3395,7 +3451,25 @@ impl EdgeListEngine {
                         _ => {}
                     }
                 }
-                let Some(def) = attr_defs.get(&attr_id).cloned() else {
+                let target_class = if current_edge.is_some() {
+                    "edge"
+                } else if current_node.is_some() {
+                    "node"
+                } else {
+                    "graph"
+                };
+                // GEXF reuses attribute IDs across independent node/edge
+                // scopes. Resolve the matching declaration before validating
+                // its value; a later edge declaration cannot replace a node
+                // declaration with the same ID. Retain mismatched-scope
+                // diagnostics when no applicable declaration exists.
+                let definition = attr_defs.get(&attr_id).and_then(|scopes| {
+                    scopes
+                        .get(target_class)
+                        .or_else(|| scopes.get(""))
+                        .or_else(|| scopes.values().next())
+                });
+                let Some(def) = definition.cloned() else {
                     let warning = format!("gexf attvalue key not declared: key={attr_id}");
                     if self.mode == CompatibilityMode::Strict {
                         self.record("read_gexf", DecisionAction::FailClosed, &warning, 1.0);
@@ -3407,13 +3481,6 @@ impl EdgeListEngine {
                     warnings.push(warning.clone());
                     self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
                     return Ok(());
-                };
-                let target_class = if current_edge.is_some() {
-                    "edge"
-                } else if current_node.is_some() {
-                    "node"
-                } else {
-                    "graph"
                 };
                 if !gexf_class_matches(&def.class, target_class) {
                     let warning = format!(
@@ -3431,8 +3498,13 @@ impl EdgeListEngine {
                     self.record("read_gexf", DecisionAction::FullValidate, &warning, 0.7);
                     return Ok(());
                 }
-                let value =
-                    self.parse_gexf_typed_value(&attr_id, &def.attr_type, raw_value, warnings)?;
+                let value = self.parse_gexf_typed_value(
+                    &attr_id,
+                    &def.attr_type,
+                    raw_value,
+                    warnings,
+                    validation_only,
+                )?;
                 if current_edge.is_some() {
                     pending_edge_attrs.insert(def.title, value);
                 } else if current_node.is_some() {
@@ -3512,6 +3584,7 @@ impl EdgeListEngine {
         attr_type: &str,
         raw_value: String,
         warnings: &mut Vec<String>,
+        validation_only: bool,
     ) -> Result<CgseValue, ReadWriteError> {
         if raw_value.is_empty() {
             return Ok(CgseValue::String(raw_value));
@@ -3525,10 +3598,26 @@ impl EdgeListEngine {
                 "false" | "0" => Ok(CgseValue::Bool(false)),
                 _ => Err("boolean"),
             },
-            "integer" | "int" | "long" => trimmed
-                .parse::<i64>()
-                .map(CgseValue::Int)
-                .map_err(|_| "integer"),
+            "integer" | "int" | "long" => {
+                if let Ok(value) = trimmed.parse::<i64>() {
+                    Ok(CgseValue::Int(value))
+                } else if validation_only {
+                    // The complete decoder owns arbitrary-precision integers.
+                    // Keep their literal in this policy-only projection, but
+                    // require the same signed decimal syntax as native ints.
+                    let digits = trimmed
+                        .strip_prefix('+')
+                        .or_else(|| trimmed.strip_prefix('-'))
+                        .unwrap_or(trimmed);
+                    if !digits.is_empty() && digits.bytes().all(|digit| digit.is_ascii_digit()) {
+                        Ok(CgseValue::String(raw_value))
+                    } else {
+                        Err("integer")
+                    }
+                } else {
+                    Err("integer")
+                }
+            }
             "float" | "double" => trimmed
                 .parse::<f64>()
                 .map(CgseValue::Float)
@@ -7720,6 +7809,178 @@ mod tests {
         assert_eq!(
             node_attrs.get("label"),
             Some(&CgseValue::String("x y z w \nq".to_owned()))
+        );
+    }
+
+    #[test]
+    fn gexf_validation_parallel_edges_keeps_ordinary_reader_contract() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><nodes><node id="a"/><node id="b"/></nodes>
+<edges><edge id="first" source="a" target="b" weight="2"/>
+<edge id="second" source="b" target="a" weight="3"/></edges></graph></gexf>"#;
+        let mut engine = EdgeListEngine::strict();
+        let report = engine.validate_gexf(input).expect("validation projection");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 1, "not a decoded multigraph");
+        assert!(
+            report
+                .graph
+                .evidence_ledger()
+                .records()
+                .iter()
+                .any(|record| {
+                    record.rationale == "gexf parallel edges require multigraph reconstruction"
+                        && record.action == DecisionAction::Allow
+                })
+        );
+        assert!(matches!(
+            engine.read_gexf(input),
+            Err(ReadWriteError::FailClosed { .. })
+        ));
+        assert!(
+            engine.validate_gexf(input).is_ok(),
+            "validation state must not leak into ordinary reads"
+        );
+    }
+
+    #[test]
+    fn gexf_validation_wide_integers_keep_syntax_checks() {
+        for literal in [
+            "9223372036854775808",
+            "-9223372036854775809",
+            "+0001237940039285380274899124225",
+        ] {
+            let input = format!(
+                r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="node">
+<attribute id="r" title="rank" type="long"/></attributes><nodes>
+<node id="a"><attvalues><attvalue for="r" value="{literal}"/></attvalues></node>
+</nodes></graph></gexf>"#
+            );
+            for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+                let report = EdgeListEngine::new(mode)
+                    .validate_gexf(&input)
+                    .expect("wide integers are valid for complete decoding");
+                assert!(report.warnings.is_empty());
+                assert_eq!(
+                    report
+                        .graph
+                        .node_attrs("a")
+                        .and_then(|attrs| attrs.get("rank")),
+                    Some(&CgseValue::String(literal.to_owned()))
+                );
+            }
+            assert!(EdgeListEngine::strict().read_gexf(&input).is_err());
+        }
+
+        for literal in ["+", "--9223372036854775809", "1_000", "１２３"] {
+            let input = format!(
+                r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="node">
+<attribute id="r" title="rank" type="long"/></attributes><nodes>
+<node id="a"><attvalues><attvalue for="r" value="{literal}"/></attvalues></node>
+</nodes></graph></gexf>"#
+            );
+            assert!(EdgeListEngine::strict().validate_gexf(&input).is_err());
+            let report = EdgeListEngine::hardened()
+                .validate_gexf(&input)
+                .expect("invalid numeric syntax remains a bounded repair");
+            assert!(
+                report
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("expected=integer"))
+            );
+        }
+    }
+
+    #[test]
+    fn gexf_validation_checks_later_parallel_edge_values() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="edge">
+<attribute id="r" title="rank" type="long"/></attributes>
+<nodes><node id="a"/><node id="b"/></nodes><edges>
+<edge source="a" target="b"><attvalues><attvalue for="r" value="3"/></attvalues></edge>
+<edge source="a" target="b"><attvalues><attvalue for="r" value="invalid"/></attvalues></edge>
+</edges></graph></gexf>"#;
+        assert!(matches!(
+            EdgeListEngine::strict().validate_gexf(input),
+            Err(ReadWriteError::FailClosed { .. })
+        ));
+        let report = EdgeListEngine::hardened()
+            .validate_gexf(input)
+            .expect("repair evidence remains separate from full decoding");
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("invalid"))
+        );
+        assert!(
+            report
+                .graph
+                .evidence_ledger()
+                .records()
+                .iter()
+                .any(|record| {
+                    record.action == DecisionAction::FullValidate
+                        && record.rationale.contains("invalid")
+                })
+        );
+    }
+
+    #[test]
+    fn gexf_validation_directed_parallel_projection_retains_direction_checks() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="directed"><nodes><node id="a"/><node id="b"/></nodes>
+<edges><edge source="a" target="b"/><edge source="a" target="b"/>
+<edge source="b" target="a"/></edges></graph></gexf>"#;
+        let report = EdgeListEngine::strict()
+            .validate_digraph_gexf(input)
+            .expect("directed projection");
+        assert!(report.warnings.is_empty());
+        assert_eq!(report.graph.edge_count(), 2);
+        assert!(report.graph.has_edge("a", "b"));
+        assert!(report.graph.has_edge("b", "a"));
+        assert!(EdgeListEngine::strict().validate_gexf(input).is_err());
+        assert!(EdgeListEngine::strict().read_digraph_gexf(input).is_err());
+    }
+
+    #[test]
+    fn gexf_validation_keeps_attribute_ids_independent_across_scopes() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="node">
+<attribute id="shared" title="rank" type="long"/></attributes><attributes class="edge">
+<attribute id="shared" title="color" type="string"/></attributes><nodes>
+<node id="a"><attvalues><attvalue for="shared" value="7"/></attvalues></node>
+<node id="b"/></nodes><edges><edge source="a" target="b"><attvalues>
+<attvalue for="shared" value="blue"/></attvalues></edge></edges></graph></gexf>"#;
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            let report = EdgeListEngine::new(mode)
+                .validate_gexf(input)
+                .expect("node and edge declarations have independent IDs");
+            assert!(report.warnings.is_empty());
+            assert_eq!(
+                report
+                    .graph
+                    .node_attrs("a")
+                    .and_then(|attrs| attrs.get("rank")),
+                Some(&CgseValue::Int(7))
+            );
+            assert_eq!(
+                report
+                    .graph
+                    .edge_attrs("a", "b")
+                    .and_then(|attrs| attrs.get("color")),
+                Some(&CgseValue::String("blue".to_owned()))
+            );
+        }
+        let wrong_scope =
+            input.replace("for=\"shared\" value=\"7\"", "for=\"missing\" value=\"7\"");
+        assert!(
+            EdgeListEngine::strict()
+                .validate_gexf(&wrong_scope)
+                .is_err()
         );
     }
 

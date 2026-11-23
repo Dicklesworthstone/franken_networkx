@@ -1447,6 +1447,9 @@ def write_graphml(
 def read_gexf(
     path: Union[str, PathLike, IO[str]], mode: Optional[str] = None
 ) -> Union[Graph, DiGraph]: ...
+def validate_gexf(
+    path: Union[str, PathLike, IO[str]], mode: Optional[str] = None
+) -> Union[Graph, DiGraph]: ...
 def write_gexf(
     g: Union[Graph, DiGraph], path: Union[str, PathLike, IO[str]]
 ) -> None: ...

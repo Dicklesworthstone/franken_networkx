@@ -1974,6 +1974,23 @@ File ownership, compression, relabeling, native simple-input admission and
 explicit strict/hardened validation remain the responsibility of the existing
 readwrite boundary. Repaired native results retain their policy ledger.
 
+For rich input, explicit strict/hardened modes and ambient hardened mode use a
+native validation projection before complete reconstruction. The projection
+validates every parallel edge and keeps node/edge attribute IDs in independent
+scopes; it is not the public multigraph result. Its validation-only numeric
+path accepts signed decimal integers beyond the native i64 range. The complete
+decoder retains their exact Python integer values, defaults, edge keys and
+metadata, and receives the validated policy ledger. The ordinary native reader
+retains its simple-graph and bounded-integer contract.
+
+When native recovery repairs a document, a simple projection cannot preserve
+parallel edges, dynamic values, hierarchy, visualization data or wide integer
+attributes. The boundary raises `NetworkXNotImplemented` for those repairs
+rather than returning incomplete data. The full input scan retains rich-feature
+markers on malformed XML, and repaired rich documents cannot return projections
+that omit defaults or metadata. Scalar repairs on representable simple inputs
+continue to return the native result and its policy evidence.
+
 ## 54. Complete GML Decoding
 
 Strict GML decoding parses the complete ordered key/value document before

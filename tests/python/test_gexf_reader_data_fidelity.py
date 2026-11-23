@@ -179,7 +179,146 @@ def test_reverse_undirected_pairs_preserve_parallel_edges():
     assert actual.number_of_edges() == 2
 
 
-def test_node_and_edge_attribute_ids_have_separate_scopes():
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("mode", ("strict", "hardened", "ambient"))
+@pytest.mark.parametrize("entrypoint", ("top_level", "readwrite", "gexf"))
+@pytest.mark.parametrize("typed_labels", (False, True))
+def test_mode_gexf_preserves_complete_parallel_graph(
+    monkeypatch, directed, mode, entrypoint, typed_labels,
+):
+    graph = (nx.MultiDiGraph if directed else nx.MultiGraph)(name="Mode graph")
+    graph.graph["node_default"] = {"category": "default node"}
+    graph.graph["edge_default"] = {"category": "default edge"}
+    graph.add_node("01", label="First", history=[(1, 0.0, 1.0)], viz={"size": 2.5})
+    graph.add_node("02", label="Second", category="measured")
+    graph.add_node("09", label="Isolated")
+    graph.add_edge("01", "02", key="first", weight=2.5, history=[(3, 0.0, 1.0)])
+    graph.add_edge("01", "02", key="second", weight=4.5, note="parallel")
+    graph.add_edge("02", "01", key="reverse", weight=1.5)
+    graph.add_edge("02", "02", key="loop", weight=0.5)
+    payload = _payload(graph)
+    options = {"node_type": int, "relabel": True} if typed_labels else {}
+    expected = nx.read_gexf(BytesIO(payload), **options)
+    _forbid_gexf_delegation(monkeypatch)
+    reader = {
+        "top_level": fnx.read_gexf,
+        "readwrite": readwrite.read_gexf,
+        "gexf": readwrite.gexf.read_gexf,
+    }[entrypoint]
+    stream = BytesIO(payload)
+    if mode == "ambient":
+        with fnx.compatibility_mode("hardened"):
+            actual = reader(stream, **options)
+    else:
+        actual = reader(stream, mode=mode, **options)
+    _assert_same(actual, expected)
+    assert actual.is_multigraph()
+    assert actual.number_of_edges() == 4
+    assert actual.mode == ("hardened" if mode == "ambient" else mode)
+    assert actual.decision_records()
+    assert all(record["action"] == "allow" for record in actual.decision_records())
+    assert all(record["mode"] == actual.mode for record in actual.decision_records())
+    assert not stream.closed
+
+
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("invalid", ("numeric", "undeclared", "incompatible"))
+@pytest.mark.parametrize("mode", ("strict", "hardened"))
+def test_gexf_mode_validation_checks_later_parallel_records(directed, invalid, mode):
+    title = "__fnx_incompatible_future" if invalid == "incompatible" else "rank"
+    attribute_type = "string" if invalid == "incompatible" else "long"
+    key = "missing" if invalid == "undeclared" else "r"
+    value = "invalid" if invalid == "numeric" else "3"
+    payload = _document(
+        '<attributes class="edge">'
+        f'<attribute id="r" title="{title}" type="{attribute_type}"/></attributes>'
+        '<nodes><node id="a"/><node id="b"/></nodes><edges>'
+        '<edge id="first" source="a" target="b"/>'
+        '<edge id="second" source="a" target="b"><attvalues>'
+        f'<attvalue for="{key}" value="{value}"/></attvalues></edge></edges>',
+        direction="directed" if directed else "undirected",
+    )
+    conversions = []
+
+    def node_type(value):
+        conversions.append(value)
+        return value
+
+    expected_error = OSError if mode == "strict" else fnx.NetworkXNotImplemented
+    with pytest.raises(expected_error):
+        fnx.read_gexf(BytesIO(payload), node_type=node_type, mode=mode)
+    assert conversions == []
+
+
+@pytest.mark.parametrize("mode", ("strict", "hardened"))
+def test_gexf_native_reader_does_not_return_validation_projection(mode):
+    payload = _document(
+        '<nodes><node id="a"/><node id="b"/></nodes><edges>'
+        '<edge id="first" source="a" target="b"/>'
+        '<edge id="second" source="a" target="b"/></edges>'
+    )
+    if mode == "strict":
+        with pytest.raises(OSError):
+            fnx._fnx.read_gexf(BytesIO(payload), mode=mode)
+    else:
+        native = fnx._fnx.read_gexf(BytesIO(payload), mode=mode)
+        assert not native.is_multigraph()
+        assert native.number_of_edges() == 1
+        assert any(record["action"] == "full_validate" for record in native.decision_records())
+    actual = fnx.read_gexf(BytesIO(payload), mode=mode)
+    assert actual.is_multigraph()
+    assert actual.number_of_edges() == 2
+    assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("rich_body", (
+    '<nodes><node id="a"/><node id="b"/></nodes><edges>'
+    '<edge source="a" target="b"/><edge source="a" target="b"/></edges>',
+    '<nodes><node id="a"><viz:size value="2.5"/></node></nodes>',
+    '<nodes><node id="a"><nodes><node id="b"/></nodes></node></nodes>',
+    '<attributes class="node" mode="dynamic"><attribute id="r" title="rank" type="long"/>'
+    '</attributes><nodes><node id="a"><attvalues>'
+    '<attvalue for="r" value="1" start="0" end="1"/></attvalues></node></nodes>',
+))
+def test_gexf_rich_recovery_cannot_return_lossy_simple_projection(rich_body):
+    payload = _reader_document(rich_body, graph_attributes='defaultedgetype="bogus"')
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+
+def test_gexf_trailing_xml_error_retains_rich_recovery_guard():
+    payload = _document(
+        '<nodes><node id="a"/><node id="b"/></nodes><edges>'
+        '<edge source="a" target="b"/><edge source="a" target="b"/></edges>'
+    ).replace(b"</gexf>", b"</unexpected>")
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+
+@pytest.mark.parametrize("scope", ("node", "edge"))
+@pytest.mark.parametrize("value", ("7", str(2**90 + 1)))
+def test_gexf_malformed_xml_cannot_discard_defaults(scope, value):
+    payload = _document(
+        f'<attributes class="{scope}"><attribute id="r" title="rank" type="long">'
+        f'<default>{value}</default></attribute></attributes>'
+        '<nodes><node id="a"/><node id="b"/></nodes>'
+        '<edges><edge source="a" target="b"/></edges>'
+    )
+    malformed = payload.replace(b"</gexf>", b"</unexpected>")
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(malformed), mode="hardened")
+
+    repaired_direction = payload.replace(
+        b'defaultedgetype="undirected"', b'defaultedgetype="bogus"'
+    )
+    actual = fnx.read_gexf(BytesIO(repaired_direction), mode="hardened")
+    assert actual.graph[f"{scope}_default"] == {"rank": int(value)}
+    assert type(actual.graph[f"{scope}_default"]["rank"]) is int
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_node_and_edge_attribute_ids_have_separate_scopes(mode):
     payload = _document(
         '<attributes class="node"><attribute id="0" title="rank" type="long"/></attributes>'
         '<attributes class="edge"><attribute id="0" title="color" type="string"/></attributes>'
@@ -187,7 +326,12 @@ def test_node_and_edge_attribute_ids_have_separate_scopes():
         '<node id="b"/></nodes><edges><edge source="a" target="b">'
         '<attvalues><attvalue for="0" value="blue"/></attvalues></edge></edges>'
     )
-    _assert_same(fnx.read_gexf(BytesIO(payload)), nx.read_gexf(BytesIO(payload)))
+    options = {} if mode is None else {"mode": mode}
+    actual = fnx.read_gexf(BytesIO(payload), **options)
+    _assert_same(actual, nx.read_gexf(BytesIO(payload)))
+    if mode is not None:
+        assert actual.mode == mode
+        assert all(record["action"] == "allow" for record in actual.decision_records())
 
 
 @pytest.mark.parametrize("mode", ("strict", "hardened"))
@@ -235,14 +379,101 @@ def test_rich_features_do_not_bypass_native_recovery_rules(old, new):
     assert any(record["action"] == "full_validate" for record in actual.decision_records())
 
 
-def test_wide_integer_recovery_still_follows_explicit_native_policy():
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("mode", ("strict", "hardened", "ambient"))
+@pytest.mark.parametrize("kind", ("int", "integer", "long"))
+@pytest.mark.parametrize("value", (
+    str(2**90 + 1), str(-(2**90 + 1)), "+0001237940039285380274899124225",
+))
+def test_wide_integer_modes_preserve_values_and_defaults(directed, mode, kind, value):
+    payload = _document(
+        '<attributes class="node">'
+        f'<attribute id="r" title="rank" type="{kind}"><default>{value}</default>'
+        '</attribute></attributes><attributes class="edge">'
+        f'<attribute id="r" title="rank" type="{kind}"><default>{value}</default>'
+        '</attribute></attributes><nodes><node id="a"><attvalues>'
+        f'<attvalue for="r" value="{value}"/></attvalues></node>'
+        '<node id="b"/></nodes><edges><edge source="a" target="b"><attvalues>'
+        f'<attvalue for="r" value="{value}"/></attvalues></edge>'
+        '<edge source="b" target="b"/></edges>',
+        direction="directed" if directed else "undirected",
+    )
+    expected = nx.read_gexf(BytesIO(payload))
+    if mode == "ambient":
+        with fnx.compatibility_mode("hardened"):
+            actual = fnx.read_gexf(BytesIO(payload))
+    else:
+        actual = fnx.read_gexf(BytesIO(payload), mode=mode)
+    _assert_same(actual, expected)
+    assert type(actual.nodes["a"]["rank"]) is int
+    assert type(actual["a"]["b"]["rank"]) is int
+    assert type(actual.graph["node_default"]["rank"]) is int
+    assert type(actual.graph["edge_default"]["rank"]) is int
+    assert actual.nodes["a"]["rank"] == int(value)
+    assert "rank" not in actual.nodes["b"]
+    assert "rank" not in actual["b"]["b"]
+    assert actual.mode == ("hardened" if mode == "ambient" else mode)
+    assert actual.decision_records()
+    assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+def test_wide_integer_native_reader_retains_bounded_scalar_contract():
     payload = _policy_payload().replace(b'value="5"', f'value="{2**80 + 1}"'.encode())
     with pytest.raises(OSError, match="expected=integer"):
-        fnx.read_gexf(BytesIO(payload), mode="strict")
+        fnx._fnx.read_gexf(BytesIO(payload), mode="strict")
     with fnx.compatibility_mode("hardened"):
-        actual = fnx.read_gexf(BytesIO(payload))
+        actual = fnx._fnx.read_gexf(BytesIO(payload))
     assert actual.nodes["0"]["rank"] == str(2**80 + 1)
     assert actual.mode == "hardened"
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("mode", ("hardened", "ambient"))
+@pytest.mark.parametrize("value", (str(2**80 + 1), f"\u00a0{2**80 + 1}\u00a0"))
+def test_wide_integer_recovery_cannot_expose_string_projection(mode, value):
+    payload = _policy_payload().replace(b'value="5"', f'value="{value}"'.encode())
+    payload = payload.replace(b'defaultedgetype="undirected"', b'defaultedgetype="bogus"')
+    conversions = []
+
+    def node_type(value):
+        conversions.append(value)
+        return value
+
+    with pytest.raises(fnx.NetworkXNotImplemented, match="wide integers"):
+        if mode == "ambient":
+            with fnx.compatibility_mode("hardened"):
+                fnx.read_gexf(BytesIO(payload), node_type=node_type)
+        else:
+            fnx.read_gexf(BytesIO(payload), node_type=node_type, mode=mode)
+    assert conversions == []
+
+
+@pytest.mark.parametrize("scope", ("node", "edge"))
+def test_wide_integer_recovery_recognizes_native_normalized_attribute_scopes(scope):
+    values = f'<attvalues><attvalue for="r" value="{2**80 + 1}"/></attvalues>'
+    node_values = values if scope == "node" else ""
+    edge_values = values if scope == "edge" else ""
+    payload = _document(
+        f'<attributes class=" {scope.upper()} ">'
+        '<attribute id="r" title="rank" type="long"/></attributes>'
+        f'<nodes><node id="a">{node_values}</node><node id="b"/></nodes>'
+        f'<edges><edge source="a" target="b">{edge_values}</edge></edges>',
+        direction="bogus",
+    )
+    with pytest.raises(fnx.NetworkXNotImplemented, match="wide integers"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+
+@pytest.mark.parametrize("value", (
+    "9223372036854775807", "-9223372036854775808",
+    "+0009223372036854775807", "-0009223372036854775808",
+))
+def test_native_sized_integer_recovery_keeps_numeric_values(value):
+    payload = _policy_payload().replace(b'value="5"', f'value="{value}"'.encode())
+    payload = payload.replace(b'defaultedgetype="undirected"', b'defaultedgetype="bogus"')
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+    assert actual.nodes["0"]["rank"] == int(value)
+    assert type(actual.nodes["0"]["rank"]) is int
     assert any(record["action"] == "full_validate" for record in actual.decision_records())
 
 

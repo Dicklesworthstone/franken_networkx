@@ -1847,6 +1847,21 @@ fn write_graphml(py: Python<'_>, g: &Bound<'_, PyAny>, path: &Bound<'_, PyAny>) 
 #[pyfunction]
 #[pyo3(signature = (path, mode=None))]
 fn read_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyObject> {
+    read_gexf_report(py, path, mode, false)
+}
+
+#[pyfunction]
+#[pyo3(signature = (path, mode=None))]
+fn validate_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyObject> {
+    read_gexf_report(py, path, mode, true)
+}
+
+fn read_gexf_report(
+    py: Python<'_>,
+    path: &Bound<'_, PyAny>,
+    mode: Option<&str>,
+    validation_only: bool,
+) -> PyResult<PyObject> {
     let input = read_input(py, path)?;
     let cmode = crate::resolve_compatibility_mode(mode)?;
     let mut engine = EdgeListEngine::new(cmode);
@@ -1856,7 +1871,13 @@ fn read_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyR
         .map_err(rw_error_to_py)?
     {
         let report = py
-            .allow_threads(|| engine.read_digraph_gexf(&input))
+            .allow_threads(|| {
+                if validation_only {
+                    engine.validate_digraph_gexf(&input)
+                } else {
+                    engine.read_digraph_gexf(&input)
+                }
+            })
             .map_err(rw_error_to_py)?;
         Ok(di_report_to_pydigraph(py, report)?
             .into_pyobject(py)?
@@ -1864,7 +1885,13 @@ fn read_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyR
             .unbind())
     } else {
         let report = py
-            .allow_threads(|| engine.read_gexf(&input))
+            .allow_threads(|| {
+                if validation_only {
+                    engine.validate_gexf(&input)
+                } else {
+                    engine.read_gexf(&input)
+                }
+            })
             .map_err(rw_error_to_py)?;
         Ok(report_to_pygraph(py, report)?
             .into_pyobject(py)?
@@ -4288,6 +4315,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(copy_readwrite_policy, m)?)?;
     m.add_function(wrap_pyfunction!(write_graphml, m)?)?;
     m.add_function(wrap_pyfunction!(read_gexf, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_gexf, m)?)?;
     m.add_function(wrap_pyfunction!(write_gexf, m)?)?;
     m.add_function(wrap_pyfunction!(write_gexf_string_rust, m)?)?;
     m.add_function(wrap_pyfunction!(read_gml, m)?)?;

@@ -3193,7 +3193,9 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     _validate_gexf_version(version)
     raw = _read_gexf_payload(path)
 
-    needs_decoder, any_missing_label, native_required = _gexf_scan_document(raw)
+    (
+        needs_decoder, any_missing_label, native_required, lossy_recovery,
+    ) = _gexf_scan_document(raw)
     needs_decoder = needs_decoder or node_type is not None
     if (
         needs_decoder
@@ -3205,7 +3207,11 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
             raw, node_type=node_type, relabel=relabel, version=version
         )
 
-    graph = _fnx.read_gexf(_BytesIO(raw), mode=mode)
+    # The ordinary native reader intentionally rejects multigraphs. A richer
+    # document needs validation of every record without treating a parallel
+    # edge as malformed; its projection is only the policy owner below.
+    native_reader = _fnx.validate_gexf if needs_decoder else _fnx.read_gexf
+    graph = native_reader(_BytesIO(raw), mode=mode)
     recovered = any(
         record["action"] == "full_validate" for record in graph.decision_records()
     )
@@ -3215,6 +3221,17 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
         )
         _fnx.copy_readwrite_policy(graph, converted)
         return converted
+
+    if recovered and lossy_recovery:
+        # The original rich document is no longer valid, and the simple
+        # repaired projection cannot retain its edge keys, dynamic values or
+        # hierarchy. Never return that projection as a complete public graph.
+        # This decision comes from the full input scan, not a bounded ledger
+        # whose parallel-edge Allow records may already have been evicted.
+        raise fnx.NetworkXNotImplemented(
+            "GEXF recovery with parallel edges, dynamic values, hierarchy, "
+            "visualization data or wide integers is not supported"
+        )
 
     # Preserve the native parser's repaired document and its audit ledger.
     # Missing labels and graph metadata are independent of those repairs.
@@ -4251,6 +4268,7 @@ def _gexf_scan_document(raw_bytes):
         "missing_label": False,
         "directed": False,
         "attr_class": None,
+        "lossy_recovery": False,
     }
 
     def start_element(name, attrs):
@@ -4258,6 +4276,7 @@ def _gexf_scan_document(raw_bytes):
         namespace = name.rsplit("}", 1)[0] if "}" in name else ""
         if namespace in viz_namespaces and tag in viz_tags:
             state["needs_decoder"] = True
+            state["lossy_recovery"] = True
         elif namespace not in namespaces or tag not in known_tags:
             state["native_required"] = True
 
@@ -4273,9 +4292,12 @@ def _gexf_scan_document(raw_bytes):
                 or attrs.get("mode") == "dynamic"
             ):
                 state["needs_decoder"] = True
+            if normalized == "mutual" or attrs.get("mode") == "dynamic":
+                state["lossy_recovery"] = True
         elif tag == "edges":
             if attrs.get("parallel") == "true":
                 state["needs_decoder"] = True
+                state["lossy_recovery"] = True
         elif tag == "edge":
             state["edge_depth"] += 1
             source = attrs.get("source")
@@ -4288,24 +4310,34 @@ def _gexf_scan_document(raw_bytes):
                     pair = (target, source)
                 if pair in pairs:
                     state["needs_decoder"] = True
+                    state["lossy_recovery"] = True
                 pairs.add(pair)
             if any(key in attrs for key in ("type", "start", "end")):
                 state["needs_decoder"] = True
+                state["lossy_recovery"] = True
         elif tag == "node":
             if not attrs.get("id"):
                 state["native_required"] = True
             if state["node_depth"] > 0 or attrs.get("pid") is not None:
                 state["needs_decoder"] = True
+                state["lossy_recovery"] = True
             if "start" in attrs or "end" in attrs:
                 state["needs_decoder"] = True
+                state["lossy_recovery"] = True
             if "label" not in attrs:
                 state["missing_label"] = True
             state["node_depth"] += 1
         elif tag in ("parents", "parent", "spells", "spell", "slices", "slice"):
             state["needs_decoder"] = True
+            state["lossy_recovery"] = True
         elif tag == "attributes":
             state["needs_decoder"] = True
-            state["attr_class"] = attrs.get("class", "")
+            attr_class = attrs.get("class", "")
+            state["attr_class"] = attr_class.strip().lower()
+            if state["attr_class"] != attr_class:
+                state["native_required"] = True
+            if attrs.get("mode") == "dynamic":
+                state["lossy_recovery"] = True
         elif tag == "attribute":
             attr_id = attrs.get("id")
             title = attrs.get("title")
@@ -4327,6 +4359,21 @@ def _gexf_scan_document(raw_bytes):
                 # integer domain extension handled by the full decoder.
                 if "_" in value or not value.isascii():
                     state["native_required"] = True
+                if attr_type.strip().lower() in ("int", "integer", "long"):
+                    # The validation projection retains wide integers as
+                    # strings. It cannot be returned after an unrelated repair
+                    # without losing those valid numeric values.
+                    digits = value.strip()
+                    negative = digits.startswith("-")
+                    if digits.startswith(("+", "-")):
+                        digits = digits[1:]
+                    if digits and digits.isascii() and digits.isdecimal():
+                        digits = digits.lstrip("0")
+                        limit = "9223372036854775808" if negative else "9223372036854775807"
+                        if len(digits) > len(limit) or (
+                            len(digits) == len(limit) and digits > limit
+                        ):
+                            state["lossy_recovery"] = True
 
     def end_element(name):
         tag = _xml_local_name(name)
@@ -4354,8 +4401,17 @@ def _gexf_scan_document(raw_bytes):
     try:
         parser.Parse(raw_bytes, True)
     except expat.ExpatError:
-        return False, True, True
-    return state["needs_decoder"], state["missing_label"], state["native_required"]
+        # Retain already observed rich features when malformed trailing XML
+        # invokes native recovery. Even scalar defaults require a complete
+        # metadata parse before the native projection can be returned.
+        return (
+            state["needs_decoder"], True, True,
+            state["lossy_recovery"] or state["needs_decoder"],
+        )
+    return (
+        state["needs_decoder"], state["missing_label"], state["native_required"],
+        state["lossy_recovery"],
+    )
 
 
 def _xml_local_name(name):
