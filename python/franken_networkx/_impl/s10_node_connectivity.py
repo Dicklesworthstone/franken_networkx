@@ -852,11 +852,18 @@ def _harmonic_uses_live_python_rows(G, distance=None):
         for name in ("reverse", "is_directed", "is_multigraph", "nbunch_iter")
     ):
         return True
-    if type(G) in _CONCRETE_FNX_GRAPH_TYPES and "nodes" in storage:
-        return (
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
+        if "nodes" in storage and (
             "nodes" not in storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
             or storage["nodes"] is not storage.get("_fnx_view_nodes")
-        )
+        ):
+            return True
+        # Selecting targets and sources hashes their labels before any BFS.
+        # Those callbacks can change the graph the searches must observe.
+        # Native set/result construction instead holds a graph borrow, so
+        # inspect stored labels without hashing before choosing that route.
+        if not _view_root_node_keys_are_stable(G, G.nodes_seq):
+            return True
     return False
 
 
@@ -1300,7 +1307,15 @@ def _betweenness_uses_live_python_rows(
     if type(G) in _CONCRETE_FNX_GRAPH_TYPES:
         # Native scalar admission already checks exact arithmetic below. A
         # custom attribute factory still needs its public read protocol.
-        return G.edge_attr_dict_factory is not dict
+        # Node and edge Brandes initialize score dictionaries before their
+        # searches. Label callbacks at that boundary can mutate the rows;
+        # native result insertion would call them after computing stale
+        # scores, with the graph still borrowed. The cached classifier reads
+        # stored references only and leaves the first hash to the live solver.
+        return (
+            G.edge_attr_dict_factory is not dict
+            or not _view_root_node_keys_are_stable(G, G.nodes_seq)
+        )
 
     import networkx as nx
 

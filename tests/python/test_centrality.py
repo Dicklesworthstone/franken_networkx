@@ -8,6 +8,136 @@ from conftest import assert_dicts_close
 
 
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize(
+    "algorithm", ["harmonic_centrality", "betweenness_centrality", "edge_betweenness_centrality"]
+)
+@pytest.mark.parametrize("shape", ["subclass", "object", "tuple"])
+@pytest.mark.parametrize("warm", [False, True])
+@pytest.mark.parametrize("weighted", [False, True])
+@pytest.mark.parametrize("action", ["add-edge", "remove-edge", "raise"])
+def test_path_centrality_node_callbacks_keep_live_scores(
+    fnx, nx, graph_type, algorithm, shape, warm, weighted, action
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+
+        def callback():
+            nonlocal changed
+            if armed and not changed:
+                changed = True
+                if action == "raise":
+                    raise LookupError("path centrality node callback")
+                if action == "add-edge":
+                    graph.add_edge(labels[0], labels[2], weight=0.5)
+                else:
+                    graph.remove_edge(labels[1], labels[2])
+
+        class IntKey(int):
+            def __hash__(self):
+                callback()
+                return int.__hash__(self)
+
+        class ObjectKey:
+            def __init__(self, value):
+                self.value = value
+
+            def __hash__(self):
+                callback()
+                return hash(self.value)
+
+            def __eq__(self, other):
+                return isinstance(other, ObjectKey) and self.value == other.value
+
+        labels = [
+            ObjectKey(i) if shape == "object" else (IntKey(i),) if shape == "tuple" else IntKey(i)
+            for i in range(4)
+        ]
+        graph.add_weighted_edges_from(
+            (labels[i], labels[i + 1], 1.0 + i) for i in range(3)
+        )
+        if warm:
+            list(graph)
+            list(graph.nodes)
+        kwargs = {}
+        if weighted:
+            kwargs["distance" if algorithm == "harmonic_centrality" else "weight"] = "weight"
+        armed = True
+        try:
+            result, failure = getattr(module, algorithm)(graph, **kwargs), None
+        except Exception as exc:
+            result, failure = None, (type(exc).__name__, exc.args)
+        finally:
+            armed = False
+
+        def plain(node):
+            if isinstance(node, ObjectKey):
+                return node.value
+            return int(node[0] if shape == "tuple" else node)
+
+        values = None
+        if result is not None:
+            values = {
+                tuple(plain(node) for node in key)
+                if algorithm == "edge_betweenness_centrality" else plain(key): value
+                for key, value in result.items()
+            }
+        topology = (
+            [plain(node) for node in graph],
+            [(plain(u), plain(v)) for u, v in graph.edges()],
+        )
+        return values, failure, changed, topology
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert expected[2], "the reference must exercise the node callback"
+    assert actual[1:] == expected[1:]
+    if action == "raise":
+        assert expected[1] == ("LookupError", ("path centrality node callback",))
+        assert actual[0] is None
+    else:
+        assert expected[1] is None
+        assert list(actual[0]) == list(expected[0])
+        assert actual[0] == pytest.approx(expected[0], rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("shape", ["integer", "tuple", "frozenset"])
+@pytest.mark.parametrize(
+    "algorithm, native_name",
+    [
+        ("harmonic_centrality", "_raw_harmonic_centrality"),
+        ("betweenness_centrality", "_raw_betweenness_centrality"),
+        ("edge_betweenness_centrality", "_raw_edge_betweenness_centrality"),
+    ],
+)
+def test_path_centrality_stable_labels_keep_native_route(
+    fnx, nx, monkeypatch, graph_type, shape, algorithm, native_name
+):
+    labels = [
+        i if shape == "integer" else (i, "node") if shape == "tuple" else frozenset((i,))
+        for i in range(4)
+    ]
+    graph = getattr(fnx, graph_type)()
+    reference = getattr(nx, graph_type)()
+    graph.add_edges_from(zip(labels, labels[1:]))
+    reference.add_edges_from(zip(labels, labels[1:]))
+    native = getattr(fnx, native_name)
+    calls = []
+
+    def recording_native(*args, **kwargs):
+        calls.append(args[0])
+        return native(*args, **kwargs)
+
+    monkeypatch.setattr(fnx, native_name, recording_native)
+    actual = getattr(fnx, algorithm)(graph)
+    expected = getattr(nx, algorithm)(reference)
+    assert calls == [graph]
+    assert list(actual) == list(expected)
+    assert actual == pytest.approx(expected, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("shape", ["subclass", "object", "tuple"])
 @pytest.mark.parametrize("warm", [False, True])
 @pytest.mark.parametrize("action", ["current-edge", "later-edge", "add-node", "remove-node", "raise"])
