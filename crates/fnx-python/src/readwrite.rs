@@ -1852,7 +1852,11 @@ fn read_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyR
 
 #[pyfunction]
 #[pyo3(signature = (path, mode=None))]
-fn validate_gexf(py: Python<'_>, path: &Bound<'_, PyAny>, mode: Option<&str>) -> PyResult<PyObject> {
+fn validate_gexf(
+    py: Python<'_>,
+    path: &Bound<'_, PyAny>,
+    mode: Option<&str>,
+) -> PyResult<PyObject> {
     read_gexf_report(py, path, mode, true)
 }
 

@@ -261,7 +261,10 @@ class _DirectedDegreeView:
                         cache[cache_key] = (state, values)
                     else:
                         values = entry[1]
-                    yield from zip(self._graph, values)
+                    yield from _degree_view_guarded_pairs(
+                        self, iter(values), snapshot_token=state,
+                        node_iterator=iter(self._graph), values_only=True,
+                    )
                     return
             # br-r37-c1-vfytj/revrow: native bulk pairs read the (empty) Rust
             # base of a filtered/reverse view — skip for those view classes.
@@ -272,7 +275,10 @@ class _DirectedDegreeView:
             else:
                 pairs = None
             if pairs is not None:
-                yield from _degree_view_guarded_pairs(self, pairs())
+                token = _degree_view_snapshot_token(self._graph)
+                yield from _degree_view_guarded_pairs(
+                    self, pairs(), snapshot_token=token
+                )
                 return
         # br-r37-c1-8njy5: exact MultiDiGraph weighted in/out degree can use
         # Rust's native multiedge walk; views and nbunch stay on Python paths.
@@ -749,7 +755,10 @@ class _WeightAwareDegreeView:
         # snapshots at ``iter(raw)``; defer that call inside a true generator.
         # Native bulk pair creation remains intact; unlike an outer chain,
         # this frame releases the view when the inner walk raises.
-        yield from _degree_view_guarded_pairs(self, iter(self._raw))
+        token = _degree_view_snapshot_token(self._graph)
+        yield from _degree_view_guarded_pairs(
+            self, iter(self._raw), snapshot_token=token
+        )
 
     def __len__(self):
         return len(self._raw)
@@ -963,7 +972,9 @@ class _WeightAwareDegreeView:
             # 0.0896us against fnx 0.1489us. Paired A/B of the two orderings:
             # 0.1515us -> 0.1450us, 1.0408x CI [1.0396, 1.0479].
             if nbunch is None:
-                return self._raw
+                # Keep the public live iterator for the called spelling too.
+                # Returning the raw view exposes its eager native snapshot.
+                return self
             # br-r37-c1-dlqkq: `str` is excluded from the sequence branch either
             # way, so test that FIRST and short-circuit. The previous spelling
             # (`A or hasattr(...) and not isinstance(...)`) evaluated a 4-tuple
@@ -1193,7 +1204,16 @@ class _WeightAwareDegreeView:
         return _filtered_degree_view(self, filtered, weight=weight, owner=self, graph=self._graph)
 
 
-def _degree_view_guarded_pairs(view, pairs):
+def _degree_view_snapshot_token(graph):
+    """Capture native generations before building an unweighted snapshot."""
+    if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph):
+        return None
+    return graph.nodes_seq, graph.edges_seq
+
+
+def _degree_view_guarded_pairs(
+    view, pairs, *, snapshot_token=None, node_iterator=None, values_only=False
+):
     """Preserve a live node-dict guard around native degree snapshots.
 
     A full NetworkX degree walk is a generator over the adjacency keys. The
@@ -1203,19 +1223,55 @@ def _degree_view_guarded_pairs(view, pairs):
     and the generator below closes after the first error. Restricted nbunches
     iterate a frozen list instead, so they must not inherit the whole-graph
     guard. Private storage and graph views keep their existing live walks.
+
+    An unweighted snapshot may also supply its construction generations. Keep
+    its bulk values until topology changes, then read each remaining degree
+    from the authoritative iterator's node. Never resume the old snapshot:
+    even a same-size node replacement can change both labels and degrees.
+    Already-live generators and weighted snapshots do not supply this token,
+    so their callbacks and attribute-read paths remain unchanged.
     """
     graph = view._graph
-    if (
-        (getattr(view, "_nodes", None) is not None and not getattr(view, "_whole_graph", False))
-        or type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph)
-        or _has_networkx_private_storage(graph)
-    ):
+    restricted = (
+        getattr(view, "_nodes", None) is not None
+        and not getattr(view, "_whole_graph", False)
+    )
+    if restricted and snapshot_token is None:
         return pairs
+    if type(graph) not in (Graph, DiGraph, MultiGraph, MultiDiGraph) or (
+        _has_networkx_private_storage(graph)
+    ):
+        return zip(node_iterator, pairs) if values_only else pairs
 
     def walk():
-        nodes = graph._fnx_native_node_iter()
-        for _node, pair in zip(nodes, pairs):
-            yield pair
+        if restricted:
+            nodes = iter(view._nodes)
+        else:
+            nodes = (
+                graph._fnx_native_node_iter()
+                if node_iterator is None else node_iterator
+            )
+        if snapshot_token is None:
+            for _node, pair in zip(nodes, pairs):
+                yield pair
+            return
+
+        cached = iter(pairs)
+        live = False
+        for node in nodes:
+            if not live and (graph.nodes_seq, graph.edges_seq) == snapshot_token:
+                try:
+                    pair = next(cached)
+                except StopIteration:
+                    return
+                yield (node, pair) if values_only else pair
+            else:
+                live = True
+                try:
+                    value = view[node]
+                except NodeNotFound:
+                    raise KeyError(node) from None
+                yield node, value
 
     return walk()
 
@@ -1383,6 +1439,20 @@ class _FilteredDegreeView:
         # Fresh/stale selection must happen at the first ``next()``.  Returning
         # the selected native iterator directly makes `iter(view)` itself choose
         # a stale snapshot if a caller mutates the graph before consuming it.
+        if (
+            self._weight is None
+            and self._pairs is not None
+            and self._token is not None
+            and type(self._graph) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+            and not _has_networkx_private_storage(self._graph)
+        ):
+            # Restricted snapshots keep their original order and duplicates.
+            # Check a removed node when its turn arrives, not before yielding
+            # the still-present prefix of the frozen nbunch.
+            yield from _degree_view_guarded_pairs(
+                self, iter(self._pairs), snapshot_token=self._token
+            )
+            return
         yield from _degree_view_guarded_pairs(self, self._iter_now())
 
     def _iter_now(self):

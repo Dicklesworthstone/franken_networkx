@@ -301,3 +301,116 @@ def test_removing_a_node_outside_the_nbunch_does_not_raise(cls_name):
         graph.remove_node(3)
         outcomes.append(sorted(map(str, view)))
     assert outcomes[1] == outcomes[0]
+
+
+UNWEIGHTED_VIEWS = [
+    (cls_name, accessor)
+    for cls_name in CLASSES
+    for accessor in (
+        ("degree", "in_degree", "out_degree") if cls_name in DIRECTED else ("degree",)
+    )
+]
+
+
+def _unweighted_view(graph, accessor, form):
+    view = getattr(graph, accessor)
+    if form == "called":
+        return view()
+    if form == "subset":
+        return view([0, 1, 2, 1, 3])
+    return view
+
+
+def _remaining_degree_events(iterator):
+    values = []
+    while True:
+        try:
+            values.append(next(iterator))
+        except Exception as error:  # noqa: BLE001 - compare the complete iterator contract
+            outcome = values, (type(error).__name__, error.args)
+            break
+    # A degree view returns a generator, which closes after any escaping
+    # exception. A native guard must not keep raising or resume old pairs.
+    with pytest.raises(StopIteration):
+        next(iterator)
+    return outcome
+
+
+@pytest.mark.parametrize("cls_name,accessor", UNWEIGHTED_VIEWS)
+@pytest.mark.parametrize("form", ("property", "called", "subset"))
+@pytest.mark.parametrize("before_first", (False, True), ids=("suspended", "before_first"))
+@pytest.mark.parametrize("mutation", (
+    "add_edge", "replace_edge", "replace_future_node", "replace_yielded_node",
+    "add_node", "remove_future_node",
+))
+def test_unweighted_degree_iterator_keeps_each_remaining_value_live(
+    cls_name, accessor, form, before_first, mutation
+):
+    def run(lib):
+        graph = _build(lib, cls_name)
+        iterator = iter(_unweighted_view(graph, accessor, form))
+        prefix = [] if before_first else [next(iterator)]
+        if mutation == "add_edge":
+            graph.add_edge(1, 3)
+        elif mutation == "replace_edge":
+            graph.remove_edge(1, 2)
+            graph.add_edge(1, 3)
+        elif mutation == "replace_future_node":
+            graph.remove_node(2)
+            graph.add_edge(1, 4)
+        elif mutation == "replace_yielded_node":
+            graph.remove_node(0)
+            graph.add_edge(1, 4)
+        elif mutation == "add_node":
+            graph.add_node(4)
+        else:
+            graph.remove_node(3)
+        return prefix, _remaining_degree_events(iterator)
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("cls_name,accessor", UNWEIGHTED_VIEWS)
+@pytest.mark.parametrize("form", ("property", "called", "subset"))
+def test_unweighted_degree_iterator_retains_bulk_values_until_mutation(
+    monkeypatch, cls_name, accessor, form
+):
+    graph = _build(fnx, cls_name)
+    view = _unweighted_view(graph, accessor, form)
+    expected = list(_unweighted_view(_build(nx, cls_name), accessor, form))
+    scalar_reads = []
+    original = type(view).__getitem__
+
+    def scalar(current, node):
+        scalar_reads.append(node)
+        return original(current, node)
+
+    monkeypatch.setattr(type(view), "__getitem__", scalar)
+    assert list(view) == expected
+    assert scalar_reads == []
+    if form != "subset":
+        assert view() is view
+
+
+@pytest.mark.parametrize("cls_name", CLASSES)
+def test_unweighted_degree_iterator_captures_revision_before_native_pairs(
+    monkeypatch, cls_name
+):
+    graph = _build(fnx, cls_name)
+    view = graph.degree
+    raw = view._raw if cls_name in ("Graph", "DiGraph") else view._raw_base_view
+    original = type(raw).__iter__
+    snapshots = []
+
+    def snapshot_then_mutate(current):
+        pairs = original(current)
+        if current is raw:
+            snapshots.append(True)
+            graph.add_edge(1, 3)
+        return pairs
+
+    monkeypatch.setattr(type(raw), "__iter__", snapshot_then_mutate)
+    expected = _build(nx, cls_name)
+    expected.add_edge(1, 3)
+    assert list(view) == list(expected.degree)
+    assert snapshots == [True]

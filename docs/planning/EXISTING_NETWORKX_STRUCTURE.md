@@ -3675,3 +3675,22 @@ index semantics of the owned general builder. Explicit weighted selectors
 continue to use their actual edge values, including a key that formerly served
 as an internal sentinel. Dtype, normalization and namespace aliases preserve
 the same public contract.
+
+## 114. Live Unweighted Degree Iteration
+
+Native unweighted degree iteration reads each result at that node's yield
+boundary. The ordinary bulk snapshot remains usable while both node and edge
+revisions match its captured state. Once topology changes, the remainder of
+that walk computes degrees from the current graph instead of consuming stale
+snapshot values. It does not rescan the whole graph for each yielded node.
+
+Whole-graph walks keep the original live dictionary iterator, including its
+size/key-change checks and final exhaustion check. A legal same-size node
+replacement uses the node actually yielded by that iterator, not the old
+snapshot's label. A failing generator stays exhausted and releases its source.
+
+Explicit node selections keep their resolved order and duplicates. They have
+no whole-graph resize guard; removal of a selected node raises when the walk
+reaches that node, leaving earlier results observable. Ordinary `G.degree`
+and `G.degree()` consumption follow the same live contract across the four
+graph families, including directed total, incoming and outgoing degree.

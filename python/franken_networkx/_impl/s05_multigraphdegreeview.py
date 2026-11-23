@@ -1259,7 +1259,13 @@ class MultiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
-        yield from _degree_view_guarded_pairs(self, self._iter_now())
+        token = (
+            _degree_view_snapshot_token(self._graph)
+            if self._nodes is None and self._weight is None else None
+        )
+        yield from _degree_view_guarded_pairs(
+            self, self._iter_now(), snapshot_token=token
+        )
 
     def _iter_now(self):
         # br-r37-c1-pejo5
@@ -1415,7 +1421,13 @@ class MultiDiGraphDegreeView:
         return len(self._nodes)
 
     def __iter__(self):
-        yield from _degree_view_guarded_pairs(self, self._iter_now())
+        token = (
+            _degree_view_snapshot_token(self._graph)
+            if self._nodes is None and self._weight is None else None
+        )
+        yield from _degree_view_guarded_pairs(
+            self, self._iter_now(), snapshot_token=token
+        )
 
     def _iter_now(self):
         # br-r37-c1-pejo5
