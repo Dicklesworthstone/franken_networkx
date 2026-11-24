@@ -1306,3 +1306,204 @@ def test_gexf_reader_invalid_document_retains_error_and_reader_state(payload):
             reader(BytesIO(payload))
         outcomes.append((type(error.value).__name__, error.value.args, reader.version))
     assert outcomes[0] == outcomes[1]
+
+
+def _assert_inline_gexf_weight_graph(actual, expected):
+    """Compare simple graphs while handling NaNs and signed zero explicitly."""
+    import math
+
+    assert type(actual).__name__ == type(expected).__name__
+    assert dict(actual.graph) == expected.graph
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert list(actual.edges()) == list(expected.edges())
+
+    actual_data = dict(actual.edges["a", "b"])
+    expected_data = dict(expected.edges["a", "b"])
+    actual_weight = actual_data.pop("weight")
+    expected_weight = expected_data.pop("weight")
+    assert actual_data == expected_data
+    assert type(actual_weight) is float
+    if math.isnan(expected_weight):
+        assert math.isnan(actual_weight)
+    else:
+        assert actual_weight == expected_weight
+        assert math.copysign(1.0, actual_weight) == math.copysign(
+            1.0, expected_weight
+        )
+
+
+@pytest.mark.parametrize("weight", (
+    " 1.5 ",
+    "1_000.25",
+    "١.٥",
+    "&#9;-0.0&#10;",
+    " +Inf ",
+    " NaN ",
+))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened", "ambient"))
+@pytest.mark.parametrize("reader_name", ("top_level", "readwrite"))
+def test_inline_gexf_weights_preserve_python_numeric_syntax(
+    monkeypatch, weight, mode, reader_name,
+):
+    payload = _document(
+        '<nodes><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" '
+        f'weight="{weight}"/></edges>'
+    )
+    expected = nx.read_gexf(BytesIO(payload))
+    _forbid_gexf_delegation(monkeypatch)
+    reader = fnx.read_gexf if reader_name == "top_level" else readwrite.read_gexf
+    options = {} if mode in (None, "ambient") else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        actual = reader(BytesIO(payload), **options)
+
+    _assert_inline_gexf_weight_graph(actual, expected)
+    effective_mode = "hardened" if mode in ("hardened", "ambient") else "strict"
+    assert actual.mode == effective_mode
+    if mode is not None:
+        records = actual.decision_records()
+        assert records
+        assert all(record["mode"] == effective_mode for record in records)
+        assert all(record["action"] == "allow" for record in records)
+
+
+@pytest.mark.parametrize("weight", (
+    "-0.0",
+    "2.5E-10",
+    "5.",
+    ".5",
+    "inf",
+    "-Infinity",
+    "NaN",
+    "1e9999",
+))
+def test_inline_gexf_native_float_syntax_keeps_native_decoder(monkeypatch, weight):
+    payload = _document(
+        '<nodes><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" '
+        f'weight="{weight}"/></edges>'
+    )
+    expected = nx.read_gexf(BytesIO(payload))
+    _forbid_gexf_delegation(monkeypatch)
+
+    def unexpected_decoder(*args, **kwargs):
+        pytest.fail("Native floating-point literals should keep native decoding")
+
+    monkeypatch.setattr(readwrite, "_read_gexf_owned", unexpected_decoder)
+    with fnx.compatibility_mode("strict"):
+        actual = fnx.read_gexf(BytesIO(payload))
+    _assert_inline_gexf_weight_graph(actual, expected)
+
+
+@pytest.mark.parametrize("weight", ("", "not-a-number", "1e", "İnf", "ınfinity"))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened", "ambient"))
+def test_inline_gexf_invalid_weights_preserve_conversion_errors(
+    monkeypatch, weight, mode,
+):
+    payload = _document(
+        '<nodes><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" '
+        f'weight="{weight}"/></edges>'
+    )
+    with pytest.raises(ValueError) as expected:
+        nx.read_gexf(BytesIO(payload))
+    _forbid_gexf_delegation(monkeypatch)
+    options = {} if mode in (None, "ambient") else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        with pytest.raises(type(expected.value)) as actual:
+            readwrite.read_gexf(BytesIO(payload), **options)
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("direction", ("undirected", "directed"))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened", "ambient"))
+def test_inline_gexf_weights_preserve_rich_data_and_modes(
+    monkeypatch, direction, mode,
+):
+    payload = _document(
+        '<attributes class="node"><attribute id="r" title="rank" type="long">'
+        '<default>7</default></attribute></attributes>'
+        '<nodes><node id="a" label="A"><attvalues>'
+        '<attvalue for="r" value="9"/></attvalues></node>'
+        '<node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" '
+        'weight=" 1.5 "/></edges>',
+        direction=direction,
+    )
+    expected = nx.read_gexf(BytesIO(payload))
+    _forbid_gexf_delegation(monkeypatch)
+    options = {} if mode in (None, "ambient") else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        actual = fnx.read_gexf(BytesIO(payload), **options)
+
+    _assert_inline_gexf_weight_graph(actual, expected)
+    assert type(actual.nodes["a"]["rank"]) is int
+    assert type(actual.graph["node_default"]["rank"]) is int
+    assert actual.mode == (
+        "hardened" if mode in ("hardened", "ambient") else "strict"
+    )
+
+
+@pytest.mark.parametrize("weight", (" 1.5 ", "1_000.25", "not-a-number"))
+@pytest.mark.parametrize("mode", ("hardened", "ambient"))
+def test_inline_gexf_weights_cannot_escape_through_structural_recovery(weight, mode):
+    payload = _document(
+        '<nodes><node/><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" '
+        f'weight="{weight}"/></edges>'
+    )
+    options = {} if mode == "ambient" else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+            fnx.read_gexf(BytesIO(payload), **options)
+
+
+def test_inline_gexf_native_weight_keeps_supported_structural_recovery():
+    payload = _document(
+        '<nodes><node/><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" weight="1.5"/></edges>'
+    )
+    expected = nx.read_gexf(BytesIO(payload.replace(b"<node/>", b"")))
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+    _assert_inline_gexf_weight_graph(actual, expected)
+    assert actual.mode == "hardened"
+    assert any(
+        record["action"] == "full_validate"
+        for record in actual.decision_records()
+    )
+
+
+@pytest.mark.parametrize("weight", (" 1.5 ", "1_000.25"))
+@pytest.mark.parametrize("mode", ("hardened", "ambient"))
+def test_inline_gexf_weights_survive_independent_scalar_recovery(
+    monkeypatch, weight, mode,
+):
+    payload = _document(
+        '<attributes class="node"><attribute id="r" title="rank" type="long">'
+        '<default>7</default></attribute>'
+        '<attribute id="r_text" title="rank" type="string"/></attributes>'
+        '<nodes><node id="a" label="A"><attvalues>'
+        '<attvalue for="r" value="bad-rank"/></attvalues></node>'
+        '<node id="b" label="B"/></nodes>'
+        '<edges><edge id="weighted" source="a" target="b" '
+        f'weight="{weight}"/></edges>'
+    )
+    # The oracle describes the intended repaired scalar independently:
+    # malformed rank is text, while its valid default and edge weight
+    # retain their original numeric types.
+    clean = payload.replace(b'for="r"', b'for="r_text"')
+    expected = nx.read_gexf(BytesIO(clean))
+    _forbid_gexf_delegation(monkeypatch)
+    options = {} if mode == "ambient" else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        actual = fnx.read_gexf(BytesIO(payload), **options)
+
+    _assert_inline_gexf_weight_graph(actual, expected)
+    assert actual.nodes["a"]["rank"] == "bad-rank"
+    assert type(actual.graph["node_default"]["rank"]) is int
+    assert actual.mode == "hardened"
+    assert any(
+        record["action"] == "full_validate"
+        for record in actual.decision_records()
+    )

@@ -4470,6 +4470,21 @@ def _gexf_scan_document(raw_bytes):
             if any(key in attrs for key in ("type", "start", "end")):
                 state["needs_decoder"] = True
                 state["lossy_recovery"] = True
+            weight = attrs.get("weight")
+            if weight is not None and _re.fullmatch(
+                r"[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)"
+                r"(?:[eE][+-]?[0-9]+)?|inf(?:inity)?|nan)",
+                weight, _re.IGNORECASE | _re.ASCII,
+            ) is None:
+                # The native parser retains an unparseable inline weight as
+                # text. Python's float decoder accepts additional numeric
+                # spellings and raises ValueError for malformed weights.
+                # Keep those conversions at the complete reader's edge
+                # boundary, after any required native policy validation.
+                state["needs_decoder"] = True
+                # An unrelated hardened repair must not expose the native
+                # string projection as the complete numeric graph.
+                state["lossy_recovery"] = True
         elif tag == "node":
             if not attrs.get("id"):
                 state["native_required"] = True
