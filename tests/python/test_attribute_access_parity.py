@@ -1701,7 +1701,7 @@ class TestGraphAttrsAssignable:
     read-only getset_descriptor so the assignment raised
     ``AttributeError: attribute 'graph' of 'franken_networkx.Graph'
     objects is not writable``. The _GraphAttrsDescriptor wrapper
-    adds a __set__ that clears + updates the underlying dict in place.
+    adds a __set__ that retains the assigned metadata object by reference.
     """
 
     def test_graph_attr_assignment_replaces_contents(self):
@@ -1710,17 +1710,22 @@ class TestGraphAttrsAssignable:
         G.graph = {"name": "test", "tag": "x"}
         assert dict(G.graph) == {"name": "test", "tag": "x"}
 
-    def test_graph_attr_assignment_preserves_identity(self):
-        """In-place clear+update: the same dict object is reused so
-        references held elsewhere (e.g. nx.subgraph_view newG.graph = G.graph)
-        continue to see the updated contents.
-        """
-        G = fnx.Graph()
-        before = G.graph
-        G.graph = {"foo": "bar"}
-        after = G.graph
-        assert before is after
-        assert dict(after) == {"foo": "bar"}
+    def test_graph_attr_assignment_aliases_replacement(self):
+        """Assignment shares the new object without mutating held old attrs."""
+        def observe(module):
+            graph = module.Graph(name="original")
+            before = graph.graph
+            replacement = {"foo": "bar"}
+            graph.graph = replacement
+            replacement["external"] = 1
+            return (
+                graph.graph is replacement,
+                graph.graph is before,
+                dict(before),
+                dict(graph.graph),
+            )
+
+        assert observe(fnx) == observe(nx)
 
     def test_graph_attr_delete_clears(self):
         G = fnx.Graph(name="keep")

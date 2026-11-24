@@ -5742,6 +5742,11 @@ impl PyMultiDiGraph {
         self.graph_attrs.clone_ref(py)
     }
 
+    /// Return obsolete native metadata for release outside the graph borrow.
+    fn _take_graph_attrs(&mut self, py: Python<'_>) -> Py<PyDict> {
+        std::mem::replace(&mut self.graph_attrs, PyDict::new(py).unbind())
+    }
+
     #[getter]
     fn name(&self, py: Python<'_>) -> PyResult<String> {
         let gd = self.graph_attrs.bind(py);
@@ -7788,6 +7793,13 @@ impl PyMultiDiGraph {
     }
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
+        self._clear_storage(py)?;
+        self.graph_attrs.bind(py).clear();
+        Ok(())
+    }
+
+    /// Clear topology without touching metadata shared with other graphs.
+    fn _clear_storage(&mut self, py: Python<'_>) -> PyResult<()> {
         // br-r37-c1-txkrn: drop BOTH direction row caches. A stale row here is
         // not caught by its own generation stamp -- `restamp_neighbor_rows` on
         // the next `add_edge` overwrites the stamp with the current sequences
@@ -7803,7 +7815,6 @@ impl PyMultiDiGraph {
         self.edge_py_keys.clear();
         // networkx's clear() drops `_succ`/`_pred`; a held keydict keeps its keys.
         self.live_keydict_rows.detach_all(py);
-        self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
         self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
@@ -15597,6 +15608,11 @@ impl PyDiGraph {
         self.graph_attrs.clone_ref(py)
     }
 
+    /// Return obsolete native metadata for release outside the graph borrow.
+    fn _take_graph_attrs(&mut self, py: Python<'_>) -> Py<PyDict> {
+        std::mem::replace(&mut self.graph_attrs, PyDict::new(py).unbind())
+    }
+
     #[getter]
     fn name(&self, py: Python<'_>) -> PyResult<String> {
         let gd = self.graph_attrs.bind(py);
@@ -16769,6 +16785,13 @@ impl PyDiGraph {
     // ---- Utility methods ----
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
+        self._clear_storage(py)?;
+        self.graph_attrs.bind(py).clear();
+        Ok(())
+    }
+
+    /// Clear topology without touching metadata shared with other graphs.
+    fn _clear_storage(&mut self, py: Python<'_>) -> PyResult<()> {
         self.inner = DiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
@@ -16779,7 +16802,6 @@ impl PyDiGraph {
         self.pred_row_py.clear();
         self.succ_row_py_by_index.clear(); // br-r37-c1-sznaj
         self.pred_row_py_by_index.clear(); // br-r37-c1-predrow-8vytj
-        self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
         self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
@@ -23732,6 +23754,58 @@ def fnx_keyed_attr_edges(mixed):
             graph.clear(py).expect("clear should succeed");
 
             assert_eq!(graph.inner.runtime_policy(), &expected_policy);
+        });
+    }
+
+    #[test]
+    fn digraph_clear_preserves_metadata_dict_identity() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyDiGraph::new_empty_with_policy(py, seeded_digraph_policy())
+                .expect("digraph should initialize");
+            let held = graph.graph_attrs.clone_ref(py);
+            held.bind(py).set_item("marker", 1).unwrap();
+
+            graph._clear_storage(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+
+            graph.clear(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(held.bind(py).is_empty());
+
+            held.bind(py).set_item("retained", 2).unwrap();
+            let taken = graph._take_graph_attrs(py);
+            assert!(taken.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+            assert!(!graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(graph.graph_attrs.bind(py).is_empty());
+        });
+    }
+
+    #[test]
+    fn multidigraph_clear_preserves_metadata_dict_identity() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyMultiDiGraph::new_empty_with_policy(py, seeded_multidigraph_policy())
+                .expect("multidigraph should initialize");
+            let held = graph.graph_attrs.clone_ref(py);
+            held.bind(py).set_item("marker", 1).unwrap();
+
+            graph._clear_storage(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+
+            graph.clear(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(held.bind(py).is_empty());
+
+            held.bind(py).set_item("retained", 2).unwrap();
+            let taken = graph._take_graph_attrs(py);
+            assert!(taken.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+            assert!(!graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(graph.graph_attrs.bind(py).is_empty());
         });
     }
 

@@ -378,27 +378,21 @@ def _assigned_private_remove_edges_from(self, ebunch):
 
 
 def _assigned_private_clear(self):
-    """clear(): networkx empties the assigned mappings themselves."""
+    """Empty shared topology and only the caller's current metadata."""
     storage = vars(self)
     owner = _shared_unsplit_owner(self, storage)
-    if owner is not None:
-        raw = _RAW_CLEAR_BY_CLASS.get(type(owner))
-        if raw is not None:
-            raw(owner)
-        else:
-            owner.clear()
-        self.graph.clear()
-        return
-    target = storage.get(_SHARED_STORAGE_SOURCE, self)
-    raw = _private_native_method(target, _RAW_CLEAR_BY_CLASS)
+    target = owner if owner is not None else storage.get(_SHARED_STORAGE_SOURCE, self)
+    raw = _private_native_method(target, _NATIVE_CLEAR_STORAGE_BY_CLASS)
     if raw is not None:
+        _detach_rows_before_clear(target)
         raw(target)
+    if owner is None:
+        node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
+        if node_map is not None:
+            node_map.clear()
+        for mapping in _assigned_private_mappings(self, storage):
+            mapping.clear()
     self.graph.clear()
-    node_map = storage.get(_PRIVATE_NODE_OVERRIDE)
-    if node_map is not None:
-        node_map.clear()
-    for mapping in _assigned_private_mappings(self, storage):
-        mapping.clear()
 
 
 def _assigned_private_clear_edges(self):

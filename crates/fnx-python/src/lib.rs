@@ -11644,6 +11644,11 @@ impl PyMultiGraph {
         self.graph_attrs.clone_ref(py)
     }
 
+    /// Return obsolete native metadata for release outside the graph borrow.
+    fn _take_graph_attrs(&mut self, py: Python<'_>) -> Py<PyDict> {
+        std::mem::replace(&mut self.graph_attrs, PyDict::new(py).unbind())
+    }
+
     #[getter]
     fn name(&self, py: Python<'_>) -> PyResult<String> {
         let gd = self.graph_attrs.bind(py);
@@ -14738,6 +14743,13 @@ impl PyMultiGraph {
     }
 
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
+        self._clear_storage(py)?;
+        self.graph_attrs.bind(py).clear();
+        Ok(())
+    }
+
+    /// Clear topology without touching metadata shared with other graphs.
+    fn _clear_storage(&mut self, py: Python<'_>) -> PyResult<()> {
         self.inner = MultiGraph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
         self.node_py_attrs.clear();
@@ -14757,7 +14769,6 @@ impl PyMultiGraph {
         // neighbour from before the clear, permanently.
         self.neighbor_key_rows = None;
         self.edge_mirrors_stale = false;
-        self.graph_attrs = PyDict::new(py).unbind();
         // Clear the live mirror in place so an in-flight iter raises like nx.
         self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
@@ -18664,6 +18675,11 @@ impl PyGraph {
         self.graph_attrs.clone_ref(py)
     }
 
+    /// Return obsolete native metadata for release outside the graph borrow.
+    fn _take_graph_attrs(&mut self, py: Python<'_>) -> Py<PyDict> {
+        std::mem::replace(&mut self.graph_attrs, PyDict::new(py).unbind())
+    }
+
     /// The graph name, stored in ``G.graph['name']``.
     #[getter]
     fn name(&self, py: Python<'_>) -> PyResult<String> {
@@ -19522,6 +19538,13 @@ impl PyGraph {
 
     /// Remove all nodes and edges.
     fn clear(&mut self, py: Python<'_>) -> PyResult<()> {
+        self._clear_storage(py)?;
+        self.graph_attrs.bind(py).clear();
+        Ok(())
+    }
+
+    /// Clear topology without touching metadata shared with other graphs.
+    fn _clear_storage(&mut self, py: Python<'_>) -> PyResult<()> {
         // Rebuild from scratch is simpler and correct.
         self.inner = Graph::with_runtime_policy(self.inner.runtime_policy().clone());
         self.node_key_map.clear();
@@ -19533,7 +19556,6 @@ impl PyGraph {
         self.adj_row_py_by_index.clear(); // br-r37-c1-nbrow
         self.neighbor_key_rows.clear(); // br-r37-c1-3rtyk
         self.neighbor_key_rows_by_index.clear(); // br-r37-c1-3rtyk
-        self.graph_attrs = PyDict::new(py).unbind();
         self.node_iter_mirror_clear(py)?;
         self.bump_nodes_seq();
         self.bump_edges_seq(); // br-r37-c1-jft0i
@@ -24318,6 +24340,58 @@ class FnxMultiGraphCtorEdgeIterable:
             graph.clear(py).expect("clear should succeed");
 
             assert_eq!(graph.inner.runtime_policy(), &expected_policy);
+        });
+    }
+
+    #[test]
+    fn graph_clear_preserves_metadata_dict_identity() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyGraph::new_empty_with_policy(py, seeded_graph_policy())
+                .expect("graph should initialize");
+            let held = graph.graph_attrs.clone_ref(py);
+            held.bind(py).set_item("marker", 1).unwrap();
+
+            graph._clear_storage(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+
+            graph.clear(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(held.bind(py).is_empty());
+
+            held.bind(py).set_item("retained", 2).unwrap();
+            let taken = graph._take_graph_attrs(py);
+            assert!(taken.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+            assert!(!graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(graph.graph_attrs.bind(py).is_empty());
+        });
+    }
+
+    #[test]
+    fn multigraph_clear_preserves_metadata_dict_identity() {
+        ensure_python();
+        Python::attach(|py| {
+            let mut graph = PyMultiGraph::new_empty_with_policy(py, seeded_multigraph_policy())
+                .expect("multigraph should initialize");
+            let held = graph.graph_attrs.clone_ref(py);
+            held.bind(py).set_item("marker", 1).unwrap();
+
+            graph._clear_storage(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+
+            graph.clear(py).unwrap();
+            assert!(graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(held.bind(py).is_empty());
+
+            held.bind(py).set_item("retained", 2).unwrap();
+            let taken = graph._take_graph_attrs(py);
+            assert!(taken.bind(py).is(held.bind(py)));
+            assert_eq!(held.bind(py).len(), 1);
+            assert!(!graph.graph_attrs.bind(py).is(held.bind(py)));
+            assert!(graph.graph_attrs.bind(py).is_empty());
         });
     }
 

@@ -44,22 +44,25 @@ def _detach_row(row, *, removed_before=(), removed_node=None, remove_self=False)
         pass
 
 
-def _make_clear_with_attr_override(raw_clear):
+def _make_clear_with_attr_override(raw_clear_storage):
     def clear(self):
         # br-r37-c1-s5pxs: BEFORE the storage goes away, not after. All four
         # classes need it -- the bead recorded Graph/DiGraph as already matching,
         # and they do not: they raised KeyError, which is a worse divergence than
         # the multigraphs' empty read.
         _detach_rows_before_clear(self)
-        raw_clear(self)
-        override = vars(self).get(_GRAPH_ATTR_OVERRIDE, _GRAPH_ATTR_MISSING)
-        if override is not _GRAPH_ATTR_MISSING and hasattr(override, "clear"):
-            override.clear()
+        raw_clear_storage(self)
+        # Clear the logical metadata after releasing the native graph borrow.
+        # It may be shared with a view or shallow copy, or have a custom clear
+        # hook. A replaced native dictionary belongs to its remaining aliases.
+        self.graph.clear()
     return clear
 
 
+_NATIVE_CLEAR_STORAGE_BY_CLASS = {}
 for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-    _cls.clear = _make_clear_with_attr_override(_cls.clear)
+    _NATIVE_CLEAR_STORAGE_BY_CLASS[_cls] = _cls._clear_storage
+    _cls.clear = _make_clear_with_attr_override(_cls._clear_storage)
 
 
 # br-r37-c1-namovr (cycle 222): cycle 220's ``graph_attr_dict_factory``

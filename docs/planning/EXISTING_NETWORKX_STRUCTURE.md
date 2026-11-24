@@ -2689,6 +2689,17 @@ conversions around each advancement and close.
 
 ## 80. Node-Link Round Trips and Metadata Aliases
 
+Assigning `G.graph` retains the assigned object by reference. Existing aliases
+keep the previous metadata object and its contents; later writes through the
+replacement are visible to the graph. Replacement releases obsolete native
+ownership without clearing retained aliases; value finalizers observe the new
+metadata and run outside the native graph borrow. Views and shallow copies share metadata
+until an individual graph replaces its reference. `clear()` empties the
+caller's current metadata in place, preserving held references and custom
+mapping `clear()` hooks. Clearing shared topology must not clear another
+graph's independently replaced metadata. Metadata callbacks run after the
+caller-visible topology is empty and outside the native graph borrow.
+
 Node-link field uniqueness applies to the edge source, target and effective
 multigraph key. Node identifier fields have their own scope and may reuse an
 edge field name. The effective key is `None` for simple graphs, preserving

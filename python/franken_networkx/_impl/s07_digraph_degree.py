@@ -1640,10 +1640,11 @@ class _GraphAttrsDescriptor:
     """Descriptor that adds an assignment path to the Rust-native
     read-only ``graph`` attribute."""
 
-    __slots__ = ("_raw",)
+    __slots__ = ("_raw", "_take")
 
-    def __init__(self, raw):
+    def __init__(self, raw, take):
         self._raw = raw
+        self._take = take
 
     def __get__(self, obj, objtype=None):
         if obj is None:
@@ -1694,30 +1695,15 @@ class _GraphAttrsDescriptor:
         return self._raw.__get__(obj, objtype)
 
     def __set__(self, obj, value):
-        # br-grattrident: the attribute's own test pins an in-place
-        # clear-then-update contract ("before = G.graph; G.graph = {...};
-        # assert before is G.graph"). A straight store breaks that
-        # identity. Mutate the existing dict object (Rust-native or
-        # previously-stored override) instead, so external references
-        # continue to see the updated contents.
-        current = self.__get__(obj, type(obj))
-        # br-r37-c1-iorgrf (cycle 223): Python's in-place dict
-        # operators (``g.graph |= other``, ``g.graph |= {...}``)
-        # desugar to ``g.graph = dict.__ior__(g.graph, other)``.
-        # ``dict.__ior__`` mutates the dict in-place and returns
-        # ``self`` — so ``value is current``.  The
-        # ``current.clear()`` line below would then clear the very
-        # dict whose merged-in contents we want to keep.  Detect
-        # this and short-circuit.
-        if current is value:
-            setattr(obj, _GRAPH_ATTR_OVERRIDE, current)
-            return
-        if isinstance(current, dict) and isinstance(value, dict):
-            current.clear()
-            current.update(value)
-            setattr(obj, _GRAPH_ATTR_OVERRIDE, current)
-        else:
-            setattr(obj, _GRAPH_ATTR_OVERRIDE, value)
+        # NetworkX stores graph metadata as an ordinary instance attribute.
+        # Retain the replacement itself, leaving held views and shallow copies
+        # attached to the previous object. This also preserves ``graph |=``:
+        # its in-place operator returns the already-mutated original object.
+        setattr(obj, _GRAPH_ATTR_OVERRIDE, value)
+        # Drop obsolete native ownership after the new logical value is visible.
+        # The returned dictionary is released outside the native borrow, so its
+        # values may finalize and reenter the graph without losing the new state.
+        self._take(obj)
 
     def __delete__(self, obj):
         vars(obj).pop(_GRAPH_ATTR_OVERRIDE, None)
@@ -1725,7 +1711,7 @@ class _GraphAttrsDescriptor:
 
 
 for _cls in (Graph, DiGraph, MultiGraph, MultiDiGraph):
-    _cls.graph = _GraphAttrsDescriptor(_cls.__dict__["graph"])
+    _cls.graph = _GraphAttrsDescriptor(_cls.__dict__["graph"], _cls._take_graph_attrs)
 
 
 # br-r37-c1-clrovr (cycle 221): the cycle-220 ``graph_attr_dict_factory``
