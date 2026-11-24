@@ -1515,8 +1515,33 @@ _AVERAGE_NEIGHBOR_DEGREE_NATIVE_READERS = {
 }
 
 
+# Score batches bypass these readers. Check their class identities before
+# instance admission, and on every resumed score: replacing a descriptor
+# neither changes the topology token nor invalidates an existing batch.
+_LINK_PREDICTION_NATIVE_READERS = {
+    name: vars(Graph).get(name)
+    for name in (
+        "__len__", "__iter__", "__getitem__", "__getattribute__", "__dict__",
+        "__contains__", "is_directed", "is_multigraph", "_adj", "_node",
+        "adj", "nodes", "degree", "neighbors", "nodes_seq", "edges_seq",
+        "_native_has_adj_py_keys", "_native_common_neighbors",
+        "_native_adjacency_row_dict",
+    )
+}
+
+
 _CONVERSION_NATIVE_NODE_KEYS = {
     cls: cls._native_node_keys for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
+
+
+_CHAIN_DECOMPOSITION_NATIVE_READERS = {
+    name: vars(Graph).get(name)
+    for name in (
+        "__len__", "__iter__", "__contains__", "__getitem__",
+        "__getattribute__", "__dict__", "neighbors", "_node", "_adj",
+        "is_directed", "is_multigraph", "nodes", "adj",
+    )
 }
 
 

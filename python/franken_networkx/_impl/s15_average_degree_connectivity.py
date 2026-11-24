@@ -961,6 +961,14 @@ def _pa_native_scores(G, materialized):
     return _link_prediction_native_scores(G, materialized, "preferential_attachment")
 
 
+def _native_graph_class_readers_unchanged(G, graph_type, readers):
+    """Check native reader identities without consulting the graph instance."""
+    if type(G) is not graph_type:
+        return False
+    namespace = vars(graph_type)
+    return all(namespace.get(name) is reader for name, reader in readers.items())
+
+
 def _link_prediction_native_scores(G, pairs, metric):
     """Reuse native batches only while the caller's graph stays unchanged.
 
@@ -986,6 +994,9 @@ def _link_prediction_native_scores(G, pairs, metric):
         if (
             type(pairs) not in (list, tuple)
             or type(u) not in plain_keys or type(v) not in plain_keys
+            or not _native_graph_class_readers_unchanged(
+                G, Graph, _LINK_PREDICTION_NATIVE_READERS
+            )
             or not has_native_access(G)
         ):
             return _link_prediction_score(G, u, v, metric)

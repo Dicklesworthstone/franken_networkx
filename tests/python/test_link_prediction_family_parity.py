@@ -552,3 +552,132 @@ def test_link_prediction_does_not_hash_a_later_pairs_custom_neighbors(name):
     next(scores)
     if name != "preferential_attachment":
         assert events
+
+
+@pytest.mark.parametrize(
+    "name", [
+        "preferential_attachment", "resource_allocation_index", "adamic_adar_index",
+        "ra_index_soundarajan_hopcroft",
+    ]
+)
+@pytest.mark.parametrize("when", ["before-call", "before-first", "between-scores"])
+def test_link_prediction_reads_class_degree_providers(name, when, monkeypatch):
+    """A class replacement owns each degree read, even after a native batch."""
+    def run(module):
+        graph = _live_graph(module)
+        events = []
+
+        def degree(owner):
+            events.append("degree")
+
+            def value(node):
+                events.append(("node", node))
+                return node + 5
+
+            return value
+
+        with monkeypatch.context() as patch:
+            if when == "before-call":
+                patch.setattr(module.Graph, "degree", property(degree))
+            scores = getattr(module, name)(graph, [(0, 2), (0, 2)])
+            assert not events, "degree reads must remain lazy"
+            prefix = [next(scores)] if when == "between-scores" else []
+            if when != "before-call":
+                patch.setattr(module.Graph, "degree", property(degree))
+            return prefix + list(scores), events
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("when", ["before-call", "before-first", "between-scores"])
+def test_jaccard_reads_class_subscript_provider(when, monkeypatch):
+    """The union uses G[u] while the intersection still uses private rows."""
+    def run(module):
+        graph = _live_graph(module)
+        events = []
+
+        def row(owner, node):
+            events.append(node)
+            return {1: {}, 7: {}, 8: {}, 9: {}}
+
+        with monkeypatch.context() as patch:
+            if when == "before-call":
+                patch.setattr(module.Graph, "__getitem__", row)
+            scores = module.jaccard_coefficient(graph, [(0, 2), (0, 2)])
+            assert not events, "row reads must remain lazy"
+            prefix = [next(scores)] if when == "between-scores" else []
+            if when != "before-call":
+                patch.setattr(module.Graph, "__getitem__", row)
+            return prefix + list(scores), events
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("name", [name for name in _LIVE_FUNCS if name != "preferential_attachment"])
+@pytest.mark.parametrize("before_first", [False, True])
+def test_link_prediction_reads_class_private_rows(name, before_first, monkeypatch):
+    """A private-row provider must reach the common-neighbor numerator too."""
+    def run(module):
+        graph = _live_graph(module)
+        # These views intentionally retain their original rows. Replacing
+        # _adj must affect the common-neighbor lookup independently of them.
+        _ = graph.adj, graph.degree
+        events = []
+        original_getattribute = module.Graph.__getattribute__
+        rows = {0: {1: {}, 3: {}}, 2: {1: {}, 3: {}}}
+
+        def read(owner, attribute):
+            if attribute == "_adj":
+                events.append(attribute)
+                return rows
+            return original_getattribute(owner, attribute)
+
+        scores = getattr(module, name)(graph, [(0, 2), (0, 2)])
+        prefix = [] if before_first else [next(scores)]
+        with monkeypatch.context() as patch:
+            patch.setattr(module.Graph, "__getattribute__", read)
+            return prefix + list(scores), events
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("name", [name for name in _LIVE_FUNCS if name != "preferential_attachment"])
+def test_link_prediction_reads_replaced_membership_after_a_score(name, monkeypatch):
+    def run(module):
+        graph = _live_graph(module)
+        scores = getattr(module, name)(graph, [(0, 2), (0, 2)])
+        first = next(scores)
+        original_contains = module.Graph.__contains__
+        events = []
+
+        def contains(owner, node):
+            events.append(node)
+            return node != 0 and original_contains(owner, node)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(module.Graph, "__contains__", contains)
+            with pytest.raises(nx.NetworkXError) as caught:
+                next(scores)
+            return first, type(caught.value), caught.value.args, events
+
+    assert run(fnx) == run(nx)
+
+
+def test_link_prediction_admission_does_not_read_replaced_instance_dict(monkeypatch):
+    """Reject descriptors statically, before asking the instance for storage."""
+    def run(module):
+        graph = _live_graph(module)
+        scores = module.preferential_attachment(graph, [(0, 2)])
+        original_getattribute = module.Graph.__getattribute__
+
+        def read(owner, attribute):
+            if attribute == "__dict__":
+                raise AssertionError("instance dictionary was read")
+            return original_getattribute(owner, attribute)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(module.Graph, "__getattribute__", read)
+            patch.setattr(module.Graph, "degree", property(lambda owner: lambda node: 7))
+            return list(scores)
+
+    assert run(fnx) == run(nx) == [(0, 2, 49)]

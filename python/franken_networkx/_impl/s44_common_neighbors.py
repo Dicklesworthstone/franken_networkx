@@ -1,8 +1,31 @@
+# These descriptors have their final definitions by this point. Admission
+# must precede every instance read, including the private-storage probe.
+_COMMON_NEIGHBORS_NATIVE_READERS = {
+    name: vars(Graph).get(name)
+    for name in (
+        "__getattribute__", "__dict__", "__contains__", "is_directed",
+        "_adj", "_node", "_native_common_neighbors", "_native_adjacency_row_dict",
+    )
+}
 
 
 def common_neighbors(G, u, v):
     """Returns the common neighbors of two nodes in a graph."""
-    if type(G) is Graph and not _has_networkx_private_storage(G):
+    native_readers = _native_graph_class_readers_unchanged(
+        G, Graph, _COMMON_NEIGHBORS_NATIVE_READERS
+    )
+    if type(G) is Graph and not native_readers:
+        # Class providers may change rows, membership, or exception order.
+        # Preserve both live keys views until the set expression evaluates;
+        # reading the right row may mutate the left row.
+        if G.is_directed():
+            raise NetworkXNotImplemented("not implemented for directed type")
+        if u not in G:
+            raise NetworkXError("u is not in the graph.")
+        if v not in G:
+            raise NetworkXError("v is not in the graph.")
+        return G._adj[u].keys() & (G._adj[v].keys() - {u, v})
+    if native_readers and not _has_networkx_private_storage(G):
         # br-r37-c1-comnbr (bt): native integer-adjacency-row intersection — no
         # per-neighbour attr-dict materialisation, no Python-level `in G` round-trips,
         # one FFI call. Raises NetworkXError (u-before-v) for missing nodes; returns

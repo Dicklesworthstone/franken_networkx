@@ -320,3 +320,88 @@ def test_common_neighbors_validates_before_reading_assigned_rows(class_name, u, 
     expected = run(nx)
     assert expected[1] == []
     assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("provider", ["descriptor", "getattribute"])
+@pytest.mark.parametrize("behavior", ["replacement", "mutation", "error"])
+def test_common_neighbors_reads_class_row_providers(provider, behavior, monkeypatch):
+    def run(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 3)])
+        events = []
+
+        class Rows(dict):
+            def __getitem__(self, node):
+                events.append(("row", node))
+                if node == 2:
+                    if behavior == "error":
+                        raise LookupError("right row failed")
+                    if behavior == "mutation":
+                        dict.__getitem__(self, 0)[3] = {}
+                return dict.__getitem__(self, node)
+
+        rows = Rows({0: {1: {}}, 2: {1: {}, 3: {}}})
+        if behavior == "replacement":
+            rows[0][3] = {}
+        events.clear()
+
+        def adjacency(owner):
+            events.append("adj")
+            return rows
+
+        original_getattribute = module.Graph.__getattribute__
+
+        def read(owner, name):
+            if name == "_adj":
+                return adjacency(owner)
+            return original_getattribute(owner, name)
+
+        with monkeypatch.context() as patch:
+            if provider == "descriptor":
+                patch.setattr(module.Graph, "_adj", property(adjacency))
+            else:
+                patch.setattr(module.Graph, "__getattribute__", read)
+            if behavior == "error":
+                with pytest.raises(LookupError) as caught:
+                    module.common_neighbors(graph, 0, 2)
+                result = caught.value.args
+            else:
+                result = list(module.common_neighbors(graph, 0, 2))
+        return result, events
+
+    expected = run(nx)
+    assert expected[1] == ["adj", ("row", 0), "adj", ("row", 2)]
+    if behavior != "error":
+        assert expected[0] == [1, 3]
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("provider", ["descriptor", "getattribute"])
+@pytest.mark.parametrize("u,v", [(99, 0), (0, 99), ([0], 1), (0, [1])])
+def test_common_neighbors_validates_before_reading_class_rows(provider, u, v, monkeypatch):
+    def run(module):
+        graph = module.Graph([(0, 1)])
+        events = []
+
+        def adjacency(owner):
+            events.append("adj")
+            raise AssertionError("invalid query read a class adjacency provider")
+
+        original_getattribute = module.Graph.__getattribute__
+
+        def read(owner, name):
+            if name == "_adj":
+                return adjacency(owner)
+            return original_getattribute(owner, name)
+
+        with monkeypatch.context() as patch:
+            if provider == "descriptor":
+                patch.setattr(module.Graph, "_adj", property(adjacency))
+            else:
+                patch.setattr(module.Graph, "__getattribute__", read)
+            with pytest.raises(nx.NetworkXError) as caught:
+                module.common_neighbors(graph, u, v)
+        return caught.value.args, events
+
+    expected = run(nx)
+    assert expected[1] == []
+    assert run(fnx) == expected
