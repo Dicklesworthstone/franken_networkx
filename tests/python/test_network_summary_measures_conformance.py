@@ -167,6 +167,28 @@ def test_flow_hierarchy_cyclic_is_zero():
     assert _equiv(fnx.flow_hierarchy(fg), 0.0)
 
 
+def test_flow_hierarchy_deep_native_graph_survives_cycle_and_node_removal(monkeypatch):
+    size = 12_000
+    graph = fnx.path_graph(size, create_using=fnx.DiGraph)
+    reference = nx.path_graph(size, create_using=nx.DiGraph)
+    native = fnx._fnx.flow_hierarchy_rust
+    calls = []
+
+    def observed(subject):
+        calls.append(subject)
+        return native(subject)
+
+    monkeypatch.setattr(fnx._fnx, "flow_hierarchy_rust", observed)
+    assert fnx.flow_hierarchy(graph) == nx.flow_hierarchy(reference) == 1.0
+    graph.add_edge(size - 1, 0)
+    reference.add_edge(size - 1, 0)
+    assert fnx.flow_hierarchy(graph) == nx.flow_hierarchy(reference) == 0.0
+    graph.remove_node(size // 2)
+    reference.remove_node(size // 2)
+    assert fnx.flow_hierarchy(graph) == nx.flow_hierarchy(reference) == 1.0
+    assert len(calls) == 3 and all(subject is graph for subject in calls)
+
+
 @pytest.mark.parametrize(
     "graph_pair",
     [(fnx.Graph, nx.Graph), (fnx.DiGraph, nx.DiGraph)],

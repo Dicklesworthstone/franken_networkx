@@ -28960,6 +28960,72 @@ pub fn is_dominating_set(graph: &Graph, dom_nodes: &[&str]) -> bool {
 // Strongly Connected Components (DiGraph)
 // ===========================================================================
 
+/// Label the components reachable from `roots` without using the call stack.
+///
+/// Successor slices are borrowed in their existing order. Each visited vertex
+/// receives its component's DFS-root index; unreachable vertices keep
+/// `usize::MAX`. A completed component's label also distinguishes it from the
+/// active Tarjan stack, so no separate membership bitmap is needed.
+///
+/// The search is O(V + E) in time and O(V) in heap space, including for a path
+/// whose DFS depth is the entire graph. Consumers that need only component
+/// membership avoid allocating or sorting collections of node labels.
+fn indexed_scc_labels<'a>(
+    node_count: usize,
+    roots: impl IntoIterator<Item = usize>,
+    successors: impl Fn(usize) -> &'a [usize],
+) -> Vec<usize> {
+    let mut labels = vec![usize::MAX; node_count];
+    let mut indices = vec![usize::MAX; node_count];
+    let mut lowlinks = vec![0; node_count];
+    let mut pending = Vec::new();
+    let mut work: Vec<(usize, &[usize], usize)> = Vec::new();
+    let mut next_index = 0;
+
+    for root in roots {
+        if indices[root] != usize::MAX {
+            continue;
+        }
+        indices[root] = next_index;
+        lowlinks[root] = next_index;
+        next_index += 1;
+        pending.push(root);
+        work.push((root, successors(root), 0));
+
+        while let Some((node, neighbors, next_neighbor)) = work.last_mut() {
+            let node = *node;
+            if *next_neighbor < neighbors.len() {
+                let neighbor = neighbors[*next_neighbor];
+                *next_neighbor += 1;
+                if indices[neighbor] == usize::MAX {
+                    indices[neighbor] = next_index;
+                    lowlinks[neighbor] = next_index;
+                    next_index += 1;
+                    pending.push(neighbor);
+                    work.push((neighbor, successors(neighbor), 0));
+                } else if labels[neighbor] == usize::MAX {
+                    lowlinks[node] = lowlinks[node].min(indices[neighbor]);
+                }
+                continue;
+            }
+
+            work.pop();
+            if lowlinks[node] == indices[node] {
+                while let Some(member) = pending.pop() {
+                    labels[member] = node;
+                    if member == node {
+                        break;
+                    }
+                }
+            }
+            if let Some((parent, _, _)) = work.last() {
+                lowlinks[*parent] = lowlinks[*parent].min(lowlinks[node]);
+            }
+        }
+    }
+    labels
+}
+
 /// Return the strongly connected components of a directed graph using
 /// Tarjan's algorithm.
 ///
@@ -36533,11 +36599,17 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
         let mut stack: Vec<usize> = Vec::new();
 
         fn unblock(u: usize, blocked: &mut [bool], block_map: &mut [HashSet<usize>]) {
+            // Unblocking follows dependency links, which can be just as deep
+            // as the circuit DFS. Mark on insertion so each vertex is queued
+            // once even when several dependencies converge on it.
             blocked[u] = false;
-            let to_unblock: Vec<usize> = block_map[u].drain().collect();
-            for w in to_unblock {
-                if blocked[w] {
-                    unblock(w, blocked, block_map);
+            let mut pending = vec![u];
+            while let Some(node) = pending.pop() {
+                for neighbor in block_map[node].drain() {
+                    if blocked[neighbor] {
+                        blocked[neighbor] = false;
+                        pending.push(neighbor);
+                    }
                 }
             }
         }
@@ -36547,36 +36619,50 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
             s: usize,
             adj: &[Vec<usize>],
             stack: &mut Vec<usize>,
-            blocked: &mut Vec<bool>,
-            block_map: &mut Vec<HashSet<usize>>,
+            blocked: &mut [bool],
+            block_map: &mut [HashSet<usize>],
             result: &mut Vec<Vec<usize>>,
         ) -> bool {
-            let mut found = false;
             stack.push(v);
             blocked[v] = true;
+            // (vertex, next successor, whether this frame found a circuit).
+            // The return phase propagates `found` exactly as recursive DFS did.
+            let mut work = vec![(v, 0, false)];
+            while let Some((node, next_neighbor, found)) = work.last_mut() {
+                let node = *node;
+                if *next_neighbor < adj[node].len() {
+                    let neighbor = adj[node][*next_neighbor];
+                    *next_neighbor += 1;
+                    if neighbor == s {
+                        let mut cycle = stack.clone();
+                        cycle.push(s);
+                        result.push(cycle);
+                        *found = true;
+                    } else if !blocked[neighbor] {
+                        blocked[neighbor] = true;
+                        stack.push(neighbor);
+                        work.push((neighbor, 0, false));
+                    }
+                    continue;
+                }
 
-            for &w in &adj[v] {
-                if w == s {
-                    // Found a cycle
-                    let mut cycle = stack.clone();
-                    cycle.push(s);
-                    result.push(cycle);
-                    found = true;
-                } else if !blocked[w] && circuit(w, s, adj, stack, blocked, block_map, result) {
-                    found = true;
+                let found = *found;
+                work.pop();
+                if found {
+                    unblock(node, blocked, block_map);
+                } else {
+                    for &neighbor in &adj[node] {
+                        block_map[neighbor].insert(node);
+                    }
+                }
+                stack.pop();
+                if let Some((_, _, parent_found)) = work.last_mut() {
+                    *parent_found |= found;
+                } else {
+                    return found;
                 }
             }
-
-            if found {
-                unblock(v, blocked, block_map);
-            } else {
-                for &w in &adj[v] {
-                    block_map[w].insert(v);
-                }
-            }
-
-            stack.pop();
-            found
+            false
         }
 
         let mut idx_cycles: Vec<Vec<usize>> = Vec::new();
@@ -36608,105 +36694,15 @@ pub fn simple_cycles(graph: &DiGraph) -> Vec<Vec<String>> {
 /// Find the SCC containing `start` in the subgraph, using Tarjan's algorithm
 /// restricted to reachable nodes from `start`.
 fn johnson_scc_containing(start: usize, adj: &[Vec<usize>], n: usize) -> Vec<usize> {
-    // First, find all nodes reachable from start
-    let mut reachable: HashSet<usize> = HashSet::new();
-    let mut stack = vec![start];
-    while let Some(v) = stack.pop() {
-        if reachable.insert(v) {
-            for &w in &adj[v] {
-                stack.push(w);
-            }
-        }
-    }
-
-    if reachable.is_empty() {
-        return Vec::new();
-    }
-
-    // Tarjan's SCC on reachable subgraph
-    let mut index_counter = 0usize;
-    let mut indices = vec![usize::MAX; n];
-    let mut lowlinks = vec![usize::MAX; n];
-    let mut on_stack = vec![false; n];
-    let mut tarjan_stack: Vec<usize> = Vec::new();
-    let mut sccs: Vec<Vec<usize>> = Vec::new();
-
-    #[allow(clippy::too_many_arguments)]
-    fn strongconnect(
-        v: usize,
-        adj: &[Vec<usize>],
-        reachable: &HashSet<usize>,
-        index_counter: &mut usize,
-        indices: &mut [usize],
-        lowlinks: &mut [usize],
-        on_stack: &mut [bool],
-        stack: &mut Vec<usize>,
-        sccs: &mut Vec<Vec<usize>>,
-    ) {
-        indices[v] = *index_counter;
-        lowlinks[v] = *index_counter;
-        *index_counter += 1;
-        stack.push(v);
-        on_stack[v] = true;
-
-        for &w in &adj[v] {
-            if !reachable.contains(&w) {
-                continue;
-            }
-            if indices[w] == usize::MAX {
-                strongconnect(
-                    w,
-                    adj,
-                    reachable,
-                    index_counter,
-                    indices,
-                    lowlinks,
-                    on_stack,
-                    stack,
-                    sccs,
-                );
-                lowlinks[v] = lowlinks[v].min(lowlinks[w]);
-            } else if on_stack[w] {
-                lowlinks[v] = lowlinks[v].min(indices[w]);
-            }
-        }
-
-        if lowlinks[v] == indices[v] {
-            let mut scc = Vec::new();
-            while let Some(w) = stack.pop() {
-                on_stack[w] = false;
-                scc.push(w);
-                if w == v {
-                    break;
-                }
-            }
-            sccs.push(scc);
-        }
-    }
-
-    for &v in &reachable {
-        if indices[v] == usize::MAX {
-            strongconnect(
-                v,
-                adj,
-                &reachable,
-                &mut index_counter,
-                &mut indices,
-                &mut lowlinks,
-                &mut on_stack,
-                &mut tarjan_stack,
-                &mut sccs,
-            );
-        }
-    }
-
-    // Return the SCC containing start
-    for scc in sccs {
-        if scc.contains(&start) {
-            return scc;
-        }
-    }
-    Vec::new()
+    // Starting the DFS here already restricts it to reachable vertices. Avoid
+    // the preliminary HashSet traversal and the recursive Tarjan call chain.
+    let labels = indexed_scc_labels(n, std::iter::once(start), |node| &adj[node]);
+    let component = labels[start];
+    labels
+        .into_iter()
+        .enumerate()
+        .filter_map(|(node, label)| (label == component).then_some(node))
+        .collect()
 }
 
 /// Find a cycle in the directed graph. Returns Some(cycle) where cycle is a
@@ -47613,72 +47609,11 @@ pub fn flow_hierarchy_directed(digraph: &DiGraph) -> f64 {
     }
     let n = digraph.node_count();
 
-    // Tarjan's SCC over integer node indices.
-    let mut scc_id = vec![usize::MAX; n];
-    let mut scc_count = 0usize;
-    let mut stack: Vec<usize> = Vec::new();
-    let mut on_stack = vec![false; n];
-    let mut disc = vec![usize::MAX; n];
-    let mut low = vec![usize::MAX; n];
-    let mut timer = 0usize;
-
-    fn tarjan_dfs(
-        v: usize,
-        digraph: &DiGraph,
-        disc: &mut [usize],
-        low: &mut [usize],
-        on_stack: &mut [bool],
-        stack: &mut Vec<usize>,
-        scc_id: &mut [usize],
-        scc_count: &mut usize,
-        timer: &mut usize,
-    ) {
-        disc[v] = *timer;
-        low[v] = *timer;
-        *timer += 1;
-        stack.push(v);
-        on_stack[v] = true;
-
-        if let Some(succs) = digraph.successors_indices(v) {
-            for &si in succs {
-                if disc[si] == usize::MAX {
-                    tarjan_dfs(
-                        si, digraph, disc, low, on_stack, stack, scc_id, scc_count, timer,
-                    );
-                    low[v] = low[v].min(low[si]);
-                } else if on_stack[si] {
-                    low[v] = low[v].min(disc[si]);
-                }
-            }
-        }
-
-        if low[v] == disc[v] {
-            while let Some(w) = stack.pop() {
-                on_stack[w] = false;
-                scc_id[w] = *scc_count;
-                if w == v {
-                    break;
-                }
-            }
-            *scc_count += 1;
-        }
-    }
-
-    for i in 0..n {
-        if disc[i] == usize::MAX {
-            tarjan_dfs(
-                i,
-                digraph,
-                &mut disc,
-                &mut low,
-                &mut on_stack,
-                &mut stack,
-                &mut scc_id,
-                &mut scc_count,
-                &mut timer,
-            );
-        }
-    }
+    // Keep DFS frames on the heap: a perfectly valid long path must not abort
+    // the caller's process by exhausting the native thread stack.
+    let scc_id = indexed_scc_labels(n, 0..n, |node| {
+        digraph.successors_indices(node).unwrap_or(&[])
+    });
 
     // An edge u->v lies in a cycle iff u and v share an SCC. Count directly over
     // the integer out-adjacency (each directed edge once) == nx's
@@ -83343,6 +83278,156 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
+    fn indexed_scc_labels_restricted_roots_keep_unreachable_nodes_unassigned() {
+        let adj = [vec![1], vec![0, 2], vec![3], vec![2], vec![4]];
+        let labels = super::indexed_scc_labels(adj.len(), [0], |node| &adj[node]);
+        assert_eq!(labels, [0, 0, 2, 2, usize::MAX]);
+        let labels = super::indexed_scc_labels(adj.len(), [4, 0], |node| &adj[node]);
+        assert_eq!(labels, [0, 0, 2, 2, 4]);
+    }
+
+    #[test]
+    fn indexed_scc_and_cycles_match_exhaustive_small_graphs() {
+        // Reachability closure is an independent SCC/edge-cycle oracle. The
+        // cycle oracle enumerates simple paths without Johnson's blocking or
+        // SCC pruning. Include every directed topology on up to three vertices,
+        // including loops, disconnected components and antiparallel edges.
+        fn enumerate_paths(
+            start: usize,
+            adj: &[Vec<usize>],
+            path: &mut Vec<usize>,
+            result: &mut Vec<Vec<usize>>,
+        ) {
+            for &neighbor in &adj[*path.last().unwrap()] {
+                if neighbor == start {
+                    result.push(path.clone());
+                } else if neighbor > start && !path.contains(&neighbor) {
+                    path.push(neighbor);
+                    enumerate_paths(start, adj, path, result);
+                    path.pop();
+                }
+            }
+        }
+
+        let names = ["zeta", "alpha", "mu"];
+        for n in 0..=names.len() {
+            for mask in 0usize..(1usize << (n * n)) {
+                let mut graph = DiGraph::strict();
+                assert_eq!(graph.extend_nodes_unrecorded(names[..n].iter().copied()), n);
+                let mut adj = vec![Vec::new(); n];
+                let mut reachable = vec![vec![false; n]; n];
+                let mut edge_count = 0;
+                for u in (0..n).rev() {
+                    for v in (0..n).rev() {
+                        if mask & (1 << (u * n + v)) != 0 {
+                            graph.add_edge(names[u], names[v]).unwrap();
+                            adj[u].push(v);
+                            reachable[u][v] = true;
+                            edge_count += 1;
+                        }
+                    }
+                    reachable[u][u] = true;
+                }
+                for via in 0..n {
+                    for from in 0..n {
+                        for to in 0..n {
+                            let through = reachable[from][via] && reachable[via][to];
+                            reachable[from][to] |= through;
+                        }
+                    }
+                }
+                let labels = super::indexed_scc_labels(n, 0..n, |node| &adj[node]);
+                for u in 0..n {
+                    for v in 0..n {
+                        assert_eq!(
+                            labels[u] == labels[v],
+                            reachable[u][v] && reachable[v][u],
+                            "component membership: n={n}, mask={mask}, pair=({u}, {v})"
+                        );
+                    }
+                    let component = super::johnson_scc_containing(u, &adj, n);
+                    let expected: Vec<_> = (0..n)
+                        .filter(|&v| reachable[u][v] && reachable[v][u])
+                        .collect();
+                    assert_eq!(component, expected, "rooted SCC: n={n}, mask={mask}");
+                }
+
+                let cycle_edges: usize = adj
+                    .iter()
+                    .enumerate()
+                    .map(|(u, neighbors)| neighbors.iter().filter(|&&v| reachable[v][u]).count())
+                    .sum();
+                let expected_hierarchy = if edge_count == 0 {
+                    1.0
+                } else {
+                    1.0 - cycle_edges as f64 / edge_count as f64
+                };
+                assert_eq!(
+                    flow_hierarchy_directed(&graph),
+                    expected_hierarchy,
+                    "flow hierarchy: n={n}, mask={mask}"
+                );
+
+                let mut expected = Vec::new();
+                for start in 0..n {
+                    enumerate_paths(start, &adj, &mut vec![start], &mut expected);
+                }
+                let mut expected: Vec<Vec<String>> = expected
+                    .into_iter()
+                    .map(|cycle| {
+                        cycle
+                            .into_iter()
+                            .map(|node| names[node].to_owned())
+                            .collect()
+                    })
+                    .collect();
+                expected.sort();
+                assert_eq!(
+                    simple_cycles(&graph),
+                    expected,
+                    "cycle order and content: n={n}, mask={mask}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn simple_cycles_deep_search_and_unblocking_are_stack_safe() {
+        // The last graph builds a long failed-search dependency chain before
+        // its ancestor returns, exercising circuit frames and unblocking. A
+        // small stack exposes recursion without an exponential cycle corpus.
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let n = 1024;
+                let names: Vec<_> = (0..n).map(|node| format!("n{node:04}")).collect();
+                let mut graph = DiGraph::strict();
+                assert_eq!(graph.extend_nodes_unrecorded(names.iter().cloned()), n);
+                assert_eq!(
+                    graph.extend_existing_index_edges_unrecorded(
+                        (0..n - 1).map(|node| (node, node + 1))
+                    ),
+                    n - 1
+                );
+                assert!(simple_cycles(&graph).is_empty());
+
+                graph.add_edge(&names[n - 1], &names[0]).unwrap();
+                assert_eq!(simple_cycles(&graph), vec![names.clone()]);
+
+                assert!(graph.remove_edge(&names[n - 1], &names[0]));
+                graph.add_edge(&names[1], &names[0]).unwrap();
+                graph.add_edge(&names[n - 1], &names[1]).unwrap();
+                assert_eq!(
+                    simple_cycles(&graph),
+                    vec![names[..2].to_vec(), names[1..].to_vec()]
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
     fn test_simple_cycles_triangle() {
         let mut g = DiGraph::strict();
         let _ = g.add_edge("a", "b");
@@ -87808,6 +87893,37 @@ mod tests {
         d.add_edge("a", "b").unwrap();
         d.add_edge("b", "c").unwrap();
         assert!((flow_hierarchy_directed(&d) - 1.0).abs() < TEST_TOLERANCE);
+    }
+
+    #[test]
+    fn flow_hierarchy_deep_path_and_ring_are_stack_safe() {
+        std::thread::Builder::new()
+            .stack_size(128 * 1024)
+            .spawn(|| {
+                let n = 30_000;
+                let mut graph = DiGraph::strict();
+                assert_eq!(
+                    graph.extend_nodes_unrecorded((0..n).map(|node| node.to_string())),
+                    n
+                );
+                assert_eq!(
+                    graph.extend_existing_index_edges_unrecorded(
+                        (0..n - 1).map(|node| (node, node + 1))
+                    ),
+                    n - 1
+                );
+                assert_eq!(flow_hierarchy_directed(&graph), 1.0);
+                graph.add_edge((n - 1).to_string(), "0").unwrap();
+                assert_eq!(flow_hierarchy_directed(&graph), 0.0);
+
+                // Tombstoned storage still presents dense positional slices to
+                // the SCC helper. Breaking the ring leaves only acyclic edges.
+                assert!(graph.remove_node(&(n / 2).to_string()));
+                assert_eq!(flow_hierarchy_directed(&graph), 1.0);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]

@@ -1044,27 +1044,21 @@ mod tests {
 
     #[test]
     fn infinite_and_finite_capacity_statuses_preserve_reference_behavior() {
-        let unbounded = network_simplex_int(
-            &[0, 0], &[0, 1], &[1, 0], &[CAP_INF; 2], &[-1, 0],
-        );
+        let unbounded = network_simplex_int(&[0, 0], &[0, 1], &[1, 0], &[CAP_INF; 2], &[-1, 0]);
         assert_eq!(unbounded.status, NetworkSimplexStatus::Unbounded);
         assert_eq!(unbounded.cost, 0);
         assert!(unbounded.flows.is_empty());
 
         // The negative cycle is limited by its finite return edge. Preserve
         // the reference optimum below its artificial-flow cutoff.
-        let bounded = network_simplex_int(
-            &[-1, 1], &[0, 1], &[1, 0], &[CAP_INF, 4], &[-1, 0],
-        );
+        let bounded = network_simplex_int(&[-1, 1], &[0, 1], &[1, 0], &[CAP_INF, 4], &[-1, 0]);
         assert_eq!(bounded.status, NetworkSimplexStatus::Optimal);
         assert_eq!(bounded.cost, -5);
         assert_eq!(bounded.flows, [5, 4]);
 
         // The largest finite capacity is still a capacity, even with a
         // negative cycle. No rounding or sentinel comparison can erase it.
-        let finite = network_simplex_int(
-            &[0, 0], &[0, 1], &[1, 0], &[i64::MAX - 1; 2], &[-1, 0],
-        );
+        let finite = network_simplex_int(&[0, 0], &[0, 1], &[1, 0], &[i64::MAX - 1; 2], &[-1, 0]);
         assert_eq!(finite.status, NetworkSimplexStatus::Optimal);
         assert_eq!(finite.cost, -(i64::MAX - 1));
         assert_eq!(finite.flows, [i64::MAX - 1; 2]);
@@ -1072,9 +1066,7 @@ mod tests {
 
     #[test]
     fn infeasibility_is_checked_before_wide_cost_arithmetic() {
-        let insufficient = network_simplex_int(
-            &[-2, 2], &[0], &[1], &[1], &[i64::MIN],
-        );
+        let insufficient = network_simplex_int(&[-2, 2], &[0], &[1], &[1], &[i64::MIN]);
         assert_eq!(insufficient.status, NetworkSimplexStatus::Infeasible);
         let negative = network_simplex_int(&[0, 0], &[0], &[1], &[-1], &[0]);
         assert_eq!(negative.status, NetworkSimplexStatus::Infeasible);
@@ -1115,8 +1107,10 @@ mod tests {
                     for c in 0..=capacities[2] {
                         for d in 0..=capacities[3] {
                             if [-a - c + d, a - b, b + c - d] == demands {
-                                let cost = a * weights[0] + b * weights[1]
-                                    + c * weights[2] + d * weights[3];
+                                let cost = a * weights[0]
+                                    + b * weights[1]
+                                    + c * weights[2]
+                                    + d * weights[3];
                                 best = Some(best.map_or(cost, |previous: i64| previous.min(cost)));
                             }
                         }
