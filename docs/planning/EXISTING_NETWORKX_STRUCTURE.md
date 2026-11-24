@@ -766,6 +766,11 @@ weigh `1e308` has one basis cycle; a square with a diagonal has two. A
 disconnected graph retains the basis of every component, including components
 whose cycle weights overflow.
 
+The native cycle-basis spanning forest accepts arbitrary input edge order.
+Union-find retains its lower-index representative and first-accepted-edge
+ordering while using iterative path compression; a long reverse-ordered path
+followed by a closing chord must not exhaust the native call stack.
+
 The lifted shortest-path search must distinguish an undiscovered node from a
 discovered node at infinite distance. Selecting a starting node must accept
 the first reachable candidate even when its distance is infinite, replace it
@@ -2785,6 +2790,11 @@ Hopcroft-Karp kernel. Native admission does not consume custom or one-shot
 selectors, flatten assigned adjacency or substitute canonical labels for
 boolean/float aliases or signed zero. Other inputs run the owned Python
 matching implementation over their live rows.
+
+The native Hopcroft-Karp search uses an explicit, reusable path stack so long
+alternating paths do not exhaust the process call stack. It retains partition
+and neighbor iteration order, failed-branch pruning and reverse path rematching,
+including the exact matching and result order produced by recursive traversal.
 
 ## 84. Global Minimum Cut Backend Availability and Weight Reads
 

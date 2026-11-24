@@ -18779,11 +18779,17 @@ fn hk_add1(d: i64) -> i64 {
     if d >= HK_INF { HK_INF } else { d + 1 }
 }
 
-/// Recursive augmenting-path DFS for [`bipartite_hopcroft_karp`]. Mirrors nx's
-/// `depth_first_search`: iterate `v`'s right neighbours in adjacency order, and
-/// for any whose matched left node sits on the next BFS layer, recurse; on
-/// success rematch and return. `neighbors_indices` is the same order as nx's
-/// `G[v]`, so the augmenting path chosen is identical.
+struct HkDfsFrame {
+    node: usize,
+    next_neighbor: usize,
+    incoming_right: usize,
+}
+
+/// Ordered augmenting-path DFS for [`bipartite_hopcroft_karp`]. An explicit
+/// stack preserves recursive neighbour order and failed-subtree pruning while
+/// allowing alternating paths as deep as the graph without using the call
+/// stack. Successful paths are rematched from the free right endpoint back to
+/// the root, in the same order as recursive returns.
 fn hk_dfs(
     v: usize,
     graph: &Graph,
@@ -18791,24 +18797,44 @@ fn hk_dfs(
     rightmatch: &mut [usize],
     dist: &mut [i64],
     dist_none: i64,
+    stack: &mut Vec<HkDfsFrame>,
 ) -> bool {
-    if let Some(neighbors) = graph.neighbors_indices(v) {
-        let target = hk_add1(dist[v]);
-        for &u in neighbors {
-            let rm = rightmatch[u];
-            let d_rm = if rm == HK_NONE { dist_none } else { dist[rm] };
-            if d_rm == target {
-                let augmented =
-                    rm == HK_NONE || hk_dfs(rm, graph, leftmatch, rightmatch, dist, dist_none);
-                if augmented {
-                    rightmatch[u] = v;
-                    leftmatch[v] = u;
-                    return true;
-                }
-            }
+    stack.clear();
+    stack.push(HkDfsFrame {
+        node: v,
+        next_neighbor: 0,
+        incoming_right: HK_NONE,
+    });
+    while let Some(frame) = stack.last_mut() {
+        let node = frame.node;
+        let neighbors = graph.neighbors_indices(node).unwrap_or(&[]);
+        if frame.next_neighbor == neighbors.len() {
+            dist[node] = HK_INF;
+            stack.pop();
+            continue;
         }
+        let u = neighbors[frame.next_neighbor];
+        frame.next_neighbor += 1;
+        let rm = rightmatch[u];
+        let d_rm = if rm == HK_NONE { dist_none } else { dist[rm] };
+        if d_rm != hk_add1(dist[node]) {
+            continue;
+        }
+        if rm == HK_NONE {
+            let mut right = u;
+            while let Some(finished) = stack.pop() {
+                rightmatch[right] = finished.node;
+                leftmatch[finished.node] = right;
+                right = finished.incoming_right;
+            }
+            return true;
+        }
+        stack.push(HkDfsFrame {
+            node: rm,
+            next_neighbor: 0,
+            incoming_right: u,
+        });
     }
-    dist[v] = HK_INF;
     false
 }
 
@@ -18833,6 +18859,9 @@ pub fn bipartite_hopcroft_karp(
     let mut rightmatch = vec![HK_NONE; n];
     let mut dist = vec![0i64; n];
     let mut queue: VecDeque<usize> = VecDeque::new();
+    // Reuse the allocation across every root and BFS phase. Space remains
+    // proportional to the deepest alternating path, not the edge count.
+    let mut stack = Vec::new();
 
     loop {
         // Breadth-first search builds the layered graph; `dist_none` is the
@@ -18877,6 +18906,7 @@ pub fn bipartite_hopcroft_karp(
                     &mut rightmatch,
                     &mut dist,
                     dist_none,
+                    &mut stack,
                 );
             }
         }
@@ -22301,10 +22331,19 @@ fn minimum_cycle_basis_spanning_forest_edges(
 }
 
 fn minimum_cycle_basis_find(parent: &mut [usize], node: usize) -> usize {
-    if parent[node] != node {
-        parent[node] = minimum_cycle_basis_find(parent, parent[node]);
+    // Union preserves the smaller root, so reverse-ordered input edges can
+    // form a linear-depth tree. Compress it without using the call stack.
+    let mut root = node;
+    while parent[root] != root {
+        root = parent[root];
     }
-    parent[node]
+    let mut current = node;
+    while current != root {
+        let next = parent[current];
+        parent[current] = root;
+        current = next;
+    }
+    root
 }
 
 fn minimum_cycle_basis_union(parent: &mut [usize], left: usize, right: usize) -> bool {
@@ -58083,6 +58122,153 @@ mod lr_state_nx_dump_data;
 #[cfg(test)]
 mod tests {
     #[test]
+    fn hopcroft_karp_handles_long_alternating_path_on_small_stack() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                let size = 50_000;
+                let mut graph = super::Graph::strict();
+                assert_eq!(
+                    graph.extend_nodes_unrecorded((0..2 * size).map(|node| node.to_string())),
+                    2 * size
+                );
+                // The first phase matches left i to right i, except the last
+                // left node. The second phase must traverse all 50,000 left
+                // nodes before it reaches the only free right endpoint.
+                let edges = (0..size - 1)
+                    .flat_map(|node| [(node, size + node), (node, size + node + 1)])
+                    .chain([(size - 1, size)]);
+                assert_eq!(
+                    graph.extend_existing_index_edges_unrecorded(edges),
+                    2 * size - 1
+                );
+                let left: Vec<_> = (0..size).collect();
+                let right: Vec<_> = (size..2 * size).collect();
+                let pairs = super::bipartite_hopcroft_karp(&graph, &left, &right);
+                assert_eq!(pairs.len(), 2 * size);
+                for (node, &pair) in pairs[..size].iter().enumerate() {
+                    assert_eq!(pair, (node, size + (node + 1) % size));
+                }
+                for (node, &pair) in pairs[size..].iter().enumerate() {
+                    assert_eq!(pair, (size + node, (node + size - 1) % size));
+                }
+            })
+            .expect("spawn small-stack matching worker")
+            .join()
+            .expect("matching must not overflow the native stack");
+    }
+
+    #[test]
+    fn hopcroft_karp_backtracks_after_a_failed_alternating_branch() {
+        let mut graph = super::Graph::strict();
+        assert_eq!(
+            graph.extend_nodes_unrecorded((0..8).map(|node| node.to_string())),
+            8
+        );
+        assert_eq!(
+            graph.extend_existing_index_edges_unrecorded([(0, 3), (1, 4), (1, 5), (2, 3), (2, 4)]),
+            5
+        );
+        // The root 2 first visits the dead end through 3 -> 0, then
+        // augments through 4 -> 1 -> 5. Nodes 6 and 7 stay unmatched.
+        assert_eq!(
+            super::bipartite_hopcroft_karp(&graph, &[0, 1, 2, 6], &[3, 4, 5, 7]),
+            vec![(0, 3), (1, 5), (2, 4), (3, 0), (4, 2), (5, 1)]
+        );
+    }
+
+    #[test]
+    fn hopcroft_karp_retains_partition_and_neighbor_order() {
+        let mut graph = super::Graph::strict();
+        assert_eq!(
+            graph.extend_nodes_unrecorded((0..6).map(|node| node.to_string())),
+            6
+        );
+        assert_eq!(
+            graph.extend_existing_index_edges_unrecorded(
+                (0..3).flat_map(|left| (3..6).map(move |right| (left, right))),
+            ),
+            9
+        );
+        assert_eq!(
+            super::bipartite_hopcroft_karp(&graph, &[2, 0, 1], &[5, 3, 4]),
+            vec![(2, 3), (0, 4), (1, 5), (5, 1), (3, 2), (4, 0)]
+        );
+    }
+
+    #[test]
+    fn hopcroft_karp_matches_exhaustive_cardinality_oracle() {
+        // Exhaustive disjoint-edge selection is independent of BFS layering
+        // and augmentation. Cover every 3-by-3 bipartite graph and two
+        // different partition and adjacency iteration orders.
+        fn maximum_size(adjacency: &[[bool; 3]; 3], row: usize, used: u8) -> usize {
+            if row == 3 {
+                return 0;
+            }
+            let mut best = maximum_size(adjacency, row + 1, used);
+            for column in 0..3 {
+                if adjacency[row][column] && used & (1 << column) == 0 {
+                    best = best.max(1 + maximum_size(adjacency, row + 1, used | (1 << column)));
+                }
+            }
+            best
+        }
+
+        for edge_mask in 0_u16..512 {
+            let mut adjacency = [[false; 3]; 3];
+            let mut edges = Vec::new();
+            for (left, row) in adjacency.iter_mut().enumerate() {
+                for (right, present) in row.iter_mut().enumerate() {
+                    *present = edge_mask & (1 << (left * 3 + right)) != 0;
+                    if *present {
+                        edges.push((left, right + 3));
+                    }
+                }
+            }
+            let expected_size = maximum_size(&adjacency, 0, 0);
+            for reverse in [false, true] {
+                let mut graph = super::Graph::strict();
+                assert_eq!(
+                    graph.extend_nodes_unrecorded((0..6).map(|node| node.to_string())),
+                    6
+                );
+                let left = if reverse { [2, 1, 0] } else { [0, 1, 2] };
+                let right = if reverse { [5, 4, 3] } else { [3, 4, 5] };
+                if reverse {
+                    assert_eq!(
+                        graph.extend_existing_index_edges_unrecorded(edges.iter().rev().copied()),
+                        edges.len()
+                    );
+                } else {
+                    assert_eq!(
+                        graph.extend_existing_index_edges_unrecorded(edges.iter().copied()),
+                        edges.len()
+                    );
+                }
+                let pairs = super::bipartite_hopcroft_karp(&graph, &left, &right);
+                assert_eq!(pairs.len(), 2 * expected_size, "edge mask {edge_mask}");
+                let mut mates = [None; 6];
+                for &(node, partner) in &pairs {
+                    assert!(mates[node].replace(partner).is_none());
+                    assert!(graph.has_edge(&node.to_string(), &partner.to_string()));
+                }
+                for &(node, partner) in &pairs {
+                    assert_eq!(mates[partner], Some(node));
+                }
+                let order: Vec<_> = left
+                    .into_iter()
+                    .chain(right)
+                    .filter(|&node| mates[node].is_some())
+                    .collect();
+                assert_eq!(
+                    pairs.iter().map(|&(node, _)| node).collect::<Vec<_>>(),
+                    order
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parallel_capacity_configuration_matches_rayon_precedence() {
         for (primary, legacy, available, expected) in [
             (Some(2), Some(1), 4, 2),
@@ -75466,6 +75652,40 @@ mod tests {
 
         let tree = super::minimum_cycle_basis_core(4, &[(0, 1, 1.0), (1, 2, 1.0), (2, 3, 1.0)]);
         assert!(tree.cycles.is_empty());
+    }
+
+    #[test]
+    fn minimum_cycle_basis_forest_handles_deep_union_chain() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024)
+            .spawn(|| {
+                let node_count = 50_000_usize;
+                let mut edges: Vec<super::MinimumCycleBasisEdge> = (1..node_count)
+                    .rev()
+                    .enumerate()
+                    .map(|(input_idx, right)| super::MinimumCycleBasisEdge {
+                        input_idx,
+                        left: right - 1,
+                        right,
+                        weight: 1.0,
+                    })
+                    .collect();
+                // The reverse-ordered tree makes n-1 -> n-2 -> ... -> 0.
+                // Closing the cycle must find that root without recursion.
+                edges.push(super::MinimumCycleBasisEdge {
+                    input_idx: node_count - 1,
+                    left: 0,
+                    right: node_count - 1,
+                    weight: 1.0,
+                });
+                let selected = super::minimum_cycle_basis_spanning_forest_edges(node_count, &edges);
+                assert_eq!(selected.len(), node_count - 1);
+                assert!((0..node_count - 1).all(|edge| selected.contains(&edge)));
+                assert!(!selected.contains(&(node_count - 1)));
+            })
+            .expect("spawn small-stack cycle-basis forest worker")
+            .join()
+            .expect("cycle-basis forest construction must not overflow the stack");
     }
 
     #[test]
