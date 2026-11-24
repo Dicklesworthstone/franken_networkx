@@ -415,15 +415,19 @@ def average_clustering(G, nodes=None, weight=None, count_zeros=True):
 
 def transitivity(G):
     """Compute graph transitivity."""
-    G = _coerce_arg_to_fnx_graph(G)
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    # br-r37-c1-wh0x0: route through the Rust binding for undirected
-    # graphs — the algorithm is the same triangle-iteration core that
-    # the clustering/average_clustering fast paths use, and it matches
-    # nx bit-exactly.
-    if not G.is_directed():
+    # Conversion can restore an edge hidden in only one orientation of a
+    # filtered row. Keep observable adjacency and label callbacks attached to
+    # their owner, including when a previous query populated a native census.
+    live_rows = _triangles_uses_live_python_rows(G)
+    if not live_rows:
+        G = _coerce_arg_to_fnx_graph(G)
+
+    # The reference does not ask is_directed() on the live counting path.
+    # Only statically admitted ordinary readers can reach this native branch.
+    if not live_rows and not G.is_directed():
         snapshot = _cached_triangle_census_snapshot(G)
         if snapshot is not None:
             return snapshot[6]
@@ -439,9 +443,17 @@ def transitivity(G):
             # to preserve the type contract.
             return 0 if value == 0.0 else value
 
+    if live_rows:
+        native_rows = (
+            (type(G) is Graph or type(G) is DiGraph)
+            and _triangles_readers_are_default(G)
+        )
+        triangle_data = _triangles_live_counts(G, None, native_rows)
+    else:
+        triangle_data = _triangles_and_degree_iter_local(G)
     triangles_contributions = [
         (triangle_count, degree * (degree - 1))
-        for _, degree, triangle_count, _ in _triangles_and_degree_iter_local(G)
+        for _, degree, triangle_count, _ in triangle_data
     ]
     if len(triangles_contributions) == 0:
         return 0
@@ -562,7 +574,7 @@ def _triangles_reader_defaults():
     )
     return {
         cls: {name: inspect.getattr_static(cls, name) for name in names}
-        for cls in (Graph, MultiGraph, nx.Graph, nx.MultiGraph)
+        for cls in (Graph, DiGraph, MultiGraph, nx.Graph, nx.DiGraph, nx.MultiGraph)
     }
 
 
@@ -589,7 +601,7 @@ def _triangles_readers_are_default(G):
         "is_directed", "is_multigraph",
     )):
         return False
-    if graph_type is Graph or graph_type is MultiGraph:
+    if graph_type is Graph or graph_type is DiGraph or graph_type is MultiGraph:
         if _has_networkx_private_storage(G):
             return False
         return all(
@@ -609,7 +621,7 @@ def _triangles_uses_live_python_rows(G, nodes=None):
             return True
     if not _triangles_readers_are_default(G):
         return True
-    if type(G) is Graph or type(G) is MultiGraph:
+    if type(G) is Graph or type(G) is DiGraph or type(G) is MultiGraph:
         if nodes is not None:
             # The local native counter inspects only selected rows and their
             # neighbors. A bounded query must not scan unrelated node labels.
@@ -652,14 +664,29 @@ def _triangles_live_counts(G, nodes, native_rows):
         yield from _triangles_and_degree_iter_local(G, nodes, snapshot=False)
         return
 
+    graph_class = DiGraph if type(G) is DiGraph else Graph
+
     def row(node):
         # A selected-row lookup hashes the owner, just as G[node] does; the
         # cursor then yields its existing neighbors without rehashing them
         # under a native borrow or materializing edge attributes.
-        return Graph._fnx_unhashed_neighbors_iter(G, node)
+        return graph_class._fnx_unhashed_neighbors_iter(G, node)
 
-    for node in _triangles_native_nbunch_iter(G, nodes):
-        neighbors = set(row(node)) - {node}
+    if nodes is None:
+        # Unlike G.adjacency(), adj.items() looks up each owner before exposing
+        # its row. Keep that hash before consuming the live neighbor iterator,
+        # while existing stored-node iteration introduces no extra hashes.
+        node_rows = (
+            (node, row(node))
+            for node in graph_class._fnx_unhashed_node_iter(G)
+        )
+    else:
+        node_rows = (
+            (node, row(node))
+            for node in _triangles_native_nbunch_iter(G, nodes)
+        )
+    for node, row_neighbors in node_rows:
+        neighbors = set(row_neighbors) - {node}
         generalized_degree = _Counter(
             len(neighbors & (set(row(neighbor)) - {neighbor}))
             for neighbor in neighbors

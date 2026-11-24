@@ -2396,3 +2396,139 @@ def test_backend_triangles_retains_plain_native_conversion(cached, nodes, monkey
     assert type(received[0]) is fnx.Graph
     assert graph.__networkx_cache__["backends"]["franken_networkx"]
 
+
+@pytest.mark.parametrize("name", ["transitivity", "generalized_degree"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("provider", ["asymmetric_view", "public_adjacency"])
+def test_backend_neighborhood_metrics_keep_original_rows(name, cached, provider, monkeypatch):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    graph = nx.Graph([(0, 1), (1, 2), (2, 0)])
+    hidden = False
+    if provider == "asymmetric_view":
+        graph = nx.subgraph_view(
+            graph, filter_edge=lambda left, right: not hidden or (left, right) != (1, 2)
+        )
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    if provider == "asymmetric_view":
+        hidden = True
+    else:
+        graph.adj = {0: {}, 1: {}, 2: {}}
+    expected = getattr(nx, name)(graph, backend="networkx")
+
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS[name]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, name, record_input)
+    assert getattr(nx, name)(graph, backend="franken_networkx") == expected
+    assert received == [graph]
+    assert received[0] is graph
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("call_style", ["keyword", "positional"])
+def test_backend_generalized_degree_keeps_lazy_selection(cached, call_style, monkeypatch):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS["generalized_degree"]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "generalized_degree", record_input)
+
+    def run(backend):
+        graph = nx.Graph([(0, 1), (1, 2), (2, 0)])
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+        def selected_nodes():
+            yield 0
+            graph.remove_edge(1, 2)
+            yield 1
+            yield 2
+
+        if call_style == "positional":
+            result = nx.generalized_degree(graph, selected_nodes(), backend=backend)
+        else:
+            result = nx.generalized_degree(graph, nodes=selected_nodes(), backend=backend)
+        if backend == "franken_networkx":
+            assert received[-1] is graph
+            assert not graph.__networkx_cache__.get("backends")
+        return {node: list(distribution.items()) for node, distribution in result.items()}
+
+    expected = run("networkx")
+    assert expected == {0: [(1, 2)], 1: [(0, 1)], 2: [(0, 1)]}
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("name,graph_class,nodes", [
+    ("transitivity", "Graph", None),
+    ("transitivity", "DiGraph", None),
+    ("generalized_degree", "Graph", None),
+    ("generalized_degree", "Graph", 0),
+    ("generalized_degree", "Graph", [0, 2]),
+])
+def test_backend_neighborhood_metrics_keep_ordinary_conversion(
+    cached, name, graph_class, nodes, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    graph = getattr(nx, graph_class)([(0, 1), (1, 2), (2, 0), (2, 3)])
+    kwargs = {"nodes": nodes} if name == "generalized_degree" else {}
+    expected = getattr(nx, name)(graph, backend="networkx", **kwargs)
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS[name]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, name, record_input)
+    assert getattr(nx, name)(graph, backend="franken_networkx", **kwargs) == expected
+    assert len(received) == 1
+    assert type(received[0]) is getattr(fnx, graph_class)
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+
+@pytest.mark.parametrize("name,graph_class", [
+    ("transitivity", "MultiGraph"),
+    ("transitivity", "MultiDiGraph"),
+    ("generalized_degree", "DiGraph"),
+    ("generalized_degree", "MultiGraph"),
+    ("generalized_degree", "MultiDiGraph"),
+])
+def test_backend_neighborhood_metrics_preserve_graph_errors(name, graph_class):
+    graph = getattr(nx, graph_class)([(0, 1), (1, 2), (2, 0)])
+    with pytest.raises(nx.NetworkXNotImplemented) as expected:
+        getattr(nx, name)(graph, backend="networkx")
+    with pytest.raises(nx.NetworkXNotImplemented) as actual:
+        getattr(nx, name)(graph, backend="franken_networkx")
+    assert actual.value.args == expected.value.args
+

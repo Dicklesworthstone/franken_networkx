@@ -1025,3 +1025,213 @@ def test_triangles_preserve_membership_and_graph_type_error_order(fnx, nx, graph
     expected = run(nx)
     assert expected[2] == ([] if "DiGraph" in graph_class else ["membership"])
     assert run(fnx) == expected
+
+
+def _neighborhood_metric_result(value):
+    from collections import Counter
+
+    if isinstance(value, Counter):
+        return "Counter", list(value.items())
+    if isinstance(value, dict):
+        return "dict", [
+            (getattr(node, "value", node), _neighborhood_metric_result(item))
+            for node, item in value.items()
+        ]
+    return type(value).__name__, value
+
+
+@pytest.mark.parametrize("name", ["transitivity", "generalized_degree"])
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("kind", ["filtered_view", "assigned_rows"])
+def test_neighborhood_metrics_keep_asymmetric_rows(fnx, nx, name, source, kind):
+    def make(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 0)])
+        if kind == "filtered_view":
+            return module.subgraph_view(
+                graph, filter_edge=lambda left, right: (left, right) != (1, 2)
+            )
+        module.triangles(graph)
+        graph._adj = {0: {1: {}, 2: {}}, 1: {0: {}}, 2: {0: {}, 1: {}}}
+        return graph
+
+    expected = getattr(nx, name)(make(nx))
+    if name == "transitivity":
+        assert expected == 0.75
+    actual = getattr(fnx, name)(make(fnx if source == "native" else nx))
+    assert _neighborhood_metric_result(actual) == _neighborhood_metric_result(expected)
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+def test_generalized_degree_consumes_selector_between_rows(fnx, nx, source):
+    def run(algorithm, graph_module):
+        graph = graph_module.Graph([(0, 1), (1, 2), (2, 0)])
+
+        def selected_nodes():
+            yield 0
+            graph.remove_edge(1, 2)
+            yield 1
+            yield 2
+
+        return _neighborhood_metric_result(
+            algorithm.generalized_degree(graph, nodes=selected_nodes())
+        )
+
+    expected = run(nx, nx)
+    assert expected == ("dict", [
+        (0, ("Counter", [(1, 2)])),
+        (1, ("Counter", [(0, 1)])),
+        (2, ("Counter", [(0, 1)])),
+    ])
+    assert run(fnx, fnx if source == "native" else nx) == expected
+
+
+@pytest.mark.parametrize("name", ["transitivity", "generalized_degree"])
+@pytest.mark.parametrize("source", ["native", "networkx"])
+def test_neighborhood_metrics_keep_assigned_public_adjacency(fnx, nx, name, source):
+    def make(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 0)])
+        module.triangles(graph)
+        graph.adj = {0: {}, 1: {}, 2: {}}
+        return graph
+
+    expected = getattr(nx, name)(make(nx))
+    actual = getattr(fnx, name)(make(fnx if source == "native" else nx))
+    assert _neighborhood_metric_result(actual) == _neighborhood_metric_result(expected)
+
+
+@pytest.mark.parametrize("name,graph_class", [
+    ("transitivity", "Graph"),
+    ("transitivity", "DiGraph"),
+    ("generalized_degree", "Graph"),
+])
+@pytest.mark.parametrize("warm_cache", [False, True])
+@pytest.mark.parametrize("mutation", ["closing_edge", "owner_row"])
+def test_neighborhood_metrics_keep_first_owner_mutation(
+    fnx, nx, name, graph_class, warm_cache, mutation
+):
+    def run(module):
+        graph = getattr(module, graph_class)()
+
+        class Node:
+            value = 0
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    self.armed = False
+                    if mutation == "closing_edge":
+                        graph.remove_edge(1, 2)
+                    else:
+                        # The owner lookup in G.adj.items() precedes its row
+                        # iteration. Adding an already-present isolated node
+                        # must affect this row without a dictionary-size error.
+                        graph.add_edge(self, 3)
+                return 0
+
+        node = Node()
+        graph.add_nodes_from([node, 1, 2, 3])
+        graph.add_edges_from([(node, 1), (1, 2), (2, node)])
+        if graph_class == "DiGraph":
+            graph.add_edges_from([(1, node), (2, 1), (node, 2)])
+        if warm_cache:
+            getattr(module, name)(graph)
+        node.armed = True
+        result = _neighborhood_metric_result(getattr(module, name)(graph))
+        return result, node.armed, graph.has_edge(1, 2), graph.has_edge(node, 3)
+
+    expected = run(nx)
+    assert expected[1] is False
+    if mutation == "owner_row" and name == "transitivity":
+        assert expected[0] == ("float", 0.6)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("selection", ["scalar", "list", "iterator"])
+def test_generalized_degree_small_queries_do_not_inspect_other_nodes(
+    fnx, nx, selection, monkeypatch
+):
+    def run(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 0)])
+
+        class Unrelated:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("unrelated node was hashed")
+                return 42
+
+        node = Unrelated()
+        graph.add_node(node)
+        node.armed = True
+        selected = 0 if selection == "scalar" else [0]
+        if selection == "iterator":
+            selected = iter(selected)
+        return _neighborhood_metric_result(module.generalized_degree(graph, selected))
+
+    def reject_global_scan(*_args):
+        raise AssertionError("small generalized-degree query scanned all nodes")
+
+    monkeypatch.setattr(fnx, "_view_root_node_keys_are_stable", reject_global_scan)
+    monkeypatch.setattr(fnx, "number_of_selfloops", reject_global_scan)
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("selection", ["all", "large_subset"])
+def test_generalized_degree_preserves_ordinary_native_histograms(
+    fnx, nx, selection, monkeypatch
+):
+    graph = fnx.complete_graph(36)
+    reference = nx.complete_graph(36)
+    nodes = None if selection == "all" else list(range(32))
+    function_name = (
+        "generalized_degree_rust" if selection == "all"
+        else "generalized_degree_rust_subset"
+    )
+    kernel = getattr(fnx._fnx, function_name)
+    calls = []
+
+    def counted(*args):
+        calls.append(args[0])
+        return kernel(*args)
+
+    monkeypatch.setattr(fnx._fnx, function_name, counted)
+    assert fnx.generalized_degree(graph, nodes) == nx.generalized_degree(reference, nodes)
+    assert calls == [graph]
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph", "DiGraph", "MultiDiGraph"])
+def test_generalized_degree_preserves_membership_error_order(fnx, nx, graph_class):
+    def run(module):
+        graph = getattr(module, graph_class)([(0, 1)])
+        events = []
+
+        class Selector:
+            def __hash__(self):
+                events.append("membership")
+                raise RuntimeError("selector membership")
+
+        try:
+            module.generalized_degree(graph, Selector())
+        except Exception as error:
+            return type(error).__name__, error.args, events
+        raise AssertionError("expected selector or graph-type error")
+
+    expected = run(nx)
+    assert expected[2] == ([] if "DiGraph" in graph_class else ["membership"])
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+def test_transitivity_does_not_read_direction_provider(fnx, nx, source, graph_class):
+    def run(algorithm, graph_module):
+        graph = getattr(graph_module, graph_class)([(0, 1), (1, 2), (2, 0)])
+
+        def is_directed():
+            raise AssertionError("transitivity must not read is_directed")
+
+        graph.is_directed = is_directed
+        return algorithm.transitivity(graph)
+
+    assert run(fnx, fnx if source == "native" else nx) == run(nx, nx)

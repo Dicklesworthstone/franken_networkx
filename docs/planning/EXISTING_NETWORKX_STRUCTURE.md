@@ -3422,6 +3422,17 @@ incidences or four-cycles, affect coefficient denominators, or remove isolated
 vertices. All-node and subset results retain these semantics without mutating
 graph storage.
 
+Transitivity and generalized degree also retain the caller's live adjacency.
+Their all-node counts read `G.adj.items()`, preserving row orientation and
+the owner lookup before construction of each neighbor set.
+Transitivity accepts simple directed graphs and intersects successor rows.
+Generalized degree rejects directed graphs first, checks node membership
+before multigraph rejection, and consumes node selections between counts.
+The live counting path runs label callbacks outside graph borrows. Small
+selected queries on native graphs inspect only their requested neighborhoods.
+Backend dispatch preserves these original-graph reads through both cold and
+warm conversion caches.
+
 Regression cases are added to `tests/python/test_clustering.py` and
 `tests/python/test_backend_convert_from_nx_hints.py`. The baseline mismatch
 was reproduced through the whole current Python package and released 0.4.1

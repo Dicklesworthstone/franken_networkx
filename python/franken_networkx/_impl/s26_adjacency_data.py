@@ -1006,10 +1006,14 @@ def generalized_degree(G, nodes=None):
     # on MultiDiGraph.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
+    # The reference tests membership before its triangle helper rejects
+    # multigraphs, even when nodes is None. Keep observable selectors here.
+    single_node = nodes in G
     if G.is_multigraph():
         raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    if nodes is None:
+    live_rows = _triangles_uses_live_python_rows(G, nodes)
+    if nodes is None and not live_rows:
         # br-r37-c1-distidx: native triangle-distribution kernel for the
         # all-nodes case instead of the Python _triangles_and_degree_iter_local
         # neighbor-intersection loop. Wrap each value as Counter to match nx's
@@ -1022,51 +1026,28 @@ def generalized_degree(G, nodes=None):
         ):
             kr = dict(_fnx.generalized_degree_rust(G))
             return {node: _gd_counter(dict(kr[node])) for node in G}
-        # br-r37-c1-gdself (cc): the native kernel counts a self-loop as a neighbour
-        # (spurious triangles in the distribution); nx excludes self-loops. For the
-        # rare self-loop case fall to the self-loop-correct Python triangle iterator
-        # (the same one the nbunch path uses), preserving G's node order.
-        return {
-            node: _gd
-            for node, _deg, _t, _gd in _triangles_and_degree_iter_local(G, G)
-        }
+    if nodes is not None and not live_rows and type(G) is Graph:
+        selected_nodes = [nodes] if single_node else _global_nbunch_nodes(G, nodes)
+        # The existing large-subset route already scans the graph for loops.
+        # Admit stable labels there too, before a native histogram can hash
+        # its output under a borrow. Small selections stay entirely local.
+        if (
+            len(selected_nodes) >= 32
+            and _view_root_node_keys_are_stable(G, G.nodes_seq)
+            and not _fnx._graph_has_row_key_aliases(G)
+            and number_of_selfloops(G) == 0
+        ):
+            kr = _fnx.generalized_degree_rust_subset(G, selected_nodes)
+            return {node: _Counter(kr[node]) for node in selected_nodes}
 
-    selected_nodes, single_node = _triangle_selection(G, nodes)
-    # br-r37-c1-gdsub (cc): native subset kernel for an exact simple Graph with no
-    # self-loops (same gate + per-node distribution as the nodes=None fast path; the
-    # kernel counts self-loops as neighbours, so self-loop graphs keep the Python
-    # triangle iterator). Computes only selected_nodes — O(|S|*deg^2), no whole-graph
-    # walk — vs the per-node `_triangles_and_degree_iter_local` port (0.76-0.81x). The
-    # Counter wrap + selected_nodes order match the port and nx byte-for-byte.
-    if (
-        type(G) is Graph
-        and not _has_networkx_private_storage(G)
-        and len(selected_nodes) >= 32
-        and number_of_selfloops(G) == 0
-    ):
-        # len>=32 guard: the O(E) number_of_selfloops gate + binding overhead only
-        # pays off once the subset is non-trivial; tiny subsets on large graphs keep
-        # the O(|S|*deg) Python port (no whole-graph selfloop scan). Native wins
-        # 2.6-4x for |S|>=100.
-        from collections import Counter as _gd_counter
-
-        kr = dict(_fnx.generalized_degree_rust_subset(G, list(selected_nodes)))
-        generalized_degrees = {
-            node: _gd_counter(dict(kr[node])) for node in selected_nodes
-        }
-        if single_node:
-            return generalized_degrees[nodes]
-        return generalized_degrees
-    generalized_degrees = {
-        node: generalized_degree_counter
-        for node, _, _, generalized_degree_counter in _triangles_and_degree_iter_local(
-            G, selected_nodes
-        )
-    }
-
+    # Providers and lazy node selections must expose each row when it is
+    # counted. Native cursors also avoid cold display-key materialization and
+    # leave the first label callbacks outside the source graph's borrow.
+    native_rows = type(G) is Graph and _triangles_readers_are_default(G)
+    counts = _triangles_live_counts(G, nodes, native_rows)
     if single_node:
-        return generalized_degrees[nodes]
-    return generalized_degrees
+        return next(counts)[3]
+    return {node: distribution for node, _, _, distribution in counts}
 
 
 def _node_connectivity_pair_values(G, nodes=None, flow_func=None):
