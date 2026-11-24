@@ -4414,9 +4414,12 @@ def _gexf_scan_document(raw_bytes):
         "directed": False,
         "attr_class": None,
         "lossy_recovery": False,
+        "graph_count": 0,
+        "xml_depth": 0,
     }
 
     def start_element(name, attrs):
+        state["xml_depth"] += 1
         tag = _xml_local_name(name)
         namespace = name.rsplit("}", 1)[0] if "}" in name else ""
         if namespace in viz_namespaces and tag in viz_tags:
@@ -4426,6 +4429,13 @@ def _gexf_scan_document(raw_bytes):
             state["native_required"] = True
 
         if tag == "graph":
+            state["graph_count"] += 1
+            if state["graph_count"] > 1 or state["xml_depth"] != 2:
+                # Only the reader's selected direct graph contributes data.
+                # The simple metadata restoration scans the whole document,
+                # so it cannot safely reconstruct multi-graph XML containers.
+                state["needs_decoder"] = True
+                state["lossy_recovery"] = True
             direction = attrs.get("defaultedgetype", "undirected")
             normalized = direction.strip().lower()
             state["directed"] = normalized in ("directed", "mutual")
@@ -4528,6 +4538,7 @@ def _gexf_scan_document(raw_bytes):
             state["edge_depth"] -= 1
         elif tag == "attributes":
             state["attr_class"] = None
+        state["xml_depth"] -= 1
 
     def xml_declaration(version, encoding, standalone):
         if encoding and encoding.lower().replace("-", "") not in ("utf8", "ascii"):

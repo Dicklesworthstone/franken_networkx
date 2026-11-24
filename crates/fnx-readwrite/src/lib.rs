@@ -3048,12 +3048,23 @@ impl EdgeListEngine {
     fn gexf_directed_flag(&mut self, input: &str) -> Result<GexfDirectedFlag, ReadWriteError> {
         let mut reader = Reader::from_str(input);
         reader.config_mut().trim_text(true);
+        let mut scope = GexfGraphScope::default();
 
         loop {
             match reader.read_event() {
-                Ok(Event::Start(element)) | Ok(Event::Empty(element))
-                    if xml_local_name(element.name().as_ref()) == b"graph" =>
-                {
+                Ok(event @ (Event::Start(_) | Event::Empty(_))) => {
+                    let empty = matches!(&event, Event::Empty(_));
+                    let element = match event {
+                        Event::Start(element) | Event::Empty(element) => element,
+                        _ => unreachable!(),
+                    };
+                    let selected = scope.start(element.name().as_ref());
+                    if empty {
+                        scope.end();
+                    }
+                    if !selected || xml_local_name(element.name().as_ref()) != b"graph" {
+                        continue;
+                    }
                     for attr in element.attributes() {
                         let attr = match attr {
                             Ok(attr) => attr,
@@ -3129,6 +3140,9 @@ impl EdgeListEngine {
                         value: false,
                     });
                 }
+                Ok(Event::End(_)) => {
+                    scope.end();
+                }
                 Ok(Event::Eof) => {
                     return Ok(GexfDirectedFlag {
                         declared: false,
@@ -3168,10 +3182,12 @@ impl EdgeListEngine {
     {
         let mut reader = Reader::from_str(input);
         reader.config_mut().trim_text(true);
+        let mut scope = GexfGraphScope::default();
 
         let mut attr_defs: BTreeMap<String, BTreeMap<String, GexfAttrDef>> = BTreeMap::new();
         let mut current_attr_class: Option<String> = None;
         let mut current_node: Option<String> = None;
+        let mut parent_nodes: Vec<(Option<String>, AttrMap)> = Vec::new();
         let mut current_edge: Option<(String, String)> = None;
         let mut current_edge_skip = false;
         let mut pending_node_attrs = AttrMap::new();
@@ -3180,6 +3196,9 @@ impl EdgeListEngine {
         loop {
             match reader.read_event() {
                 Ok(Event::Start(ref element)) => {
+                    if !scope.start(element.name().as_ref()) {
+                        continue;
+                    }
                     self.handle_gexf_start_element(
                         element,
                         reader.decoder(),
@@ -3189,6 +3208,7 @@ impl EdgeListEngine {
                         &mut attr_defs,
                         &mut current_attr_class,
                         &mut current_node,
+                        &mut parent_nodes,
                         &mut current_edge,
                         &mut current_edge_skip,
                         &mut pending_node_attrs,
@@ -3197,6 +3217,11 @@ impl EdgeListEngine {
                     )?;
                 }
                 Ok(Event::Empty(ref element)) => {
+                    let selected = scope.start(element.name().as_ref());
+                    scope.end();
+                    if !selected {
+                        continue;
+                    }
                     self.handle_gexf_start_element(
                         element,
                         reader.decoder(),
@@ -3206,6 +3231,7 @@ impl EdgeListEngine {
                         &mut attr_defs,
                         &mut current_attr_class,
                         &mut current_node,
+                        &mut parent_nodes,
                         &mut current_edge,
                         &mut current_edge_skip,
                         &mut pending_node_attrs,
@@ -3217,6 +3243,7 @@ impl EdgeListEngine {
                         graph,
                         &mut current_attr_class,
                         &mut current_node,
+                        &mut parent_nodes,
                         &mut current_edge,
                         &mut current_edge_skip,
                         &mut pending_node_attrs,
@@ -3225,11 +3252,15 @@ impl EdgeListEngine {
                     )?;
                 }
                 Ok(Event::End(ref element)) => {
+                    if !scope.end() {
+                        continue;
+                    }
                     self.handle_gexf_end_element(
                         xml_local_name(element.name().as_ref()),
                         graph,
                         &mut current_attr_class,
                         &mut current_node,
+                        &mut parent_nodes,
                         &mut current_edge,
                         &mut current_edge_skip,
                         &mut pending_node_attrs,
@@ -3268,6 +3299,7 @@ impl EdgeListEngine {
         attr_defs: &mut BTreeMap<String, BTreeMap<String, GexfAttrDef>>,
         current_attr_class: &mut Option<String>,
         current_node: &mut Option<String>,
+        parent_nodes: &mut Vec<(Option<String>, AttrMap)>,
         current_edge: &mut Option<(String, String)>,
         current_edge_skip: &mut bool,
         pending_node_attrs: &mut AttrMap,
@@ -3337,6 +3369,10 @@ impl EdgeListEngine {
                 );
             }
             b"node" => {
+                // Nested <nodes> must not replace the enclosing node's ID,
+                // label or attributes. Also isolate an invalid child while
+                // hardened mode decides whether to skip that record.
+                parent_nodes.push((current_node.take(), std::mem::take(pending_node_attrs)));
                 let mut id = String::new();
                 let mut label: Option<String> = None;
                 for attr in element.attributes() {
@@ -3525,6 +3561,7 @@ impl EdgeListEngine {
         graph: &mut G,
         current_attr_class: &mut Option<String>,
         current_node: &mut Option<String>,
+        parent_nodes: &mut Vec<(Option<String>, AttrMap)>,
         current_edge: &mut Option<(String, String)>,
         current_edge_skip: &mut bool,
         pending_node_attrs: &mut AttrMap,
@@ -3545,6 +3582,10 @@ impl EdgeListEngine {
                     graph.add_node_with_attrs(node_id, std::mem::take(pending_node_attrs));
                 }
                 pending_node_attrs.clear();
+                if let Some((parent, attrs)) = parent_nodes.pop() {
+                    *current_node = parent;
+                    *pending_node_attrs = attrs;
+                }
             }
             b"edge" => {
                 if let Some((source, target)) = current_edge.take() {
@@ -5670,6 +5711,47 @@ struct GraphmlDirectedFlag {
 struct GexfDirectedFlag {
     declared: bool,
     value: bool,
+}
+
+/// Keep graph detection and record decoding on the same direct-child scope.
+///
+/// GEXF's complete reader selects a direct graph child. Nested graph elements
+/// and later siblings must not supply nodes, attributes or direction to that
+/// graph. Events outside the selected scope are still consumed so malformed
+/// trailing XML retains the ordinary strict/hardened parser policy.
+#[derive(Default)]
+struct GexfGraphScope {
+    depth: usize,
+    selected: bool,
+    graph_depth: Option<usize>,
+    ignored_graph_depth: Option<usize>,
+}
+
+impl GexfGraphScope {
+    fn start(&mut self, name: &[u8]) -> bool {
+        self.depth += 1;
+        if xml_local_name(name) == b"graph" {
+            if !self.selected && self.depth == 2 {
+                self.selected = true;
+                self.graph_depth = Some(self.depth);
+            } else if self.graph_depth.is_some() && self.ignored_graph_depth.is_none() {
+                self.ignored_graph_depth = Some(self.depth);
+            }
+        }
+        self.graph_depth.is_some() && self.ignored_graph_depth.is_none()
+    }
+
+    fn end(&mut self) -> bool {
+        let selected = self.graph_depth.is_some() && self.ignored_graph_depth.is_none();
+        if self.ignored_graph_depth == Some(self.depth) {
+            self.ignored_graph_depth = None;
+        }
+        if self.graph_depth == Some(self.depth) {
+            self.graph_depth = None;
+        }
+        self.depth = self.depth.saturating_sub(1);
+        selected
+    }
 }
 
 fn graphml_scope_matches(for_scope: &str, target: &str) -> bool {
@@ -7981,6 +8063,184 @@ mod tests {
             EdgeListEngine::strict()
                 .validate_gexf(&wrong_scope)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn gexf_scope_selects_first_direct_graph() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<meta><graph defaultedgetype="directed" name="metadata">
+<nodes><node id="metadata"/></nodes></graph></meta>
+<graph defaultedgetype="undirected" name="selected"><nodes>
+<node id="a" label="A"/><node id="b" label="B"/></nodes>
+<edges><edge id="ab" source="a" target="b"/></edges></graph>
+<graph defaultedgetype="directed" name="later"><nodes>
+<node id="later"/></nodes></graph></gexf>"#;
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            let mut engine = EdgeListEngine::new(mode);
+            assert!(
+                !engine
+                    .gexf_declares_directed(input)
+                    .expect("selected direction")
+            );
+            for validation_only in [false, true] {
+                let report = engine
+                    .read_gexf_report(input, validation_only)
+                    .expect("only the selected direct graph is decoded");
+                assert!(report.warnings.is_empty());
+                assert_eq!(report.graph.nodes_ordered(), vec!["a", "b"]);
+                assert_eq!(report.graph.edge_count(), 1);
+                assert_eq!(
+                    report.graph_attrs.get("name"),
+                    Some(&CgseValue::String("selected".to_owned()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gexf_scope_does_not_merge_sibling_or_nested_graph_records() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="directed" name="selected"><nodes>
+<node id="a" label="A"><graph defaultedgetype="undirected">
+<nodes><node id="nested"/></nodes><edges><edge source="nested" target="a"/>
+</edges></graph></node><node id="b" label="B"/></nodes>
+<edges><edge id="ab" source="a" target="b"/></edges></graph>
+<graph defaultedgetype="undirected" name="later"><attributes class="node">
+<attribute id="bad" title="rank" type="long"/></attributes><nodes>
+<node id="a"><attvalues><attvalue for="bad" value="invalid"/></attvalues></node>
+<node id="later"/></nodes><edges><edge source="later" target="a"/>
+</edges></graph></gexf>"#;
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            let mut engine = EdgeListEngine::new(mode);
+            assert!(
+                engine
+                    .gexf_declares_directed(input)
+                    .expect("selected direction")
+            );
+            for validation_only in [false, true] {
+                let report = engine
+                    .read_digraph_gexf_report(input, validation_only)
+                    .expect("unselected records cannot contaminate the graph");
+                assert!(report.warnings.is_empty());
+                assert_eq!(report.graph.nodes_ordered(), vec!["a", "b"]);
+                assert_eq!(report.graph.edge_count(), 1);
+                assert!(report.graph.has_edge("a", "b"));
+                assert_eq!(
+                    report
+                        .graph
+                        .node_attrs("a")
+                        .and_then(|attrs| attrs.get("label")),
+                    Some(&CgseValue::String("A".to_owned()))
+                );
+                assert_eq!(
+                    report.graph_attrs.get("name"),
+                    Some(&CgseValue::String("selected".to_owned()))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gexf_scope_preserves_nested_parent_attributes() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="node">
+<attribute id="rank" title="rank" type="long"/></attributes><nodes>
+<node id="parent" label="Parent"><attvalues><attvalue for="rank" value="11"/>
+</attvalues><nodes><node id="child" label="Child"><nodes>
+<node id="leaf" label="Leaf"/></nodes><attvalues>
+<attvalue for="rank" value="22"/></attvalues></node>
+<node id="sibling" label="Sibling"/></nodes></node></nodes></graph></gexf>"#;
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            for validation_only in [false, true] {
+                let report = EdgeListEngine::new(mode)
+                    .read_gexf_report(input, validation_only)
+                    .expect("nested children retain each parent's attribute context");
+                assert!(report.warnings.is_empty());
+                assert_eq!(report.graph.node_count(), 4);
+                for (node, label) in [
+                    ("parent", "Parent"),
+                    ("child", "Child"),
+                    ("leaf", "Leaf"),
+                    ("sibling", "Sibling"),
+                ] {
+                    let attrs = report.graph.node_attrs(node).expect("declared node");
+                    assert_eq!(
+                        attrs.get("label"),
+                        Some(&CgseValue::String(label.to_owned()))
+                    );
+                }
+                assert_eq!(
+                    report.graph.node_attrs("parent").unwrap().get("rank"),
+                    Some(&CgseValue::Int(11))
+                );
+                assert_eq!(
+                    report.graph.node_attrs("child").unwrap().get("rank"),
+                    Some(&CgseValue::Int(22))
+                );
+                assert!(!report.graph_attrs.contains_key("rank"));
+            }
+        }
+    }
+
+    #[test]
+    fn gexf_scope_recovers_invalid_child_without_destroying_parent_context() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="node">
+<attribute id="rank" title="rank" type="long"/></attributes><nodes>
+<node id="parent" label="Parent"><nodes><node label="invalid"/></nodes>
+<attvalues><attvalue for="rank" value="42"/></attvalues></node>
+</nodes></graph></gexf>"#;
+        assert!(EdgeListEngine::strict().validate_gexf(input).is_err());
+        let report = EdgeListEngine::hardened()
+            .validate_gexf(input)
+            .expect("missing child ID is a bounded recovery");
+        assert_eq!(report.graph.node_count(), 1);
+        let attrs = report.graph.node_attrs("parent").expect("parent survives");
+        assert_eq!(
+            attrs.get("label"),
+            Some(&CgseValue::String("Parent".to_owned()))
+        );
+        assert_eq!(attrs.get("rank"), Some(&CgseValue::Int(42)));
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("node missing id"));
+    }
+
+    #[test]
+    fn gexf_scope_still_checks_nested_scalar_values() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><attributes class="node">
+<attribute id="rank" title="rank" type="long"/></attributes><nodes>
+<node id="parent"><nodes><node id="child"><attvalues>
+<attvalue for="rank" value="invalid"/></attvalues></node></nodes></node>
+</nodes></graph></gexf>"#;
+        assert!(EdgeListEngine::strict().validate_gexf(input).is_err());
+        let report = EdgeListEngine::hardened()
+            .validate_gexf(input)
+            .expect("nested scalar recovery retains evidence");
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("expected=integer"));
+        assert_eq!(
+            report.graph.node_attrs("child").unwrap().get("rank"),
+            Some(&CgseValue::String("invalid".to_owned()))
+        );
+    }
+
+    #[test]
+    fn gexf_scope_still_checks_xml_after_selected_graph() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft">
+<graph defaultedgetype="undirected"><nodes><node id="selected"/></nodes></graph>
+<graph><nodes></graph></gexf>"#;
+        assert!(EdgeListEngine::strict().read_gexf(input).is_err());
+        let report = EdgeListEngine::hardened()
+            .read_gexf(input)
+            .expect("malformed trailing XML retains recovery policy");
+        assert_eq!(report.graph.nodes_ordered(), vec!["selected"]);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("xml parse error"))
         );
     }
 

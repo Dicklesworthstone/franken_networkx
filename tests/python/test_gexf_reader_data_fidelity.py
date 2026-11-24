@@ -84,6 +84,111 @@ def test_rich_gexf_data_matches_networkx(monkeypatch, graph_type, version, entry
     _assert_same(actual, expected)
 
 
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_gexf_scope_selects_one_direct_graph(directed, mode):
+    direction = "directed" if directed else "undirected"
+    opposite = "undirected" if directed else "directed"
+    payload = f'''<gexf xmlns="http://www.gexf.net/1.2draft">
+      <meta><graph defaultedgetype="{opposite}" name="metadata">
+        <nodes><node id="metadata"/></nodes></graph></meta>
+      <graph defaultedgetype="{direction}" name="selected"><nodes>
+        <node id="a" label="A"><graph defaultedgetype="{opposite}">
+          <nodes><node id="nested"/></nodes></graph></node>
+        <node id="b" label="B"/></nodes>
+        <edges><edge id="ab" source="a" target="b"/></edges></graph>
+      <graph defaultedgetype="{opposite}" name="later">
+        <attributes class="node"><attribute id="rank" title="rank" type="long"/>
+        </attributes><nodes><node id="a"><attvalues>
+          <attvalue for="rank" value="invalid"/></attvalues></node>
+        <node id="later"/></nodes></graph></gexf>'''.encode()
+    expected = nx.read_gexf(BytesIO(payload))
+    options = {} if mode is None else {"mode": mode}
+    actual = fnx.read_gexf(BytesIO(payload), **options)
+    _assert_same(actual, expected)
+    assert list(actual) == ["a", "b"]
+    if mode is not None:
+        assert actual.mode == mode
+        assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+@pytest.mark.parametrize("entrypoint", ("top_level", "readwrite", "gexf"))
+def test_gexf_scope_does_not_merge_plain_graph_siblings(mode, entrypoint):
+    payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft">
+      <graph name="first" defaultedgetype="undirected"><nodes>
+        <node id="a" label="first A"/><node id="b" label="first B"/></nodes>
+        <edges><edge id="ab" source="a" target="b"/></edges></graph>
+      <graph name="second" defaultedgetype="undirected"><nodes>
+        <node id="a" label="second A"/><node id="c" label="C"/></nodes>
+        <edges><edge id="ac" source="a" target="c"/></edges></graph></gexf>'''
+    expected = nx.read_gexf(BytesIO(payload))
+    reader = {
+        "top_level": fnx.read_gexf,
+        "readwrite": readwrite.read_gexf,
+        "gexf": readwrite.gexf.read_gexf,
+    }[entrypoint]
+    options = {} if mode is None else {"mode": mode}
+    stream = BytesIO(payload)
+    actual = reader(stream, **options)
+    _assert_same(actual, expected)
+    assert not stream.closed
+    assert stream.getvalue() == payload
+
+
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+@pytest.mark.parametrize("node_type", (None, int))
+def test_gexf_scope_preserves_parent_attributes_after_nested_nodes(mode, node_type):
+    payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft">
+      <graph defaultedgetype="undirected"><attributes class="node">
+        <attribute id="rank" title="rank" type="long"/></attributes><nodes>
+        <node id="1" label="Parent"><attvalues><attvalue for="rank" value="11"/>
+        </attvalues><nodes><node id="2" label="Child"><nodes>
+          <node id="3" label="Leaf"/></nodes><attvalues>
+          <attvalue for="rank" value="22"/></attvalues></node>
+          <node id="4" label="Sibling"/></nodes></node></nodes>
+        <edges><edge id="12" source="1" target="2"/></edges></graph></gexf>'''
+    expected = nx.read_gexf(BytesIO(payload), node_type=node_type)
+    options = {} if mode is None else {"mode": mode}
+    actual = fnx.read_gexf(BytesIO(payload), node_type=node_type, **options)
+    _assert_same(actual, expected)
+    if mode is not None:
+        assert actual.mode == mode
+        assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_gexf_scope_requires_a_direct_graph_child(mode):
+    payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft"><meta>
+      <graph name="metadata" defaultedgetype="undirected"><nodes>
+        <node id="hidden"/></nodes></graph></meta></gexf>'''
+    with pytest.raises(nx.NetworkXError, match="No <graph> element"):
+        nx.read_gexf(BytesIO(payload))
+    options = {} if mode is None else {"mode": mode}
+    with pytest.raises(fnx.NetworkXError, match="No <graph> element"):
+        fnx.read_gexf(BytesIO(payload), **options)
+
+
+def test_gexf_scope_scalar_recovery_keeps_nested_parent_data():
+    payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft">
+      <graph defaultedgetype="undirected"><attributes class="node">
+        <attribute id="rank" title="rank" type="long"/></attributes><nodes>
+        <node id="parent" label="Parent"><nodes><node id="child" label="Child">
+          <attvalues><attvalue for="rank" value="invalid"/></attvalues>
+        </node></nodes><attvalues><attvalue for="rank" value="42"/></attvalues>
+        </node></nodes></graph></gexf>'''
+    with pytest.raises(OSError):
+        fnx.read_gexf(BytesIO(payload), mode="strict")
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+    assert list(actual.nodes(data=True)) == [
+        ("child", {"rank": "invalid", "label": "Child", "pid": "parent"}),
+        ("parent", {"rank": 42, "label": "Parent"}),
+    ]
+    assert dict(actual.graph) == {"mode": "static", "node_default": {}, "edge_default": {}}
+    assert actual.mode == "hardened"
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+
 @pytest.mark.parametrize("graph_type", GRAPH_TYPES)
 @pytest.mark.parametrize("mode", (None, "strict", "hardened"))
 @pytest.mark.parametrize("relabel", (False, True))
