@@ -799,6 +799,109 @@ def test_cost_flow_bulk_adapter_retains_owned_plain_read_attributes(cls):
 
 @pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
 @pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("reader", ["nodes", "edges"])
+@pytest.mark.parametrize("binding", ["instance", "class"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_cost_flow_keeps_public_reader_protocols(api, cls, reader, binding, warm, monkeypatch):
+    def run(module):
+        graph = getattr(module, cls)()
+        graph.add_node("source", demand=-1)
+        graph.add_node("sink", demand=1)
+        graph.add_edge("source", "sink", capacity=1, weight=1)
+        graph.add_edge("source", "middle", capacity=1, weight=5)
+        graph.add_edge("middle", "sink", capacity=1, weight=5)
+        if warm:
+            # Individual handouts use the owned dictionary type admitted by
+            # the bulk adapter, unlike its per-graph bulk-mirror subclasses.
+            for source, target in (
+                ("source", "sink"), ("source", "middle"), ("middle", "sink"),
+            ):
+                if graph.is_multigraph():
+                    graph.get_edge_data(source, target, 0)
+                else:
+                    graph.get_edge_data(source, target)
+        events = []
+        if reader == "nodes":
+            original = graph.nodes
+
+            class Nodes:
+                def __getitem__(self, node):
+                    events.append(("node", node))
+                    return original[node]
+
+                def __call__(self, **kwargs):
+                    raise AssertionError("simplex does not request node data iteration")
+
+            provider = Nodes()
+        else:
+            def provider(data=False, keys=False):
+                events.append(("edges", data, keys))
+                # The public edge reader makes the indirect route cheaper.
+                rows = [
+                    ("source", "sink", {"capacity": 1, "weight": 20}),
+                    ("source", "middle", {"capacity": 1, "weight": 5}),
+                    ("middle", "sink", {"capacity": 1, "weight": 5}),
+                ]
+                return [(u, v, 0, attrs) for u, v, attrs in rows] if keys else rows
+
+        with monkeypatch.context() as patch:
+            if binding == "instance":
+                patch.setattr(graph, reader, provider)
+            else:
+                # Admission must inspect this descriptor without calling it.
+                patch.setattr(type(graph), reader, property(lambda self: provider))
+            return _cost_flow_outcome(getattr(module, api), graph), events
+
+    expected = run(nx)
+    assert expected[0][0] == "return"
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("compound", [False, True], ids=["label", "tuple"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+def test_cost_flow_node_hash_mutation_precedes_edge_extraction(api, cls, compound, warm):
+    def run(module):
+        graph = getattr(module, cls)()
+        armed = changed = False
+        events = []
+
+        class Label(str):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    events.append("shortcut")
+                    graph.add_edge(source, "sink", capacity=1, weight=1)
+                return str.__hash__(self)
+
+        source = ("source", Label("key")) if compound else Label("source")
+        graph.add_node(source, demand=-1)
+        graph.add_node("sink", demand=1)
+        graph.add_edge(source, "middle", capacity=1, weight=5)
+        graph.add_edge("middle", "sink", capacity=1, weight=5)
+        for left, right in ((source, "middle"), ("middle", "sink")):
+            if graph.is_multigraph():
+                graph.get_edge_data(left, right, 0)
+            else:
+                graph.get_edge_data(left, right)
+        if warm:
+            tuple(graph)
+            list(graph.nodes(data=True))
+            list(graph.edges(data=True))
+        armed = True
+        result = _cost_flow_outcome(getattr(module, api), graph)
+        return result, events
+
+    expected = run(nx)
+    assert expected[0][0] == "return"
+    assert expected[1] == ["shortcut"]
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("api", _EXACT_MIN_COST_APIS[:-1])
+@pytest.mark.parametrize("cls", ["DiGraph", "MultiDiGraph"])
 def test_cost_flow_respects_patched_owned_attribute_read_protocols(api, cls, monkeypatch):
     graph = getattr(fnx, cls)()
     graph.add_node("source", demand=-1)

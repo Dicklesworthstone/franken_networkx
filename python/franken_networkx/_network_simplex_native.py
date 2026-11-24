@@ -89,16 +89,47 @@ class _FastG:
     def __init__(self, G, *, demand="demand", capacity="capacity", weight="weight"):
         from . import (
             DiGraph, MultiDiGraph, _has_networkx_private_storage,
-            _plain_read_attr_dict_types,
+            _plain_read_attr_dict_types, _MIN_COST_FLOW_NATIVE_READERS,
+            _CONVERSION_NATIVE_NODE_KEYS, _view_filter_node_key_is_stable,
         )
 
         self._source = G
+        graph_type = type(G)
         if (
             any(type(name) is not str for name in (demand, capacity, weight))
-            or type(G) not in (DiGraph, MultiDiGraph)
-            or _has_networkx_private_storage(G)
+            or graph_type not in (DiGraph, MultiDiGraph)
+        ):
+            return
+        # Snapshotting bypasses the public node and edge readers.
+        # Inspect class descriptors before touching the instance: an assigned
+        # __getattribute__ or __dict__ must not run during admission itself.
+        readers = _MIN_COST_FLOW_NATIVE_READERS[graph_type]
+        namespace = vars(graph_type)
+        if any(namespace.get(name) is not reader for name, reader in readers.items()):
+            return
+        storage = G.__dict__
+        if any(name in storage for name in ("__len__", "__iter__", "is_multigraph")):
+            return
+        if any(
+            name in storage and (
+                f"_fnx_view_{name}_assigned" in storage
+                or storage[name] is not storage.get(f"_fnx_view_{name}")
+            )
+            for name in ("nodes", "edges")
+        ):
+            return
+        if (
+            _has_networkx_private_storage(G)
             or G.node_attr_dict_factory is not dict
             or G.edge_attr_dict_factory is not dict
+        ):
+            return
+        # The solver hashes node labels while constructing its index, before
+        # reading demands or edges. Do not move those callbacks behind an edge
+        # snapshot by first building the adapter's own node dictionary.
+        if not all(
+            _view_filter_node_key_is_stable(node)
+            for node in _CONVERSION_NATIVE_NODE_KEYS[graph_type](G)
         ):
             return
         nd = list(G.nodes(data=True))
