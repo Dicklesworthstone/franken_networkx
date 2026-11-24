@@ -998,6 +998,7 @@ def _link_prediction_native_scores(G, pairs, metric):
                 G, Graph, _LINK_PREDICTION_NATIVE_READERS
             )
             or not has_native_access(G)
+            or "is_directed" in G.__dict__
         ):
             return _link_prediction_score(G, u, v, metric)
         current = (G.nodes_seq, G.edges_seq)

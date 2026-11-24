@@ -11,11 +11,14 @@ _COMMON_NEIGHBORS_NATIVE_READERS = {
 
 def common_neighbors(G, u, v):
     """Returns the common neighbors of two nodes in a graph."""
-    native_readers = _native_graph_class_readers_unchanged(
-        G, Graph, _COMMON_NEIGHBORS_NATIVE_READERS
+    native_readers = (
+        _native_graph_class_readers_unchanged(
+            G, Graph, _COMMON_NEIGHBORS_NATIVE_READERS
+        )
+        and "is_directed" not in G.__dict__
     )
     if type(G) is Graph and not native_readers:
-        # Class providers may change rows, membership, or exception order.
+        # Class or instance providers may change rows, membership, or errors.
         # Preserve both live keys views until the set expression evaluates;
         # reading the right row may mutate the left row.
         if G.is_directed():

@@ -405,3 +405,30 @@ def test_common_neighbors_validates_before_reading_class_rows(provider, u, v, mo
     expected = run(nx)
     assert expected[1] == []
     assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("behavior", ["directed", "mutation", "error"])
+@pytest.mark.parametrize("pair", [(0, 2), (0, 99)])
+def test_common_neighbors_reads_instance_directedness_before_membership(behavior, pair):
+    def run(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 3)])
+        events = []
+
+        def is_directed():
+            events.append("is_directed")
+            if behavior == "error":
+                raise LookupError("directedness provider failed")
+            if behavior == "mutation":
+                graph.add_edge(0, 3)
+            return behavior == "directed"
+
+        graph.is_directed = is_directed
+        try:
+            result = module.common_neighbors(graph, *pair)
+        except Exception as error:
+            result = type(error), error.args
+        return result, events
+
+    expected = run(nx)
+    assert expected[1] == ["is_directed"]
+    assert run(fnx) == expected

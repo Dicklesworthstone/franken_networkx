@@ -681,3 +681,42 @@ def test_link_prediction_admission_does_not_read_replaced_instance_dict(monkeypa
             return list(scores)
 
     assert run(fnx) == run(nx) == [(0, 2, 49)]
+
+
+@pytest.mark.parametrize("name", _LIVE_FUNCS)
+@pytest.mark.parametrize("route", ["native", "warm-backend"])
+@pytest.mark.parametrize("before_first", [False, True])
+@pytest.mark.parametrize("behavior", ["directed", "mutation", "error"])
+def test_link_prediction_reads_replaced_instance_directedness(
+    name, route, before_first, behavior, monkeypatch
+):
+    """A resumed score must observe instance providers before using a batch."""
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def run(module, reference):
+        graph = _live_graph(module)
+        pairs = [(0, 2), (0, 2)]
+        kwargs = {"alpha": 1} if name == "common_neighbor_centrality" else {}
+        scores = (
+            getattr(nx, name)(graph, pairs, backend="networkx", **kwargs)
+            if reference else _live_prediction(route, name, graph, pairs, **kwargs)
+        )
+        prefix = [] if before_first else [next(scores)]
+        events = []
+
+        def is_directed():
+            events.append("is_directed")
+            if behavior == "error":
+                raise LookupError("directedness provider failed")
+            if behavior == "mutation":
+                graph.add_edges_from([(0, 5), (2, 5)])
+            return behavior == "directed"
+
+        graph.is_directed = is_directed
+        try:
+            result = prefix + list(scores)
+        except Exception as error:
+            result = prefix, type(error), error.args
+        return result, events
+
+    assert run(_live_input_module(route), False) == run(nx, True)
