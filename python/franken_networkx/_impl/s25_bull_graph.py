@@ -1084,6 +1084,42 @@ def all_simple_edge_paths(
     yield from _all_simple_edge_paths_fnx(G, source, target, cutoff)
 
 
+def _chain_decomposition_live(G, root):
+    """Build the DFS cycle forest from the caller's live graph readers."""
+    parents = {}
+    forest = {}
+    order = []
+    for u, v, event in dfs_labeled_edges(G, source=root):
+        if event == "forward":
+            order.append(v)
+            forest.setdefault(v, {})
+            if u != v:
+                parents[v] = u
+                forest[v][u] = False
+        elif event == "nontree" and v not in forest[u]:
+            # Tree edges point toward the root; each non-tree edge points
+            # away from it. The opposite orientation is already recorded
+            # when the undirected traversal encounters the edge again.
+            forest[v][u] = True
+
+    # Complete the forest before yielding. Later changes to G must not
+    # alter chains already determined by this traversal.
+    visited = set()
+    for u in order:
+        visited.add(u)
+        for v, nontree in forest[u].items():
+            if not nontree:
+                continue
+            chain = []
+            left, right = u, v
+            while right not in visited:
+                chain.append((left, right))
+                visited.add(right)
+                left, right = right, parents[right]
+            chain.append((left, right))
+            yield chain
+
+
 def chain_decomposition(G, root=None, *, backend=None, **backend_kwargs):
     """Return the chain decomposition of *G*.
 
@@ -1100,9 +1136,8 @@ def chain_decomposition(G, root=None, *, backend=None, **backend_kwargs):
     list of (u, v) tuples
         Each yielded list is a chain.
 
-    br-r37-c1-r4gg6: exact native DFS-cycle-forest path for plain fnx
-    Graphs. Unsupported graph-like objects and root-error cases still route
-    through the parity helper so NetworkX owns their observable exceptions.
+    Plain native graphs use the native DFS cycle forest. Views, foreign
+    graphs, and custom graph readers retain their live traversal protocols.
     """
     _validate_backend_dispatch_keywords(
         "chain_decomposition",
@@ -1116,12 +1151,21 @@ def chain_decomposition(G, root=None, *, backend=None, **backend_kwargs):
         raise NetworkXNotImplemented("not implemented for multigraph type")
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    G = _coerce_arg_to_fnx_graph(G)
-
     def _gen():
         if root is not None and root not in G:
             raise NodeNotFound(f"Root node {root} is not in graph")
-        yield from _fnx.chain_decomposition(G, root)
+        # Admission belongs at the first advance, after root validation.
+        # A caller can replace a reader or mutate a view after obtaining
+        # the iterator; eagerly converting it would freeze the old graph.
+        if (
+            _native_graph_class_readers_unchanged(
+                G, Graph, _CHAIN_DECOMPOSITION_NATIVE_READERS
+            )
+            and _greedy_color_native_graph(G)
+        ):
+            yield from _fnx.chain_decomposition(G, root)
+        else:
+            yield from _chain_decomposition_live(G, root)
 
     return _gen()
 

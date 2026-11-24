@@ -157,7 +157,10 @@ _DEGREE_CENTRALITY_ALGORITHMS = frozenset(
     {"degree_centrality", "in_degree_centrality", "out_degree_centrality"}
 )
 _EXTENDED_TRAVERSAL_ALGORITHMS = frozenset(
-    {"generic_bfs_edges", "bfs_labeled_edges", "dfs_labeled_edges", "bfs_beam_edges"}
+    {
+        "generic_bfs_edges", "bfs_labeled_edges", "dfs_labeled_edges",
+        "bfs_beam_edges", "chain_decomposition",
+    }
 )
 _LINK_PREDICTION_ALGORITHMS = frozenset(
     {
@@ -1345,6 +1348,7 @@ _SUPPORTED_ALGORITHMS = {
     "all_node_cuts": fnx.all_node_cuts,
     "articulation_points": fnx.articulation_points,
     "bridges": fnx.bridges,
+    "chain_decomposition": fnx.chain_decomposition,
     "local_bridges": fnx.local_bridges,
     # Centrality
     "degree_centrality": fnx.degree_centrality,
@@ -2677,6 +2681,7 @@ class BackendInterface:
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis", "min_edge_cover",
                             "voterank", "common_neighbors", "label_propagation_communities",
+                            "chain_decomposition",
                         }
                     ):
                         # Preserve graph-contract errors and user callback
