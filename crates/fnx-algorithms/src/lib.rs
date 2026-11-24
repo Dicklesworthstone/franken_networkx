@@ -20417,12 +20417,16 @@ pub fn find_cliques(graph: &Graph) -> FindCliquesResult {
         };
     }
 
-    // Build adjacency sets for fast neighbor lookup
+    // Bron-Kerbosch uses open neighborhoods: a self-loop must not remove
+    // its own vertex from P \ N(pivot), or a valid maximal clique disappears.
+    // Count every scanned adjacency entry in the witness, including loops.
     let mut adj: Vec<HashSet<usize>> = vec![HashSet::new(); n];
     for i in 0..n {
         if let Some(nbrs) = graph.neighbors_indices(i) {
             for &j in nbrs {
-                adj[i].insert(j);
+                if i != j {
+                    adj[i].insert(j);
+                }
                 edges_scanned += 1;
             }
         }
@@ -42093,12 +42097,14 @@ pub fn find_cliques_recursive(graph: &Graph) -> Vec<Vec<String>> {
     if n == 0 {
         return vec![];
     }
-    // Build adjacency bitsets
+    // Ignore self-loops, just as the iterative Bron-Kerbosch engine does.
     let mut adj = vec![HashSet::new(); n];
     for i in 0..n {
         if let Some(neighbors) = graph.neighbors_indices(i) {
             for &j in neighbors {
-                adj[i].insert(j);
+                if i != j {
+                    adj[i].insert(j);
+                }
             }
         }
     }
@@ -87110,6 +87116,126 @@ mod tests {
         let mut iterative = find_cliques(&g).cliques;
         iterative.sort();
         assert_eq!(rec, iterative);
+    }
+
+    #[test]
+    fn clique_searches_match_exhaustive_oracle_with_self_loops() {
+        let labels = ["a", "b", "c", "d"];
+        let pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+        for edge_mask in 0_u8..64 {
+            let mut base = Graph::strict();
+            assert_eq!(base.extend_nodes_unrecorded(labels), 4);
+            let mut adjacency = [[false; 4]; 4];
+            for (bit, &(left, right)) in pairs.iter().enumerate() {
+                if edge_mask & (1 << bit) != 0 {
+                    base.add_edge(labels[left], labels[right])
+                        .expect("valid edge");
+                    adjacency[left][right] = true;
+                    adjacency[right][left] = true;
+                }
+            }
+
+            // Independent subset oracle: require every pair, then reject
+            // any clique that an outside vertex can extend.
+            let mut expected = Vec::new();
+            for subset in 1_u8..16 {
+                let members: Vec<usize> =
+                    (0..4).filter(|&node| subset & (1 << node) != 0).collect();
+                let is_clique = members.iter().all(|&left| {
+                    members
+                        .iter()
+                        .all(|&right| left == right || adjacency[left][right])
+                });
+                let is_maximal = (0..4)
+                    .filter(|&node| subset & (1 << node) == 0)
+                    .all(|outside| members.iter().any(|&inside| !adjacency[outside][inside]));
+                if is_clique && is_maximal {
+                    expected.push(
+                        members
+                            .into_iter()
+                            .map(|node| labels[node].to_owned())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+            }
+            expected.sort();
+
+            for loop_mask in 0_u8..16 {
+                let mut graph = base.clone();
+                for (bit, &node) in labels.iter().enumerate() {
+                    if loop_mask & (1 << bit) != 0 {
+                        graph.add_edge(node, node).expect("valid self-loop");
+                    }
+                }
+                let iterative = super::find_cliques(&graph);
+                assert_eq!(
+                    iterative.cliques, expected,
+                    "iterative: edges={edge_mask}, loops={loop_mask}"
+                );
+                assert_eq!(
+                    super::find_cliques_recursive(&graph),
+                    expected,
+                    "recursive: edges={edge_mask}, loops={loop_mask}"
+                );
+                assert_eq!(
+                    iterative.witness.edges_scanned,
+                    (2 * edge_mask.count_ones() + loop_mask.count_ones()) as usize
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn clique_consumers_ignore_self_loops_without_changing_the_graph() {
+        let mut graph = Graph::strict();
+        assert_eq!(graph.extend_nodes_unrecorded(["a", "b", "c", "d", "e"]), 5);
+        assert_eq!(
+            graph.extend_edges_unrecorded([
+                ("a", "b"),
+                ("a", "c"),
+                ("b", "c"),
+                ("b", "d"),
+                ("c", "d"),
+            ]),
+            5
+        );
+        for node in ["a", "b", "c", "d", "e"] {
+            graph.add_edge(node, node).expect("valid self-loop");
+        }
+
+        assert_eq!(
+            super::find_cliques(&graph).cliques,
+            vec![vec!["a", "b", "c"], vec!["b", "c", "d"], vec!["e"]]
+        );
+        assert_eq!(super::graph_clique_number(&graph).clique_number, 3);
+        assert_eq!(
+            super::number_of_cliques(&graph),
+            [("a", 1), ("b", 2), ("c", 2), ("d", 1), ("e", 1)]
+                .into_iter()
+                .map(|(node, count)| (node.to_owned(), count))
+                .collect::<HashMap<_, _>>()
+        );
+        assert_eq!(
+            super::node_clique_number(&graph),
+            [("a", 3), ("b", 3), ("c", 3), ("d", 3), ("e", 1)]
+                .into_iter()
+                .map(|(node, size)| (node.to_owned(), size))
+                .collect::<HashMap<_, _>>()
+        );
+        let clique_graph = super::make_max_clique_graph(&graph);
+        assert_eq!(clique_graph.node_count(), 3);
+        assert_eq!(clique_graph.edge_count(), 1);
+        assert!(clique_graph.has_edge("a,b,c", "b,c,d"));
+        assert!(clique_graph.has_node("e"));
+        assert_eq!(
+            super::k_clique_communities(&graph, 3),
+            vec![vec!["a", "b", "c", "d"]]
+        );
+        assert_eq!(graph.node_count(), 5);
+        assert_eq!(graph.edge_count(), 10);
+        for node in ["a", "b", "c", "d", "e"] {
+            assert!(graph.has_edge(node, node));
+        }
     }
 
     #[test]

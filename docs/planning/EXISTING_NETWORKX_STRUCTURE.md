@@ -2639,6 +2639,12 @@ snapshot point. Changes before first advancement remain visible, and failures
 inside iterator bodies retain their deferred timing. The owned edge-path
 iterator is available through explicit backend dispatch.
 
+Native maximal-clique searches ignore self-loops when building their open
+neighborhoods. Loops must not remove a clique, change clique counts or per-node
+clique sizes, or change the derived clique graph and clique-percolation
+communities. Inputs retain their original nodes and loops, and complexity
+witnesses still count scanned loop entries.
+
 `eulerian_circuit` and `eulerian_path` also retain the original graph until
 first advancement, including after a prior algorithm cached a conversion.
 Topology changes before that boundary affect the traversal and its Eulerian
