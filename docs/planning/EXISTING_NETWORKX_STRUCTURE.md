@@ -3416,6 +3416,12 @@ Backend dispatch shares the live-input admission check before conversion,
 including calls made after an earlier query populated a conversion cache.
 A cached triangle census cannot override assigned logical/public readers.
 
+Native generalized-degree histograms and square-clustering coefficients use
+open neighborhoods at every endpoint. Self-loops do not create triangle
+incidences or four-cycles, affect coefficient denominators, or remove isolated
+vertices. All-node and subset results retain these semantics without mutating
+graph storage.
+
 Regression cases are added to `tests/python/test_clustering.py` and
 `tests/python/test_backend_convert_from_nx_hints.py`. The baseline mismatch
 was reproduced through the whole current Python package and released 0.4.1

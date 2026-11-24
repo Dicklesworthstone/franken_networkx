@@ -18057,13 +18057,25 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
     // assignment (name-sorted before, adjacency order now) changes the score; the
     // intersection count is symmetric so scanning N(w) vs N(u) is equal. No per-node
     // set is built at all.
+    // Squares use distinct vertices, so every neighborhood and degree must
+    // exclude its owner's self-loop, including the two intermediate corners.
+    let degrees: Vec<usize> = (0..n)
+        .map(|node| {
+            graph
+                .neighbors_indices(node)
+                .unwrap_or(&[])
+                .iter()
+                .filter(|&&neighbor| neighbor != node)
+                .count()
+        })
+        .collect();
     let mut in_u = vec![false; n];
     let mut edges_scanned = 0usize;
     let mut scores = Vec::with_capacity(n);
 
     for v_idx in 0..n {
         let nbrs_v = graph.neighbors_indices(v_idx).unwrap_or(&[]);
-        let deg = nbrs_v.len();
+        let deg = degrees[v_idx];
         if deg < 2 {
             scores.push(CentralityScore {
                 node: nodes[v_idx].to_owned(),
@@ -18076,17 +18088,28 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
         let mut denominator = 0usize;
 
         for (i, &u) in nbrs_v.iter().enumerate() {
+            if u == v_idx {
+                continue;
+            }
             let nbrs_u = graph.neighbors_indices(u).unwrap_or(&[]);
             for &x in nbrs_u {
-                in_u[x] = true;
+                if x != u {
+                    in_u[x] = true;
+                }
             }
-            let deg_u = nbrs_u.len();
+            let deg_u = degrees[u];
             for &w in &nbrs_v[i + 1..] {
+                if w == v_idx {
+                    continue;
+                }
                 edges_scanned += 1;
                 let nbrs_w = graph.neighbors_indices(w).unwrap_or(&[]);
-                let deg_w = nbrs_w.len();
+                let deg_w = degrees[w];
                 // q_v(u,w): common neighbors of u and w, excluding v
-                let q: usize = nbrs_w.iter().filter(|&&x| x != v_idx && in_u[x]).count();
+                let q: usize = nbrs_w
+                    .iter()
+                    .filter(|&&x| x != v_idx && x != w && in_u[x])
+                    .count();
                 // theta_uw: 1 if u and w are connected
                 let theta_uw: usize = usize::from(in_u[w]);
                 // a_v(u,w) = (deg(u) - 1 - q - theta_uw) + (deg(w) - 1 - q - theta_uw)
@@ -18129,7 +18152,8 @@ pub fn square_clustering(graph: &Graph) -> SquareClusteringResult {
 /// br-r37-c1-sqcmark A/B baseline: the pre-lever square clustering that built a
 /// String-keyed `HashMap<&str, HashSet<&str>>` and hash-probed `contains`.
 /// Test-only; returns scores sorted by node name, byte-identical to
-/// `square_clustering`.
+/// `square_clustering` on the loop-free measurement fixtures. This frozen
+/// baseline predates the correction for self-loops.
 #[cfg(test)]
 fn square_clustering_scores_orig_hashset(graph: &Graph) -> Vec<(String, f64)> {
     let nodes = graph.nodes_ordered();
@@ -47425,10 +47449,9 @@ pub fn generalized_degree(
 /// br-r37-c1-gdsub (cc): generalized-degree triangle-multiplicity distribution for a
 /// SUBSET of nodes. `generalized_degree(G, nodes=<list>)` previously ran the Python
 /// `_triangles_and_degree_iter_local` neighbor-intersection loop (0.76-0.81x vs nx); the
-/// per-node kernel here is lazy (`graph.neighbors` per node, no whole-graph setup), so
-/// restricting it to `targets` is O(|S|*deg^2). Byte-identical to the all-node path (same
-/// per-node body) — the caller gates on `number_of_selfloops(G) == 0` because this kernel
-/// counts a self-loop as a neighbour (nx excludes them), matching the nodes=None gate.
+/// per-node kernel here reads adjacency only for the targets and their neighbors.
+/// It shares the all-node path's per-node body. Self-loops are excluded from
+/// the edge histogram and from every neighbor intersection.
 pub fn generalized_degree_for(
     graph: &Graph,
     targets: &[&str],
@@ -47437,9 +47460,9 @@ pub fn generalized_degree_for(
     // INTEGER adjacency slices + a reusable mark array, instead of allocating a
     // `Vec<&str>` per node/neighbour, building a `HashSet<&str>` per node, and
     // String-hash-probing `nbr_set.contains(x)` in the O(|S|*deg²) loop. Byte-
-    // identical: `shared` is an integer intersection count (`x != node && x ∈ N(node)`),
-    // the degree distribution is an integer histogram, and self-loops are still
-    // counted as neighbours (matching the no-selfloop caller gate). Missing targets
+    // identical on loop-free graphs: `shared` is an integer intersection count,
+    // and the degree distribution is an integer histogram. Use open neighborhoods
+    // so neither endpoint's self-loop can create a triangle. Missing targets
     // still map to an empty distribution, exactly as `neighbors().unwrap_or_default()`.
     let n = graph.node_count();
     let mut result = std::collections::HashMap::new();
@@ -47451,15 +47474,17 @@ pub fn generalized_degree_for(
         if let Some(node_idx) = graph.get_node_index(node) {
             let nbrs = graph.neighbors_indices(node_idx).unwrap_or(&[]);
             for &x in nbrs {
-                mark[x] = true;
+                if x != node_idx {
+                    mark[x] = true;
+                }
             }
             for &nb in nbrs {
+                if nb == node_idx {
+                    continue;
+                }
                 // Count triangles through this neighbor
                 let nb_nbrs = graph.neighbors_indices(nb).unwrap_or(&[]);
-                let shared = nb_nbrs
-                    .iter()
-                    .filter(|&&x| x != node_idx && mark[x])
-                    .count();
+                let shared = nb_nbrs.iter().filter(|&&x| x != nb && mark[x]).count();
                 *degree_dist.entry(shared).or_insert(0) += 1;
             }
             for &x in nbrs {
@@ -47475,7 +47500,8 @@ pub fn generalized_degree_for(
 /// br-r37-c1-gdmark A/B baseline: the pre-lever generalized-degree kernel that
 /// allocated `Vec<&str>` neighbours, built a `HashSet<&str>` per node, and
 /// String-hash-probed `contains`. Test-only; byte-identical to
-/// `generalized_degree_for`.
+/// `generalized_degree_for` on the loop-free measurement fixtures. This frozen
+/// baseline predates the correction for self-loops.
 #[cfg(test)]
 fn generalized_degree_for_orig_string(
     graph: &Graph,
@@ -68002,6 +68028,88 @@ mod tests {
         report("NULL_noalloc_vs_noalloc", &paired(true, true));
     }
 
+    #[test]
+    fn square_clustering_ignores_self_loops_in_square_free_and_square_graphs() {
+        fn check(nodes: &[&str], edges: &[(&str, &str)], expected_scores: &[f64]) {
+            let mut base = Graph::strict();
+            assert_eq!(
+                base.extend_nodes_unrecorded(nodes.iter().copied()),
+                nodes.len()
+            );
+            assert_eq!(
+                base.extend_edges_unrecorded(edges.iter().copied()),
+                edges.len()
+            );
+            let expected: HashMap<String, f64> = nodes
+                .iter()
+                .zip(expected_scores)
+                .map(|(&node, &score)| (node.to_owned(), score))
+                .collect();
+            let targets: Vec<usize> = (0..nodes.len()).rev().chain([0]).collect();
+
+            for loop_mask in 0_u64..1 << nodes.len() {
+                let mut graph = base.clone();
+                for (index, &node) in nodes.iter().enumerate() {
+                    if loop_mask & (1 << index) != 0 {
+                        graph.add_edge(node, node).expect("self-loop");
+                    }
+                }
+                let snapshot = graph.snapshot();
+                let scores: HashMap<String, f64> = super::square_clustering(&graph)
+                    .scores
+                    .into_iter()
+                    .map(|score| (score.node, score.score))
+                    .collect();
+                assert_eq!(scores, expected, "loop mask {loop_mask}");
+                assert_eq!(
+                    super::square_clustering_map(&graph),
+                    expected,
+                    "map: loop mask {loop_mask}"
+                );
+
+                let pairs = super::square_clustering_pairs(&graph);
+                assert_eq!(pairs.len(), expected_scores.len());
+                for (index, &(squares, potential)) in pairs.iter().enumerate() {
+                    let score = if potential > 0 {
+                        squares as f64 / potential as f64
+                    } else {
+                        0.0
+                    };
+                    assert_eq!(
+                        score, expected_scores[index],
+                        "node {index}, loops {loop_mask}"
+                    );
+                }
+                assert_eq!(
+                    super::square_clustering_pairs_for(&graph, &targets),
+                    targets
+                        .iter()
+                        .map(|&index| pairs[index])
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    graph.snapshot(),
+                    snapshot,
+                    "metric must not mutate the graph"
+                );
+            }
+        }
+
+        // Even with loops, three distinct vertices cannot contain a square.
+        check(
+            &["a", "b", "c"],
+            &[("a", "b"), ("b", "c"), ("c", "a")],
+            &[0.0, 0.0, 0.0],
+        );
+        // A square with one pendant edge also exercises non-unit coefficients;
+        // the isolated vertex must remain present with coefficient zero.
+        check(
+            &["a", "b", "c", "d", "e", "f"],
+            &[("a", "b"), ("b", "c"), ("c", "d"), ("d", "a"), ("d", "e")],
+            &[0.5, 1.0, 0.5, 1.0 / 3.0, 0.0, 0.0],
+        );
+    }
+
     /// br-r37-c1-sqcmark: paired-interleaved median A/B for the integer-adjacency +
     /// mark-array square clustering vs the old String-keyed HashMap/HashSet
     /// baseline, in ONE binary / ONE worker with a NULL control. `#[ignore]`
@@ -68320,6 +68428,59 @@ mod tests {
         );
         report("MARK_vs_string", &paired(true, false));
         report("NULL_mark_vs_mark", &paired(true, true));
+    }
+
+    #[test]
+    fn generalized_degree_ignores_self_loops_for_all_nodes_and_subsets() {
+        let labels = ["a", "b", "c", "d", "e"];
+        let mut base = Graph::strict();
+        assert_eq!(base.extend_nodes_unrecorded(labels), labels.len());
+        assert_eq!(
+            base.extend_edges_unrecorded([("a", "b"), ("b", "c"), ("c", "a"), ("c", "d")]),
+            4
+        );
+        let expected: HashMap<String, HashMap<usize, usize>> = HashMap::from([
+            ("a".to_owned(), HashMap::from([(1, 2)])),
+            ("b".to_owned(), HashMap::from([(1, 2)])),
+            ("c".to_owned(), HashMap::from([(0, 1), (1, 2)])),
+            ("d".to_owned(), HashMap::from([(0, 1)])),
+            ("e".to_owned(), HashMap::new()),
+        ]);
+        let targets = ["e", "c", "a", "c", "missing"];
+        let expected_subset: HashMap<String, HashMap<usize, usize>> = targets
+            .iter()
+            .map(|&node| {
+                (
+                    node.to_owned(),
+                    expected.get(node).cloned().unwrap_or_default(),
+                )
+            })
+            .collect();
+
+        for loop_mask in 0_u8..32 {
+            let mut graph = base.clone();
+            for (index, node) in labels.iter().enumerate() {
+                if loop_mask & (1 << index) != 0 {
+                    graph.add_edge(*node, *node).expect("self-loop");
+                }
+            }
+            let snapshot = graph.snapshot();
+            assert_eq!(
+                super::generalized_degree(&graph),
+                expected,
+                "loop mask {loop_mask}"
+            );
+            assert_eq!(
+                super::generalized_degree_for(&graph, &targets),
+                expected_subset,
+                "subset: loop mask {loop_mask}"
+            );
+            assert_eq!(
+                graph.snapshot(),
+                snapshot,
+                "metric must not mutate the graph"
+            );
+        }
     }
 
     /// br-r37-c1-gdmark: paired-interleaved median A/B for the integer-adjacency +
