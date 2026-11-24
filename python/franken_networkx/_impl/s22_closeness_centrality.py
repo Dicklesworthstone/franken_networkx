@@ -922,7 +922,10 @@ def hits(
 # ---------------------------------------------------------------------------
 
 
-def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
+def ego_graph(
+    G, n, radius=1, center=True, undirected=False, distance=None,
+    *, backend=None, **backend_kwargs,
+):
     """Return the ego graph of node *n* within *radius* hops.
 
     br-egoedgeord: always compute the node set in Python and copy
@@ -932,28 +935,8 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     ``fnx.path_graph(5)``), diverging from nx which preserves the
     input graph's edge orientation.
     """
-    # br-r37-c1-egonotfound: nx delegates to
-    # single_source_shortest_path_length / single_source_dijkstra,
-    # both of which raise NodeNotFound("Source %s is not in G") on
-    # missing source — not the NetworkXError that fnx surfaced via
-    # G.neighbors(n).  Mirror nx's exception class and message.
-    if n not in G:
-        raise NodeNotFound(f"Source {n} is not in G")
-    # br-r37-c1-egonan: NaN / +inf radius — nx routes through
-    # single_source_shortest_path_length which short-circuits NaN
-    # cutoff to source-only (matches the cycle 142 fix on the
-    # Dijkstra cutoff family).  fnx's BFS uses ``depth >= radius``
-    # which is False for NaN, so iteration never terminates the
-    # depth check and yields the full reachable component.  Coerce
-    # NaN to ``-1`` (so the immediate first ``depth >= radius``
-    # check at depth 0 succeeds and only the source node is kept).
-    import math as _math
-    if isinstance(radius, float) and _math.isnan(radius):
-        radius = -1
-    # br-r37-c1-fauol: track BFS visit order (insertion order in
-    # ``seen``) so the resulting ego graph's node order matches nx's
-    # BFS-from-source ordering. Previously we collapsed to a set and
-    # iterated arbitrary hash order.
+    _validate_backend_dispatch_keywords("ego_graph", backend, backend_kwargs)
+
     # br-r37-c1-77okh: networkx branches on ``undirected`` FIRST and only then on
     # ``distance``:
     #
@@ -982,45 +965,21 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     # not networkx's traversal ORDER, and order is observable here.
     # NOTE the search base is the undirected COPY, while the edges below are still
     # read from G -- exactly as networkx does, since it builds H from G.subgraph.
+    # Source validation belongs to the selected search, after conversion.
+    # Besides preserving its error wording, this lets a to_undirected provider
+    # update the source set or raise before the first source lookup.
     search_base = G.to_undirected() if undirected else G
     if distance is not None:
-        # Weighted ego: include nodes within weighted distance <= radius.
-        sp = dict(
-            single_source_dijkstra_path_length(search_base, n, weight=distance)
+        # Apply the radius during traversal. Searching the entire component
+        # first visits excluded rows and can raise on weights that NetworkX
+        # never reads. The shortest-path contract also retains the source for
+        # negative cutoffs and handles NaN differently from unweighted BFS.
+        sp = single_source_dijkstra_path_length(
+            search_base, n, cutoff=radius, weight=distance
         )
-        sp = {node: dist for node, dist in sp.items() if dist <= radius}
-        ordered_nodes = list(sp.keys())  # already in distance order
-        nodes_within = set(ordered_nodes)
-    elif undirected:
-        # Call the SAME function networkx calls, on the same base. A hand-rolled
-        # BFS over search_base.neighbors() gets the node SET right but not
-        # necessarily networkx's visit ORDER, and the ego node order is
-        # set-iteration order over that result, so the order is observable.
-        sp = dict(
-            single_source_shortest_path_length(search_base, n, cutoff=radius)
-        )
-        ordered_nodes = list(sp.keys())
-        nodes_within = set(ordered_nodes)
     else:
-        # Plain BFS (directed or undirected) honouring radius.
-        seen = {n: 0}
-        queue = [n]
-        while queue:
-            next_queue = []
-            for u in queue:
-                depth = seen[u]
-                if depth >= radius:
-                    continue
-                neighbors = (
-                    G.successors(u) if G.is_directed() else G.neighbors(u)
-                )
-                for v in neighbors:
-                    if v not in seen:
-                        seen[v] = depth + 1
-                        next_queue.append(v)
-            queue = next_queue
-        ordered_nodes = list(seen.keys())
-        nodes_within = set(ordered_nodes)
+        sp = single_source_shortest_path_length(search_base, n, cutoff=radius)
+    nodes_within = set(sp)
 
     # br-r37-c1-fauol / br-r37-c1-mqq4m: nx.ego_graph is G.subgraph(sp).copy(),
     # so the node order is FilterAtlas.__iter__'s, and that rule has TWO
@@ -1049,8 +1008,9 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
     # br-r37-c1-s8w2p: SubgraphView class can't be empty-constructed.
     graph = _concrete_class_for(G)()
     graph.graph.update(dict(G.graph))
-    for node in ordered_nodes:
-        graph.add_node(node, **dict(G.nodes[node]))
+    # Attributes are mappings, not keyword arguments: arbitrary hashable keys
+    # and an edge attribute named "key" must survive an induced shallow copy.
+    graph.add_nodes_from((node, dict(G.nodes[node])) for node in ordered_nodes)
     if G.is_multigraph():
         # br-r37-c1-9uod6: walk ONLY the ego nodes' rows, like the simple-graph
         # branch below, instead of materialising every edge in G and filtering
@@ -1087,7 +1047,7 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                     continue
                 keydict = adj_u[v]
                 for edge_key in keydict:
-                    graph.add_edge(u, v, key=edge_key, **keydict[edge_key])
+                    graph.add_edges_from([(u, v, edge_key, keydict[edge_key])])
             # AFTER the row, so a self-loop still emits (br-r37-c1-6yimw).
             if not directed:
                 seen.add(u)
@@ -1109,24 +1069,11 @@ def ego_graph(G, n, radius=1, center=True, undirected=False, distance=None):
                 if not directed and v in seen:
                     continue
                 data = adj_u[v]
-                if data:
-                    for attr_key in data:
-                        if not isinstance(attr_key, str):
-                            graph.add_edge(u, v, **data)
-                            break
-                    else:
-                        edges_to_add.append((u, v, data))
-                else:
-                    edges_to_add.append((u, v))
+                edges_to_add.append((u, v, data))
             if not directed:
                 seen.add(u)
         if edges_to_add:
-            raw_add_edges_from = (
-                _DIGRAPH_RAW_ADD_EDGES_FROM
-                if graph.is_directed()
-                else _GRAPH_RAW_ADD_EDGES_FROM
-            )
-            raw_add_edges_from(graph, edges_to_add)
+            graph.add_edges_from(edges_to_add)
     if not center and n in graph:
         graph.remove_node(n)
     # Always return fnx type for consistency.
