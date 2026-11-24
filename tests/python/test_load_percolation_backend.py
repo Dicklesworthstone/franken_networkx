@@ -119,3 +119,94 @@ def test_backend_percolation_state_values_mutate_original_graph():
         return result, graph.has_edge(1, 3)
 
     assert query("franken_networkx") == query("networkx")
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("route", ["native", "cold", "warm"])
+@pytest.mark.parametrize("raises", [False, True])
+def test_load_node_comparisons_follow_each_source_search(
+    cls_name, weight, route, raises
+):
+    def query(library, backend=None):
+        armed = changed = False
+        comparisons = []
+        graph = getattr(library, cls_name)()
+
+        class Node(int):
+            def __lt__(self, other):
+                nonlocal changed
+                if armed:
+                    comparisons.append((int(self), int(other)))
+                    if not changed:
+                        changed = True
+                        graph.add_edge(0, 2, weight=1)
+                        if raises:
+                            raise LookupError("node comparison changed the graph")
+                return int.__lt__(self, other)
+
+        nodes = [Node(i) for i in range(4)]
+        graph.add_edges_from(
+            (nodes[i], nodes[(i + 1) % 4], {"weight": 1}) for i in range(4)
+        )
+        if route == "warm" and backend == "franken_networkx":
+            _warm(graph)
+        armed = True
+        try:
+            result = library.load_centrality(graph, weight=weight, backend=backend)
+            outcome = ("scores", list(result.items()))
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        finally:
+            armed = False
+        return outcome, comparisons, changed, list(graph.edges())
+
+    expected = query(nx)
+    actual = (
+        query(fnx) if route == "native" else query(nx, backend="franken_networkx")
+    )
+    assert actual == expected
+    if cls_name == "DiGraph":
+        # Each distance is unique on a directed cycle, so labels never compare.
+        assert actual[1] == []
+        assert not actual[2]
+        assert actual[0][0] == "scores"
+    else:
+        assert actual[1]
+        assert actual[2]
+
+
+@pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_load_hash_mutation_runs_outside_native_result_borrows(cls_name, weight):
+    def query(library):
+        armed = False
+        hashes = 0
+        changed = False
+        graph = getattr(library, cls_name)()
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal hashes, changed
+                if armed:
+                    hashes += 1
+                    # A later hash must affect the current source search, too.
+                    # Change a later row without resizing the active source row.
+                    if hashes == 9:
+                        changed = True
+                        graph.add_edge(1, 3, weight=1)
+                return int.__hash__(self)
+
+        nodes = [Node(i) for i in range(4)]
+        graph.add_edges_from(
+            (nodes[i], nodes[(i + 1) % 4], {"weight": 1}) for i in range(4)
+        )
+        armed = True
+        try:
+            result = library.load_centrality(graph, weight=weight)
+        finally:
+            armed = False
+        return list(result.items()), changed, list(graph.edges())
+
+    expected = query(nx)
+    assert query(fnx) == expected

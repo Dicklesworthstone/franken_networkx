@@ -1429,3 +1429,63 @@ def test_subset_betweenness_backend_invalid_selections(algorithm, sources, weigh
             return type(error), error.args
 
     assert run(True) == run(False)
+
+
+@pytest.mark.parametrize(
+    "algorithm", ["betweenness_centrality_subset", "edge_betweenness_centrality_subset"]
+)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+@pytest.mark.parametrize("warm_nodes", [False, True])
+@pytest.mark.parametrize("mutation", ["edge", "raise", "resize"])
+def test_subset_betweenness_graph_label_hash_keeps_current_query(
+    algorithm, graph_class, weight, warm_nodes, mutation
+):
+    def run(module):
+        armed = changed = False
+        graph = getattr(module, graph_class)()
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    if mutation == "resize":
+                        graph.add_node(99)
+                    else:
+                        graph.add_edge(0, 2, weight=1)
+                        if mutation == "raise":
+                            raise LookupError("node hash changed the graph")
+                return int.__hash__(self)
+
+        nodes = [Node(i) for i in range(4)]
+        graph.add_edges_from(
+            (nodes[i], nodes[(i + 1) % 4], {"weight": 1}) for i in range(4)
+        )
+        if warm_nodes:
+            assert list(graph) == nodes
+        armed = True
+        try:
+            # Ordinary selections must not hide callbacks on stored labels.
+            result = getattr(module, algorithm)(graph, [0], [2], weight=weight)
+            outcome = ("scores", list(result.items()))
+        except Exception as error:
+            outcome = ("error", type(error).__name__, str(error))
+        finally:
+            armed = False
+        # A callback failure must leave the graph usable and retain its writes.
+        graph.add_edge(2, 0, weight=1)
+        return outcome, changed, list(graph), list(graph.edges())
+
+    expected = run(nx)
+    actual = run(fnx)
+    assert actual == expected
+    assert actual[1]
+    if mutation == "edge":
+        assert actual[0][0] == "scores"
+    elif mutation == "raise":
+        assert actual[0] == ("error", "LookupError", "node hash changed the graph")
+    else:
+        assert actual[0] == (
+            "error", "RuntimeError", "dictionary changed size during iteration"
+        )

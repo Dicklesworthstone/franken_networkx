@@ -1009,6 +1009,29 @@ def _ordered_predecessor_nodes_and_levels(G, source, predecessor_map):
     return ordered_nodes, seen_levels
 
 
+def _predecessor_rows_inproc(G, source, cutoff=None):
+    """Traverse live BFS rows after the caller has validated ``source``."""
+    level = 0
+    nextlevel = [source]
+    seen = {source: level}
+    pred = {source: []}
+    while nextlevel:
+        level = level + 1
+        thislevel = nextlevel
+        nextlevel = []
+        for v in thislevel:
+            for w in G[v]:
+                if w not in seen:
+                    pred[w] = [v]
+                    seen[w] = level
+                    nextlevel.append(w)
+                elif seen[w] == level:
+                    pred[w].append(v)
+        if cutoff and cutoff <= level:
+            break
+    return pred, seen
+
+
 def predecessor(G, source, target=None, cutoff=None, return_seen=None):
     """BFS-predecessor map for shortest paths from ``source``.
 
@@ -1034,24 +1057,7 @@ def predecessor(G, source, target=None, cutoff=None, return_seen=None):
         ):
             built = _raw_predecessor_indexed(G, source, native_cutoff)
     if built is None:
-        level = 0
-        nextlevel = [source]
-        seen = {source: level}
-        pred = {source: []}
-        while nextlevel:
-            level = level + 1
-            thislevel = nextlevel
-            nextlevel = []
-            for v in thislevel:
-                for w in G[v]:
-                    if w not in seen:
-                        pred[w] = [v]
-                        seen[w] = level
-                        nextlevel.append(w)
-                    elif seen[w] == level:
-                        pred[w].append(v)
-            if cutoff and cutoff <= level:
-                break
+        pred, seen = _predecessor_rows_inproc(G, source, cutoff)
     else:
         pred, seen = built
     if target is not None:

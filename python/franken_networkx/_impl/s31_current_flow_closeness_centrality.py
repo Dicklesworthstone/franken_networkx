@@ -101,6 +101,13 @@ def _subset_betweenness_uses_live_python_rows(G, sources, targets, weight):
         or _weighted_query_uses_live_python_rows(G, weight)
     ):
         return True
+    if type(G) in _CONCRETE_FNX_GRAPH_TYPES and not _view_root_node_keys_are_stable(
+        G, G.nodes_seq
+    ):
+        # The accumulator hashes every graph label before the first search,
+        # even when sources and targets contain only ordinary builtin keys.
+        # Keep those callbacks on the live graph, outside native result borrows.
+        return True
     # Hashing a target belongs after the source traversal. Even a reusable
     # list can contain labels whose hash/equality hooks change a later edge,
     # so route those labels before probing membership or native conversion.

@@ -662,13 +662,28 @@ def _edge_load_from_source_local(G, source, cutoff=None):
     return between
 
 
-def _load_centrality_from_source_local(G, source, cutoff=None, weight=None):
+def _load_centrality_from_source_local(
+    G, source, cutoff=None, weight=None, *, live_rows=False
+):
     if weight is None:
-        predecessors, distances = predecessor(
-            G, source, cutoff=cutoff, return_seen=True
-        )
+        if live_rows:
+            # Do not re-enter native predecessor dispatch after admission has
+            # found observable labels or rows. Later hashes can mutate this
+            # very search, not only the outer load accumulator.
+            if source not in G:
+                raise NodeNotFound(f"Source {source} not in G")
+            predecessors, distances = _predecessor_rows_inproc(G, source, cutoff)
+        else:
+            predecessors, distances = predecessor(
+                G, source, cutoff=cutoff, return_seen=True
+            )
     else:
-        predecessors, distances = dijkstra_predecessor_and_distance(
+        search = (
+            _dijkstra_predecessor_and_distance_inproc
+            if live_rows
+            else dijkstra_predecessor_and_distance
+        )
+        predecessors, distances = search(
             G,
             source,
             cutoff=cutoff,
@@ -779,7 +794,10 @@ def load_centrality(
 
     For unweighted graphs, this is equivalent to betweenness centrality.
     """
-    live_rows = _weighted_query_uses_live_python_rows(G, weight)
+    live_rows = _weighted_query_uses_live_python_rows(G, weight) or (
+        type(G) in _CONCRETE_FNX_GRAPH_TYPES
+        and not _view_root_node_keys_are_stable(G, G.nodes_seq)
+    )
     if not live_rows:
         G = _coerce_arg_to_fnx_graph(G)
     _validate_backend_dispatch_keywords(
@@ -793,6 +811,9 @@ def load_centrality(
     # order as ranks (br-r37-c1-f0uiy - in BFS order the last bit of 13-19% of
     # the values was off networkx's), and nodes that do not sort fall through
     # to the parity path, as the weighted route below does.
+    # Observable labels also retain that path: their hashes belong to the
+    # accumulators, and comparisons occur only for equal-distance vertices
+    # after each source search, not in an admission-time global node sort.
     # br-r37-c1-mgisol (cc): a MULTIgraph's load is its simple projection's -
     # parallel edges do not change node-sequence shortest paths, and with the
     # value order fixed the projection's row order cannot change the sums.
@@ -854,6 +875,7 @@ def load_centrality(
                 source,
                 cutoff=cutoff,
                 weight=weight,
+                live_rows=live_rows,
             )
             betweenness += source_load[v] if v in source_load else 0.0
         if normalized:
@@ -870,6 +892,7 @@ def load_centrality(
             source,
             cutoff=cutoff,
             weight=weight,
+            live_rows=live_rows,
         )
         for node, value in source_load.items():
             betweenness[node] += value
