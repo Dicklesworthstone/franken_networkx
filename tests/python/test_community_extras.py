@@ -1625,7 +1625,12 @@ def test_semisynchronous_label_propagation_rechecks_coloring_mutations(
             return list(graph)
 
         with monkeypatch.context() as patch:
-            patch.setitem(module.coloring.STRATEGIES, "largest_first", replace_rows)
+            strategies = (
+                module.coloring.STRATEGIES
+                if module is fnx
+                else nx.coloring.greedy_coloring.STRATEGIES
+            )
+            patch.setitem(strategies, "largest_first", replace_rows)
             result = module.community.label_propagation_communities(graph)
         return _community_frozensets(result), calls
 
@@ -1656,7 +1661,12 @@ def test_semisynchronous_label_propagation_keeps_late_coloring_edges_live(
             current.add_edge(1, 0)
 
         with monkeypatch.context() as patch:
-            patch.setitem(module.coloring.STRATEGIES, "largest_first", late_edge)
+            strategies = (
+                module.coloring.STRATEGIES
+                if module is fnx
+                else nx.coloring.greedy_coloring.STRATEGIES
+            )
+            patch.setitem(strategies, "largest_first", late_edge)
             result = module.community.label_propagation_communities(graph)
         return _community_frozensets(result), calls
 
