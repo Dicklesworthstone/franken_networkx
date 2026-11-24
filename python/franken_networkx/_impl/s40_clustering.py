@@ -461,9 +461,111 @@ def transitivity(G):
     return 0 if triangles == 0 else triangles / contributions
 
 
+def _square_clustering_reader_defaults():
+    import inspect
+    import networkx as nx
+
+    names = (
+        "__getitem__", "__iter__", "__contains__", "__getattribute__",
+        "__dict__", "_adj", "adjacency", "nbunch_iter", "neighbors",
+        "is_directed", "is_multigraph", "adj", "nodes", "edges",
+    )
+    return {
+        cls: {name: inspect.getattr_static(cls, name, None) for name in names}
+        for cls in (
+            Graph, DiGraph, MultiGraph, MultiDiGraph,
+            nx.Graph, nx.DiGraph, nx.MultiGraph, nx.MultiDiGraph,
+        )
+    }
+
+
+_SQUARE_CLUSTERING_READER_DEFAULTS = _square_clustering_reader_defaults()
+
+
+def _square_clustering_uses_live_python_rows(G, nodes=None):
+    """Keep private rows and effectful selections attached to their owner."""
+    import inspect
+
+    if nodes is not None and not _is_plain_immutable_label(nodes):
+        if type(nodes) is not range and (
+            type(nodes) not in (list, tuple, set, frozenset, dict)
+            or any(not _is_plain_immutable_label(node) for node in nodes)
+        ):
+            return True
+    graph_type = type(G)
+    if not any(graph_type is cls for cls in _SQUARE_CLUSTERING_READER_DEFAULTS):
+        return True
+    defaults = _SQUARE_CLUSTERING_READER_DEFAULTS[graph_type]
+    if any(
+        inspect.getattr_static(graph_type, name, None) is not descriptor
+        for name, descriptor in defaults.items()
+    ):
+        return True
+    storage = vars(G)
+    if any(name in storage for name in (
+        "__getitem__", "__iter__", "__contains__", "adjacency", "nbunch_iter",
+        "neighbors", "is_directed", "is_multigraph",
+    )):
+        return True
+    if any(graph_type is cls for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        if _has_networkx_private_storage(G):
+            return True
+        if any(
+            name in storage and storage[name] is not storage.get(f"_fnx_view_{name}")
+            for name in ("adj", "nodes", "edges")
+        ):
+            return True
+        if _fnx._graph_has_row_key_aliases(G):
+            return True
+        # A selected native query admits only its touched rows below. Looking
+        # at every display key here would make unrelated labels observable.
+        return nodes is None and not _view_root_node_keys_are_stable(G, G.nodes_seq)
+    # Conversion also reads public views and edge data. Reject custom or
+    # asymmetric storage without invoking those providers during admission.
+    return _weighted_query_uses_live_python_rows(G, None)
+
+
+def _square_clustering_native_rows(G):
+    """Whether private rows can use the native cursor without public readers."""
+    import inspect
+
+    graph_type = type(G)
+    if not any(graph_type is cls for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)):
+        return False
+    defaults = _SQUARE_CLUSTERING_READER_DEFAULTS[graph_type]
+    return not _has_networkx_private_storage(G) and all(
+        inspect.getattr_static(graph_type, name, None) is defaults[name]
+        for name in ("__getattribute__", "__dict__", "_adj")
+    )
+
+
+def _square_clustering_plain_subset_rows(G, nodes):
+    """Admit label hashing only within the requested square neighborhoods."""
+    visited = set()
+    frontier = nodes
+    # Counting a square touches each owner, its neighbors, and the rows of
+    # opposite corners. Inspect their existing keys without hashing custom
+    # objects or building unrelated adjacency/attribute mirrors.
+    for distance in range(3):
+        following = []
+        for node in frontier:
+            if node in visited:
+                continue
+            visited.add(node)
+            neighbors = list(Graph._fnx_unhashed_neighbors_iter(G, node))
+            if any(not _is_plain_immutable_label(neighbor) for neighbor in neighbors):
+                return False
+            if distance < 2:
+                following.extend(neighbors)
+        frontier = following
+    return True
+
+
 def square_clustering(G, nodes=None):
     """Compute the squares clustering coefficient for nodes."""
-    G = _coerce_arg_to_fnx_graph(G)
+    live_rows = _square_clustering_uses_live_python_rows(G, nodes)
+    if not live_rows:
+        G = _coerce_arg_to_fnx_graph(G)
     # br-r37-c1-sqclfast: whole-graph simple undirected case runs the native
     # integer-CSR two-hop kernel (stamp-array set algebra over integer
     # adjacency rows) instead of the Python neighbor-set port. Gated on the
@@ -471,10 +573,32 @@ def square_clustering(G, nodes=None):
     # parallel-edge collapsing keep the Python path. Result is byte-identical:
     # the kernel returns exact integer (squares, potential) pairs and the
     # binding reproduces nx's `squares/potential if potential>0 else 0`.
-    if nodes is None and type(G) is Graph:
+    if not live_rows and nodes is None and type(G) is Graph:
         return _fnx.square_clustering_fast(G)
     single_node = False
-    if nodes is None:
+    native_rows = _square_clustering_native_rows(G)
+    if live_rows:
+        import inspect
+
+        defaults = _SQUARE_CLUSTERING_READER_DEFAULTS.get(type(G)) if native_rows else None
+        native_selection = defaults is not None and all(
+            inspect.getattr_static(type(G), name, None) is defaults[name]
+            and name not in vars(G)
+            for name in ("__iter__", "__contains__", "nbunch_iter")
+        ) and (
+            "nodes" not in vars(G)
+            or vars(G)["nodes"] is vars(G).get("_fnx_view_nodes")
+        )
+        if nodes is None:
+            node_iter = (
+                type(G)._fnx_unhashed_node_iter(G) if native_selection else G
+            )
+        else:
+            node_iter = (
+                _triangles_native_nbunch_iter(G, nodes) if native_selection
+                else G.nbunch_iter(nodes)
+            )
+    elif nodes is None:
         node_iter = G
     elif nodes in G:
         node_iter = [nodes]
@@ -489,35 +613,33 @@ def square_clustering(G, nodes=None):
     # (single node -> [nodes]); the kernel builds the whole-graph adjacency once
     # (O(V+E) µs) and computes only the targets. Byte-identical to the port below.
     # (nodes is None + type(G) is Graph already returned via square_clustering_fast.)
-    if type(G) is Graph:
-        result = _fnx.square_clustering_fast_subset(G, list(node_iter))
-        return result[nodes] if single_node else result
+    if not live_rows and type(G) is Graph:
+        if _square_clustering_plain_subset_rows(G, node_iter):
+            result = _fnx.square_clustering_fast_subset(G, list(node_iter))
+            return result[nodes] if single_node else result
+        # A row callback may change the membership of a later selected node.
+        # Resume selection from the original ordinary bunch between counts,
+        # and decide scalar output using membership after those callbacks.
+        live_rows = True
+        single_node = False
+        node_iter = _triangles_native_nbunch_iter(G, nodes)
 
     square_coefficients = {}
-    # br-r37-c1-7t95c: bypass G.adj[node] (AtlasView with per-element
-    # PyO3 attribute-dict materialization, same wrapper overhead
-    # identified in br-r37-c1-lgyq8 for find_cliques) by calling the
-    # raw Rust neighbors binding directly when the graph has no
-    # nx-compatibility private storage. Multigraph fallback retains
-    # G.adj because parallel-edge collapsing matters for the squares
-    # iteration. cProfile on BA500 showed CachedNeighborSets.__missing__
-    # was ~80% of total time before this change.
-    _raw_neighbors = _raw_neighbors_dispatch(G)
-    if _raw_neighbors is not None:
 
-        class CachedNeighborSets(dict):
-            def __missing__(self, node):
-                neighbors = self[node] = set(_raw_neighbors(G, node))
-                neighbors.discard(node)
-                return neighbors
-    else:
-        graph_adj = G.adj
+    def row(node):
+        if native_rows and not _has_networkx_private_storage(G):
+            # Resolve the owner before borrowing native storage, then expose
+            # stored keys without edge attributes or hashes under the borrow.
+            return type(G)._fnx_unhashed_neighbors_iter(G, node)
+        # This metric reads private adjacency. Public adj/neighbors/getitem
+        # providers are intentionally ignored, even when they differ from it.
+        return G._adj[node]
 
-        class CachedNeighborSets(dict):
-            def __missing__(self, node):
-                neighbors = self[node] = set(graph_adj[node])
-                neighbors.discard(node)
-                return neighbors
+    class CachedNeighborSets(dict):
+        def __missing__(self, node):
+            neighbors = self[node] = set(row(node))
+            neighbors.discard(node)
+            return neighbors
 
     neighbor_sets = CachedNeighborSets()
 
@@ -556,7 +678,7 @@ def square_clustering(G, nodes=None):
         )
         square_coefficients[node] = square_count / potential if potential > 0 else 0
 
-    if single_node:
+    if single_node or (live_rows and nodes in G):
         return square_coefficients[nodes]
     return square_coefficients
 

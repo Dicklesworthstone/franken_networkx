@@ -2532,3 +2532,145 @@ def test_backend_neighborhood_metrics_preserve_graph_errors(name, graph_class):
         getattr(nx, name)(graph, backend="franken_networkx")
     assert actual.value.args == expected.value.args
 
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("nodes", [None, 0, [0, 2]])
+@pytest.mark.parametrize(
+    "provider", ["filtered", "private", "public_adjacency", "neighbors", "getitem"]
+)
+def test_backend_square_clustering_keeps_private_row_semantics(
+    cached, nodes, provider, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    active = False
+    edges = [(0, 1), (1, 2), (2, 3), (3, 0)]
+    if provider == "getitem":
+        class Graph(nx.Graph):
+            def __getitem__(self, node):
+                if active:
+                    raise AssertionError("square counts must not read public getitem")
+                return super().__getitem__(node)
+
+        graph = Graph(edges)
+    else:
+        graph = nx.Graph(edges)
+    if provider == "filtered":
+        graph = nx.subgraph_view(
+            graph, filter_edge=lambda left, right: not active or (left, right) != (1, 2)
+        )
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    if provider == "private":
+        graph._adj = {
+            0: {1: {}, 3: {}}, 1: {0: {}},
+            2: {1: {}, 3: {}}, 3: {2: {}, 0: {}},
+        }
+    elif provider == "public_adjacency":
+        graph.adj = {node: {} for node in range(4)}
+    elif provider == "neighbors":
+        def unrelated_reader(node):
+            raise AssertionError("square counts must not read public neighbors")
+
+        graph.neighbors = unrelated_reader
+    active = True
+    expected = nx.square_clustering(graph, nodes=nodes, backend="networkx")
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS["square_clustering"]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "square_clustering", record_input)
+    assert nx.square_clustering(graph, nodes=nodes, backend="franken_networkx") == expected
+    assert len(received) == 1
+    assert received[0] is graph
+    assert not graph.__networkx_cache__.get("backends")
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("call_style", ["keyword", "positional"])
+def test_backend_square_clustering_keeps_lazy_selection_and_row_cache(
+    cached, call_style, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS["square_clustering"]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "square_clustering", record_input)
+
+    def run(backend):
+        graph = nx.Graph([(0, 1), (1, 2), (2, 3), (3, 0)])
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        events = []
+
+        def selected_nodes():
+            events.append(("first", graph.has_edge(0, 1)))
+            yield 0
+            graph.remove_edge(0, 1)
+            events.append(("second", graph.has_edge(0, 1)))
+            yield 2
+
+        if call_style == "positional":
+            result = nx.square_clustering(graph, selected_nodes(), backend=backend)
+        else:
+            result = nx.square_clustering(graph, nodes=selected_nodes(), backend=backend)
+        if backend == "franken_networkx":
+            assert received[-1] is graph
+            assert not graph.__networkx_cache__.get("backends")
+        return result, events
+
+    expected = run("networkx")
+    # Both rows were first read while counting node 0. The later selector
+    # mutation must not invalidate this algorithm's per-call neighbor cache.
+    assert expected == ({0: 1.0, 2: 1.0}, [("first", True), ("second", False)])
+    assert run("franken_networkx") == expected
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("nodes", [None, 0, [0, 2]])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_backend_square_clustering_keeps_ordinary_conversion(
+    cached, nodes, graph_class, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    graph = getattr(nx, graph_class)([(0, 1), (1, 2), (2, 3), (3, 0)])
+    expected = nx.square_clustering(graph, nodes=nodes, backend="networkx")
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS["square_clustering"]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "square_clustering", record_input)
+    assert nx.square_clustering(graph, nodes=nodes, backend="franken_networkx") == expected
+    assert len(received) == 1
+    assert type(received[0]) is getattr(fnx, graph_class)
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+

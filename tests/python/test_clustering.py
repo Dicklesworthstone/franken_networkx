@@ -1235,3 +1235,236 @@ def test_transitivity_does_not_read_direction_provider(fnx, nx, source, graph_cl
         return algorithm.transitivity(graph)
 
     assert run(fnx, fnx if source == "native" else nx) == run(nx, nx)
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("provider", ["filtered_view", "private_rows", "public_adjacency", "neighbors", "getitem"])
+@pytest.mark.parametrize("nodes", [None, 0, [0, 2]])
+def test_square_clustering_keeps_private_row_source(fnx, nx, source, provider, nodes):
+    def make(module):
+        if provider == "getitem":
+            class Graph(module.Graph):
+                def __getitem__(self, node):
+                    raise AssertionError("square clustering must not call __getitem__")
+        else:
+            Graph = module.Graph
+        graph = Graph([(0, 1), (1, 2), (2, 3), (3, 0)])
+        if provider == "filtered_view":
+            return module.subgraph_view(
+                graph, filter_edge=lambda left, right: (left, right) != (1, 2)
+            )
+        if provider == "private_rows":
+            module.square_clustering(graph)
+            graph._adj = {
+                0: {1: {}, 3: {}}, 1: {0: {}},
+                2: {1: {}, 3: {}}, 3: {2: {}, 0: {}},
+            }
+        elif provider == "public_adjacency":
+            graph.adj = {0: {}, 1: {}, 2: {}, 3: {}}
+        elif provider == "neighbors":
+            def neighbors(_node):
+                raise AssertionError("square clustering must not call neighbors")
+            graph.neighbors = neighbors
+        return graph
+
+    expected = nx.square_clustering(make(nx), nodes)
+    actual = fnx.square_clustering(make(fnx if source == "native" else nx), nodes)
+    assert _neighborhood_metric_result(actual) == _neighborhood_metric_result(expected)
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_square_clustering_consumes_selector_between_cached_and_unseen_rows(
+    fnx, nx, source, graph_class
+):
+    def run(algorithm, module):
+        edges = [(0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4)]
+        graph = getattr(module, graph_class)(edges)
+        if graph.is_directed():
+            graph.add_edges_from((right, left) for left, right in edges)
+
+        def selected():
+            yield 0
+            graph.remove_edge(0, 1)
+            graph.remove_edge(5, 6)
+            yield 2
+            yield 4
+
+        return _neighborhood_metric_result(algorithm.square_clustering(graph, selected()))
+
+    expected = run(nx, nx)
+    assert expected[1][:2] == [(0, ("float", 1.0)), (2, ("float", 1.0))]
+    assert expected[1][2][1][1] == 0
+    assert run(fnx, fnx if source == "native" else nx) == expected
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+def test_square_clustering_reads_each_private_row_on_first_use(fnx, nx, source):
+    def run(algorithm, module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 3), (3, 0)])
+        reads = []
+
+        class Rows(dict):
+            def __getitem__(self, node):
+                reads.append(node)
+                if node == 1:
+                    # The owner row is already cached, but the opposite row
+                    # has not been observed yet and must see this mutation.
+                    dict.__getitem__(self, 0).pop(1, None)
+                    dict.__getitem__(self, 2).pop(3, None)
+                return super().__getitem__(node)
+
+        graph._adj = Rows({
+            0: {1: {}, 3: {}}, 1: {0: {}, 2: {}},
+            2: {1: {}, 3: {}}, 3: {2: {}, 0: {}},
+        })
+        return _neighborhood_metric_result(algorithm.square_clustering(graph)), reads
+
+    expected = run(nx, nx)
+    assert expected[1] == [0, 1, 3, 2]
+    assert run(fnx, fnx if source == "native" else nx) == expected
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("selection", ["all", "scalar", "list"])
+def test_square_clustering_allows_first_neighbor_hash_mutation(
+    fnx, nx, graph_class, selection
+):
+    def run(module):
+        graph = getattr(module, graph_class)()
+
+        class Neighbor:
+            value = 1
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    self.armed = False
+                    graph.remove_edge(2, 3)
+                return 1
+
+        neighbor = Neighbor()
+        edges = [(0, neighbor), (neighbor, 2), (2, 3), (3, 0)]
+        graph.add_edges_from(edges)
+        if graph.is_directed():
+            graph.add_edges_from((right, left) for left, right in edges)
+        neighbor.armed = True
+        nodes = {"all": None, "scalar": 0, "list": [0, 2]}[selection]
+        result = _neighborhood_metric_result(module.square_clustering(graph, nodes))
+        return result, neighbor.armed, graph.has_edge(2, 3)
+
+    expected = run(nx)
+    assert expected[1:] == (False, False)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("selection", ["scalar", "list", "iterator"])
+def test_square_clustering_selected_queries_leave_unrelated_labels_alone(
+    fnx, nx, graph_class, selection, monkeypatch
+):
+    def run(module):
+        graph = getattr(module, graph_class)([(0, 1), (1, 2), (2, 3), (3, 0)])
+
+        class Unrelated:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("unrelated node was hashed")
+                return 42
+
+        unrelated = Unrelated()
+        graph.add_node(unrelated)
+        unrelated.armed = True
+        nodes = 0 if selection == "scalar" else [0]
+        if selection == "iterator":
+            nodes = iter(nodes)
+        return _neighborhood_metric_result(module.square_clustering(graph, nodes))
+
+    def reject_global_scan(*_args):
+        raise AssertionError("selected square clustering scanned all node labels")
+
+    monkeypatch.setattr(fnx, "_view_root_node_keys_are_stable", reject_global_scan)
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("graph_class", ["MultiGraph", "MultiDiGraph"])
+def test_square_clustering_does_not_materialize_parallel_edge_keys(fnx, nx, graph_class):
+    def run(module):
+        graph = getattr(module, graph_class)([(0, 1), (1, 2), (2, 3), (3, 0)])
+
+        class EdgeKey:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("square clustering hashed a parallel edge key")
+                return 42
+
+        key = EdgeKey()
+        graph.add_edge(0, 1, key=key)
+        key.armed = True
+        return _neighborhood_metric_result(module.square_clustering(graph))
+
+    assert run(fnx) == run(nx)
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+def test_square_clustering_uses_membership_after_selection(fnx, nx, source):
+    def run(algorithm, module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 3), (3, 0)])
+
+        class Selector:
+            def __iter__(self):
+                yield 0
+                graph.add_node(self)
+                yield self
+
+        return algorithm.square_clustering(graph, Selector())
+
+    expected = run(nx, nx)
+    assert type(expected) is int and expected == 0
+    assert run(fnx, fnx if source == "native" else nx) == expected
+
+
+@pytest.mark.parametrize("nodes", [0, [0, 2]])
+def test_square_clustering_row_mutation_updates_selected_membership(fnx, nx, nodes):
+    def run(module):
+        graph = module.Graph()
+
+        class Neighbor:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    self.armed = False
+                    graph.remove_node(0)
+                return 1
+
+        neighbor = Neighbor()
+        graph.add_edges_from([(0, neighbor), (neighbor, 2), (2, 3), (3, 0)])
+        neighbor.armed = True
+        return _neighborhood_metric_result(module.square_clustering(graph, nodes))
+
+    expected = run(nx)
+    assert expected[0] == "dict"
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("selection", ["all", "scalar", "subset"])
+def test_square_clustering_retains_ordinary_native_kernels(fnx, nx, selection, monkeypatch):
+    graph = fnx.cycle_graph(6)
+    reference = nx.cycle_graph(6)
+    kernel = "square_clustering_fast" if selection == "all" else "square_clustering_fast_subset"
+    native = getattr(fnx._fnx, kernel)
+    calls = []
+
+    def record(*args):
+        calls.append(args[0])
+        return native(*args)
+
+    monkeypatch.setattr(fnx._fnx, kernel, record)
+    nodes = {"all": None, "scalar": 0, "subset": [0, 2, 4]}[selection]
+    assert fnx.square_clustering(graph, nodes) == nx.square_clustering(reference, nodes)
+    assert len(calls) == 1 and calls[0] is graph

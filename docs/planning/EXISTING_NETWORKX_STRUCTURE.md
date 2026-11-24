@@ -3433,6 +3433,23 @@ selected queries on native graphs inspect only their requested neighborhoods.
 Backend dispatch preserves these original-graph reads through both cold and
 warm conversion caches.
 
+Square clustering reads the caller's private adjacency rows (`G._adj`),
+including oriented rows of filtered undirected views and assigned private
+storage. Public `adj`, `neighbors`, and `__getitem__` providers do not replace
+that row source. Copying through those readers can therefore change the
+answer even when the provider itself should be ignored.
+
+Within one square-clustering call, each open neighborhood is cached on its
+first use. The cache survives between selected-node counts: an effectful
+node-bunch iterator runs between those counts, while previously observed
+neighborhoods remain cached and unseen neighborhoods reflect later mutations.
+Node selection and scalar-result membership follow the caller's graph, and
+directed graphs use successor rows. Parallel edges collapse to neighbor keys.
+Backend dispatch keeps these same original rows and selectors on both cold
+and warm conversion caches. Ordinary native Graph queries retain the existing
+all-node and subset kernels; a bounded query must not hash unrelated labels
+merely to decide whether it can use a native kernel.
+
 Regression cases are added to `tests/python/test_clustering.py` and
 `tests/python/test_backend_convert_from_nx_hints.py`. The baseline mismatch
 was reproduced through the whole current Python package and released 0.4.1
@@ -3765,3 +3782,54 @@ dispatch. Cached conversions must not replace the caller's graph, node labels
 or default return object. The two iterator APIs retain their live sources
 through advancement and close; graph-contract errors and provider exceptions
 propagate without being mistaken for an unsupported backend operation.
+
+## 116. Live Common Neighbors in Link Prediction
+
+`common_neighbors(G, u, v)` rejects directed graphs before validating `u` and
+then `v`. It intersects the live keys of the two private adjacency rows and
+removes the endpoints. Hashing an endpoint or a stored neighbor can run caller
+code, including a topology mutation. Those callbacks must execute outside a
+native graph borrow, and later row reads must observe the resulting topology
+at the reference boundary. The result remains a set.
+
+The seven link predictors that use common neighbors retain that contract when
+each score is consumed. Resource allocation and Adamic–Adar read the common
+neighbor's degree after constructing the intersection. Jaccard first builds
+its union from the public `G[u]` and `G[v]` rows, then independently reads the
+private rows for its numerator. A snapshot shared across these distinct reads
+can therefore change the result. Explicit candidate-pair validation remains
+eager, while callbacks used only to score a pair remain lazy.
+
+Ordinary primitive-label queries retain native batching and local endpoint-row
+admission. A query must not inspect unrelated graph labels to decide whether
+the native path is safe. Direct `common_neighbors` is not backend-dispatchable
+in NetworkX 3.6.1; explicit backend coverage applies to the eight registered
+link predictors, preserving their original graph on both cold and warm
+conversion caches.
+
+## 117. Live Weighted All-Pairs and Average Distances
+
+Unbounded weighted all-pairs queries retain the caller's graph and begin each
+source search when that result is consumed. Node hashing and equality can
+execute caller code; these protocols must run outside a native graph borrow.
+A first callback may change a weight or topology, and later relaxations read
+the resulting live edge dictionaries. Multigraph searches retain the parallel
+edge-key map and reduce its current weights at the same boundary as the
+reference algorithm. Row iteration preserves encounter order and dictionary
+invalidation behavior when a callback changes its contents.
+
+Weighted `average_shortest_path_length` preserves method, empty-graph,
+singleton and connectivity validation before weight callbacks. Its per-source
+searches use the same live weighted rows rather than computing a stale native
+mean before a stored-label callback executes. A callback-free ordinary concrete
+graph retains the native route. Global label and row-alias admission may be
+cached for these already-unbounded queries; a bounded shortest-path query must
+not acquire a whole-graph admission scan from this correction.
+
+Native undirected neighbor-data cursors expose persistent live
+`(neighbor, edge_attributes)` or `(neighbor, parallel_edge_map)` rows without
+hashing display labels while holding the graph. Edge insertion, deletion,
+parallel-key changes and graph clearing update or detach these rows with the
+same lifetime rules as the existing directed cursors. Backend conversion
+caches must not replace the original graph for observable live queries. Cache
+population itself is not part of the weighted average-distance contract.

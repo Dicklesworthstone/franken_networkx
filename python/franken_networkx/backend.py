@@ -124,7 +124,10 @@ _ASSORTATIVITY_INPUT_ALGORITHMS = frozenset(
     }
 )
 _CLUSTERING_INPUT_ALGORITHMS = frozenset(
-    {"clustering", "average_clustering", "triangles", "transitivity", "generalized_degree"}
+    {
+        "clustering", "average_clustering", "triangles", "transitivity",
+        "generalized_degree", "square_clustering",
+    }
 )
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
@@ -478,6 +481,13 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # Recover it even after another algorithm cached a conversion; the
         # matching entry point admits ordinary storage to native blossom.
         return True
+    if name == "square_clustering":
+        # Square counts use the original private rows and cache each row on
+        # its first read. Conversion can both invoke unrelated public readers
+        # and replace live selections or filtered rows with a stale snapshot.
+        return fnx._square_clustering_uses_live_python_rows(
+            graph, arguments.get("nodes")
+        )
     if name in {"triangles", "transitivity", "generalized_degree"}:
         # A lazy selection or adjacency provider can change later counts.
         # Preserve its graph even when another algorithm cached a conversion.
