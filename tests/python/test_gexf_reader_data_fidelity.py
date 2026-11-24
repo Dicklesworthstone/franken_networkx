@@ -1507,3 +1507,211 @@ def test_inline_gexf_weights_survive_independent_scalar_recovery(
         record["action"] == "full_validate"
         for record in actual.decision_records()
     )
+
+
+_GEXF_ENCODING_CASES = {
+    "latin1": ("iso-8859-1", "ISO-8859-1", b""),
+    "windows1252": ("cp1252", "windows-1252", b""),
+    "utf16": ("utf-16", "UTF-16", b""),
+    "utf16le": ("utf-16-le", "UTF-16LE", b""),
+    "utf16be": ("utf-16-be", "UTF-16BE", b""),
+    "utf16be-generic-declaration": ("utf-16-be", "UTF-16", b""),
+    "utf16le-no-declaration": ("utf-16-le", None, b""),
+    "utf16be-no-declaration": ("utf-16-be", None, b""),
+    "utf16le-bom-no-declaration": ("utf-16-le", None, b"\xff\xfe"),
+    "utf16be-bom-no-declaration": ("utf-16-be", None, b"\xfe\xff"),
+    "utf8-bom-latin1": ("iso-8859-1", "ISO-8859-1", b"\xef\xbb\xbf"),
+}
+
+
+def _encoded_gexf_payload(document, encoding_case):
+    codec, declaration, bom = _GEXF_ENCODING_CASES[encoding_case]
+    declaration = (
+        f"<?xml version='1.0' encoding = '{declaration}' standalone='yes'?>"
+        if declaration is not None else ""
+    )
+    return bom + (declaration + " \n" + document).encode(codec)
+
+
+@pytest.mark.parametrize("encoding_case", tuple(_GEXF_ENCODING_CASES))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened", "ambient"))
+@pytest.mark.parametrize("rich", (False, True))
+def test_encoded_gexf_preserves_data_and_native_policy(
+    monkeypatch, encoding_case, mode, rich,
+):
+    declarations = (
+        '<attributes class="node"><attribute id="name" title="category" '
+        'type="string"><default>défaut</default></attribute></attributes>'
+        if rich else ""
+    )
+    values = '<attvalues><attvalue for="name" value="mesuré"/></attvalues>' if rich else ""
+    parallel = '<edge id="second" source="café" target="élève" weight="3.5"/>' if rich else ""
+    document = _document(
+        declarations + '<nodes><node id="café" label="Café">'
+        + values + '</node><node id="élève" label="Élève"/></nodes>'
+        '<edges><edge id="first" source="café" target="élève" weight="2.5"/>'
+        + parallel + '</edges>',
+        direction="directed" if rich else "undirected",
+    ).decode()
+    if encoding_case == "windows1252":
+        document = document.replace('label="Café"', 'label="Café €"')
+    elif encoding_case.startswith("utf16"):
+        document = document.replace('label="Café"', 'label="Café 🧪"')
+    payload = _encoded_gexf_payload(document, encoding_case)
+    expected = nx.read_gexf(BytesIO(payload))
+    _forbid_gexf_delegation(monkeypatch)
+    stream = BytesIO(payload)
+    options = {} if mode in (None, "ambient") else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        actual = fnx.read_gexf(stream, **options)
+
+    _assert_same(actual, expected)
+    assert stream.getvalue() == payload
+    assert not stream.closed
+    effective_mode = "hardened" if mode in ("hardened", "ambient") else "strict"
+    assert actual.mode == effective_mode
+    if mode is not None:
+        records = actual.decision_records()
+        assert records
+        assert all(record["mode"] == effective_mode for record in records)
+        assert all(record["action"] == "allow" for record in records)
+
+
+@pytest.mark.parametrize("encoding_case", ("latin1", "utf16", "utf16be"))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_encoded_gexf_keeps_policy_markup_and_entity_rejection(
+    monkeypatch, encoding_case, mode,
+):
+    document = (
+        '<!DOCTYPE gexf [<!ENTITY rank "5">]>\n'
+        '<!-- café: preserve this comment -->\n'
+        '<?extension encoding="original"?>\n'
+        + _policy_payload().decode().replace('value="5"', 'value="&rank;"')
+        .replace(
+            '<graph ',
+            '<meta><description><![CDATA[café < raw]]></description></meta>'
+            '<extension xmlns="urn:future" encoding="unchanged"/><graph ',
+            1,
+        )
+    )
+    payload = _encoded_gexf_payload(document, encoding_case)
+    expected_input = (
+        "<?xml version='1.0' encoding = 'UTF-8' standalone='yes'?> \n"
+        + document
+    ).encode()
+    native_validate = fnx._fnx.validate_gexf
+    policy_inputs = []
+
+    def capture_validation(stream, **options):
+        policy_input = stream.read()
+        policy_inputs.append(policy_input)
+        return native_validate(BytesIO(policy_input), **options)
+
+    monkeypatch.setattr(fnx._fnx, "validate_gexf", capture_validation)
+    stream = BytesIO(payload)
+    options = {} if mode is None else {"mode": mode}
+    with pytest.raises(OSError):
+        fnx.read_gexf(stream, **options)
+    assert policy_inputs == [expected_input]
+    assert stream.getvalue() == payload
+    assert not stream.closed
+
+
+def test_encoded_gexf_unknown_extensions_still_require_native_validation(monkeypatch):
+    document = _policy_payload().decode().replace(
+        '</graph>', '<extension xmlns="urn:future" name="café"/></graph>',
+    )
+    payload = _encoded_gexf_payload(document, "utf16")
+    expected_input = (
+        "<?xml version='1.0' encoding = 'UTF-8' standalone='yes'?> \n"
+        + document
+    ).encode()
+    expected = nx.read_gexf(BytesIO(payload))
+    _forbid_gexf_delegation(monkeypatch)
+    native_validate = fnx._fnx.validate_gexf
+    native_policy = native_validate(BytesIO(expected_input), mode="strict")
+    policy_inputs = []
+
+    def capture_validation(stream, **options):
+        policy_input = stream.read()
+        policy_inputs.append(policy_input)
+        return native_validate(BytesIO(policy_input), **options)
+
+    monkeypatch.setattr(fnx._fnx, "validate_gexf", capture_validation)
+    # No explicit mode: an unknown extension must prevent the early owned
+    # decoder route even when all of the known GEXF data is supported.
+    with fnx.compatibility_mode("strict"):
+        actual = fnx.read_gexf(BytesIO(payload))
+    _assert_same(actual, expected)
+    assert policy_inputs == [expected_input]
+    assert [
+        (record["mode"], record["action"], record["rationale"])
+        for record in actual.decision_records()
+    ] == [
+        (record["mode"], record["action"], record["rationale"])
+        for record in native_policy.decision_records()
+    ]
+
+
+@pytest.mark.parametrize("encoding_case", ("latin1", "utf16", "utf16be"))
+@pytest.mark.parametrize("mode", ("hardened", "ambient"))
+def test_encoded_gexf_scalar_recovery_retains_rich_data_and_inline_weights(
+    monkeypatch, encoding_case, mode,
+):
+    document = _scalar_recovery_document("long", "17", "11", True).decode()
+    clean = _scalar_recovery_document("long", "17", "11", True, repaired=True).decode()
+    document = document.replace('label="First"', 'label="Café"').replace(
+        '<edge id="first"', '<edge weight=" 1_000.25 " id="first"',
+    )
+    clean = clean.replace('label="First"', 'label="Café"').replace(
+        '<edge id="first"', '<edge weight=" 1_000.25 " id="first"',
+    )
+    payload = _encoded_gexf_payload(document, encoding_case)
+    expected = nx.read_gexf(BytesIO(_encoded_gexf_payload(clean, encoding_case)))
+    _forbid_gexf_delegation(monkeypatch)
+    stream = BytesIO(payload)
+    options = {} if mode == "ambient" else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        actual = fnx.read_gexf(stream, **options)
+
+    _assert_same(actual, expected)
+    assert actual.is_multigraph()
+    assert actual.number_of_edges() == 3
+    assert actual["01"]["9"]["first"]["weight"] == 1000.25
+    assert actual.mode == "hardened"
+    assert any(
+        record["action"] == "full_validate"
+        for record in actual.decision_records()
+    )
+    assert stream.getvalue() == payload
+    assert not stream.closed
+
+
+@pytest.mark.parametrize("encoding_case", ("latin1", "utf16"))
+@pytest.mark.parametrize("markup", ("doctype", "cdata"))
+def test_encoded_gexf_does_not_weaken_scalar_repair_boundaries(encoding_case, markup):
+    document = _scalar_recovery_document("long", "17", "11", False).decode()
+    if markup == "doctype":
+        document = '<!DOCTYPE gexf [<!ENTITY unused "café">]>' + document
+    else:
+        document = document.replace('<default>11</default>', '<default><![CDATA[11]]></default>')
+    payload = _encoded_gexf_payload(document, encoding_case)
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+
+@pytest.mark.parametrize("invalid", ("encoding-mismatch", "truncated-xml"))
+@pytest.mark.parametrize("mode", ("strict", "hardened"))
+def test_encoded_gexf_malformed_xml_retains_native_rejection(invalid, mode):
+    document = _policy_payload().decode().replace('label="Zero"', 'label="Café"')
+    if invalid == "encoding-mismatch":
+        payload = ('<?xml version="1.0" encoding="UTF-8"?>' + document).encode("utf-16")
+    else:
+        payload = _encoded_gexf_payload(document.removesuffix('</gexf>'), "utf16")
+    # Normalization must not fix an encoding mismatch or hide malformed XML.
+    # The same original input must still fail at the native boundary.
+    with pytest.raises(Exception) as expected:
+        fnx._fnx.validate_gexf(BytesIO(payload), mode=mode)
+    with pytest.raises(type(expected.value)) as actual:
+        fnx.read_gexf(BytesIO(payload), mode=mode)
+    assert actual.value.args == expected.value.args

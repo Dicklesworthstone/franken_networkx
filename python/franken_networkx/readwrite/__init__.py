@@ -3177,6 +3177,28 @@ def _read_gexf_payload(path):
     return raw.encode("utf-8") if isinstance(raw, str) else raw
 
 
+def _gexf_native_validation_payload(raw, encoding):
+    """Transcode checked XML without removing policy-relevant markup.
+
+    Only a complete successful scan supplies an encoding. Keep the original
+    document for the full decoder and change only its byte encoding and the
+    declaration seen by the native UTF-8 reader. In particular, serializing
+    an XML tree here would discard DTDs and alter entity/CDATA handling.
+    """
+    if encoding is None:
+        return raw
+    source = raw.removeprefix(b"\xef\xbb\xbf").decode(encoding)
+    declaration = _re.match(
+        r"<\?xml[ \t\r\n]+[^?]*?\bencoding[ \t\r\n]*=[ \t\r\n]*"
+        r"(['\"])([^'\"]*)\1",
+        source,
+    )
+    if declaration is not None:
+        start, end = declaration.span(2)
+        source = source[:start] + "UTF-8" + source[end:]
+    return source.encode("utf-8")
+
+
 def _gexf_repaired_values_payload(payload):
     """Retain native scalar-to-string recoveries without flattening the graph.
 
@@ -3323,6 +3345,7 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
 
     (
         needs_decoder, any_missing_label, native_required, lossy_recovery,
+        native_encoding,
     ) = _gexf_scan_document(raw)
     needs_decoder = needs_decoder or node_type is not None
     if (
@@ -3339,7 +3362,8 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     # document needs validation of every record without treating a parallel
     # edge as malformed; its projection is only the policy owner below.
     native_reader = _fnx.validate_gexf if needs_decoder else _fnx.read_gexf
-    graph = native_reader(_BytesIO(raw), mode=mode)
+    native_payload = _gexf_native_validation_payload(raw, native_encoding)
+    graph = native_reader(_BytesIO(native_payload), mode=mode)
     recovered = any(
         record["action"] == "full_validate" for record in graph.decision_records()
     )
@@ -4390,6 +4414,17 @@ def _gexf_scan_document(raw_bytes):
     """
     from xml.parsers import expat
 
+    # Expat recognizes UTF-16 even without a declaration or BOM. Preserve
+    # physical endianness when a declaration only says generic "UTF-16".
+    if raw_bytes.startswith((b"\xff\xfe", b"\xfe\xff")):
+        native_encoding = "utf-16"
+    elif raw_bytes[:1] == b"\x00":
+        native_encoding = "utf-16-be"
+    elif raw_bytes[1:2] == b"\x00":
+        native_encoding = "utf-16-le"
+    else:
+        native_encoding = None
+
     namespaces = {
         "http://www.gexf.net/1.1draft",
         "http://www.gexf.net/1.2draft",
@@ -4406,7 +4441,7 @@ def _gexf_scan_document(raw_bytes):
     attr_defs = {}
     pairs = set()
     state = {
-        "needs_decoder": False,
+        "needs_decoder": native_encoding is not None,
         "native_required": False,
         "node_depth": 0,
         "edge_depth": 0,
@@ -4556,8 +4591,11 @@ def _gexf_scan_document(raw_bytes):
         state["xml_depth"] -= 1
 
     def xml_declaration(version, encoding, standalone):
+        nonlocal native_encoding
         if encoding and encoding.lower().replace("-", "") not in ("utf8", "ascii"):
             state["needs_decoder"] = True
+            if native_encoding is None:
+                native_encoding = encoding
 
     def doctype_declaration(name, system_id, public_id, has_internal_subset):
         # Entity declarations must not bypass the native parser's policy when
@@ -4578,10 +4616,12 @@ def _gexf_scan_document(raw_bytes):
         return (
             state["needs_decoder"], True, True,
             state["lossy_recovery"] or state["needs_decoder"],
+            None,
         )
     return (
         state["needs_decoder"], state["missing_label"], state["native_required"],
         state["lossy_recovery"],
+        native_encoding,
     )
 
 
