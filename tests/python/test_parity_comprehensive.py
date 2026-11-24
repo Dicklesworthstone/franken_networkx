@@ -192,10 +192,10 @@ class TestDAGAlgorithms:
             ),
         )
         monkeypatch.setattr(
-            fnx,
-            "_tree_lca_dfs_postorder_nodes",
+            fnx._fnx,
+            "tree_all_pairs_lca_rust",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("Python tree LCA fallback should not be used")
+                AssertionError("Tree LCA must stream without the eager native batch")
             ),
         )
 
@@ -248,10 +248,10 @@ class TestDAGAlgorithms:
             ),
         )
         monkeypatch.setattr(
-            fnx,
-            "_TarjanUnionFind",
+            fnx._fnx,
+            "tree_all_pairs_lca_rust",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("Python Tarjan tree LCA fallback should not be used")
+                AssertionError("Tree LCA must stream without the eager native batch")
             ),
         )
 
@@ -288,10 +288,10 @@ class TestDAGAlgorithms:
             ),
         )
         monkeypatch.setattr(
-            fnx,
-            "_TarjanUnionFind",
+            fnx._fnx,
+            "tree_all_pairs_lca_rust",
             lambda *args, **kwargs: (_ for _ in ()).throw(
-                AssertionError("Python Tarjan tree LCA fallback should not be used")
+                AssertionError("Tree LCA must stream without the eager native batch")
             ),
         )
 

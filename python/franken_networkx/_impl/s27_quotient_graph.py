@@ -1376,7 +1376,7 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
     )
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
-    if not is_directed_acyclic_graph(G):
+    if not _lca_is_directed_acyclic_graph(G):
         raise NetworkXError("LCA only defined on directed acyclic graphs.")
     if len(G) == 0:
         raise NetworkXPointlessConcept("LCA meaningless on null graphs.")
@@ -1394,93 +1394,19 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
                 raise NodeNotFound(f"Node(s) {missing} from pair {pair} not in G.")
 
     def generate_lca_from_pairs(G, pairs):
-        # br-r37-c1-db0qr: two fixes in one.
-        # (1) DETERMINISM/PARITY: the previous code built each ancestor set via
-        #     ``set(ancestors(G, v))``. fnx's native ``ancestors`` materialises a
-        #     Rust HashSet whose iteration order is randomised per process, so the
-        #     resulting Python set's layout — and therefore
-        #     ``next(iter(common_ancestors))`` when several incomparable LCAs
-        #     exist — varied RUN TO RUN (non-deterministic; diverged from nx).
-        #     nx builds ``ancestors`` as ``{child for _, child in
-        #     bfs_edges(G, v, reverse=True)}`` (deterministic BFS-discovery
-        #     insertion order). Reproduce that exact reverse-BFS insertion order
-        #     here from a predecessor snapshot, so the ancestor sets — and the
-        #     LCA selection — are deterministic and match nx.
-        # (2) PERF: the descent called ``G.successors(x)`` once per step over
-        #     O(n^2) pairs (~42k fnx Python-wrapper round-trips on a 300-node DAG
-        #     = the whole ~4x gap vs nx). Snapshot successors once into a plain
-        #     dict; the descent then uses a local lookup. Net: ~5x self-speedup,
-        #     faster than nx, deterministic, byte-exact.
-        # br-r37-c1-aigcs: PERF (small-pair tax + wrapper tax). Two changes:
-        #   (1) The previous code eagerly snapshotted predecessors AND successors
-        #       for EVERY node (~2*n fnx Python-wrapper round-trips), so a
-        #       single-pair / few-pair call paid the full O(n) adjacency cost —
-        #       the bulk of the ~4.5x gap vs nx at n=2000. Make both snapshots
-        #       LAZY+memoized: each node's neighbour list is fetched at most once.
-        #   (2) The residual gap was the AdjacencyView wrapper behind
-        #       ``G.predecessors(u)`` (per-call private-storage checks: ~8M
-        #       _private_override/vars hits over a full-ancestor walk). For fnx
-        #       DiGraphs, read predecessors via the native ``_native_predecessor
-        #       _row_dict`` accessor, which yields the IDENTICAL key order
-        #       (verified) ~8x cheaper. nx-typed graphs fall back to the public
-        #       API. Iteration order is unchanged, so ancestor sets — and the
-        #       deterministic LCA selection — remain byte-exact.
-        pred_snapshot = {}
-        succ_snapshot = {}
-
-        _pred_row = getattr(G, "_native_predecessor_row_dict", None)
-        if _pred_row is not None:
-
-            def _preds(u):
-                r = pred_snapshot.get(u)
-                if r is None and u not in pred_snapshot:
-                    r = list(_pred_row(u))
-                    pred_snapshot[u] = r
-                return r
-
-        else:
-
-            def _preds(u):
-                r = pred_snapshot.get(u)
-                if r is None and u not in pred_snapshot:
-                    r = list(G.predecessors(u))
-                    pred_snapshot[u] = r
-                return r
-
-        def _succs(u):
-            r = succ_snapshot.get(u)
-            if r is None and u not in succ_snapshot:
-                r = list(G.successors(u))
-                succ_snapshot[u] = r
-            return r
-
-        def _ancestors_bfs(source):
-            # nx.ancestors via generic_bfs_edges over predecessors: level-order
-            # BFS, inserting each newly seen predecessor in discovery order — the
-            # identical insertion sequence to nx's set comprehension.
-            seen = {source}
-            anc = set()
-            frontier = [(source, _preds(source))]
-            while frontier:
-                current = frontier
-                frontier = []
-                for _parent, parents in current:
-                    for ancestor in parents:
-                        if ancestor not in seen:
-                            seen.add(ancestor)
-                            frontier.append((ancestor, _preds(ancestor)))
-                            anc.add(ancestor)
-            return anc
-
+        # The API caches completed ancestor sets, not graph rows. A later
+        # uncached query must see edits made while this generator was paused.
+        # Preserve BFS insertion order inside each set: it determines which
+        # incomparable common ancestor is selected before the descent.
         ancestor_cache = {}
 
         for v, w in pairs:
             if v not in ancestor_cache:
-                anc_v = _ancestors_bfs(v)
+                anc_v = _lca_ancestors_from_live_rows(G, v)
                 anc_v.add(v)
                 ancestor_cache[v] = anc_v
             if w not in ancestor_cache:
-                anc_w = _ancestors_bfs(w)
+                anc_w = _lca_ancestors_from_live_rows(G, w)
                 anc_w.add(w)
                 ancestor_cache[w] = anc_w
 
@@ -1492,7 +1418,7 @@ def all_pairs_lowest_common_ancestor(G, pairs=None, *, backend=None, **backend_k
                 common_ancestor = next(iter(common_ancestors))
                 while True:
                     successor = None
-                    for lower_ancestor in _succs(common_ancestor):
+                    for lower_ancestor in G.successors(common_ancestor):
                         if lower_ancestor in common_ancestors:
                             successor = lower_ancestor
                             break

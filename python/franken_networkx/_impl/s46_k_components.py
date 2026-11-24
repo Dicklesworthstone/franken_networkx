@@ -462,6 +462,73 @@ def tutte_polynomial(G, *, backend=None, **backend_kwargs):
     return _tutte_polynomial_inproc(G)
 
 
+# This module is loaded after the private-aware graph readers are installed.
+# Keep the ordinary DiGraph ancestor walk on native row dictionaries only
+# while those exact readers and callback-free node labels remain in place.
+_LCA_NATIVE_READERS = {
+    name: vars(DiGraph).get(name)
+    for name in (
+        "__len__", "__iter__", "__contains__", "__getitem__",
+        "__getattribute__", "__dict__", "is_directed", "is_multigraph",
+        "neighbors", "predecessors", "successors", "nodes", "edges",
+        "in_degree", "adj", "succ", "pred", "_node", "_adj", "_succ",
+        "_pred", "nodes_seq", "_native_node_keys",
+        "_native_predecessor_row_dict", "_native_has_succ_py_keys",
+        "_native_has_pred_py_keys",
+    )
+}
+_LCA_NATIVE_PREDECESSOR_ROW = DiGraph._native_predecessor_row_dict
+
+
+def _lca_native_readers_are_plain(G):
+    if type(G) is not DiGraph:
+        return False
+    readers = vars(DiGraph)
+    if any(readers.get(name) is not original for name, original in _LCA_NATIVE_READERS.items()):
+        return False
+    storage = vars(G)
+    if _has_networkx_private_storage(G):
+        return False
+    view_names = ("nodes", "edges", "in_degree", "adj", "succ", "pred")
+    for name in _LCA_NATIVE_READERS:
+        if name not in storage:
+            continue
+        if name not in view_names or storage[name] is not storage.get("_fnx_view_" + name):
+            return False
+    if G._native_has_succ_py_keys() or G._native_has_pred_py_keys():
+        return False
+    return _view_root_node_keys_are_stable(G, G.nodes_seq)
+
+
+def _lca_is_directed_acyclic_graph(G):
+    if _lca_native_readers_are_plain(G):
+        return _raw_is_directed_acyclic_graph(G)
+    if not G.is_directed():
+        return False
+    try:
+        for _ in _topological_generations_as_networkx(G):
+            pass
+    except NetworkXUnfeasible:
+        return False
+    return True
+
+
+def _lca_ancestors_from_live_rows(G, source):
+    if (
+        _is_plain_immutable_label(source)
+        and _lca_native_readers_are_plain(G)
+        and source in G
+    ):
+        # No row lists survive this one search. In particular, a later query
+        # may revisit a predecessor whose outgoing edges changed at a yield.
+        edges = generic_bfs_edges(
+            G, source, lambda node: iter(_LCA_NATIVE_PREDECESSOR_ROW(G, node))
+        )
+    else:
+        edges = _py_bfs_edges(G, source, reverse=True)
+    return {ancestor for _, ancestor in edges}
+
+
 class _TarjanUnionFind:
     """Minimal union-find used by tree_all_pairs_lowest_common_ancestor.
 
@@ -469,10 +536,8 @@ class _TarjanUnionFind:
     actually touches: `uf[x]` returns the canonical representative and
     auto-inserts fresh elements, and `uf.union(a, b)` merges by size.
 
-    br-r37-c1-jkqwg: restored after the orphan-helper sweep removed
-    it — tests in test_parity_comprehensive.py monkey-patch it to
-    assert the LCA routine uses the local Tarjan kernel (not a nx
-    fallback).
+    The streaming tree solver keeps this state across yields instead of
+    materializing a quadratic batch of answers before its first result.
     """
 
     __slots__ = ("_parent", "_weight")
@@ -508,23 +573,11 @@ class _TarjanUnionFind:
 
 
 def _tree_lca_dfs_postorder_nodes(G, root):
-    visited = {root}
-    stack = [(root, iter(G[root]))]
-    order = []
-
-    while stack:
-        node, children = stack[-1]
-        for child in children:
-            if child in visited:
-                continue
-            visited.add(child)
-            stack.append((child, iter(G[child])))
-            break
-        else:
-            order.append(node)
-            stack.pop()
-
-    return order
+    # Use the owned live traversal so later neighbor rows are opened only
+    # when reached. Its reverse events include the root after its children.
+    for _, node, event in _py_dfs_labeled_edges(G, root):
+        if event == "reverse":
+            yield node
 
 
 
@@ -538,6 +591,10 @@ def tree_all_pairs_lowest_common_ancestor(
     )
     if not G.is_directed():
         raise NetworkXNotImplemented("not implemented for undirected type")
+    return _tree_all_pairs_lowest_common_ancestor_live(G, root, pairs)
+
+
+def _tree_all_pairs_lowest_common_ancestor_live(G, root, pairs):
     if len(G) == 0:
         raise NetworkXPointlessConcept("LCA meaningless on null graphs.")
 
@@ -567,25 +624,22 @@ def tree_all_pairs_lowest_common_ancestor(
                 )
         if root is None:
             raise NetworkXError("Graph contains a cycle.")
-    elif root not in G:
-        raise NetworkXError(f"The node {root} is not in the digraph.")
 
-    from franken_networkx._fnx import tree_all_pairs_lca_rust as _rust_tree_lca
-
-    if pairs is None:
-        yield from _rust_tree_lca(G, root, None)
-        return
-
-    rust_results = dict(_rust_tree_lca(G, root, list(pairs)))
+    components = _TarjanUnionFind()
+    ancestors = {node: components[node] for node in G}
     colors = _defaultdict(bool)
     for node in _tree_lca_dfs_postorder_nodes(G, root):
         colors[node] = True
-        for other in pair_dict[node]:
+        for other in pair_dict[node] if pairs is not None else G:
             if colors[other]:
-                if (node, other) in pairs:
-                    yield (node, other), rust_results[(node, other)]
-                if (other, node) in pairs:
-                    yield (other, node), rust_results[(other, node)]
+                if pairs is not None and (node, other) in pairs:
+                    yield (node, other), ancestors[components[other]]
+                if pairs is None or (other, node) in pairs:
+                    yield (other, node), ancestors[components[other]]
+        if node != root:
+            parent = next(iter(G.pred[node]))
+            components.union(parent, node)
+            ancestors[components[parent]] = parent
 
 
 

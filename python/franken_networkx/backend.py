@@ -170,6 +170,12 @@ _LINK_PREDICTION_ALGORITHMS = frozenset(
         "within_inter_cluster", "common_neighbor_centrality",
     }
 )
+_LOWEST_COMMON_ANCESTOR_ALGORITHMS = frozenset(
+    {
+        "lowest_common_ancestor", "all_pairs_lowest_common_ancestor",
+        "tree_all_pairs_lowest_common_ancestor",
+    }
+)
 
 # These iterators read the caller's graph as they advance. NetworkX's conversion
 # cache is shared by algorithms, so this choice belongs at invocation time,
@@ -202,6 +208,8 @@ _LIVE_INPUT_ALGORITHMS = frozenset(
         "shortest_simple_paths",
         "single_source_all_shortest_paths",
         "all_pairs_all_shortest_paths",
+        "all_pairs_lowest_common_ancestor",
+        "tree_all_pairs_lowest_common_ancestor",
         "minimum_spanning_edges",
         "maximum_spanning_edges",
         "find_cliques",
@@ -334,6 +342,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     | _ASSORTATIVITY_INPUT_ALGORITHMS
     | _CLUSTERING_INPUT_ALGORITHMS
     | _DEGREE_CENTRALITY_ALGORITHMS
+    | _LOWEST_COMMON_ANCESTOR_ALGORITHMS
 )
 _LIVE_CALLBACK_PARAMETERS = (
     "sort_neighbors", "weight", "distance", "heuristic", "key", "flow_func"
@@ -401,6 +410,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
     | _DEGREE_CENTRALITY_ALGORITHMS
     | _EXTENDED_TRAVERSAL_ALGORITHMS
     | _LINK_PREDICTION_ALGORITHMS
+    | _LOWEST_COMMON_ANCESTOR_ALGORITHMS
     | {
         "johnson", "quotient_graph", "pagerank", "greedy_modularity_communities",
         "label_propagation_communities", "greedy_color",
@@ -431,6 +441,11 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _LOWEST_COMMON_ANCESTOR_ALGORITHMS:
+        # Pair validation and traversal have distinct eager/lazy boundaries.
+        # Keep original rows, root objects and node providers even when an
+        # earlier algorithm populated NetworkX's shared conversion cache.
+        return True
     if name == "common_neighbors":
         # This is a local row query even on a large graph. Conversion reads
         # unrelated providers and detaches row views before their callbacks
@@ -1798,6 +1813,9 @@ _SUPPORTED_ALGORITHMS = {
     "antichains": fnx.antichains,
     "immediate_dominators": fnx.immediate_dominators,
     "dominance_frontiers": fnx.dominance_frontiers,
+    "lowest_common_ancestor": fnx.lowest_common_ancestor,
+    "all_pairs_lowest_common_ancestor": fnx.all_pairs_lowest_common_ancestor,
+    "tree_all_pairs_lowest_common_ancestor": fnx.tree_all_pairs_lowest_common_ancestor,
     # Additional shortest path algorithms
     "dijkstra_path_length": fnx.dijkstra_path_length,
     "dijkstra_predecessor_and_distance": fnx.dijkstra_predecessor_and_distance,
@@ -2676,6 +2694,7 @@ class BackendInterface:
                             | _WEIGHTED_MATCHING_ALGORITHMS
                             | _DEGREE_CENTRALITY_ALGORITHMS
                             | _LINK_PREDICTION_ALGORITHMS
+                            | _LOWEST_COMMON_ANCESTOR_ALGORITHMS
                         )
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",

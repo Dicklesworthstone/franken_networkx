@@ -3709,3 +3709,26 @@ no whole-graph resize guard; removal of a selected node raises when the walk
 reaches that node, leaving earlier results observable. Ordinary `G.degree`
 and `G.degree()` consumption follow the same live contract across the four
 graph families, including directed total, incoming and outgoing degree.
+
+## 115. Lowest Common Ancestor Queries and Streaming
+
+The DAG ancestor APIs validate graph direction, acyclicity, empty inputs and
+explicit node pairs at the public call boundary. Explicit pairs retain their
+deduplicated encounter order. Each endpoint's ancestor set is computed once
+when first needed; that documented cache does not permit caching unrelated
+predecessor or successor rows across queries. A later search or descent reads
+the caller's current public rows, including views and replaced readers.
+
+The tree all-pairs API is a lazy Tarjan traversal. It validates roots and tree
+structure when advanced, preserves postorder and pair orientation, and yields
+each answer before continuing the traversal. Partial consumption must not
+materialize the quadratic set of all pair answers. Supplied pairs restrict
+the emitted results, and mutations or provider exceptions remain observable
+at the reference traversal boundary. Closing an iterator releases its source
+and traversal state without consuming further pairs.
+
+All three APIs are available through explicit and automatic NetworkX backend
+dispatch. Cached conversions must not replace the caller's graph, node labels
+or default return object. The two iterator APIs retain their live sources
+through advancement and close; graph-contract errors and provider exceptions
+propagate without being mistaken for an unsupported backend operation.
