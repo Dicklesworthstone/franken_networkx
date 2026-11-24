@@ -332,3 +332,261 @@ def test_average_neighbor_degree_respects_class_adjacency_providers(
     expected, expected_events = run(nx)
     _assert_neighbor_degree_values(actual, expected)
     assert actual_events == expected_events
+
+
+@pytest.mark.parametrize("graph_type,source,target", _NEIGHBOR_DEGREE_DIRECTIONS)
+@pytest.mark.parametrize("shape", ["subclass", "object", "tuple"])
+@pytest.mark.parametrize("weight", [None, "cost"])
+@pytest.mark.parametrize("warm", [False, True], ids=["cold", "warm"])
+@pytest.mark.parametrize("action", ["current-edge", "later-edge", "remove-edge", "raise"])
+def test_average_neighbor_degree_node_callbacks_read_current_degrees(
+    fnx, nx, graph_type, source, target, shape, weight, warm, action
+):
+    """The first target degree must be read after its owner's hash callback."""
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+
+        def callback():
+            nonlocal changed
+            if armed and not changed:
+                changed = True
+                if action == "raise":
+                    raise LookupError("neighbor degree node callback")
+                if action == "current-edge":
+                    graph.add_edge(labels[0], labels[2], cost=7)
+                    graph.add_edge(labels[2], labels[0], cost=7)
+                elif action == "later-edge":
+                    graph.add_edge(labels[1], labels[3], cost=11)
+                else:
+                    graph.remove_edge(labels[0], labels[1])
+
+        class IntKey(int):
+            def __hash__(self):
+                callback()
+                return int.__hash__(self)
+
+        class ObjectKey:
+            def __init__(self, value):
+                self.value = value
+
+            def __hash__(self):
+                callback()
+                return hash(self.value)
+
+            def __eq__(self, other):
+                return isinstance(other, ObjectKey) and self.value == other.value
+
+        labels = [
+            ObjectKey(i) if shape == "object" else (IntKey(i),) if shape == "tuple" else IntKey(i)
+            for i in range(4)
+        ]
+        graph.add_weighted_edges_from(
+            [(labels[0], labels[1], 2), (labels[1], labels[2], 3),
+             (labels[2], labels[3], 5), (labels[3], labels[0], 1)],
+            weight="cost",
+        )
+        if warm:
+            list(graph)
+            list(graph.degree())
+            for node in labels:
+                list(graph.adj[node].items())
+            if graph.is_directed():
+                list(graph.in_degree())
+                list(graph.out_degree())
+                for node in labels:
+                    list(graph.pred[node].items())
+        armed = True
+        try:
+            result = module.average_neighbor_degree(
+                graph, source=source, target=target, weight=weight
+            )
+            failure = None
+        except Exception as exc:
+            result, failure = None, (type(exc).__name__, exc.args)
+        finally:
+            armed = False
+
+        def plain(node):
+            if isinstance(node, ObjectKey):
+                return node.value
+            return int(node[0] if shape == "tuple" else node)
+
+        values = None if result is None else {
+            plain(node): value for node, value in result.items()
+        }
+        topology = [(plain(u), plain(v)) for u, v in graph.edges()]
+        return values, failure, changed, topology
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert expected[2], "the reference must exercise the node callback"
+    assert actual[1:] == expected[1:]
+    if action == "raise":
+        assert expected[1] == ("LookupError", ("neighbor degree node callback",))
+        assert actual[0] is None
+    else:
+        assert expected[1] is None
+        _assert_neighbor_degree_values(actual[0], expected[0])
+
+
+@pytest.mark.parametrize(
+    "graph_type,source,target",
+    [("Graph", "out", "out"), ("DiGraph", "out", "in"),
+     ("DiGraph", "in+out", "in+out")],
+)
+@pytest.mark.parametrize("selection", ["all", "list", "iterator", "scalar", "missing", "unhashable"])
+@pytest.mark.parametrize("action", ["edge", "add-node", "replace-node"])
+def test_average_neighbor_degree_node_callbacks_keep_selector_contract(
+    fnx, nx, graph_type, source, target, selection, action
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+
+        class Key(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    if action == "edge":
+                        graph.add_edge(0, 2)
+                    elif action == "add-node":
+                        graph.add_node(4)
+                    else:
+                        graph.remove_node(3)
+                        graph.add_node(4)
+                return int.__hash__(self)
+
+        labels = [Key(n) for n in range(4)]
+        graph.add_edges_from(zip(labels, labels[1:]))
+        nodes = {
+            "all": None,
+            "list": [labels[0], labels[2], labels[0], 99],
+            "iterator": iter([labels[2], labels[0], labels[2], 99]),
+            "scalar": labels[0],
+            "missing": 99,
+            "unhashable": [[labels[0]]],
+        }[selection]
+        armed = True
+        try:
+            result = module.average_neighbor_degree(
+                graph, source=source, target=target, nodes=nodes
+            )
+            failure = None
+        except Exception as exc:
+            result, failure = None, (type(exc).__name__, exc.args)
+        finally:
+            armed = False
+        values = None if result is None else {int(node): value for node, value in result.items()}
+        return values, failure, changed, [int(node) for node in graph]
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert expected[2], "the reference must exercise the node callback"
+    assert actual[1:] == expected[1:]
+    if expected[0] is None:
+        assert actual[0] is None
+    else:
+        _assert_neighbor_degree_values(actual[0], expected[0])
+
+
+@pytest.mark.parametrize("graph_type,source,target", _NEIGHBOR_DEGREE_DIRECTIONS)
+@pytest.mark.parametrize("weight", [None, "cost"])
+def test_average_neighbor_degree_selector_hash_reads_current_source_degree(
+    fnx, nx, graph_type, source, target, weight
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = changed = False
+
+        class Key(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    graph.add_edge(0, 2, cost=7)
+                    graph.add_edge(2, 0, cost=7)
+                return int.__hash__(self)
+
+        labels = [Key(n) for n in range(4)]
+        graph.add_weighted_edges_from(
+            [(labels[0], labels[1], 2), (labels[1], labels[2], 3),
+             (labels[2], labels[3], 5)],
+            weight="cost",
+        )
+
+        class Nodes:
+            def __iter__(self):
+                nonlocal armed
+                # Target degrees have already been computed when the source
+                # selector is consumed. Their snapshot must remain unchanged.
+                armed = True
+                yield from (labels[0], labels[2])
+
+        try:
+            result = module.average_neighbor_degree(
+                graph, source=source, target=target, nodes=Nodes(), weight=weight
+            )
+        finally:
+            armed = False
+        return {int(node): value for node, value in result.items()}, changed
+
+    expected, expected_changed = outcome(nx)
+    actual, actual_changed = outcome(fnx)
+    assert actual_changed and expected_changed
+    _assert_neighbor_degree_values(actual, expected)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("weight", [None, "cost"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_average_neighbor_degree_backend_keeps_node_callback_owner(
+    nx, fnx, monkeypatch, graph_type, weight, cached, raises
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+
+    def outcome(backend):
+        graph = getattr(nx, graph_type)()
+        armed = changed = False
+
+        class Key(int):
+            def __hash__(self):
+                nonlocal changed
+                if armed and not changed:
+                    changed = True
+                    if raises:
+                        raise LookupError("backend neighbor degree node callback")
+                    graph.add_edge(0, 2, cost=7)
+                return int.__hash__(self)
+
+        labels = [Key(n) for n in range(3)]
+        graph.add_weighted_edges_from(
+            [(labels[0], labels[1], 2), (labels[1], labels[2], 3)],
+            weight="cost",
+        )
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        armed = True
+        try:
+            result = nx.average_neighbor_degree(graph, weight=weight, backend=backend)
+            failure = None
+        except Exception as exc:
+            result, failure = None, (type(exc).__name__, exc.args)
+        finally:
+            armed = False
+        if backend == "franken_networkx":
+            assert not graph.__networkx_cache__.get("backends")
+        values = None if result is None else {int(node): value for node, value in result.items()}
+        return values, failure, changed, [(int(u), int(v)) for u, v in graph.edges]
+
+    expected = outcome("networkx")
+    actual = outcome("franken_networkx")
+    assert expected[2], "the reference must exercise the node callback"
+    assert actual[1:] == expected[1:]
+    if expected[0] is None:
+        assert actual[0] is None
+    else:
+        _assert_neighbor_degree_values(actual[0], expected[0])

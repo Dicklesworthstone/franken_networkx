@@ -440,6 +440,30 @@ def _average_neighbor_degree_can_use_native(G):
     )
 
 
+def _average_neighbor_degree_live_degrees(G, direction, nodes=None, weight=None):
+    """Read owned degrees after each node's live adjacency lookup."""
+    def degree(node):
+        return _adc_weighted_degree(
+            G,
+            node,
+            incoming=direction != "out",
+            outgoing=direction != "in",
+            weight=weight,
+        )
+
+    if nodes is None:
+        # Keep the node cursor live: adding or removing a node from a label's
+        # hash callback must retain dict iteration's size-change error.
+        selected = _spectral_centrality_nodes(G)
+    elif _nbunch_names_one_node(G, nodes):
+        # DegreeView's scalar result is observable here: the caller's loop
+        # raises TypeError when an existing node was supplied as `nodes`.
+        return degree(nodes)
+    else:
+        selected = list(G.nbunch_iter(nodes))
+    return ((node, degree(node)) for node in selected)
+
+
 def average_neighbor_degree(
     G,
     source="out",
@@ -463,6 +487,16 @@ def average_neighbor_degree(
         and type(source) is str
         and type(target) is str
     )
+    live_native_degrees = native_graph and not _view_root_node_keys_are_stable(
+        G, G.nodes_seq
+    )
+    if live_native_degrees:
+        # The bulk result builder hashes node labels while holding a native
+        # graph borrow, after freezing every degree. The Python degree views
+        # also snapshot their first pair before its label is hashed. Read
+        # these owned degrees through live rows instead, so a first hash can
+        # edit the graph or raise before that node's degree is calculated.
+        native_graph = False
 
     # br-mgavgnbd: the Rust fast path ignored parallel multi-edges, so
     # sum(t_deg[nbr] for nbr in adj[n]) was computed against an
@@ -541,7 +575,11 @@ def average_neighbor_degree(
         if res is not None:
             return res
 
-    target_degrees = dict(target_degree())
+    target_degrees = dict(
+        _average_neighbor_degree_live_degrees(G, target)
+        if live_native_degrees
+        else target_degree()
+    )
 
     pred_neighbors = succ_neighbors = {n: {} for n in G}
     if G.is_directed():
@@ -553,7 +591,12 @@ def average_neighbor_degree(
         succ_neighbors = G.adj
 
     avg = {}
-    for node, degree in source_degree(nodes, weight=weight):
+    source_degrees = (
+        _average_neighbor_degree_live_degrees(G, source, nodes, weight)
+        if live_native_degrees
+        else source_degree(nodes, weight=weight)
+    )
+    for node, degree in source_degrees:
         if degree == 0:
             avg[node] = 0.0
             continue
