@@ -568,3 +568,134 @@ def test_dense_matrices_preserve_literal_attribute_keys(algorithm, kind, weight)
         graph.add_edges_from([(0, 1, {weight: 2}), (1, 2, {weight: 3})])
         results.append(getattr(module, algorithm)(graph, weight=weight))
     np.testing.assert_array_equal(results[1], results[0])
+
+
+def _floyd_hash_callback_graph(module, kind, label_shape, action):
+    graph = getattr(module, kind)()
+    armed = changed = False
+    events = []
+
+    class Label(int):
+        def __hash__(self):
+            nonlocal changed
+            if armed and not changed:
+                changed = True
+                events.append(int(self))
+                if action == "raise":
+                    raise ArithmeticError(f"node hash {int(self)}")
+                graph.add_edge(labels[0], labels[2], cost=1)
+            return int.__hash__(self)
+
+    labels = [Label(index) for index in range(4)]
+    if label_shape == "tuple":
+        labels = [(label,) for label in labels]
+    graph.add_nodes_from(labels)
+    graph.add_edges_from(
+        (left, right, {"cost": 3}) for left, right in zip(labels, labels[1:])
+    )
+
+    def arm():
+        nonlocal armed
+        armed = True
+
+    return graph, labels, events, arm
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("graph_module", [fnx, nx])
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize("label_shape", ["scalar", "tuple"])
+def test_floyd_warshall_node_hash_mutation_precedes_edge_reads(
+    kind, graph_module, namespace, label_shape, monkeypatch
+):
+    def reject_matrix(*args, **kwargs):
+        pytest.fail("Callback-sensitive node labels reached the matrix solver")
+
+    monkeypatch.setitem(fnx.floyd_warshall.__globals__, "_floyd_warshall_numpy", reject_matrix)
+    outcomes = []
+    for module, algorithms in ((nx, nx), (graph_module, namespace)):
+        graph, labels, events, arm = _floyd_hash_callback_graph(
+            module, kind, label_shape, "mutate"
+        )
+        arm()
+        distances = algorithms.floyd_warshall(graph, weight="cost")
+        assert distances[labels[0]][labels[3]] == 4
+        assert events == [0]
+        outcomes.append(_floyd_distance_state(distances))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("graph_module", [fnx, nx])
+@pytest.mark.parametrize("namespace", [fnx, fnx_algorithms])
+@pytest.mark.parametrize("label_shape", ["scalar", "tuple"])
+def test_floyd_warshall_node_hash_exception_retains_reference_boundary(
+    kind, graph_module, namespace, label_shape
+):
+    for module, algorithms in ((nx, nx), (graph_module, namespace)):
+        graph, _, events, arm = _floyd_hash_callback_graph(
+            module, kind, label_shape, "raise"
+        )
+        arm()
+        with pytest.raises(ArithmeticError, match="^node hash 0$"):
+            algorithms.floyd_warshall(graph, weight="cost")
+        assert events == [0]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("label_shape", ["scalar", "tuple"])
+def test_floyd_warshall_backend_keeps_live_node_hash_callbacks(
+    kind, cached, label_shape, monkeypatch
+):
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    outcomes = []
+    for backend in ("networkx", "franken_networkx"):
+        graph, labels, events, arm = _floyd_hash_callback_graph(
+            nx, kind, label_shape, "mutate"
+        )
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"][backend]
+        arm()
+        distances = nx.floyd_warshall(graph, weight="cost", backend=backend)
+        assert distances[labels[0]][labels[3]] == 4
+        assert events == [0]
+        outcomes.append(_floyd_distance_state(distances))
+    assert outcomes[0] == outcomes[1]
+
+
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("graph_module", [fnx, nx])
+@pytest.mark.parametrize("label_shape", ["int", "str", "tuple", "frozenset"])
+def test_floyd_warshall_plain_node_labels_keep_matrix_route(
+    kind, graph_module, label_shape, monkeypatch
+):
+    labels = {
+        "int": [0, 1, 2],
+        "str": ["zero", "one", "two"],
+        "tuple": [("node", index) for index in range(3)],
+        "frozenset": [frozenset((index,)) for index in range(3)],
+    }[label_shape]
+    graph = getattr(graph_module, kind)()
+    graph.add_weighted_edges_from(
+        [(labels[0], labels[1], 2), (labels[1], labels[2], 3)], weight="cost"
+    )
+    namespace = fnx.floyd_warshall.__globals__
+    solver = namespace["_floyd_warshall_numpy"]
+    calls = []
+
+    def record_matrix(*args, **kwargs):
+        calls.append(args[0])
+        return solver(*args, **kwargs)
+
+    def reject_fallback(*args, **kwargs):
+        pytest.fail("Plain node labels unnecessarily left the matrix route")
+
+    monkeypatch.setitem(namespace, "_floyd_warshall_numpy", record_matrix)
+    monkeypatch.setitem(
+        namespace, "_floyd_warshall_predecessor_and_distance_inproc", reject_fallback
+    )
+    distances = fnx.floyd_warshall(graph, weight="cost")
+    assert distances[labels[0]][labels[2]] == 5
+    assert calls == [graph]

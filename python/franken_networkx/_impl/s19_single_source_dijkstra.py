@@ -722,6 +722,15 @@ def _fw_weight_kind(G, weight):
     if type(G) in (Graph, DiGraph):
         if _has_networkx_private_storage(G):
             return "mixed"
+        # Weight classification must not hash node labels before the solver
+        # initializes its distance rows. A hash callback can mutate the very
+        # adjacency the classifier would otherwise start iterating. Read the
+        # captured native display tuple without consulting public iterators.
+        if _graph_has_row_key_aliases(G) or not all(
+            _view_filter_node_key_is_stable(node)
+            for node in _CONVERSION_NATIVE_NODE_KEYS[type(G)](G)
+        ):
+            return "mixed"
         storage = G.__dict__
         cached = storage.get(_DESCRIPTOR_CACHED_VIEWS, ())
         for name, view_type in (
@@ -764,6 +773,17 @@ def _fw_weight_kind(G, weight):
             or type(G._node) is not dict
             or type(G._adj) is not dict
             or any(type(row) is not dict for row in G._adj.values())
+        ):
+            return "mixed"
+        # Dict-key iteration does not hash labels. Include adjacency keys:
+        # callers can put equal-but-distinct objects into mutable NX storage.
+        if (
+            not all(_view_filter_node_key_is_stable(node) for node in G._node)
+            or not all(_view_filter_node_key_is_stable(node) for node in G._adj)
+            or any(
+                not _view_filter_node_key_is_stable(neighbor)
+                for row in G._adj.values() for neighbor in row
+            )
         ):
             return "mixed"
     if any(
