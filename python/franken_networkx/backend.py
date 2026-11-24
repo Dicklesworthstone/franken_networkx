@@ -123,7 +123,7 @@ _ASSORTATIVITY_INPUT_ALGORITHMS = frozenset(
         "degree_assortativity_coefficient", "degree_pearson_correlation_coefficient",
     }
 )
-_CLUSTERING_INPUT_ALGORITHMS = frozenset({"clustering", "average_clustering"})
+_CLUSTERING_INPUT_ALGORITHMS = frozenset({"clustering", "average_clustering", "triangles"})
 # Core decomposition graph restrictions are part of the algorithm contract.
 _CORE_DECOMPOSITION_ALGORITHMS = frozenset(
     {"core_number", "k_core", "k_shell", "k_crust", "k_corona", "k_truss", "onion_layers"}
@@ -476,6 +476,10 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # Recover it even after another algorithm cached a conversion; the
         # matching entry point admits ordinary storage to native blossom.
         return True
+    if name == "triangles":
+        # A lazy selection or adjacency provider can change later counts.
+        # Preserve its graph even when another algorithm cached a conversion.
+        return fnx._triangles_uses_live_python_rows(graph, arguments.get("nodes"))
     if name in _CLUSTERING_INPUT_ALGORITHMS:
         # An undirected view can expose distinct reciprocal edge weights.
         # Selectors and attribute readers may also change later triangles;

@@ -549,38 +549,202 @@ def square_clustering(G, nodes=None):
     return square_coefficients
 
 
+def _triangles_reader_defaults():
+    import inspect
+    import networkx as nx
+
+    # Capture descriptors once so a later class-level provider is observable,
+    # including after an earlier call has populated the native census cache.
+    names = (
+        "__getitem__", "__iter__", "__contains__", "__getattribute__",
+        "__dict__", "adjacency", "nbunch_iter", "is_directed", "is_multigraph",
+        "adj", "nodes",
+    )
+    return {
+        cls: {name: inspect.getattr_static(cls, name) for name in names}
+        for cls in (Graph, MultiGraph, nx.Graph, nx.MultiGraph)
+    }
+
+
+_TRIANGLES_READER_DEFAULTS = _triangles_reader_defaults()
+
+
+def _triangles_readers_are_default(G):
+    """Inspect public readers without invoking an assigned provider."""
+    import inspect
+
+    graph_type = type(G)
+    # An unrecognized metaclass may itself define hashing or equality.
+    if not any(graph_type is cls for cls in _TRIANGLES_READER_DEFAULTS):
+        return False
+    defaults = _TRIANGLES_READER_DEFAULTS[graph_type]
+    if defaults is None or any(
+        inspect.getattr_static(type(G), name) is not descriptor
+        for name, descriptor in defaults.items()
+    ):
+        return False
+    storage = vars(G)
+    if any(name in storage for name in (
+        "__getitem__", "__iter__", "__contains__", "adjacency", "nbunch_iter",
+        "is_directed", "is_multigraph",
+    )):
+        return False
+    if graph_type is Graph or graph_type is MultiGraph:
+        if _has_networkx_private_storage(G):
+            return False
+        return all(
+            name not in storage or storage[name] is storage.get(f"_fnx_view_{name}")
+            for name in ("adj", "nodes")
+        )
+    return True
+
+
+def _triangles_uses_live_python_rows(G, nodes=None):
+    """Keep lazy selectors, live rows and label callbacks on their owner."""
+    if nodes is not None and not _is_plain_immutable_label(nodes):
+        if type(nodes) is not range and (
+            type(nodes) not in (list, tuple, set, frozenset, dict)
+            or any(not _is_plain_immutable_label(node) for node in nodes)
+        ):
+            return True
+    if not _triangles_readers_are_default(G):
+        return True
+    if type(G) is Graph or type(G) is MultiGraph:
+        if nodes is not None:
+            # The local native counter inspects only selected rows and their
+            # neighbors. A bounded query must not scan unrelated node labels.
+            return False
+        return (
+            not _view_root_node_keys_are_stable(G, G.nodes_seq)
+            or _fnx._graph_has_row_key_aliases(G)
+        )
+    return _weighted_query_uses_live_python_rows(G, None)
+
+
+def _triangles_native_nbunch_iter(G, nodes):
+    """Filter live selections without materializing all native display keys."""
+    if nodes in G:
+        return iter([nodes])
+
+    def bunch_iter(nlist, adj):
+        try:
+            for node in nlist:
+                if node in adj:
+                    yield node
+        except TypeError as err:
+            exc, message = err, err.args[0]
+            if "iter" in message:
+                exc = NetworkXError("nbunch is not a node or a sequence of nodes.")
+            if "object is not iterable" in message:
+                exc = NetworkXError(f"Node {nodes} is not in the graph.")
+            if "hashable" in message:
+                exc = NetworkXError(f"Node {node} in sequence nbunch is not a valid node.")
+            raise exc
+
+    # NodeView membership raises on unhashable elements, like a dict, and
+    # resolves custom keys before borrowing the graph. The ordinary nbunch
+    # mirror instead hashes every stored label when first materialized.
+    return bunch_iter(nodes, G.nodes)
+
+
+def _triangles_live_counts(G, nodes, native_rows):
+    if not native_rows:
+        yield from _triangles_and_degree_iter_local(G, nodes, snapshot=False)
+        return
+
+    def row(node):
+        # A selected-row lookup hashes the owner, just as G[node] does; the
+        # cursor then yields its existing neighbors without rehashing them
+        # under a native borrow or materializing edge attributes.
+        return Graph._fnx_unhashed_neighbors_iter(G, node)
+
+    for node in _triangles_native_nbunch_iter(G, nodes):
+        neighbors = set(row(node)) - {node}
+        generalized_degree = _Counter(
+            len(neighbors & (set(row(neighbor)) - {neighbor}))
+            for neighbor in neighbors
+        )
+        doubled = sum(size * count for size, count in generalized_degree.items())
+        yield node, len(neighbors), doubled, generalized_degree
+
+
+def _triangles_live_census(G, native_rows):
+    if native_rows:
+        # G.adjacency() visits row owners without hashing them. Preserve that
+        # boundary using canonical keys; (node, G[node]) would add an earlier
+        # owner callback, while the public native adjacency snapshot hashes
+        # all labels under a borrow and also materializes parallel edge keys.
+        node_rows = (
+            _fnx._triangles_live_row(G, canonical)
+            for canonical in _fnx._closeness_live_node_keys(G)
+        )
+    else:
+        node_rows = G.adjacency()
+
+    later_neighbors = {}
+    for node, neighbors in node_rows:
+        later_neighbors[node] = {
+            neighbor for neighbor in neighbors
+            if neighbor not in later_neighbors and neighbor != node
+        }
+    all_nodes = (
+        type(G)._fnx_unhashed_node_iter(G) if native_rows
+        else _spectral_centrality_nodes(G)
+    )
+    counts = _Counter(dict.fromkeys(all_nodes, 0))
+    for node, neighbors in later_neighbors.items():
+        for neighbor in neighbors:
+            third_nodes = neighbors & later_neighbors[neighbor]
+            count = len(third_nodes)
+            counts[node] += count
+            counts[neighbor] += count
+            counts.update(third_nodes)
+    return dict(counts)
+
+
 def triangles(G, nodes=None):
     """Compute the number of triangles."""
-    # br-r37-c1-nwkg0: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    if nodes is None:
-        snapshot = _cached_triangle_census_snapshot(G)
-        if snapshot is not None:
-            return dict(snapshot[3])
-        # Rust returns results in node-insertion order (matching G.nodes()).
-        start_key = _triangle_census_cache_key(G)
-        result = _raw_triangles(G)
-        _store_triangle_census_snapshot(G, result, start_key)
-        return result
-
-    # br-r37-c1-mnziq: nx decorator order makes 'directed' fire first
-    # on MultiDiGraph.
+    # The directed decorator rejects before inspecting selectors or rows.
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if G.is_multigraph():
-        raise NetworkXNotImplemented("not implemented for multigraph type")
+    if nodes is not None:
+        # NetworkX asks scalar membership before its per-node helper rejects
+        # multigraphs. The all-node census does support undirected multigraphs.
+        single_node = nodes in G
+        if G.is_multigraph():
+            raise NetworkXNotImplemented("not implemented for multigraph type")
 
-    # br-r37-c1-triloc: a single node / nbunch only needs the local triangle
-    # count, not a whole-graph _raw_triangles(G) (was O(V+E), 12-46x slower
-    # than nx for one node). br-r37-c1-mub4s: the local count is native -
-    # the Python snapshot of set(G[w]) per neighbour ran 0.36x networkx on
-    # 72 nodes of a 500-node graph.
-    if nodes in G:
-        return _native_triangles_and_degrees_for(G, [nodes])[0][1] // 2
+    live_rows = _triangles_uses_live_python_rows(G, nodes)
+    if not live_rows:
+        native_graph = _coerce_arg_to_fnx_graph(G)
+        if nodes is None:
+            snapshot = _cached_triangle_census_snapshot(native_graph)
+            if snapshot is not None:
+                return dict(snapshot[3])
+            start_key = _triangle_census_cache_key(native_graph)
+            result = _raw_triangles(native_graph)
+            _store_triangle_census_snapshot(native_graph, result, start_key)
+            return result
 
-    nbunch_nodes = _global_nbunch_nodes(G, nodes)
-    counts = _native_triangles_and_degrees_for(G, nbunch_nodes)
-    return {node: doubled // 2 for node, (_degree, doubled) in zip(nbunch_nodes, counts)}
+        selected = [nodes] if single_node else _global_nbunch_nodes(G, nodes)
+        counts = _native_triangles_and_degrees_for(
+            native_graph, selected, callback_safe=True
+        )
+        if counts is not None:
+            if single_node:
+                return counts[0][1] // 2
+            return {
+                node: doubled // 2
+                for node, (_degree, doubled) in zip(selected, counts)
+            }
+
+    native_rows = (type(G) is Graph or type(G) is MultiGraph) and _triangles_readers_are_default(G)
+    if nodes is None:
+        return _triangles_live_census(G, native_rows)
+    counts = _triangles_live_counts(G, nodes, native_rows)
+    if single_node:
+        return next(counts)[2] // 2
+    return {node: doubled // 2 for node, _degree, doubled, _ in counts}
 
 
 def edges(G, nbunch=None):

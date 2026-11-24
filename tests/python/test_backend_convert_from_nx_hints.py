@@ -2304,3 +2304,95 @@ def test_backend_extended_traversal_providers_preserve_timing_and_clear_caches(
 
     assert run("franken_networkx") == run("networkx")
 
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("provider", ["selection", "adjacency"])
+@pytest.mark.parametrize("call_style", ["keyword", "positional"])
+def test_backend_triangles_preserves_original_live_graph(
+    cached, provider, call_style, monkeypatch
+):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS["triangles"]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "triangles", record_input)
+
+    def run(backend):
+        graph = nx.Graph([(0, 1), (1, 2), (2, 0)])
+        if cached and backend == "franken_networkx":
+            nx.relabel_nodes(graph, {}, backend=backend)
+            assert graph.__networkx_cache__["backends"]["franken_networkx"]
+        events = []
+        nodes = None
+        if provider == "selection":
+            def selected_nodes():
+                events.append(0)
+                yield 0
+                graph.remove_edge(1, 2)
+                events.append(1)
+                yield 1
+                events.append(2)
+                yield 2
+
+            nodes = selected_nodes()
+        else:
+            def adjacency():
+                events.append("adjacency")
+                yield 0, {1: {}, 2: {}}
+                yield 1, {0: {}}
+                yield 2, {0: {}}
+
+            graph.adjacency = adjacency
+
+        if call_style == "positional":
+            result = nx.triangles(graph, nodes, backend=backend)
+        else:
+            result = nx.triangles(graph, nodes=nodes, backend=backend)
+        if backend == "franken_networkx":
+            assert received[-1] is graph
+            assert not graph.__networkx_cache__.get("backends")
+        return result, events
+
+    expected = run("networkx")
+    assert expected[0] == ({0: 1, 1: 0, 2: 0} if provider == "selection" else {0: 0, 1: 0, 2: 0})
+    assert run("franken_networkx") == expected
+    assert len(received) == 1
+
+
+@pytest.mark.parametrize("cached", [False, True])
+@pytest.mark.parametrize("nodes", [None, 0, [0, 2]])
+def test_backend_triangles_retains_plain_native_conversion(cached, nodes, monkeypatch):
+    from functools import wraps
+    from franken_networkx import backend as backend_module
+
+    monkeypatch.setattr(nx.config, "cache_converted_graphs", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", [])
+    graph = nx.Graph([(0, 1), (1, 2), (2, 0), (2, 3)])
+    expected = nx.triangles(graph, nodes=nodes, backend="networkx")
+    if cached:
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__["backends"]["franken_networkx"]
+
+    received = []
+    function = backend_module._SUPPORTED_ALGORITHMS["triangles"]
+
+    @wraps(function)
+    def record_input(G, *args, **kwargs):
+        received.append(G)
+        return function(G, *args, **kwargs)
+
+    monkeypatch.setitem(backend_module._SUPPORTED_ALGORITHMS, "triangles", record_input)
+    assert nx.triangles(graph, nodes=nodes, backend="franken_networkx") == expected
+    assert len(received) == 1
+    assert type(received[0]) is fnx.Graph
+    assert graph.__networkx_cache__["backends"]["franken_networkx"]
+

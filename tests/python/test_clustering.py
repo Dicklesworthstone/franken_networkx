@@ -807,3 +807,221 @@ def test_clustering_preserves_edge_count_provider(fnx, nx, source, name):
     assert getattr(fnx, name)(
         make(fnx if source == "native" else nx), weight="weight"
     ) == getattr(nx, name)(make(nx), weight="weight")
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("view", [False, True])
+def test_triangles_consume_mutating_nbunch_between_counts(fnx, nx, source, view):
+    def run(algorithm, graph_module):
+        owner = graph_module.Graph([(0, 1), (1, 2), (2, 0)])
+        graph = owner.copy(as_view=True) if view else owner
+
+        def selected_nodes():
+            yield 0
+            owner.remove_edge(1, 2)
+            yield 1
+            yield 2
+
+        result = algorithm.triangles(graph, nodes=selected_nodes())
+        return result, owner.has_edge(1, 2)
+
+    expected = run(nx, nx)
+    assert expected == ({0: 1, 1: 0, 2: 0}, False)
+    assert run(fnx, fnx if source == "native" else nx) == expected
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_triangles_keep_stored_node_mutation_live(fnx, nx, graph_class, warm_cache):
+    def run(module):
+        graph = getattr(module, graph_class)()
+
+        class Node:
+            value = 0
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    self.armed = False
+                    graph.remove_edge(1, 2)
+                return 0
+
+        node = Node()
+        graph.add_edges_from([(node, 1), (1, 2), (2, node)])
+        if warm_cache:
+            module.triangles(graph)
+        node.armed = True
+        result = module.triangles(graph)
+        values = [(getattr(key, "value", key), value) for key, value in result.items()]
+        return values, graph.has_edge(1, 2)
+
+    expected = run(nx)
+    assert expected == ([(0, 0), (1, 0), (2, 0)], False)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("selection", ["scalar", "list", "iterator"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_triangles_selected_rows_keep_neighbor_mutation_live(
+    fnx, nx, selection, warm_cache
+):
+    def run(module):
+        graph = module.Graph()
+
+        class Node:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    self.armed = False
+                    graph.remove_edge(1, self)
+                return 2
+
+        node = Node()
+        graph.add_edges_from([(0, 1), (1, node), (node, 0)])
+        if warm_cache:
+            module.triangles(graph)
+        node.armed = True
+        selected = 0 if selection == "scalar" else [0]
+        if selection == "iterator":
+            selected = iter(selected)
+        result = module.triangles(graph, nodes=selected)
+        return result, graph.has_edge(1, node)
+
+    expected = run(nx)
+    assert expected == (0 if selection == "scalar" else {0: 0}, False)
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("source", ["native", "networkx"])
+@pytest.mark.parametrize("provider", ["instance", "class"])
+def test_triangles_keep_original_adjacency_provider(
+    fnx, nx, source, provider, monkeypatch
+):
+    def run(algorithm, graph_module):
+        graph = graph_module.Graph([(0, 1), (1, 2), (2, 0)])
+        algorithm.triangles(graph)
+        reads = []
+
+        def adjacency(*_args):
+            reads.append("adjacency")
+            yield 0, {1: {}, 2: {}}
+            yield 1, {0: {}}
+            yield 2, {0: {}}
+
+        with monkeypatch.context() as patch:
+            patch.setattr(graph if provider == "instance" else type(graph), "adjacency", adjacency)
+            result = algorithm.triangles(graph)
+        return result, reads
+
+    expected = run(nx, nx)
+    assert expected == ({0: 0, 1: 0, 2: 0}, ["adjacency"])
+    assert run(fnx, fnx if source == "native" else nx) == expected
+
+
+@pytest.mark.parametrize("mutation", ["node_domain", "neighbor_row"])
+def test_triangles_preserve_live_dictionary_size_errors(fnx, nx, mutation):
+    def run(module):
+        graph = module.Graph()
+
+        class Node:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    self.armed = False
+                    if mutation == "node_domain":
+                        graph.add_node(3)
+                    else:
+                        graph.add_edge(0, 3)
+                return 2
+
+        node = Node()
+        graph.add_edges_from([(0, node), (node, 1), (1, 0)])
+        node.armed = True
+        with pytest.raises(RuntimeError) as error:
+            module.triangles(graph)
+        return error.value.args
+
+    assert run(fnx) == run(nx) == ("dictionary changed size during iteration",)
+
+
+@pytest.mark.parametrize("selection", ["scalar", "list", "iterator"])
+def test_triangles_local_queries_do_not_touch_unrelated_labels(
+    fnx, nx, selection, monkeypatch
+):
+    def run(module):
+        graph = module.Graph([(0, 1), (1, 2), (2, 0)])
+
+        class Unrelated:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("unrelated node was hashed")
+                return 42
+
+        node = Unrelated()
+        graph.add_node(node)
+        node.armed = True
+        selected = 0 if selection == "scalar" else [0]
+        if selection == "iterator":
+            selected = iter(selected)
+        return module.triangles(graph, nodes=selected)
+
+    def reject_global_admission(*_args):
+        raise AssertionError("local query scanned all node labels")
+
+    monkeypatch.setattr(fnx, "_view_root_node_keys_are_stable", reject_global_admission)
+    assert run(fnx) == run(nx) == (1 if selection == "scalar" else {0: 1})
+
+
+def test_triangles_multigraph_does_not_read_parallel_edge_keys(fnx, nx, monkeypatch):
+    raw_triangles = fnx._raw_triangles
+    calls = []
+
+    def counted(graph):
+        calls.append(graph)
+        return raw_triangles(graph)
+
+    def run(module):
+        graph = module.MultiGraph([(0, 1), (1, 2), (2, 0)])
+
+        class EdgeKey:
+            armed = False
+
+            def __hash__(self):
+                if self.armed:
+                    raise AssertionError("parallel edge key was hashed")
+                return 42
+
+        key = EdgeKey()
+        graph.add_edge(0, 1, key=key)
+        key.armed = True
+        return module.triangles(graph)
+
+    monkeypatch.setattr(fnx, "_raw_triangles", counted)
+    assert run(fnx) == run(nx) == {0: 1, 1: 1, 2: 1}
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph", "DiGraph", "MultiDiGraph"])
+def test_triangles_preserve_membership_and_graph_type_error_order(fnx, nx, graph_class):
+    def run(module):
+        graph = getattr(module, graph_class)([(0, 1)])
+        events = []
+
+        class Selector:
+            def __hash__(self):
+                events.append("membership")
+                raise RuntimeError("selector membership")
+
+        try:
+            module.triangles(graph, nodes=Selector())
+        except Exception as error:
+            return type(error).__name__, error.args, events
+        raise AssertionError("expected selector or graph-type error")
+
+    expected = run(nx)
+    assert expected[2] == ([] if "DiGraph" in graph_class else ["membership"])
+    assert run(fnx) == expected

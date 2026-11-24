@@ -9974,13 +9974,27 @@ pub fn triangles(py: Python<'_>, g: &Bound<'_, PyAny>) -> PyResult<Py<PyDict>> {
 /// (br-r37-c1-mub4s). A multigraph answers on its simple projection, whose
 /// neighbour SETS are networkx's `set(G[w])`. `nodes` must all be in G.
 #[pyfunction]
+#[pyo3(signature = (g, nodes, *, callback_safe=false))]
 pub fn triangles_and_degrees_for(
     py: Python<'_>,
     g: &Bound<'_, PyAny>,
     nodes: Vec<Bound<'_, PyAny>>,
-) -> PyResult<Vec<(usize, usize)>> {
+    callback_safe: bool,
+) -> PyResult<Option<Vec<(usize, usize)>>> {
+    // Inspect supplied labels before canonicalization or borrowing: rejection
+    // leaves their first observable hash to the live Python counting path.
+    if callback_safe
+        && nodes
+            .iter()
+            .any(|node| !crate::NodeIterationMirrors::key_is_callback_free(node))
+    {
+        return Ok(None);
+    }
     let gr = extract_graph(g)?;
     require_undirected(&gr, "triangles")?;
+    if callback_safe && traversal_has_display_aliases(&gr) {
+        return Ok(None);
+    }
     let inner = gr.undirected();
     let positions = nodes
         .iter()
@@ -9994,7 +10008,83 @@ pub fn triangles_and_degrees_for(
             },
         )
         .collect::<PyResult<Vec<usize>>>()?;
-    Ok(py.allow_threads(|| fnx_algorithms::triangles_and_degrees_for(inner, &positions)))
+    if callback_safe {
+        // Match the local kernel's work bound. Only these owners, their rows,
+        // and their neighbors' rows are read by the Python triangle formula;
+        // a disconnected callback-bearing label must remain unobserved.
+        for &position in &positions {
+            let owner = inner
+                .get_node_name(position)
+                .expect("selected triangle node exists");
+            if !crate::NodeIterationMirrors::key_is_callback_free(
+                gr.py_node_key(py, owner).bind(py),
+            ) {
+                return Ok(None);
+            }
+            for &neighbor_position in inner.neighbors_indices(position).unwrap_or(&[]) {
+                let neighbor = inner
+                    .get_node_name(neighbor_position)
+                    .expect("triangle neighbor exists");
+                if !crate::NodeIterationMirrors::key_is_callback_free(
+                    gr.py_row_key(py, owner, neighbor).bind(py),
+                ) {
+                    return Ok(None);
+                }
+                if neighbor_position == position {
+                    continue;
+                }
+                for &second_position in inner.neighbors_indices(neighbor_position).unwrap_or(&[]) {
+                    let second = inner
+                        .get_node_name(second_position)
+                        .expect("triangle neighbor's neighbor exists");
+                    if !crate::NodeIterationMirrors::key_is_callback_free(
+                        gr.py_row_key(py, neighbor, second).bind(py),
+                    ) {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+    }
+    Ok(Some(py.allow_threads(|| {
+        fnx_algorithms::triangles_and_degrees_for(inner, &positions)
+    })))
+}
+
+/// Resolve a stored adjacency row without hashing its owner or its neighbors.
+/// The live census performs the observable label operations after this borrow
+/// is released. Edge keys and attribute dictionaries are never materialized.
+#[pyfunction]
+pub fn _triangles_live_row(
+    g: &Bound<'_, PyAny>,
+    canonical: &str,
+) -> PyResult<(PyObject, PyObject)> {
+    let py = g.py();
+    let (owner, row) = {
+        let gr = extract_graph(g)?;
+        require_undirected(&gr, "triangles")?;
+        let row = match &gr {
+            GraphRef::Undirected(graph) => {
+                graph.unhashed_neighbor_row_by_canonical(py, canonical, false)?
+            }
+            GraphRef::MultiUndirected { mg, .. } => {
+                mg.unhashed_neighbor_row_by_canonical(py, canonical, false)?
+            }
+            _ => {
+                return Err(NetworkXNotImplemented::new_err(
+                    "not implemented for directed type",
+                ));
+            }
+        };
+        (gr.py_node_key(py, canonical), row)
+    };
+    let neighbors = row
+        .bind(py)
+        .call_method0("values")?
+        .try_iter()?
+        .into_any()
+        .unbind();
+    Ok((owner, neighbors))
 }
 
 /// `(total degree, reciprocal degree, directed triangle count)` for each of
@@ -30762,6 +30852,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(transitivity, m)?)?;
     m.add_function(wrap_pyfunction!(triangles, m)?)?;
     m.add_function(wrap_pyfunction!(triangles_and_degrees_for, m)?)?;
+    m.add_function(wrap_pyfunction!(_triangles_live_row, m)?)?;
     m.add_function(wrap_pyfunction!(directed_triangles_and_degrees_for, m)?)?;
     m.add_function(wrap_pyfunction!(square_clustering, m)?)?;
     m.add_function(wrap_pyfunction!(robins_alexander_counts, m)?)?;
