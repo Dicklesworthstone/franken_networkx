@@ -681,14 +681,9 @@ def average_node_connectivity(G, flow_func=None, *, backend=None, **backend_kwar
             total += value
             count += 1
         return total / count if count else 0
-    # br-r37-c1-qz40o: the standalone Rust BFS local_node_connectivity is a
-    # heuristic that misvalues some pairs. But the bulk
-    # ``all_pairs_node_connectivity`` (native undirected, byte-correct vs nx;
-    # directed delegates) already computes the per-pair max-flow connectivity
-    # ~2x faster than nx's pure-Python O(n^2) loop. nx's average is just the
-    # mean of those per-pair values over combinations (undirected) /
-    # permutations (directed), so average over that result instead of
-    # re-delegating the whole O(n^2)-flow computation to nx (br-anc-allpairs).
+    # The native undirected matrix reuses one exact residual-flow workspace.
+    # Reduce its pair values; directed graphs and custom solvers retain the
+    # callback-aware pair stream above.
     apnc = all_pairs_node_connectivity(G, flow_func=flow_func)
     iter_func = _itertools.permutations if G.is_directed() else _itertools.combinations
     num = den = 0

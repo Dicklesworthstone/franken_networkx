@@ -21149,6 +21149,124 @@ fn indexed_node_connectivity_from_template(
     (value, stats.edges_scanned, stats.active_peak)
 }
 
+/// Unit-capacity vertex splitting for exact local node connectivity.
+///
+/// Each original vertex has an in -> out arc of capacity one, and each
+/// original non-loop arc becomes out -> in with capacity one. Queries run
+/// from source-out to sink-in, leaving the endpoints unrestricted while
+/// counting a direct source -> sink edge only once. Paired reverse arcs let
+/// later augmentations reroute earlier paths instead of greedily discarding
+/// their internal vertices. The topology and work buffers are reused across
+/// all pairs in an average or global query.
+struct NodeConnectivityFlow {
+    adjacency: Vec<Vec<usize>>,
+    targets: Vec<usize>,
+    residual: Vec<u8>,
+    predecessor: Vec<usize>,
+    queue: Vec<usize>,
+    out_degree: Vec<usize>,
+    in_degree: Vec<usize>,
+}
+
+impl NodeConnectivityFlow {
+    fn new<G: GraphView>(graph: &G) -> Self {
+        let node_count = graph.node_count();
+        let mut flow = Self {
+            adjacency: vec![Vec::new(); 2 * node_count],
+            targets: Vec::new(),
+            residual: Vec::new(),
+            predecessor: vec![usize::MAX; 2 * node_count],
+            queue: Vec::with_capacity(2 * node_count),
+            out_degree: vec![0; node_count],
+            in_degree: vec![0; node_count],
+        };
+        for node in 0..node_count {
+            flow.add_arc(2 * node, 2 * node + 1);
+        }
+        for source in 0..node_count {
+            for &target in graph.neighbors_indices(source).unwrap_or(&[]) {
+                if source != target {
+                    flow.add_arc(2 * source + 1, 2 * target);
+                    flow.out_degree[source] += 1;
+                    flow.in_degree[target] += 1;
+                }
+            }
+        }
+        flow
+    }
+
+    fn add_arc(&mut self, source: usize, target: usize) {
+        let edge = self.targets.len();
+        self.adjacency[source].push(edge);
+        self.targets.push(target);
+        self.residual.push(1);
+        self.adjacency[target].push(edge + 1);
+        self.targets.push(source);
+        self.residual.push(0);
+    }
+
+    /// Return (connectivity, scanned residual arcs, peak BFS frontier).
+    fn local(&mut self, source: usize, target: usize, cutoff: usize) -> (usize, usize, usize) {
+        if source == target {
+            return (0, 0, 0);
+        }
+        let limit = cutoff.min(self.out_degree[source]).min(self.in_degree[target]);
+        if limit == 0 {
+            return (0, 0, 0);
+        }
+        for pair in self.residual.as_chunks_mut::<2>().0 {
+            pair[0] = 1;
+            pair[1] = 0;
+        }
+        let source_out = 2 * source + 1;
+        let target_in = 2 * target;
+        let mut value = 0;
+        let mut edges_scanned = 0;
+        let mut queue_peak = 0;
+
+        while value < limit {
+            self.predecessor.fill(usize::MAX);
+            self.predecessor[source_out] = source_out;
+            self.queue.clear();
+            self.queue.push(source_out);
+            queue_peak = queue_peak.max(1);
+            let mut head = 0;
+            let mut found = false;
+            'search: while head < self.queue.len() {
+                let node = self.queue[head];
+                head += 1;
+                for &edge in &self.adjacency[node] {
+                    edges_scanned += 1;
+                    let next = self.targets[edge];
+                    if self.residual[edge] == 0 || self.predecessor[next] != usize::MAX {
+                        continue;
+                    }
+                    self.predecessor[next] = edge;
+                    if next == target_in {
+                        found = true;
+                        break 'search;
+                    }
+                    self.queue.push(next);
+                    queue_peak = queue_peak.max(self.queue.len() - head);
+                }
+            }
+            if !found {
+                break;
+            }
+
+            let mut node = target_in;
+            while node != source_out {
+                let edge = self.predecessor[node];
+                self.residual[edge] = 0;
+                self.residual[edge ^ 1] = 1;
+                node = self.targets[edge ^ 1];
+            }
+            value += 1;
+        }
+        (value, edges_scanned, queue_peak)
+    }
+}
+
 /// Compute node connectivity between two specific nodes s and t.
 ///
 /// Uses node-splitting + Edmonds-Karp max-flow on auxiliary graph.
@@ -21170,21 +21288,19 @@ pub fn node_connectivity(graph: &Graph, source: &str, sink: &str) -> NodeConnect
         };
     }
 
-    let mut residual = build_node_split_auxiliary(graph);
-    let s_out = format!("{source}_out");
-    let t_in = format!("{sink}_in");
-
-    let mut stats = (0_usize, 0_usize, 0_usize);
-    let flow = aux_max_flow(&mut residual, &s_out, &t_in, &mut stats);
+    let source_idx = graph.get_node_index(source).expect("source checked above");
+    let sink_idx = graph.get_node_index(sink).expect("sink checked above");
+    let (value, edges_scanned, queue_peak) =
+        NodeConnectivityFlow::new(graph).local(source_idx, sink_idx, usize::MAX);
 
     NodeConnectivityResult {
-        value: flow as usize,
+        value,
         witness: ComplexityWitness {
             algorithm: "node_connectivity".to_owned(),
             complexity_claim: "O(|V| * |E|^2)".to_owned(),
             nodes_touched: n,
-            edges_scanned: stats.1,
-            queue_peak: stats.2,
+            edges_scanned,
+            queue_peak,
         },
     }
 }
@@ -21231,12 +21347,17 @@ pub fn global_node_connectivity(graph: &Graph) -> NodeConnectivityResult {
     // Pick node with minimum degree
     let v = nodes
         .iter()
-        .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
+        .min_by_key(|&&node| {
+            graph
+                .neighbors_iter(node)
+                .map(|it| it.filter(|&neighbor| neighbor != node).count())
+                .unwrap_or(0)
+        })
         .unwrap();
 
     let v_neighbors: HashSet<&str> = graph
         .neighbors_iter(v)
-        .map(|it| it.collect())
+        .map(|it| it.filter(|&neighbor| neighbor != *v).collect())
         .unwrap_or_default();
 
     // K starts at min degree
@@ -21322,51 +21443,19 @@ pub fn node_connectivity_directed(
         };
     }
 
-    let flow = local_node_connectivity_bfs_directed(digraph, source, sink);
+    let source_idx = digraph.get_node_index(source).expect("source checked above");
+    let sink_idx = digraph.get_node_index(sink).expect("sink checked above");
+    let (value, edges_scanned, queue_peak) =
+        NodeConnectivityFlow::new(digraph).local(source_idx, sink_idx, usize::MAX);
 
     NodeConnectivityResult {
-        value: flow,
+        value,
         witness: ComplexityWitness {
             algorithm: "node_connectivity_directed".to_owned(),
             complexity_claim: "O(|V| * (|V| + |E|))".to_owned(),
             nodes_touched: n,
-            edges_scanned: digraph.edge_count(),
-            queue_peak: n,
-        },
-    }
-}
-
-fn node_connectivity_directed_same_node(digraph: &DiGraph, node: &str) -> NodeConnectivityResult {
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-
-    if !digraph.has_node(node) {
-        return NodeConnectivityResult {
-            value: 0,
-            witness: ComplexityWitness {
-                algorithm: "node_connectivity_directed".to_owned(),
-                complexity_claim: "O(|V| * |E|^2)".to_owned(),
-                nodes_touched: 0,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
-    }
-
-    let mut residual = build_node_split_auxiliary_directed(digraph);
-    let source = format!("{node}_out");
-    let sink = format!("{node}_in");
-    let mut stats = (0_usize, 0_usize, 0_usize);
-    let flow = aux_max_flow(&mut residual, &source, &sink, &mut stats);
-
-    NodeConnectivityResult {
-        value: flow as usize,
-        witness: ComplexityWitness {
-            algorithm: "node_connectivity_directed".to_owned(),
-            complexity_claim: "O(|V| * |E|^2)".to_owned(),
-            nodes_touched: n,
-            edges_scanned: stats.1,
-            queue_peak: stats.2,
+            edges_scanned,
+            queue_peak,
         },
     }
 }
@@ -21390,19 +21479,40 @@ pub fn global_node_connectivity_directed(digraph: &DiGraph) -> NodeConnectivityR
         };
     }
 
-    let mut min_value = usize::MAX;
     let mut total_edges_scanned = 0usize;
     let mut max_queue_peak = 0usize;
+    let mut flow = NodeConnectivityFlow::new(digraph);
+    let mut min_value = flow
+        .out_degree
+        .iter()
+        .chain(&flow.in_degree)
+        .copied()
+        .min()
+        .unwrap_or(0);
+    if min_value == 0 || min_value == n - 1 {
+        // A zero in/out degree disconnects an ordered pair. At the other
+        // extreme, degree n-1 at every vertex means a complete digraph.
+        return NodeConnectivityResult {
+            value: min_value,
+            witness: ComplexityWitness {
+                algorithm: "global_node_connectivity_directed".to_owned(),
+                complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
+                nodes_touched: n,
+                edges_scanned: 0,
+                queue_peak: 0,
+            },
+        };
+    }
 
-    for &source in &nodes {
-        for &target in &nodes {
+    for source in 0..n {
+        for target in 0..n {
             if source == target {
                 continue;
             }
-            let result = node_connectivity_directed(digraph, source, target);
-            min_value = min_value.min(result.value);
-            total_edges_scanned += result.witness.edges_scanned;
-            max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
+            let (value, edges_scanned, queue_peak) = flow.local(source, target, min_value);
+            min_value = min_value.min(value);
+            total_edges_scanned += edges_scanned;
+            max_queue_peak = max_queue_peak.max(queue_peak);
             if min_value == 0 {
                 break;
             }
@@ -21413,11 +21523,7 @@ pub fn global_node_connectivity_directed(digraph: &DiGraph) -> NodeConnectivityR
     }
 
     NodeConnectivityResult {
-        value: if min_value == usize::MAX {
-            0
-        } else {
-            min_value
-        },
+        value: min_value,
         witness: ComplexityWitness {
             algorithm: "global_node_connectivity_directed".to_owned(),
             complexity_claim: "O(|V|^2 * |V| * |E|^2)".to_owned(),
@@ -21428,90 +21534,16 @@ pub fn global_node_connectivity_directed(digraph: &DiGraph) -> NodeConnectivityR
     }
 }
 
-/// Compute directed node connectivity with NetworkX global semantics.
+/// Compute exact directed global node connectivity for the Python binding.
+///
+/// Every ordered source/target pair matters in a directed graph. Restricting
+/// the sweep to one minimum-total-degree vertex and its neighbors can miss a
+/// smaller directed cut, even when the graph is strongly connected.
 #[must_use]
 pub fn node_connectivity_directed_global(digraph: &DiGraph) -> NodeConnectivityResult {
-    let nodes = digraph.nodes_ordered();
-    let n = nodes.len();
-
-    if n <= 1 || !is_weakly_connected(digraph) {
-        return NodeConnectivityResult {
-            value: 0,
-            witness: ComplexityWitness {
-                algorithm: "node_connectivity_directed_global".to_owned(),
-                complexity_claim: "O(|V| * |E|^2)".to_owned(),
-                nodes_touched: n,
-                edges_scanned: 0,
-                queue_peak: 0,
-            },
-        };
-    }
-
-    let (&v, mut k) = nodes
-        .iter()
-        .map(|node| (node, digraph.degree(node)))
-        .min_by_key(|&(node, degree)| (degree, node))
-        .unwrap_or((&"", 0));
-    let mut total_edges_scanned = 0usize;
-    let mut max_queue_peak = 0usize;
-
-    let mut neighbor_set = HashSet::<&str>::new();
-    let mut neighbor_vec = Vec::<&str>::new();
-    if let Some(preds) = digraph.predecessors_iter(v) {
-        for pred in preds {
-            neighbor_set.insert(pred);
-            neighbor_vec.push(pred);
-        }
-    }
-    if let Some(succs) = digraph.successors_iter(v) {
-        for succ in succs {
-            neighbor_set.insert(succ);
-            neighbor_vec.push(succ);
-        }
-    }
-
-    for &w in &nodes {
-        if w == v || neighbor_set.contains(w) {
-            continue;
-        }
-        let result = node_connectivity_directed(digraph, v, w);
-        k = k.min(result.value);
-        total_edges_scanned += result.witness.edges_scanned;
-        max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-    }
-
-    neighbor_vec.sort_unstable();
-    for i in 0..neighbor_vec.len() {
-        for j in 0..neighbor_vec.len() {
-            if i == j {
-                continue;
-            }
-            let x = neighbor_vec[i];
-            let y = neighbor_vec[j];
-            if digraph.has_edge(x, y) {
-                continue;
-            }
-            let result = if x == y {
-                node_connectivity_directed_same_node(digraph, x)
-            } else {
-                node_connectivity_directed(digraph, x, y)
-            };
-            k = k.min(result.value);
-            total_edges_scanned += result.witness.edges_scanned;
-            max_queue_peak = max_queue_peak.max(result.witness.queue_peak);
-        }
-    }
-
-    NodeConnectivityResult {
-        value: k,
-        witness: ComplexityWitness {
-            algorithm: "node_connectivity_directed_global".to_owned(),
-            complexity_claim: "O(|V| * |E|^2)".to_owned(),
-            nodes_touched: n,
-            edges_scanned: total_edges_scanned,
-            queue_peak: max_queue_peak,
-        },
-    }
+    let mut result = global_node_connectivity_directed(digraph);
+    result.witness.algorithm = "node_connectivity_directed_global".to_owned();
+    result
 }
 
 /// Compute minimum s-t node cut: the smallest set of nodes whose removal disconnects s from t.
@@ -43815,12 +43847,10 @@ pub fn average_node_connectivity(graph: &Graph) -> f64 {
     }
     let mut total = 0.0;
     let mut count = 0usize;
+    let mut flow = NodeConnectivityFlow::new(graph);
     for i in 0..n {
         for j in (i + 1)..n {
-            // Local node connectivity: min number of nodes to remove to disconnect i from j
-            // This is equivalent to max-flow on an auxiliary node-split graph
-            // For simplicity, use BFS-based approach: find min node cut
-            let nc = local_node_connectivity_bfs(graph, nodes[i], nodes[j]);
+            let (nc, _, _) = flow.local(i, j, usize::MAX);
             total += nc as f64;
             count += 1;
         }
@@ -43981,13 +44011,14 @@ pub fn average_node_connectivity_directed(digraph: &DiGraph) -> f64 {
 
     let mut total = 0.0;
     let mut count = 0usize;
-    for &source in &nodes {
-        for &target in &nodes {
+    let mut flow = NodeConnectivityFlow::new(digraph);
+    for source in 0..n {
+        for target in 0..n {
             if source == target {
                 continue;
             }
-            let nc = node_connectivity_directed(digraph, source, target);
-            total += nc.value as f64;
+            let (nc, _, _) = flow.local(source, target, usize::MAX);
+            total += nc as f64;
             count += 1;
         }
     }
@@ -43999,270 +44030,55 @@ pub fn average_node_connectivity_directed(digraph: &DiGraph) -> f64 {
     }
 }
 
-/// Compute local node connectivity between s and t using iterative max-flow.
-fn local_node_connectivity_bfs(graph: &Graph, s: &str, t: &str) -> usize {
-    // br-r37-c1-lncidx (cc): integer-index Menger augmenting-path BFS. The old kernel kept
-    // excluded/visited as HashSet<&str> and parent as HashMap<&str,&str> and walked neighbors_iter —
-    // a String hash on every membership probe/insert over O(flow·|E|) scans, and this runs O(|V|^2)
-    // times inside average_node_connectivity. Walk neighbors_indices over Vec<bool> excluded/visited
-    // + Vec<Option<usize>> parent (reused across augmenting rounds via fill). Byte-identical: same
-    // adjacency-order neighbor discovery, same first-visit parent tree, same persistent exclusion
-    // set, same direct_edge_used flag → the same augmenting paths and the same returned flow.
-    let (Some(s_idx), Some(t_idx)) = (graph.get_node_index(s), graph.get_node_index(t)) else {
-        return 0;
-    };
-    let n = graph.node_count();
-
-    let mut flow = 0;
-    let mut excluded = vec![false; n];
-    let mut direct_edge_used = false;
-    let mut visited = vec![false; n];
-    let mut parent: Vec<Option<usize>> = vec![None; n];
-
-    loop {
-        // BFS from s to t avoiding excluded nodes (except s and t)
-        visited.fill(false);
-        parent.fill(None);
-        visited[s_idx] = true;
-        let mut queue: VecDeque<usize> = VecDeque::new();
-        queue.push_back(s_idx);
-        let mut found = false;
-
-        while let Some(curr) = queue.pop_front() {
-            if curr == t_idx {
-                found = true;
-                break;
-            }
-            if let Some(nbrs) = graph.neighbors_indices(curr) {
-                for &nbr in nbrs {
-                    // Skip the direct s->t edge if already used
-                    if curr == s_idx && nbr == t_idx && direct_edge_used {
-                        continue;
-                    }
-                    if !visited[nbr] && (nbr == t_idx || !excluded[nbr]) {
-                        visited[nbr] = true;
-                        parent[nbr] = Some(curr);
-                        queue.push_back(nbr);
-                    }
-                }
-            }
-        }
-
-        if !found {
-            break;
-        }
-
-        // Trace path and exclude internal nodes
-        let mut path_len = 0usize;
-        let mut node = t_idx;
-        while let Some(p) = parent[node] {
-            if node != s_idx && node != t_idx {
-                excluded[node] = true;
-            }
-            path_len += 1;
-            node = p;
-        }
-        flow += 1;
-
-        // If this was a direct edge (path length 1), mark it used so
-        // we don't re-discover the same direct edge and loop forever.
-        if path_len == 1 {
-            direct_edge_used = true;
-        }
-    }
-    flow
-}
-
-/// br-r37-c1-lncidx A/B baseline: the pre-lever String-keyed `local_node_connectivity_bfs`.
-/// Test-only; byte-identical to the shipped integer-index version.
+/// Independent String-keyed residual reference for the indexed exact solver.
+/// The former greedy exclusion baseline was only a lower bound, so it cannot
+/// serve as an exact-connectivity comparison. Unit inter-node arcs also make
+/// adjacent endpoints count their direct edge exactly once.
 #[cfg(test)]
-fn local_node_connectivity_bfs_orig_string(graph: &Graph, s: &str, t: &str) -> usize {
-    let nodes = graph.nodes_ordered();
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    if !node_set.contains(s) || !node_set.contains(t) {
+fn local_node_connectivity_string_flow_reference(graph: &Graph, s: &str, t: &str) -> usize {
+    if s == t || !graph.has_node(s) || !graph.has_node(t) {
         return 0;
     }
-
-    let mut flow = 0;
-    let mut excluded: HashSet<&str> = HashSet::new();
-    let mut direct_edge_used = false;
-
-    loop {
-        let mut visited = HashSet::new();
-        visited.insert(s);
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-        let mut parent: HashMap<&str, &str> = HashMap::new();
-        let mut found = false;
-
-        while let Some(curr) = queue.pop_front() {
-            if curr == t {
-                found = true;
-                break;
+    let mut residual = build_node_split_auxiliary(graph);
+    for row in residual.values_mut() {
+        for capacity in row.values_mut() {
+            if *capacity > 0.0 {
+                *capacity = 1.0;
             }
-            if let Some(nbrs) = graph.neighbors_iter(curr) {
-                for nbr in nbrs {
-                    if curr == s && nbr == t && direct_edge_used {
-                        continue;
-                    }
-                    if !visited.contains(nbr) && (nbr == t || !excluded.contains(nbr)) {
-                        visited.insert(nbr);
-                        parent.insert(nbr, curr);
-                        queue.push_back(nbr);
-                    }
-                }
-            }
-        }
-
-        if !found {
-            break;
-        }
-
-        let mut path_len = 0usize;
-        let mut node = t;
-        while let Some(&p) = parent.get(node) {
-            if node != s && node != t {
-                excluded.insert(node);
-            }
-            path_len += 1;
-            node = p;
-        }
-        flow += 1;
-
-        if path_len == 1 {
-            direct_edge_used = true;
         }
     }
-    flow
+    aux_max_flow(
+        &mut residual,
+        &format!("{s}_out"),
+        &format!("{t}_in"),
+        &mut (0, 0, 0),
+    ) as usize
 }
 
-fn local_node_connectivity_bfs_directed(digraph: &DiGraph, s: &str, t: &str) -> usize {
-    // br-r37-c1-lncidx (cc): integer-index directed mirror of `local_node_connectivity_bfs` — see
-    // that function. Walks successors_indices over Vec<bool> excluded/visited + Vec<Option<usize>>
-    // parent; byte-identical flow count (same successor order, parent tree, exclusion set, flag).
-    let (Some(s_idx), Some(t_idx)) = (digraph.get_node_index(s), digraph.get_node_index(t)) else {
-        return 0;
-    };
-    let n = digraph.node_count();
-
-    let mut flow = 0;
-    let mut excluded = vec![false; n];
-    let mut direct_edge_used = false;
-    let mut visited = vec![false; n];
-    let mut parent: Vec<Option<usize>> = vec![None; n];
-
-    loop {
-        visited.fill(false);
-        parent.fill(None);
-        visited[s_idx] = true;
-        let mut queue: VecDeque<usize> = VecDeque::new();
-        queue.push_back(s_idx);
-        let mut found = false;
-
-        while let Some(curr) = queue.pop_front() {
-            if curr == t_idx {
-                found = true;
-                break;
-            }
-            if let Some(succs) = digraph.successors_indices(curr) {
-                for &succ in succs {
-                    if curr == s_idx && succ == t_idx && direct_edge_used {
-                        continue;
-                    }
-                    if !visited[succ] && (succ == t_idx || !excluded[succ]) {
-                        visited[succ] = true;
-                        parent[succ] = Some(curr);
-                        queue.push_back(succ);
-                    }
-                }
-            }
-        }
-
-        if !found {
-            break;
-        }
-
-        let mut path_len = 0usize;
-        let mut node = t_idx;
-        while let Some(p) = parent[node] {
-            if node != s_idx && node != t_idx {
-                excluded[node] = true;
-            }
-            path_len += 1;
-            node = p;
-        }
-        flow += 1;
-
-        if path_len == 1 {
-            direct_edge_used = true;
-        }
-    }
-
-    flow
-}
-
-/// br-r37-c1-lncidx A/B baseline: the pre-lever String-keyed `local_node_connectivity_bfs_directed`.
-/// Test-only; byte-identical to the shipped integer-index version.
+/// Directed companion to the String-keyed exact-connectivity reference.
 #[cfg(test)]
-fn local_node_connectivity_bfs_directed_orig_string(digraph: &DiGraph, s: &str, t: &str) -> usize {
-    let nodes = digraph.nodes_ordered();
-    let node_set: HashSet<&str> = nodes.iter().copied().collect();
-    if !node_set.contains(s) || !node_set.contains(t) {
+fn local_node_connectivity_directed_string_flow_reference(
+    digraph: &DiGraph,
+    s: &str,
+    t: &str,
+) -> usize {
+    if s == t || !digraph.has_node(s) || !digraph.has_node(t) {
         return 0;
     }
-
-    let mut flow = 0;
-    let mut excluded: HashSet<&str> = HashSet::new();
-    let mut direct_edge_used = false;
-
-    loop {
-        let mut visited = HashSet::new();
-        visited.insert(s);
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(s);
-        let mut parent: HashMap<&str, &str> = HashMap::new();
-        let mut found = false;
-
-        while let Some(curr) = queue.pop_front() {
-            if curr == t {
-                found = true;
-                break;
+    let mut residual = build_node_split_auxiliary_directed(digraph);
+    for row in residual.values_mut() {
+        for capacity in row.values_mut() {
+            if *capacity > 0.0 {
+                *capacity = 1.0;
             }
-            if let Some(succs) = digraph.successors_iter(curr) {
-                for succ in succs {
-                    if curr == s && succ == t && direct_edge_used {
-                        continue;
-                    }
-                    if !visited.contains(succ) && (succ == t || !excluded.contains(succ)) {
-                        visited.insert(succ);
-                        parent.insert(succ, curr);
-                        queue.push_back(succ);
-                    }
-                }
-            }
-        }
-
-        if !found {
-            break;
-        }
-
-        let mut path_len = 0usize;
-        let mut node = t;
-        while let Some(&p) = parent.get(node) {
-            if node != s && node != t {
-                excluded.insert(node);
-            }
-            path_len += 1;
-            node = p;
-        }
-        flow += 1;
-
-        if path_len == 1 {
-            direct_edge_used = true;
         }
     }
-
-    flow
+    aux_max_flow(
+        &mut residual,
+        &format!("{s}_out"),
+        &format!("{t}_in"),
+        &mut (0, 0, 0),
+    ) as usize
 }
 
 /// Return the boundary expansion of a set S in graph G.
@@ -51352,17 +51168,17 @@ pub fn tree_data(graph: &Graph, root: &str) -> std::collections::HashMap<String,
     result
 }
 
-/// All-pairs node connectivity via node-disjoint paths.
+/// Exact all-pairs node connectivity with one reusable residual workspace.
 #[must_use]
 pub fn all_pairs_node_connectivity(
     graph: &Graph,
 ) -> std::collections::HashMap<(String, String), usize> {
     let nodes = graph.nodes_ordered();
     let mut result = std::collections::HashMap::new();
+    let mut flow = NodeConnectivityFlow::new(graph);
     for i in 0..nodes.len() {
         for j in (i + 1)..nodes.len() {
-            let conn =
-                node_disjoint_paths(graph, nodes[i], nodes[j]).map_or(0, |paths| paths.len());
+            let (conn, _, _) = flow.local(i, j, usize::MAX);
             result.insert((nodes[i].to_owned(), nodes[j].to_owned()), conn);
             result.insert((nodes[j].to_owned(), nodes[i].to_owned()), conn);
         }
@@ -51370,7 +51186,7 @@ pub fn all_pairs_node_connectivity(
     result
 }
 
-/// Approximate node connectivity for only the requested node pairs.
+/// Exact node connectivity for only the requested node pairs.
 ///
 /// Returns `None` when any requested node is absent. Otherwise the result
 /// contains both orientations for every distinct pair, matching
@@ -51380,11 +51196,9 @@ pub fn all_pairs_node_connectivity_subset(
     graph: &Graph,
     nodes: &[&str],
 ) -> Option<std::collections::HashMap<(String, String), usize>> {
-    // br-r37-c1-qktr5: the public small-nbunch path previously copied the full
-    // adjacency into Python dictionaries and ran every bidirectional BFS there.
-    // Resolve this already graph-ordered subset once, then reuse the native
-    // index kernel for only C(k, 2) requested pairs. Pair order, both oriented
-    // entries, and the White-Newman greedy path/exclusion choices are unchanged.
+    // Resolve the subset once and use the same exact residual solver as the
+    // full matrix. Greedily excluding a path's internal vertices gives only
+    // a lower bound and can make a subset disagree with the full result.
     let indexed_nodes = nodes
         .iter()
         .map(|&node| graph.get_node_index(node).map(|index| (node, index)))
@@ -51393,10 +51207,10 @@ pub fn all_pairs_node_connectivity_subset(
         .len()
         .saturating_mul(indexed_nodes.len().saturating_sub(1));
     let mut result = std::collections::HashMap::with_capacity(pair_count);
+    let mut flow = NodeConnectivityFlow::new(graph);
     for (position, &(left, left_idx)) in indexed_nodes.iter().enumerate() {
         for &(right, right_idx) in &indexed_nodes[position + 1..] {
-            let connectivity =
-                approximate_local_node_connectivity_indices(graph, left_idx, right_idx, None);
+            let (connectivity, _, _) = flow.local(left_idx, right_idx, usize::MAX);
             result.insert((left.to_owned(), right.to_owned()), connectivity);
             result.insert((right.to_owned(), left.to_owned()), connectivity);
         }
@@ -51404,127 +51218,14 @@ pub fn all_pairs_node_connectivity_subset(
     Some(result)
 }
 
-/// br-r37-c1-qktr5 A/B baseline: the pre-lever Python-dict subset algorithm,
-/// represented with String-keyed Rust hash tables so the benchmark retains its
-/// adjacency snapshot, membership hashing, and per-BFS map allocation costs.
+/// Exact subset reference using separately built String-keyed residual flows.
+/// The former White-Newman baseline only approximated these public results.
 #[cfg(test)]
 fn all_pairs_node_connectivity_subset_orig_string(
     graph: &Graph,
     nodes: &[&str],
 ) -> Option<std::collections::HashMap<(String, String), usize>> {
-    fn bidirectional_path<'a>(
-        adjacency: &std::collections::HashMap<&'a str, Vec<&'a str>>,
-        source: &'a str,
-        target: &'a str,
-        excluded: &std::collections::HashSet<&'a str>,
-    ) -> Option<Vec<&'a str>> {
-        let mut predecessor = std::collections::HashMap::new();
-        let mut successor = std::collections::HashMap::new();
-        predecessor.insert(source, None);
-        successor.insert(target, None);
-        let mut forward_fringe = vec![source];
-        let mut reverse_fringe = vec![target];
-        let mut level = 0usize;
-        let mut found = None;
-
-        while !forward_fringe.is_empty() && !reverse_fringe.is_empty() && found.is_none() {
-            level += 1;
-            if !level.is_multiple_of(2) {
-                let this_level = std::mem::take(&mut forward_fringe);
-                'forward: for node in this_level {
-                    for &neighbor in adjacency
-                        .get(node)
-                        .expect("adjacency snapshot contains every node")
-                    {
-                        if excluded.contains(neighbor) {
-                            continue;
-                        }
-                        if !predecessor.contains_key(neighbor) {
-                            forward_fringe.push(neighbor);
-                            predecessor.insert(neighbor, Some(node));
-                        }
-                        if successor.contains_key(neighbor) {
-                            found = Some(neighbor);
-                            break 'forward;
-                        }
-                    }
-                }
-            } else {
-                let this_level = std::mem::take(&mut reverse_fringe);
-                'reverse: for node in this_level {
-                    for &neighbor in adjacency
-                        .get(node)
-                        .expect("adjacency snapshot contains every node")
-                    {
-                        if excluded.contains(neighbor) {
-                            continue;
-                        }
-                        if !successor.contains_key(neighbor) {
-                            successor.insert(neighbor, Some(node));
-                            reverse_fringe.push(neighbor);
-                        }
-                        if predecessor.contains_key(neighbor) {
-                            found = Some(neighbor);
-                            break 'reverse;
-                        }
-                    }
-                }
-            }
-        }
-
-        let found = found?;
-        let mut path = Vec::new();
-        let mut current = Some(found);
-        while let Some(node) = current {
-            path.push(node);
-            current = predecessor.get(node).copied().flatten();
-        }
-        path.reverse();
-        current = successor
-            .get(path.last().expect("path contains the meeting node"))
-            .copied()
-            .flatten();
-        while let Some(node) = current {
-            path.push(node);
-            current = successor.get(node).copied().flatten();
-        }
-        Some(path)
-    }
-
-    fn local_connectivity<'a>(
-        adjacency: &std::collections::HashMap<&'a str, Vec<&'a str>>,
-        degree: &std::collections::HashMap<&'a str, usize>,
-        source: &'a str,
-        target: &'a str,
-    ) -> usize {
-        let limit = degree[source].min(degree[target]);
-        let mut excluded = std::collections::HashSet::new();
-        let mut count = 0usize;
-        for _ in 0..limit {
-            let Some(path) = bidirectional_path(adjacency, source, target, &excluded) else {
-                break;
-            };
-            excluded.extend(path);
-            count += 1;
-        }
-        count
-    }
-
     let graph_nodes = graph.nodes_ordered();
-    let adjacency = graph_nodes
-        .iter()
-        .map(|&node| {
-            let neighbors = graph
-                .neighbors_iter(node)
-                .map(Iterator::collect)
-                .unwrap_or_default();
-            (node, neighbors)
-        })
-        .collect::<std::collections::HashMap<_, Vec<_>>>();
-    let degree = adjacency
-        .iter()
-        .map(|(&node, neighbors)| (node, neighbors.len()))
-        .collect::<std::collections::HashMap<_, _>>();
     let canonical_nodes = nodes
         .iter()
         .map(|&node| graph.get_node_index(node).map(|index| graph_nodes[index]))
@@ -51535,7 +51236,7 @@ fn all_pairs_node_connectivity_subset_orig_string(
     let mut result = std::collections::HashMap::with_capacity(pair_count);
     for (position, &left) in canonical_nodes.iter().enumerate() {
         for &right in &canonical_nodes[position + 1..] {
-            let connectivity = local_connectivity(&adjacency, &degree, left, right);
+            let connectivity = local_node_connectivity_string_flow_reference(graph, left, right);
             result.insert((left.to_owned(), right.to_owned()), connectivity);
             result.insert((right.to_owned(), left.to_owned()), connectivity);
         }
@@ -61450,12 +61151,13 @@ mod tests {
         report("NULL_index_vs_index", &paired(true, true));
     }
 
-    /// br-r37-c1-lncidx: end-to-end A/B for the Menger augmenting-path BFS `local_node_connectivity_bfs`
-    /// via its O(|V|^2) caller `average_node_connectivity`. Old kernel: HashSet<&str> excluded/visited +
-    /// HashMap<&str,&str> parent + neighbors_iter (String hash per probe) run V^2 times; shipped:
-    /// integer-index. The candidate arm calls `average_node_connectivity` (uses the new BFS); the base arm
-    /// re-runs the identical O(|V|^2) loop against the String baseline BFS. Byte-exact parity asserted for
-    /// both the undirected result and the directed twin. `#[ignore]`; run with
+    /// Exact-connectivity A/B against a String-keyed residual-flow reference.
+    /// Both arms now allow rerouting: the former greedy exclusion baseline
+    /// undercounted connectivity and is no longer a valid parity oracle.
+    /// The candidate reuses indexed topology and work buffers across pairs;
+    /// the reference builds a unit-capacity String residual for each pair.
+    /// Byte-exact parity is asserted for undirected and directed queries.
+    /// `#[ignore]`; run with
     /// `cargo test --release -p fnx-algorithms --lib local_node_connectivity_idx_ab -- --ignored --nocapture`.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
@@ -61486,7 +61188,7 @@ mod tests {
             }
         }
 
-        // Baseline average_node_connectivity using the String-keyed BFS (mirrors the production loop).
+        // Reference average using independently built String-keyed residuals.
         let avg_orig = |graph: &Graph| -> f64 {
             let nodes = graph.nodes_ordered();
             let m = nodes.len();
@@ -61495,7 +61197,7 @@ mod tests {
             for i in 0..m {
                 for j in (i + 1)..m {
                     total +=
-                        super::local_node_connectivity_bfs_orig_string(graph, nodes[i], nodes[j])
+                        super::local_node_connectivity_string_flow_reference(graph, nodes[i], nodes[j])
                             as f64;
                     count += 1;
                 }
@@ -61511,14 +61213,16 @@ mod tests {
         assert_eq!(
             super::average_node_connectivity(&g),
             avg_orig(&g),
-            "index average_node_connectivity must equal the String-baseline loop"
+            "indexed average connectivity must equal exact String residual flows"
         );
         let dnodes = dg.nodes_ordered();
         for &(i, j) in &[(0usize, 7usize), (3, 88), (10, 139), (50, 51), (0, 70)] {
             assert_eq!(
-                super::local_node_connectivity_bfs_directed(&dg, dnodes[i], dnodes[j]),
-                super::local_node_connectivity_bfs_directed_orig_string(&dg, dnodes[i], dnodes[j]),
-                "directed index BFS must equal the String baseline"
+                super::node_connectivity_directed(&dg, dnodes[i], dnodes[j]).value,
+                super::local_node_connectivity_directed_string_flow_reference(
+                    &dg, dnodes[i], dnodes[j]
+                ),
+                "directed connectivity must equal the exact String residual flow"
             );
         }
 
@@ -61642,8 +61346,8 @@ mod tests {
         );
     }
 
-    /// br-r37-c1-qktr5: same-binary A/B for the current String/dict subset
-    /// path against the native index subset kernel, plus an index/index null.
+    /// Same-binary A/B for the exact String-keyed residual flow reference
+    /// against the native index subset kernel, plus an index/index null.
     #[test]
     #[ignore = "measurement; run with --profile release --include-ignored --nocapture"]
     fn all_pairs_node_connectivity_subset_ab() {
@@ -79481,6 +79185,8 @@ mod tests {
     /// screen in global node connectivity. K256 makes every screened pair
     /// adjacent, so both arms execute zero max-flow calls while the frozen arm
     /// rebuilds a 255-entry HashSet for each of 32,385 pairs.
+    /// Both arms ignore loops in the degree bound; the former loop-counting
+    /// behavior was incorrect and is not an output contract to preserve.
     #[test]
     #[ignore = "measurement; run with --release --ignored --nocapture"]
     fn global_node_connectivity_hasedge_ab() {
@@ -79519,11 +79225,16 @@ mod tests {
             let mut max_queue_peak = 0usize;
             let v = nodes
                 .iter()
-                .min_by_key(|node| graph.neighbors_iter(node).map(|it| it.count()).unwrap_or(0))
+                .min_by_key(|&&node| {
+                    graph
+                        .neighbors_iter(node)
+                        .map(|it| it.filter(|&neighbor| neighbor != node).count())
+                        .unwrap_or(0)
+                })
                 .unwrap();
             let v_neighbors: HashSet<&str> = graph
                 .neighbors_iter(v)
-                .map(|it| it.collect())
+                .map(|it| it.filter(|&neighbor| neighbor != *v).collect())
                 .unwrap_or_default();
             let mut k = v_neighbors.len();
             let template = super::build_indexed_node_split_auxiliary(graph, k);
@@ -88163,6 +87874,335 @@ mod tests {
         let _ = g.add_edge("c", "a");
         assert!(is_k_edge_connected(&g, 2));
         assert!(!is_k_edge_connected(&g, 3));
+    }
+
+    fn connectivity_from_exhaustive_internal_vertex_cuts(
+        adjacency: &[Vec<bool>],
+        source: usize,
+        target: usize,
+    ) -> usize {
+        assert_ne!(source, target);
+        let internal: Vec<usize> = (0..adjacency.len())
+            .filter(|&node| node != source && node != target)
+            .collect();
+        let mut smallest_cut = internal.len() + 1;
+
+        // A direct source-to-target edge contributes one path by itself. Remove
+        // only that edge while enumerating vertex cuts of the remaining routes.
+        for removed in 0_usize..1 << internal.len() {
+            let cut_size = removed.count_ones() as usize;
+            if cut_size >= smallest_cut {
+                continue;
+            }
+            let mut visited = vec![false; adjacency.len()];
+            for (bit, &node) in internal.iter().enumerate() {
+                if removed & (1 << bit) != 0 {
+                    visited[node] = true;
+                }
+            }
+            visited[source] = true;
+            let mut pending = vec![source];
+            while let Some(node) = pending.pop() {
+                for neighbor in 0..adjacency.len() {
+                    if adjacency[node][neighbor]
+                        && !(node == source && neighbor == target)
+                        && !visited[neighbor]
+                    {
+                        visited[neighbor] = true;
+                        pending.push(neighbor);
+                    }
+                }
+            }
+            if !visited[target] {
+                smallest_cut = cut_size;
+            }
+        }
+
+        assert!(smallest_cut <= internal.len());
+        usize::from(adjacency[source][target]) + smallest_cut
+    }
+
+    #[test]
+    fn directed_connectivity_matches_all_four_node_vertex_cut_oracles() {
+        let labels = ["a", "b", "c", "d"];
+        let edges: Vec<(usize, usize)> = (0..labels.len())
+            .flat_map(|source| {
+                (0..labels.len())
+                    .filter(move |&target| source != target)
+                    .map(move |target| (source, target))
+            })
+            .collect();
+
+        for mask in 0_u16..1 << edges.len() {
+            let mut graph = fnx_classes::digraph::DiGraph::strict();
+            for &node in &labels {
+                let _ = graph.add_node(node);
+            }
+            let mut adjacency = vec![vec![false; labels.len()]; labels.len()];
+            for (bit, &(source, target)) in edges.iter().enumerate() {
+                if mask & (1 << bit) != 0 {
+                    graph
+                        .add_edge(labels[source], labels[target])
+                        .expect("oracle fixture edge");
+                    adjacency[source][target] = true;
+                }
+            }
+
+            let mut expected_sum = 0_usize;
+            let mut expected_minimum = usize::MAX;
+            for source in 0..labels.len() {
+                for target in 0..labels.len() {
+                    if source == target {
+                        continue;
+                    }
+                    let expected =
+                        connectivity_from_exhaustive_internal_vertex_cuts(&adjacency, source, target);
+                    assert_eq!(
+                        super::node_connectivity_directed(&graph, labels[source], labels[target]).value,
+                        expected,
+                        "directed edges {mask}, source {source}, target {target}"
+                    );
+                    expected_sum += expected;
+                    expected_minimum = expected_minimum.min(expected);
+                }
+            }
+            assert_eq!(
+                super::global_node_connectivity_directed(&graph).value,
+                expected_minimum,
+                "directed global edges {mask}"
+            );
+            assert_eq!(
+                super::node_connectivity_directed_global(&graph).value,
+                expected_minimum,
+                "directed global alias edges {mask}"
+            );
+            assert_eq!(
+                super::average_node_connectivity_directed(&graph),
+                expected_sum as f64 / (labels.len() * (labels.len() - 1)) as f64,
+                "directed average edges {mask}"
+            );
+        }
+    }
+
+    #[test]
+    fn undirected_connectivity_matches_all_five_node_vertex_cut_oracles() {
+        let labels = ["a", "b", "c", "d", "e"];
+        let edges: Vec<(usize, usize)> = (0..labels.len())
+            .flat_map(|source| (source + 1..labels.len()).map(move |target| (source, target)))
+            .collect();
+
+        for mask in 0_u16..1 << edges.len() {
+            let mut graph = fnx_classes::Graph::strict();
+            for &node in &labels {
+                let _ = graph.add_node(node);
+            }
+            let mut adjacency = vec![vec![false; labels.len()]; labels.len()];
+            for (bit, &(source, target)) in edges.iter().enumerate() {
+                if mask & (1 << bit) != 0 {
+                    graph
+                        .add_edge(labels[source], labels[target])
+                        .expect("oracle fixture edge");
+                    adjacency[source][target] = true;
+                    adjacency[target][source] = true;
+                }
+            }
+
+            let mut expected_sum = 0_usize;
+            let mut expected_minimum = usize::MAX;
+            let mut expected_matrix = std::collections::HashMap::new();
+            for source in 0..labels.len() {
+                for target in source + 1..labels.len() {
+                    let expected =
+                        connectivity_from_exhaustive_internal_vertex_cuts(&adjacency, source, target);
+                    expected_matrix.insert(
+                        (labels[source].to_owned(), labels[target].to_owned()),
+                        expected,
+                    );
+                    expected_matrix.insert(
+                        (labels[target].to_owned(), labels[source].to_owned()),
+                        expected,
+                    );
+                    assert_eq!(
+                        super::node_connectivity(&graph, labels[source], labels[target]).value,
+                        expected,
+                        "undirected edges {mask}, source {source}, target {target}"
+                    );
+                    assert_eq!(
+                        super::node_connectivity(&graph, labels[target], labels[source]).value,
+                        expected,
+                        "reversed undirected edges {mask}, source {target}, target {source}"
+                    );
+                    expected_sum += expected;
+                    expected_minimum = expected_minimum.min(expected);
+                }
+            }
+            assert_eq!(
+                super::global_node_connectivity(&graph).value,
+                expected_minimum,
+                "undirected global edges {mask}"
+            );
+            assert_eq!(
+                super::average_node_connectivity(&graph),
+                expected_sum as f64 / (labels.len() * (labels.len() - 1) / 2) as f64,
+                "undirected average edges {mask}"
+            );
+            assert_eq!(
+                super::all_pairs_node_connectivity(&graph),
+                expected_matrix,
+                "full matrix edges {mask}"
+            );
+            let subset = [labels[4], labels[2], labels[0]];
+            let expected_subset: std::collections::HashMap<(String, String), usize> = expected_matrix
+                .iter()
+                .filter(|((source, target), _)| {
+                    subset.contains(&source.as_str()) && subset.contains(&target.as_str())
+                })
+                .map(|(pair, &value)| (pair.clone(), value))
+                .collect();
+            assert_eq!(
+                super::all_pairs_node_connectivity_subset(&graph, &subset),
+                Some(expected_subset),
+                "subset matrix edges {mask}"
+            );
+        }
+    }
+
+    #[test]
+    fn exact_node_connectivity_reroutes_crossing_paths_and_aggregates_pairs() {
+        let labels = ["s", "a", "b", "c", "d", "t"];
+        let edges = [
+            ("s", "a"),
+            ("s", "d"),
+            ("a", "b"),
+            ("a", "c"),
+            ("d", "b"),
+            ("b", "t"),
+            ("c", "t"),
+        ];
+        for reverse_order in [false, true] {
+            let mut ordered = edges.to_vec();
+            if reverse_order {
+                ordered.reverse();
+            }
+            let mut graph = Graph::strict();
+            let mut directed = DiGraph::strict();
+            assert_eq!(graph.extend_nodes_unrecorded(labels), labels.len());
+            assert_eq!(directed.extend_nodes_unrecorded(labels), labels.len());
+            assert_eq!(graph.extend_edges_unrecorded(ordered.iter().copied()), edges.len());
+            assert_eq!(
+                directed.extend_edges_unrecorded(ordered.iter().copied()),
+                edges.len()
+            );
+            // Greedy removal chooses s-a-b-t and destroys both alternatives.
+            // Residual rerouting recovers s-a-c-t together with s-d-b-t.
+            assert_eq!(super::node_connectivity(&graph, "s", "t").value, 2);
+            assert_eq!(super::node_connectivity_directed(&directed, "s", "t").value, 2);
+            assert_eq!(super::node_connectivity_directed(&directed, "t", "s").value, 0);
+            let full = super::all_pairs_node_connectivity(&graph);
+            let subset = super::all_pairs_node_connectivity_subset(&graph, &["s", "t"])
+                .expect("present endpoints");
+            assert_eq!(subset.len(), 2);
+            for pair in [("s".to_owned(), "t".to_owned()), ("t".to_owned(), "s".to_owned())] {
+                assert_eq!(full.get(&pair), Some(&2));
+                assert_eq!(subset.get(&pair), Some(&2));
+            }
+
+            let mut symmetric = directed.clone();
+            assert_eq!(
+                symmetric.extend_edges_unrecorded(ordered.iter().map(|&(u, v)| (v, u))),
+                edges.len()
+            );
+            // The undirected graph is a six-cycle plus chord a-b. Every pair
+            // has connectivity two, except a,b which have connectivity three.
+            assert_eq!(super::global_node_connectivity(&graph).value, 2);
+            assert_eq!(super::global_node_connectivity_directed(&symmetric).value, 2);
+            assert_eq!(super::node_connectivity_directed_global(&symmetric).value, 2);
+            assert_eq!(super::average_node_connectivity(&graph), 31.0 / 15.0);
+            assert_eq!(super::average_node_connectivity_directed(&symmetric), 31.0 / 15.0);
+        }
+    }
+
+    #[test]
+    fn exact_node_connectivity_counts_adjacent_endpoints_and_preserves_empty_contracts() {
+        let mut graph = Graph::strict();
+        let mut directed = DiGraph::strict();
+        assert_eq!(super::global_node_connectivity(&graph).value, 0);
+        assert_eq!(super::global_node_connectivity_directed(&directed).value, 0);
+        assert_eq!(super::node_connectivity_directed_global(&directed).value, 0);
+        assert_eq!(super::average_node_connectivity(&graph), 0.0);
+        assert_eq!(super::average_node_connectivity_directed(&directed), 0.0);
+        assert!(super::all_pairs_node_connectivity(&graph).is_empty());
+        assert!(
+            super::all_pairs_node_connectivity_subset(&graph, &[])
+                .expect("empty selection")
+                .is_empty()
+        );
+        assert!(super::all_pairs_node_connectivity_subset(&graph, &["missing"]).is_none());
+
+        graph.add_edge("s", "t").expect("direct edge");
+        directed.add_edge("s", "t").expect("direct arc");
+        assert_eq!(super::node_connectivity(&graph, "s", "t").value, 1);
+        assert_eq!(super::node_connectivity_directed(&directed, "s", "t").value, 1);
+        for (source, target) in [("s", "s"), ("missing", "t"), ("s", "missing")] {
+            assert_eq!(super::node_connectivity(&graph, source, target).value, 0);
+            assert_eq!(
+                super::node_connectivity_directed(&directed, source, target).value,
+                0
+            );
+        }
+        assert_eq!(graph.extend_edges_unrecorded([("s", "v"), ("v", "t")]), 2);
+        assert_eq!(directed.extend_edges_unrecorded([("s", "v"), ("v", "t")]), 2);
+        assert_eq!(super::node_connectivity(&graph, "s", "t").value, 2);
+        assert_eq!(super::node_connectivity_directed(&directed, "s", "t").value, 2);
+        assert_eq!(super::node_connectivity_directed(&directed, "t", "s").value, 0);
+    }
+
+    #[test]
+    fn exact_directed_global_connectivity_checks_both_directions() {
+        let mut graph = DiGraph::strict();
+        assert_eq!(graph.extend_nodes_unrecorded((0..6).map(|node| node.to_string())), 6);
+        assert_eq!(
+            graph.extend_edges_unrecorded([
+                ("0", "1"), ("0", "3"), ("1", "0"), ("1", "2"),
+                ("2", "3"), ("2", "5"), ("3", "0"), ("3", "4"),
+                ("3", "5"), ("4", "0"), ("4", "1"), ("5", "1"),
+                ("5", "4"),
+            ]),
+            13
+        );
+        // Removing vertex 1 isolates vertex 2 from all incoming paths. The
+        // former minimum-total-degree shortcut missed this one-vertex cut.
+        assert_eq!(super::global_node_connectivity_directed(&graph).value, 1);
+        assert_eq!(super::node_connectivity_directed_global(&graph).value, 1);
+    }
+
+    #[test]
+    fn exact_global_node_connectivity_ignores_loops_in_degree_bounds() {
+        for size in [2, 4] {
+            let labels: Vec<String> = (0..size).map(|node| node.to_string()).collect();
+            let mut graph = Graph::strict();
+            let mut directed = DiGraph::strict();
+            assert_eq!(graph.extend_nodes_unrecorded(labels.iter().cloned()), size);
+            assert_eq!(directed.extend_nodes_unrecorded(labels.iter().cloned()), size);
+            for left in 0..size {
+                for right in left + 1..size {
+                    graph.add_edge(&labels[left], &labels[right]).expect("edge");
+                    directed.add_edge(&labels[left], &labels[right]).expect("arc");
+                    directed.add_edge(&labels[right], &labels[left]).expect("reverse arc");
+                }
+            }
+            assert_eq!(super::global_node_connectivity(&graph).value, size - 1);
+            assert_eq!(super::global_node_connectivity_directed(&directed).value, size - 1);
+            for label in &labels {
+                graph.add_edge(label, label).expect("self-loop");
+                directed.add_edge(label, label).expect("self-loop");
+            }
+            assert_eq!(super::global_node_connectivity(&graph).value, size - 1);
+            assert_eq!(super::global_node_connectivity_directed(&directed).value, size - 1);
+            assert_eq!(super::node_connectivity_directed_global(&directed).value, size - 1);
+            assert_eq!(super::average_node_connectivity(&graph), (size - 1) as f64);
+            assert_eq!(super::average_node_connectivity_directed(&directed), (size - 1) as f64);
+        }
     }
 
     #[test]

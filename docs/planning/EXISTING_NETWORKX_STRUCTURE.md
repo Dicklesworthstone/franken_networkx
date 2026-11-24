@@ -1859,6 +1859,17 @@ admitted. Global queries construct one auxiliary graph and one residual and
 reuse them for their local flow computations; callback-visible endpoints,
 solver options, residual identity, and invocation order are observable.
 
+Default native node-connectivity queries use exact unit-capacity vertex-split
+residual flows. Reverse residual arcs may reroute earlier paths, a direct
+source-to-target edge contributes one path, and self-loops add no independent
+route. Local queries, averages, and full or subset pair matrices share this
+contract; selecting fewer endpoints must not change their pairwise values.
+Simple directed global queries take the minimum over all ordered endpoint
+pairs, preserving the existing intentional correction of NetworkX's global
+shortcut on strongly connected counterexamples. Reused workspaces reset their
+residual capacities for every pair. The approximation namespace remains a
+separate API.
+
 Default flow selection uses Edmonds-Karp. Solver-specific options depend on
 the identity of actual built-in solvers, not a callable's name. Falsey callable
 objects are still supplied solvers. Cutoffs keep their numeric semantics:
