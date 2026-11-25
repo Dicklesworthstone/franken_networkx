@@ -139,3 +139,192 @@ def test_each_cell_iterates_in_networkx_order(cls_name, weighted, scale, seed):
     want = nx.voronoi_cells(Gx, centers, weight="weight")
     got = fnx.voronoi_cells(Gf, centers, weight="weight")
     assert [(k, list(v)) for k, v in got.items()] == [(k, list(v)) for k, v in want.items()]
+
+
+_LIVE_VORONOI_ROUTES = (
+    "fnx-input", "nx-input", "module", "algorithms", "backend", "cached-backend"
+)
+
+
+def _call_live_voronoi(route, graph, centers, weight, *, reference=False):
+    if reference:
+        return nx.voronoi_cells(graph, centers, weight=weight, backend="networkx")
+    if route in {"backend", "cached-backend"}:
+        return nx.voronoi_cells(graph, centers, weight=weight, backend="franken_networkx")
+    if route == "module":
+        from franken_networkx import voronoi
+
+        return voronoi.voronoi_cells(graph, centers, weight=weight)
+    if route == "algorithms":
+        return fnx.algorithms.voronoi_cells(graph, centers, weight=weight)
+    return fnx.voronoi_cells(graph, centers, weight=weight)
+
+
+def _prewarm_voronoi_input(route, graph, reference):
+    if route == "cached-backend" and not reference:
+        # The relabel backend produces a conversion containing all attributes,
+        # so NetworkX can reuse it for the later weighted query.
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+
+
+@pytest.mark.parametrize("route", _LIVE_VORONOI_ROUTES)
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("filtered", [False, True])
+def test_voronoi_weight_callbacks_keep_original_rows_and_mutations(
+    route, graph_class, filtered
+):
+    def run(reference):
+        library = fnx if route == "fnx-input" and not reference else nx
+        root = getattr(library, graph_class)()
+        root.add_nodes_from([0, 4, 1, 2, 3, 5])
+        root.add_weighted_edges_from([
+            (0, 1, 1), (1, 2, 9), (4, 2, 4), (4, 3, 1), (0, 2, 10)
+        ])
+        root.add_edge(4, 5, weight=0, hidden=True)
+        if root.is_multigraph():
+            root.add_edge(0, 1, key="parallel", weight=3)
+        if filtered:
+            root.add_weighted_edges_from([(0, 9, 0), (9, 2, 0)])
+            graph = library.subgraph_view(root, filter_node=lambda node: node != 9)
+        else:
+            graph = root
+        _prewarm_voronoi_input(route, graph, reference)
+        calls = []
+        changed = False
+
+        def weight(u, v, data):
+            nonlocal changed
+            calls.append((u, v))
+            if graph.is_multigraph():
+                for key, attrs in data.items():
+                    assert attrs is graph[u][v][key]
+                attributes = list(data.values())
+            else:
+                assert data is graph[u][v]
+                attributes = [data]
+            for attrs in attributes:
+                attrs["visited"] = True
+            if (u, v) == (0, 1) and not changed:
+                changed = True
+                later = root[1][2][0] if root.is_multigraph() else root[1][2]
+                later["weight"] = 1
+                root.add_edge(1, 6, weight=1)
+            visible = [attrs["weight"] for attrs in attributes if not attrs.get("hidden")]
+            return min(visible) if visible else None
+
+        cells = _call_live_voronoi(route, graph, [0, 4], weight, reference=reference)
+        assert changed
+        assert 6 in cells[0]
+        assert 5 in cells["unreachable"]
+        edge_options = {"keys": True} if root.is_multigraph() else {}
+        return (
+            [(center, list(cell)) for center, cell in cells.items()],
+            calls,
+            list(root.edges(data=True, **edge_options)),
+        )
+
+    assert run(False) == run(True)
+
+
+@pytest.mark.parametrize("route", ["backend", "cached-backend"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("mutation", ["topology", "attributes"])
+def test_voronoi_backend_consumes_centers_before_snapshotting(route, graph_class, mutation):
+    def run(reference):
+        graph = getattr(nx, graph_class)()
+        graph.add_weighted_edges_from([(0, 1, 10), (1, 2, 1), (3, 2, 1)])
+        _prewarm_voronoi_input(route, graph, reference)
+
+        class Centers(list):
+            changed = False
+
+            def __iter__(self):
+                if not self.changed:
+                    self.changed = True
+                    if mutation == "topology":
+                        graph.add_edge(0, 2, weight=1)
+                    else:
+                        attrs = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+                        attrs["weight"] = 1
+                return super().__iter__()
+
+        centers = Centers([0, 3])
+        cells = _call_live_voronoi(route, graph, centers, "weight", reference=reference)
+        assert centers.changed
+        if not reference:
+            assert not graph.__networkx_cache__.get("backends")
+        # An attribute-only write does not call a graph mutator. Reusing the
+        # conversion that preceded center selection would return the old cost.
+        following = nx.dijkstra_path_length(
+            graph, 0, 2, backend="networkx" if reference else "franken_networkx"
+        )
+        return [(center, list(cell)) for center, cell in cells.items()], following
+
+    assert run(False) == run(True)
+
+
+@pytest.mark.parametrize("route", _LIVE_VORONOI_ROUTES)
+@pytest.mark.parametrize("graph_class", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("weight", ["weight", None])
+def test_voronoi_undirected_views_preserve_each_endpoints_weights(route, graph_class, weight):
+    def run(reference):
+        library = fnx if route == "fnx-input" and not reference else nx
+        root = getattr(library, graph_class)()
+        for u, v, value in [
+            (0, 1, 8), (1, 0, 1), (1, 2, 1), (2, 1, 1), (2, 3, 1), (3, 2, 8)
+        ]:
+            root.add_edge(u, v)
+            attrs = root[u][v][0] if root.is_multigraph() else root[u][v]
+            attrs[weight] = value
+        graph = root.to_undirected(as_view=True)
+        _prewarm_voronoi_input(route, graph, reference)
+        cells = _call_live_voronoi(route, graph, [0, 3], weight, reference=reference)
+        return [(center, list(cell)) for center, cell in cells.items()]
+
+    assert run(False) == run(True)
+
+
+@pytest.mark.parametrize("route", ["nx-input", "module", "algorithms", "backend", "cached-backend"])
+@pytest.mark.parametrize("graph_class", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_voronoi_custom_center_hash_can_change_later_weights(route, graph_class):
+    def run(reference):
+        graph = getattr(nx, graph_class)()
+        graph.add_weighted_edges_from([(0, 1, 10), (1, 2, 1), (3, 2, 1)])
+        _prewarm_voronoi_input(route, graph, reference)
+        changed = False
+
+        class Center(int):
+            def __hash__(self):
+                nonlocal changed
+                if not changed:
+                    changed = True
+                    attrs = graph[0][1][0] if graph.is_multigraph() else graph[0][1]
+                    attrs["weight"] = 1
+                return int.__hash__(self)
+
+        cells = _call_live_voronoi(
+            route, graph, [Center(0), 3], "weight", reference=reference
+        )
+        assert changed
+        return [(int(center), list(cell)) for center, cell in cells.items()]
+
+    assert run(False) == run(True)
+
+
+@pytest.mark.parametrize("route", ["backend", "cached-backend"])
+def test_voronoi_backend_preserves_callback_exception_identity(route):
+    graph = nx.path_graph(3)
+    _prewarm_voronoi_input(route, graph, False)
+    error = fnx.NetworkXNotImplemented("weight provider refused this edge")
+    calls = []
+
+    def weight(u, v, attrs):
+        calls.append((u, v))
+        assert attrs is graph[u][v]
+        raise error
+
+    with pytest.raises(fnx.NetworkXNotImplemented) as caught:
+        _call_live_voronoi(route, graph, [0], weight)
+    assert caught.value is error
+    assert calls == [(0, 1)]

@@ -329,6 +329,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "multi_source_dijkstra",
         "multi_source_dijkstra_path",
         "multi_source_dijkstra_path_length",
+        "voronoi_cells",
         "dijkstra_predecessor_and_distance",
         "bidirectional_dijkstra",
         "astar_path",
@@ -424,6 +425,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "harmonic_centrality", "closeness_centrality", "average_shortest_path_length",
         "voterank",
         "harmonic_diameter",
+        "voronoi_cells",
         "single_source_shortest_path_length", "predecessor", "bidirectional_shortest_path",
         "find_cycle",
         "average_degree_connectivity", "average_neighbor_degree",
@@ -450,6 +452,11 @@ def _provider_dispatch_uses_original_graph(name, graph, arguments):
         # Pair validation and traversal have distinct eager/lazy boundaries.
         # Keep original rows, root objects and node providers even when an
         # earlier algorithm populated NetworkX's shared conversion cache.
+        return True
+    if name == "voronoi_cells":
+        # Center selection and weight providers can change the graph before
+        # or during the search. Preserve the original even on a warm cache,
+        # and invalidate conversions after direct attribute writes as well.
         return True
     if name == "common_neighbors":
         # This is a local row query even on a large graph. Conversion reads
@@ -1516,6 +1523,7 @@ _SUPPORTED_ALGORITHMS = {
     "tree_broadcast_time": fnx.tree_broadcast_time,
     # Shortest path — additional
     "multi_source_dijkstra": fnx.multi_source_dijkstra,
+    "voronoi_cells": fnx.voronoi_cells,
     # Traversal — BFS
     "bfs_edges": fnx.bfs_edges,
     "bfs_tree": fnx.bfs_tree,
@@ -2717,7 +2725,7 @@ class BackendInterface:
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis", "min_edge_cover",
                             "voterank", "common_neighbors", "label_propagation_communities",
-                            "chain_decomposition",
+                            "chain_decomposition", "voronoi_cells",
                         }
                     ):
                         # Preserve graph-contract errors and user callback

@@ -1263,6 +1263,15 @@ def _voronoi_nearest_centers(G, sources, *, weight):
     reordered rows changed the settle order among equal distances - and with it
     each cell set's iteration order (cells were thought order-insensitive).
     """
+    # Source and weight callbacks must keep the caller's graph. Converting
+    # first disconnects their writes and can collapse distinct reciprocal
+    # weights in an undirected view of a directed graph.
+    if (
+        _dijkstra_sources_use_live_graph(sources, G)
+        or _weighted_query_uses_live_python_rows(G, weight)
+    ):
+        paths = multi_source_dijkstra_path(G, sources, weight=weight)
+        return {node: path[0] for node, path in paths.items()}
     G = _coerce_arg_to_fnx_graph(G)
     if not G.is_multigraph() and isinstance(weight, str):
         route = _dijkstra_weight_route(G, weight)
