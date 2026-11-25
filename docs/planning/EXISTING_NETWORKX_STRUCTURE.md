@@ -1971,6 +1971,16 @@ formats use strings. Attribute definitions and defaults have independent
 node/edge scopes, with the historical static double `weight` edge definition.
 Defaults remain metadata rather than being copied onto every graph object.
 
+Within the selected graph, only namespace-qualified direct records in the
+first `nodes` and `edges` container contribute to public graph data. Nested
+node containers retain the hierarchy rules below. Repeated containers,
+misplaced records and records from another namespace must not introduce
+vertices, edges or attribute overwrites through the native projection. These
+documents require the complete decoder, with native policy validation retained
+when required; an unrelated recovery cannot expose a lossy projection. A
+document without a supported direct graph raises `NetworkXError` rather than
+returning an empty graph.
+
 Node attributes, parents, version-specific intervals, visualization and times
 are decoded before node conversion. Nested nodes are inserted before their
 parent, retaining inherited parent IDs. Conversion runs for each declared

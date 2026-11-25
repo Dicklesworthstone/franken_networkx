@@ -4440,6 +4440,28 @@ def _gexf_scan_document(raw_bytes):
     viz_tags = {"color", "size", "thickness", "shape", "position"}
     attr_defs = {}
     pairs = set()
+    element_stack = []
+    record_parents = {
+        "nodes": {"graph", "node"},
+        "node": {"nodes"},
+        "edges": {"graph"},
+        "edge": {"edges"},
+        "attributes": {"graph"},
+        "attribute": {"attributes"},
+        "default": {"attribute"},
+        "options": {"attribute"},
+        "attvalues": {"node", "edge"},
+        "attvalue": {"attvalues"},
+        "parents": {"node"},
+        "parent": {"parents"},
+        "spells": {"node", "edge"},
+        "spell": {"spells"},
+        "slices": {"node", "edge"},
+        "slice": {"slices"},
+    }
+    first_child_containers = {
+        "nodes", "edges", "attvalues", "parents", "spells", "slices", "default",
+    }
     state = {
         "needs_decoder": native_encoding is not None,
         "native_required": False,
@@ -4457,6 +4479,31 @@ def _gexf_scan_document(raw_bytes):
         state["xml_depth"] += 1
         tag = _xml_local_name(name)
         namespace = name.rsplit("}", 1)[0] if "}" in name else ""
+        # The complete reader uses namespace-qualified direct children and
+        # only the first data container of each owner. The native
+        # projection accepts local record names throughout its graph scope;
+        # it cannot distinguish these ignored XML records from real graph
+        # data. Keep them out of the public topology, including during an
+        # unrelated hardened repair, by requiring the complete decoder.
+        scoped_records = tag in record_parents or tag == "graph"
+        outside_scope = scoped_records and namespace not in namespaces
+        if tag in record_parents:
+            if element_stack:
+                parent_namespace, parent_tag, containers = element_stack[-1]
+                outside_scope |= (
+                    namespace != parent_namespace
+                    or parent_tag not in record_parents[tag]
+                )
+                if tag in first_child_containers:
+                    container = (namespace, tag)
+                    outside_scope |= container in containers
+                    containers.add(container)
+            else:
+                outside_scope = True
+        if outside_scope:
+            state["needs_decoder"] = True
+            state["lossy_recovery"] = True
+        element_stack.append((namespace, tag, set()))
         if namespace in viz_namespaces and tag in viz_tags:
             state["needs_decoder"] = True
             state["lossy_recovery"] = True
@@ -4588,6 +4635,7 @@ def _gexf_scan_document(raw_bytes):
             state["edge_depth"] -= 1
         elif tag == "attributes":
             state["attr_class"] = None
+        element_stack.pop()
         state["xml_depth"] -= 1
 
     def xml_declaration(version, encoding, standalone):
@@ -4618,6 +4666,11 @@ def _gexf_scan_document(raw_bytes):
             state["lossy_recovery"] or state["needs_decoder"],
             None,
         )
+    if state["graph_count"] == 0:
+        # An absent graph is a format error, not an empty graph. Let the
+        # complete reader preserve that error after any required policy check.
+        state["needs_decoder"] = True
+        state["lossy_recovery"] = True
     return (
         state["needs_decoder"], state["missing_label"], state["native_required"],
         state["lossy_recovery"],

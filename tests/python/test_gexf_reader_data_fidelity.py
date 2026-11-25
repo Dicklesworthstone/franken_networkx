@@ -169,6 +169,168 @@ def test_gexf_scope_requires_a_direct_graph_child(mode):
         fnx.read_gexf(BytesIO(payload), **options)
 
 
+_GEXF_RECORD_SCOPE_CASES = (
+    "second-nodes", "second-edges", "direct-node", "direct-edge",
+    "metadata-node", "metadata-edge", "foreign-node", "foreign-edge",
+    "other-version-node", "other-version-edge", "unqualified-node",
+    "unqualified-edge",
+)
+
+
+def _record_scope_document(case, directed=False):
+    nodes = '<nodes><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+    edges = '<edges><edge id="ab" source="a" target="b" weight="2"/></edges>'
+    extra = ''
+    if case == "second-nodes":
+        extra = '<nodes><node id="a" label="Overwritten"/><node id="ghost"/></nodes>'
+    elif case == "second-edges":
+        extra = '<edges><edge id="extra" source="b" target="ghost"/></edges>'
+    elif case in ("direct-node", "metadata-node"):
+        extra = '<node id="a"/><node id="ghost"/>'
+    elif case in ("direct-edge", "metadata-edge"):
+        extra = '<edge id="extra" source="b" target="ghost"/>'
+    else:
+        namespace = (
+            "urn:extension" if case.startswith("foreign-")
+            else "http://gexf.net/1.3" if case.startswith("other-version-")
+            else ""
+        )
+        if case.endswith("-node"):
+            nodes = nodes.replace(
+                '</nodes>',
+                f'<node xmlns="{namespace}" id="a"/>'
+                f'<node xmlns="{namespace}" id="ghost"/></nodes>',
+            )
+        else:
+            edges = edges.replace(
+                '</edges>',
+                f'<edge xmlns="{namespace}" id="extra" source="b" target="ghost"/></edges>',
+            )
+    if case.startswith("metadata-"):
+        extra = '<meta>' + extra + '</meta>'
+    direction = "directed" if directed else "undirected"
+    return (
+        '<gexf xmlns="http://www.gexf.net/1.2draft">'
+        f'<graph defaultedgetype="{direction}">'
+        + nodes + edges + extra + '</graph></gexf>'
+    ).encode()
+
+
+@pytest.mark.parametrize("case", _GEXF_RECORD_SCOPE_CASES)
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened", "ambient"))
+def test_gexf_record_scope_cannot_add_or_overwrite_graph_data(
+    monkeypatch, case, directed, mode,
+):
+    payload = _record_scope_document(case, directed)
+    expected = nx.read_gexf(BytesIO(payload))
+    assert list(expected.nodes(data=True)) == [("a", {"label": "A"}), ("b", {"label": "B"})]
+    assert list(expected.edges(data=True)) == [("a", "b", {"id": "ab", "weight": 2.0})]
+    _forbid_gexf_delegation(monkeypatch)
+    stream = BytesIO(payload)
+    options = {} if mode in (None, "ambient") else {"mode": mode}
+    with fnx.compatibility_mode("hardened" if mode == "ambient" else "strict"):
+        actual = fnx.read_gexf(stream, **options)
+    _assert_same(actual, expected)
+    assert stream.getvalue() == payload
+    assert not stream.closed
+    if mode is not None:
+        assert actual.mode == ("hardened" if mode == "ambient" else mode)
+        assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("body", (
+    '', '<meta><description>metadata only</description></meta>',
+    '<graph xmlns="urn:extension"><nodes><node id="ghost"/></nodes></graph>',
+))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_gexf_missing_graph_is_not_an_empty_native_projection(body, mode):
+    payload = (
+        '<gexf xmlns="http://www.gexf.net/1.2draft">' + body + '</gexf>'
+    ).encode()
+    with pytest.raises(nx.NetworkXError, match="No <graph> element"):
+        nx.read_gexf(BytesIO(payload))
+    options = {} if mode is None else {"mode": mode}
+    with pytest.raises(fnx.NetworkXError, match="No <graph> element"):
+        fnx.read_gexf(BytesIO(payload), **options)
+
+
+@pytest.mark.parametrize("case", ("second-nodes", "direct-node", "foreign-node"))
+def test_gexf_record_scope_keeps_native_structural_repairs_fail_closed(case):
+    payload = _record_scope_document(case).replace(b'id="ghost"', b'id=""')
+    with pytest.raises(OSError):
+        fnx.read_gexf(BytesIO(payload), mode="strict")
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+
+@pytest.mark.parametrize("scope", (
+    "second-attvalues", "direct-attvalue", "metadata-attvalue",
+    "foreign-attvalue", "other-version-attvalue",
+))
+def test_gexf_ignored_scalar_recovery_cannot_overwrite_a_retained_value(scope):
+    invalid = '<attvalue for="rank" value="invalid"/>'
+    values = '<attvalues><attvalue for="rank" value="7"/></attvalues>'
+    if scope == "second-attvalues":
+        values += '<attvalues>' + invalid + '</attvalues>'
+    elif scope == "direct-attvalue":
+        values += invalid
+    elif scope == "metadata-attvalue":
+        values += '<meta>' + invalid + '</meta>'
+    else:
+        namespace = (
+            "urn:extension" if scope == "foreign-attvalue"
+            else "http://gexf.net/1.3"
+        )
+        invalid = invalid.replace('<attvalue ', f'<attvalue xmlns="{namespace}" ')
+        values = values.replace('</attvalues>', invalid + '</attvalues>')
+    payload = (
+        '<gexf xmlns="http://www.gexf.net/1.2draft"><graph defaultedgetype="undirected">'
+        '<attributes class="edge"><attribute id="rank" title="rank" type="long"/>'
+        '</attributes><nodes><node id="a"/><node id="b"/></nodes>'
+        '<edges><edge source="a" target="b">' + values + '</edge></edges></graph></gexf>'
+    ).encode()
+    expected = nx.read_gexf(BytesIO(payload))
+    assert expected["a"]["b"]["rank"] == 7
+    # Strict native validation still rejects the malformed scalar. Hardened
+    # mode must not return its projection, where the ignored value overwrites
+    # the retained rank, or silently waive that validation through the decoder.
+    with pytest.raises(OSError):
+        fnx.read_gexf(BytesIO(payload), mode="strict")
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(payload), mode="hardened")
+
+
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_gexf_scope_inspection_keeps_canonical_static_inputs_native(monkeypatch, directed, mode):
+    direction = "directed" if directed else "undirected"
+    payload = (
+        '<gexf xmlns="http://www.gexf.net/1.2draft">'
+        f'<graph defaultedgetype="{direction}"><nodes>'
+        '<node id="a" label="A"/><node id="b" label="B"/></nodes>'
+        '<edges><edge id="ab" source="a" target="b" weight="2"/></edges></graph></gexf>'
+    ).encode()
+    expected = nx.read_gexf(BytesIO(payload))
+    native_reader = fnx._fnx.read_gexf
+    native_inputs = []
+
+    def capture_native(stream, **options):
+        native_input = stream.read()
+        native_inputs.append(native_input)
+        return native_reader(BytesIO(native_input), **options)
+
+    def no_complete_decode(*args, **kwargs):
+        pytest.fail("Canonical static GEXF should keep the native reader")
+
+    monkeypatch.setattr(fnx._fnx, "read_gexf", capture_native)
+    monkeypatch.setattr(readwrite, "_read_gexf_owned", no_complete_decode)
+    options = {} if mode is None else {"mode": mode}
+    actual = fnx.read_gexf(BytesIO(payload), **options)
+    _assert_same(actual, expected)
+    assert native_inputs == [payload]
+
+
 def test_gexf_scope_scalar_recovery_keeps_nested_parent_data():
     payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft">
       <graph defaultedgetype="undirected"><attributes class="node">
