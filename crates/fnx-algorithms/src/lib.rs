@@ -51854,12 +51854,15 @@ pub fn all_pairs_all_shortest_paths<G: GraphView + ?Sized>(
 }
 
 // ---------------------------------------------------------------------------
-// Gomory-Hu tree (simplified — no partition tracking)
+// Gomory-Hu cut-equivalent tree
 // ---------------------------------------------------------------------------
 
-/// Build Gomory-Hu tree using iterative max-flow.
+/// Build a Gomory-Hu tree using `n - 1` residual minimum-cut computations.
 ///
-/// Returns a tree where edge weights represent min-cut values.
+/// The minimum edge weight along any tree path is the corresponding graph
+/// minimum-cut value. Removing a tree edge also partitions the original graph
+/// into a cut of that capacity. Disconnected components are joined by explicit
+/// zero-weight edges. Capacity defaults follow [`minimum_cut_edmonds_karp`].
 #[must_use]
 pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
     let nodes = graph.nodes_ordered();
@@ -51870,36 +51873,49 @@ pub fn gomory_hu_tree(graph: &Graph, weight_attr: &str) -> Graph {
     }
     let _ = tree.extend_nodes_unrecorded(nodes.iter().copied());
 
-    let mut parent: Vec<usize> = vec![0; n]; // tree parent of each node
+    let mut parent = vec![0_usize; n];
+    let mut cut_value = vec![0.0_f64; n];
+    let mut source_side = vec![false; n];
 
-    for i in 1..n {
-        let s = nodes[i];
-        let t = nodes[parent[i]];
-        let flow = max_flow_edmonds_karp(graph, s, t, weight_attr);
-        match flow {
-            Ok(f) => {
-                let mut attrs = AttrMap::new();
-                attrs.insert("weight".to_owned(), CgseValue::Float(f.value));
-                let _ = tree.add_edge_with_attrs(s, t, attrs);
+    for source in 1..n {
+        let target = parent[source];
+        let cut = minimum_cut_edmonds_karp(graph, nodes[source], nodes[target], weight_attr)
+            .expect("Gomory-Hu cut endpoints are existing graph nodes");
+        source_side.fill(false);
+        for node in &cut.source_partition {
+            let index = graph
+                .get_node_index(node)
+                .expect("minimum-cut partition nodes belong to the graph");
+            source_side[index] = true;
+        }
+        cut_value[source] = cut.value;
 
-                // Update parents: any node j>i with parent[j]==parent[i]
-                // that is on the source side of the cut gets reparented to i
-                // (simplified: just update based on reachability in residual)
-                for j in (i + 1)..n {
-                    if parent[j] == parent[i] {
-                        // Check if j is reachable from i in the graph minus the cut
-                        // Simplified: use BFS in original graph
-                        if has_path(graph, nodes[i], nodes[j]).has_path {
-                            parent[j] = i;
-                        }
-                    }
-                }
-            }
-            Err(_) => {
-                // No flow path — add zero-weight edge
-                let _ = tree.add_edge(s, t);
+        // Only residual-cut membership permits reparenting. Original graph
+        // reachability would join every connected graph into an incorrect chain.
+        // Include already processed children: their cut values remain valid,
+        // but their parents can change to preserve the actual cut partitions.
+        for node in 1..n {
+            if node != source && parent[node] == target && source_side[node] {
+                parent[node] = source;
             }
         }
+
+        // When the target's parent lies on this source side, rotate the two
+        // tree links. The old target cut moves to source's new parent link;
+        // this round's cut labels the target-to-source link.
+        if target != 0 && source_side[parent[target]] {
+            parent[source] = parent[target];
+            parent[target] = source;
+            cut_value[source] = cut_value[target];
+            cut_value[target] = cut.value;
+        }
+    }
+
+    // Later cuts may move earlier links, so materialize only the final tree.
+    for node in 1..n {
+        let mut attrs = AttrMap::new();
+        attrs.insert("weight".to_owned(), CgseValue::Float(cut_value[node]));
+        let _ = tree.add_edge_with_attrs(nodes[node], nodes[parent[node]], attrs);
     }
     tree
 }
@@ -89639,6 +89655,235 @@ mod tests {
                 "stable-refinement fast-forward must preserve exact supernode labels and edge order"
             );
         }
+    }
+
+    fn gomory_hu_test_graph(
+        node_count: usize,
+        edges: &[(usize, usize, f64)],
+        capacity_attr: &str,
+    ) -> Graph {
+        let mut graph = Graph::strict();
+        for node in 0..node_count {
+            let _ = graph.add_node(node.to_string());
+        }
+        for &(left, right, capacity) in edges {
+            let mut attrs = AttrMap::new();
+            attrs.insert(capacity_attr.to_owned(), CgseValue::Float(capacity));
+            graph
+                .add_edge_with_attrs(&left.to_string(), &right.to_string(), attrs)
+                .unwrap();
+        }
+        graph
+    }
+
+    fn assert_gomory_hu_cut_equivalent(
+        graph: &Graph,
+        capacities: &[(usize, usize, f64)],
+        capacity_attr: &str,
+    ) {
+        let tree = gomory_hu_tree(graph, capacity_attr);
+        let n = graph.node_count();
+        assert!(n <= 5, "the independent oracle enumerates small vertex cuts");
+        assert_eq!(tree.nodes_ordered(), graph.nodes_ordered());
+        assert_eq!(tree.edge_count(), n.saturating_sub(1));
+
+        let mut adjacency = vec![Vec::<(usize, f64)>::new(); n];
+        let mut tree_edges = Vec::new();
+        for (left, right, attrs) in tree.edges_ordered_indices_borrowed() {
+            let weight = attrs.get("weight").and_then(CgseValue::as_f64).unwrap();
+            assert!(weight.is_finite() && weight >= 0.0);
+            adjacency[left].push((right, weight));
+            adjacency[right].push((left, weight));
+            tree_edges.push((left, right, weight));
+        }
+
+        // Enumerate vertex partitions directly, independently of every native
+        // flow/connectivity kernel. Compare every pair's min cut to its tree
+        // path bottleneck, including pairs in separate original components.
+        for source in 0..n {
+            let mut seen = vec![false; n];
+            let mut bottleneck = vec![f64::INFINITY; n];
+            let mut pending = vec![source];
+            seen[source] = true;
+            while let Some(node) = pending.pop() {
+                for &(neighbor, weight) in &adjacency[node] {
+                    if !seen[neighbor] {
+                        seen[neighbor] = true;
+                        bottleneck[neighbor] = bottleneck[node].min(weight);
+                        pending.push(neighbor);
+                    }
+                }
+            }
+            assert!(seen.iter().all(|&present| present), "the output must be a tree");
+
+            for target in (source + 1)..n {
+                let mut minimum = f64::INFINITY;
+                for mask in 0..(1_usize << n) {
+                    if mask & (1 << source) == 0 || mask & (1 << target) != 0 {
+                        continue;
+                    }
+                    let capacity: f64 = capacities
+                        .iter()
+                        .filter(|&&(left, right, _)| {
+                            (mask & (1 << left) != 0) != (mask & (1 << right) != 0)
+                        })
+                        .map(|&(_, _, capacity)| capacity)
+                        .sum();
+                    minimum = minimum.min(capacity);
+                }
+                assert_eq!(
+                    bottleneck[target], minimum,
+                    "wrong cut for pair {source}-{target} in {capacities:?}"
+                );
+            }
+        }
+
+        // A cut-equivalent tree must expose actual minimum-cut partitions,
+        // not just reproduce pairwise flow values with an arbitrary topology.
+        for &(left, right, weight) in &tree_edges {
+            let mut source_side = vec![false; n];
+            source_side[left] = true;
+            let mut pending = vec![left];
+            while let Some(node) = pending.pop() {
+                for &(neighbor, _) in &adjacency[node] {
+                    if (node == left && neighbor == right)
+                        || (node == right && neighbor == left)
+                        || source_side[neighbor]
+                    {
+                        continue;
+                    }
+                    source_side[neighbor] = true;
+                    pending.push(neighbor);
+                }
+            }
+            assert!(!source_side[right]);
+            let capacity: f64 = capacities
+                .iter()
+                .filter(|&&(u, v, _)| source_side[u] != source_side[v])
+                .map(|&(_, _, capacity)| capacity)
+                .sum();
+            assert_eq!(
+                capacity, weight,
+                "tree edge {left}-{right} does not describe a minimum cut in {capacities:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_uses_residual_cut_membership() {
+        // Original-graph reachability used to reparent node 2 through node 1,
+        // making the 0-2 tree bottleneck 1 even though its minimum cut is 3.
+        let edges = [(0, 1, 1.0), (0, 2, 3.0)];
+        let graph = gomory_hu_test_graph(3, &edges, "capacity");
+        assert_gomory_hu_cut_equivalent(&graph, &edges, "capacity");
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_reparents_previously_processed_children() {
+        // Later cuts move earlier links. Merely updating unprocessed children
+        // can reproduce the six pair values but gives incorrect tree partitions.
+        let edges = [(0, 1, 1.0), (1, 2, 2.0), (2, 3, 3.0), (3, 0, 4.0)];
+        let graph = gomory_hu_test_graph(4, &edges, "capacity");
+        assert_gomory_hu_cut_equivalent(&graph, &edges, "capacity");
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_rotates_parent_and_preserves_cut_values() {
+        // The second cut places the first target's parent on the source side.
+        // Its old value 1 must move to 2-0 while the new value 2 labels 1-2.
+        let edges = [(0, 2, 1.0), (0, 3, 1.0), (1, 2, 2.0)];
+        let graph = gomory_hu_test_graph(4, &edges, "capacity");
+        assert_gomory_hu_cut_equivalent(&graph, &edges, "capacity");
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_exhaustive_four_node_weighted_cuts() {
+        let pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+        // All 3^6 graphs with each edge absent or capacity 1 or 2.
+        for encoding in 0..729 {
+            let mut state = encoding;
+            let mut edges = Vec::new();
+            for &(left, right) in &pairs {
+                let capacity = state % 3;
+                state /= 3;
+                if capacity != 0 {
+                    edges.push((left, right, f64::from(capacity)));
+                }
+            }
+            let graph = gomory_hu_test_graph(4, &edges, "capacity");
+            assert_gomory_hu_cut_equivalent(&graph, &edges, "capacity");
+        }
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_exhaustive_five_node_unweighted_cuts() {
+        let pairs: Vec<_> = (0..5)
+            .flat_map(|left| ((left + 1)..5).map(move |right| (left, right)))
+            .collect();
+        for mask in 0..(1_usize << pairs.len()) {
+            let edges: Vec<_> = pairs
+                .iter()
+                .enumerate()
+                .filter(|&(index, _)| mask & (1 << index) != 0)
+                .map(|(_, &(left, right))| (left, right, 1.0))
+                .collect();
+            let graph = gomory_hu_test_graph(5, &edges, "capacity");
+            assert_gomory_hu_cut_equivalent(&graph, &edges, "capacity");
+        }
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_zero_fractional_capacities_loops_and_isolates() {
+        let edges = [
+            (0, 0, 100.0),
+            (0, 1, 0.0),
+            (1, 2, 0.25),
+            (0, 2, 0.5),
+            (2, 2, 50.0),
+            (2, 3, 0.0),
+        ];
+        let mut graph = gomory_hu_test_graph(5, &edges, "limit");
+        for &(left, right, _) in &edges {
+            graph
+                .add_edge_with_attrs(
+                    &left.to_string(),
+                    &right.to_string(),
+                    single_attr("weight", "99.0"),
+                )
+                .unwrap();
+        }
+        assert_gomory_hu_cut_equivalent(&graph, &edges, "limit");
+    }
+
+    #[test]
+    fn test_gomory_hu_tree_empty_singleton_and_removed_node_order() {
+        let empty = Graph::strict();
+        assert_gomory_hu_cut_equivalent(&empty, &[], "capacity");
+
+        let mut singleton = Graph::strict();
+        let _ = singleton.add_node("only");
+        assert_gomory_hu_cut_equivalent(&singleton, &[], "capacity");
+
+        let mut graph = Graph::strict();
+        for node in ["removed", "z", "a", "m", "k"] {
+            let _ = graph.add_node(node);
+        }
+        assert!(graph.remove_node("removed"));
+        graph
+            .add_edge_with_attrs("z", "a", single_attr("capacity", "1.0"))
+            .unwrap();
+        graph
+            .add_edge_with_attrs("z", "m", single_attr("capacity", "3.0"))
+            .unwrap();
+        graph
+            .add_edge_with_attrs("m", "k", single_attr("capacity", "2.0"))
+            .unwrap();
+        let edges = [(0, 1, 1.0), (0, 2, 3.0), (2, 3, 2.0)];
+        assert_gomory_hu_cut_equivalent(&graph, &edges, "capacity");
+        assert_eq!(
+            gomory_hu_tree(&graph, "capacity").edges_ordered(),
+            gomory_hu_tree(&graph, "capacity").edges_ordered()
+        );
     }
 
     #[test]

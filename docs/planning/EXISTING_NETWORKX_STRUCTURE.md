@@ -732,6 +732,31 @@ in `_capacity_scaling.py`; its public wrapper validates backend keywords.
 Differential contracts live in `test_capacity_scaling_solver.py`.
 
 
+
+### 23.3 Native Gomory-Hu cut-equivalent trees
+
+The Rust `gomory_hu_tree` API returns a tree with the original node insertion
+order and runtime policy. For at least one node, it has exactly `|V| - 1`
+edges with explicit `weight` attributes. Empty and singleton inputs retain
+their node sets; disconnected components are joined by zero-weight edges.
+
+The minimum edge weight along each tree path equals that pair's minimum cut
+in the input graph. Removing any tree edge must also yield an original-graph
+partition whose cut capacity equals that edge's weight. Both properties are
+part of the contract; pairwise values alone do not establish a cut tree.
+
+Each round uses the source partition from the existing residual minimum-cut
+solver. Parent updates include previously processed children, and parent
+rotation carries the earlier cut value to its new link. Output edges are
+materialized only after all rounds finish. Capacity normalization and defaults
+remain those of the scoped native Edmonds-Karp implementation above.
+
+The Python public API retains its separate owned orchestration. Native tests
+in `crates/fnx-algorithms/src/lib.rs` enumerate small vertex partitions
+independently and cover weighted, disconnected, zero/fractional-capacity,
+self-loop, ordering and policy cases.
+
+
 ## 24. Bethe Hessian Matrix Selection Contract
 
 For an undirected simple graph, `bethe_hessian_matrix(G, r, nodelist)`
