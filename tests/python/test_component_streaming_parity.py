@@ -163,18 +163,24 @@ def test_cold_component_does_not_poison_following_native_dispatch(name, monkeypa
     assert all(converted is not graph for converted in conversions.values())
     list(iterator)
     seen = []
-    original = backend._SUPPORTED_ALGORITHMS["degree_centrality"]
+    # Degree centrality now intentionally keeps the original graph. Relabel
+    # still converts, so it exercises the cache-poisoning contract here.
+    original = backend._SUPPORTED_ALGORITHMS["relabel_nodes"]
 
-    def record(G):
+    def record(G, mapping, copy=True):
         seen.append(G)
-        return original(G)
+        return original(G, mapping, copy=copy)
 
-    monkeypatch.setitem(backend._SUPPORTED_ALGORITHMS, "degree_centrality", record)
-    expected = nx.degree_centrality(graph, backend="networkx")
-    assert nx.degree_centrality(graph, backend="franken_networkx") == expected
+    monkeypatch.setitem(backend._SUPPORTED_ALGORITHMS, "relabel_nodes", record)
+    expected = nx.relabel_nodes(graph, {}, backend="networkx")
+    actual = nx.relabel_nodes(graph, {}, backend="franken_networkx")
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert list(actual.edges(data=True)) == list(expected.edges(data=True))
     assert len(seen) == 1 and isinstance(seen[0], (fnx.Graph, fnx.DiGraph))
     list(getattr(nx, name)(graph, backend="franken_networkx"))
-    assert nx.degree_centrality(graph, backend="franken_networkx") == expected
+    actual = nx.relabel_nodes(graph, {}, backend="franken_networkx")
+    assert list(actual.nodes(data=True)) == list(expected.nodes(data=True))
+    assert list(actual.edges(data=True)) == list(expected.edges(data=True))
     assert seen[1] is seen[0]
 
 

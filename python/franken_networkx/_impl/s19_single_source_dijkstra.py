@@ -1212,7 +1212,6 @@ def _biconnected_dfs_iter(G, emit_edges=True):
     cuts a suffix from the unfinished edge stack, so completed components need
     not be retained. Cut-vertex mode needs no edge stack at all.
     """
-    adjacency = G._adj
     discovery = {}
     low = {}
     emitted = set()
@@ -1222,7 +1221,7 @@ def _biconnected_dfs_iter(G, emit_edges=True):
         discovery[root] = low[root] = len(discovery)
         root_children = 0
         unfinished = []
-        frames = [(root, root, iter(adjacency[root]), 0)]
+        frames = [(root, root, iter(G[root]), 0)]
         while frames:
             node, parent, neighbors, edge_start = frames[-1]
             try:
@@ -1256,7 +1255,7 @@ def _biconnected_dfs_iter(G, emit_edges=True):
                 offset = len(unfinished)
                 if emit_edges:
                     unfinished.append((node, neighbor))
-                frames.append((neighbor, node, iter(adjacency[neighbor]), offset))
+                frames.append((neighbor, node, iter(G[neighbor]), offset))
             elif discovery[neighbor] <= discovery[node]:
                 low[node] = min(low[node], discovery[neighbor])
                 if emit_edges:
@@ -1326,34 +1325,83 @@ def kosaraju_strongly_connected_components(G, source=None):
     return _gen()
 
 
+def _component_query_native_graph(G):
+    """Admit native eager queries without consuming graph or key providers."""
+    graph_type = type(G)
+    if graph_type is not Graph and graph_type is not MultiGraph:
+        return False
+    namespace = vars(graph_type)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _COMPONENT_QUERY_NATIVE_READERS[graph_type].items()
+    ):
+        return False
+    if _has_networkx_private_storage(G):
+        return False
+    storage = vars(G)
+    if any(
+        name in storage
+        for name in ("is_directed", "is_multigraph", "nodes_seq", "_native_has_adj_py_keys")
+    ):
+        return False
+    # An equal adjacency key can carry callbacks even when its stored node
+    # representative is plain. Inspect both kinds of keys without hashing.
+    return (
+        not G._native_has_adj_py_keys()
+        and _view_root_node_keys_are_stable(G, G.nodes_seq)
+    )
+
+
+def _node_connected_component_live(G, source):
+    """Walk only the source's component, retaining the caller's live rows."""
+    from collections import deque
+
+    node_count = len(G)
+    adjacency = G._adj
+    seen = {source}
+    pending = deque([source])
+    while pending:
+        node = pending.popleft()
+        for neighbor in adjacency[node]:
+            if neighbor not in seen:
+                seen.add(neighbor)
+                pending.append(neighbor)
+        # Equality is intentional: assigned node storage can omit reachable
+        # adjacency keys, and an isolated source still requires its row read.
+        if len(seen) == node_count:
+            break
+    return seen
+
+
 def node_connected_component(G, n):
-    """Return the set of nodes in the connected component of ``n``.
-
-    br-nccset: nx.node_connected_component returns a set; the Rust
-    binding returned a list. Callers doing set ops on the result
-    (issubset / intersection / ``x in result`` on large outputs)
-    silently saw wrong performance/types. Coerce to set.
-
-    br-r37-c1-c4agn: hash-check for nx-shaped TypeError parity.
-    """
+    """Return the nodes reachable from ``n`` through the graph's live rows."""
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    G = _coerce_arg_to_fnx_graph(G)
-    _HASH_PROBE.get(n)
-    # br-r37-c1-eun8y: nx's _plain_bfs indexes G._adj[n], so a missing node
-    # surfaces as a bare KeyError(n) — not the native binding's
-    # NodeNotFound("Node 'n' is not in G"). Match nx's exception type/args.
-    if n not in G:
-        raise KeyError(n)
-    result = _raw_node_connected_component(G, n)
-    return set(result) if not isinstance(result, set) else result
+    if _is_plain_immutable_label(n) and _component_query_native_graph(G):
+        # The native binding returns BFS discovery order, beginning with the
+        # source. Preserve the caller's equal source object in the result,
+        # just as the initial seen set does (for example, 1.0 versus 1).
+        if n not in G:
+            raise KeyError(n)
+        result = _raw_node_connected_component(G, n)
+        result[0] = n
+        return set(result)
+    return _node_connected_component_live(G, n)
 
 
 def is_biconnected(G):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
-    # br-r37-c1-0555d: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_is_biconnected(G)
+    """Return whether one biconnected component covers the caller's graph."""
+    if G.is_directed():
+        raise NetworkXNotImplemented("not implemented for directed type")
+    if _component_query_native_graph(G):
+        return _raw_is_biconnected(G)
+    components = biconnected_components(G)
+    first = next(components, None)
+    if first is None:
+        return False
+    if next(components, None) is not None:
+        return False
+    return len(first) == len(G)
 
 
 def _biconnected_node_sets(G):

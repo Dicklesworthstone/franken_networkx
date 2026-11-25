@@ -80,6 +80,9 @@ _COMPONENT_ITERATORS = frozenset(
         "articulation_points",
     }
 )
+_COMPONENT_QUERY_ALGORITHMS = frozenset(
+    {"node_connected_component", "is_biconnected"}
+)
 _COMMUNITY_ITERATOR_ALGORITHMS = frozenset(
     {
         "asyn_lpa_communities",
@@ -337,6 +340,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
     }
 ) | (
     _BIPARTITE_MATCHING_ALGORITHMS
+    | _COMPONENT_QUERY_ALGORITHMS
     | _MATCHING_PREDICATE_ALGORITHMS
     | _WEIGHTED_MATCHING_ALGORITHMS
     | _BIPARTITE_PROJECTION_ALGORITHMS
@@ -396,6 +400,7 @@ _STRUCTURAL_HOLES_INPUT_ALGORITHMS = frozenset(
 )
 _PROVIDER_INPUT_ALGORITHMS = (
     _SPECTRAL_INPUT_ALGORITHMS | _FLOW_INPUT_ALGORITHMS | _CONNECTIVITY_INPUT_ALGORITHMS
+    | _COMPONENT_QUERY_ALGORITHMS
     | _STRUCTURAL_HOLES_INPUT_ALGORITHMS
     | _FLOW_SOLVER_INPUT_ALGORITHMS
     | _RESIDUAL_FLOW_ALGORITHMS
@@ -448,6 +453,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name in _COMPONENT_QUERY_ALGORITHMS:
+        # Eager component queries still read live rows and node protocols.
+        # Conversion can visit unrelated components or replace their state.
+        return True
     if name in _LOWEST_COMMON_ANCESTOR_ALGORITHMS:
         # Pair validation and traversal have distinct eager/lazy boundaries.
         # Keep original rows, root objects and node providers even when an
@@ -2713,6 +2722,7 @@ class BackendInterface:
                     if (
                         name in (
                             _CORE_DECOMPOSITION_ALGORITHMS | _RESILIENCE_ALGORITHMS
+                            | _COMPONENT_QUERY_ALGORITHMS
                             | _CLUSTERING_INPUT_ALGORITHMS
                             | _ISOMORPHISM_INPUT_ALGORITHMS
                             | _MATCHING_PREDICATE_ALGORITHMS

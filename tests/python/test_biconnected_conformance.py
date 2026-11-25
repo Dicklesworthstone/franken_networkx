@@ -356,3 +356,142 @@ def test_articulation_points_empty_graph_yields_nothing():
 def test_bridges_empty_graph_yields_nothing():
     assert list(fnx.bridges(fnx.Graph())) == \
         list(nx.bridges(nx.Graph())) == []
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend", "cached-backend"])
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+@pytest.mark.parametrize("algorithm", [
+    "is_biconnected", "biconnected_components", "biconnected_component_edges",
+    "articulation_points",
+])
+def test_biconnected_family_uses_public_adjacency_rows(route, graph_class, algorithm):
+    def run(reference):
+        library = fnx if route == "native" and not reference else nx
+        calls = []
+        logical = getattr(nx, graph_class)([(0, 1), (1, 2)])
+
+        class PublicRows(getattr(library, graph_class)):
+            active = False
+
+            def __getitem__(self, node):
+                if not self.active:
+                    return super().__getitem__(node)
+                calls.append(node)
+                return logical[node]
+
+        graph = PublicRows([(0, 1), (1, 2), (2, 0)])
+        if route == "cached-backend" and not reference:
+            nx.relabel_nodes(graph, {}, backend="franken_networkx")
+            assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+        graph.active = True
+        calls.clear()
+        if reference:
+            result = getattr(nx, algorithm)(graph)
+        elif route in {"backend", "cached-backend"}:
+            result = getattr(nx, algorithm)(graph, backend="franken_networkx")
+        else:
+            result = getattr(fnx, algorithm)(graph)
+        if algorithm != "is_biconnected":
+            result = list(result)
+        return result, calls
+
+    assert run(False) == run(True)
+
+
+@pytest.mark.parametrize("route", ["native", "networkx", "backend", "cached-backend"])
+def test_biconnected_preserves_public_row_exception(route):
+    library = fnx if route == "native" else nx
+    error = nx.NetworkXNotImplemented("public adjacency provider failed")
+    calls = []
+
+    class PublicRows(library.Graph):
+        active = False
+
+        def __getitem__(self, node):
+            if not self.active:
+                return super().__getitem__(node)
+            calls.append(node)
+            raise error
+
+    graph = PublicRows([(0, 1), (1, 2), (2, 0)])
+    if route == "cached-backend":
+        nx.relabel_nodes(graph, {}, backend="franken_networkx")
+        assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+    graph.active = True
+    calls.clear()
+    with pytest.raises(nx.NetworkXNotImplemented) as caught:
+        if route in {"backend", "cached-backend"}:
+            nx.is_biconnected(graph, backend="franken_networkx")
+        else:
+            fnx.is_biconnected(graph)
+    assert caught.value is error
+    assert calls == [0]
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+def test_biconnected_checks_directed_provider_before_inner_traversal(graph_class):
+    def run(library):
+        graph = getattr(library, graph_class)([(0, 1), (1, 2), (2, 0)])
+        calls = []
+
+        def directed():
+            calls.append("directed")
+            return len(calls) > 1
+
+        graph.is_directed = directed
+        with pytest.raises(nx.NetworkXNotImplemented) as caught:
+            library.is_biconnected(graph)
+        return calls, caught.value.args
+
+    assert run(fnx) == run(nx)
+
+
+def test_biconnected_stops_after_second_completed_component():
+    def run(library):
+        calls = []
+
+        class LocalRows(library.Graph):
+            def __getitem__(self, node):
+                calls.append(node)
+                if node >= 100:
+                    raise AssertionError("visited an irrelevant third component")
+                return super().__getitem__(node)
+
+        graph = LocalRows([(0, 1), (2, 3), (100, 101)])
+        return library.is_biconnected(graph), calls
+
+    assert run(fnx) == run(nx) == (False, [0, 1, 2, 3])
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+def test_biconnected_honors_replaced_class_row_reader(monkeypatch, graph_class):
+    graph_type = getattr(fnx, graph_class)
+    graph = graph_type([(0, 1), (1, 2), (2, 0)])
+    logical = getattr(nx, graph_class)([(0, 1), (1, 2)])
+    calls = []
+
+    def public_rows(self, node):
+        assert self is graph
+        calls.append(node)
+        return logical[node]
+
+    monkeypatch.setattr(graph_type, "__getitem__", public_rows)
+    assert not fnx.is_biconnected(graph)
+    assert calls == [0, 1, 2]
+
+
+@pytest.mark.parametrize("graph_class", ["Graph", "MultiGraph"])
+def test_plain_biconnected_query_retains_native_kernel(monkeypatch, graph_class):
+    namespace = fnx.is_biconnected.__globals__
+    raw = namespace["_raw_is_biconnected"]
+    calls = []
+
+    def native(graph):
+        calls.append(graph)
+        return raw(graph)
+
+    monkeypatch.setitem(namespace, "_raw_is_biconnected", native)
+    graph = getattr(fnx, graph_class)([(0, 1), (1, 2), (2, 0)])
+    assert fnx.is_biconnected(graph)
+    assert fnx.is_biconnected(graph)
+    assert calls == [graph, graph]
