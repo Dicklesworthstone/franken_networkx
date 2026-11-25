@@ -3094,7 +3094,9 @@ impl EdgeListEngine {
                                 });
                             }
                         };
-                        if xml_local_name(attr.key.as_ref()) == b"defaultedgetype" {
+                        // XML namespaces do not qualify unprefixed attributes.
+                        // An extension's local name is not a GEXF field.
+                        if attr.key.as_ref() == b"defaultedgetype" {
                             let value = xml_attr_value(&attr, reader.decoder())?;
                             return match value.trim().to_ascii_lowercase().as_str() {
                                 "directed" | "mutual" => Ok(GexfDirectedFlag {
@@ -3313,7 +3315,7 @@ impl EdgeListEngine {
             b"graph" => {
                 for attr in element.attributes() {
                     let attr = parse_xml_attr(attr, "read_gexf", "gexf graph attribute")?;
-                    if xml_local_name(attr.key.as_ref()) == b"name" {
+                    if attr.key.as_ref() == b"name" {
                         let value = xml_attr_value(&attr, decoder)?;
                         if !value.is_empty() {
                             graph_attrs.insert("name".to_owned(), CgseValue::String(value));
@@ -3325,7 +3327,7 @@ impl EdgeListEngine {
                 let mut class = String::new();
                 for attr in element.attributes() {
                     let attr = parse_xml_attr(attr, "read_gexf", "gexf attributes attribute")?;
-                    if xml_local_name(attr.key.as_ref()) == b"class" {
+                    if attr.key.as_ref() == b"class" {
                         class = xml_attr_value(&attr, decoder)?;
                     }
                 }
@@ -3337,7 +3339,7 @@ impl EdgeListEngine {
                 let mut attr_type = "string".to_owned();
                 for attr in element.attributes() {
                     let attr = parse_xml_attr(attr, "read_gexf", "gexf attribute attribute")?;
-                    match xml_local_name(attr.key.as_ref()) {
+                    match attr.key.as_ref() {
                         b"id" => id = xml_attr_value(&attr, decoder)?,
                         b"title" => title = xml_attr_value(&attr, decoder)?,
                         b"type" => attr_type = xml_attr_value(&attr, decoder)?,
@@ -3377,7 +3379,7 @@ impl EdgeListEngine {
                 let mut label: Option<String> = None;
                 for attr in element.attributes() {
                     let attr = parse_xml_attr(attr, "read_gexf", "gexf node attribute")?;
-                    match xml_local_name(attr.key.as_ref()) {
+                    match attr.key.as_ref() {
                         b"id" => id = xml_attr_value(&attr, decoder)?,
                         b"label" => label = Some(xml_attr_value(&attr, decoder)?),
                         _ => {}
@@ -3410,7 +3412,7 @@ impl EdgeListEngine {
                 *current_edge_skip = false;
                 for attr in element.attributes() {
                     let attr = parse_xml_attr(attr, "read_gexf", "gexf edge attribute")?;
-                    match xml_local_name(attr.key.as_ref()) {
+                    match attr.key.as_ref() {
                         b"source" => source = xml_attr_value(&attr, decoder)?,
                         b"target" => target = xml_attr_value(&attr, decoder)?,
                         b"id" => {
@@ -3481,7 +3483,7 @@ impl EdgeListEngine {
                 let mut raw_value = String::new();
                 for attr in element.attributes() {
                     let attr = parse_xml_attr(attr, "read_gexf", "gexf attvalue attribute")?;
-                    match xml_local_name(attr.key.as_ref()) {
+                    match attr.key.as_ref() {
                         b"for" => attr_id = xml_attr_value(&attr, decoder)?,
                         b"value" => raw_value = xml_attr_value(&attr, decoder)?,
                         _ => {}
@@ -7892,6 +7894,63 @@ mod tests {
             node_attrs.get("label"),
             Some(&CgseValue::String("x y z w \nq".to_owned()))
         );
+    }
+
+    #[test]
+    fn gexf_qualified_attributes_cannot_replace_core_fields() {
+        let input = r#"<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:ext="urn:extension">
+<graph ext:defaultedgetype="directed" defaultedgetype="undirected"
+name="selected" ext:name="wrong"><attributes class="node" ext:class="edge">
+<attribute id="rank" ext:id="" title="rank" ext:title=""
+type="long" ext:type="unsupported"/></attributes><nodes>
+<node id="a" ext:id="" label="A" ext:label="wrong"><attvalues>
+<attvalue for="rank" ext:for="" value="5" ext:value="invalid"/>
+</attvalues></node><node id="b" label="B"/></nodes><edges>
+<edge id="ab" ext:id="wrong" source="a" ext:source="" target="b" ext:target=""
+weight="2" ext:weight="7" label="AB" ext:label="wrong"/>
+</edges></graph></gexf>"#;
+        for mode in [CompatibilityMode::Strict, CompatibilityMode::Hardened] {
+            for validation_only in [false, true] {
+                let report = EdgeListEngine::new(mode)
+                    .read_gexf_report(input, validation_only)
+                    .expect("qualified fields must not alter native validation");
+                assert!(report.warnings.is_empty());
+                assert_eq!(report.graph.nodes_ordered(), vec!["a", "b"]);
+                assert_eq!(report.graph.edge_count(), 1);
+                assert_eq!(
+                    report.graph_attrs.get("name"),
+                    Some(&CgseValue::String("selected".to_owned()))
+                );
+                let node = report.graph.node_attrs("a").expect("original node id");
+                assert_eq!(node.get("rank"), Some(&CgseValue::Int(5)));
+                assert_eq!(node.get("label"), Some(&CgseValue::String("A".to_owned())));
+                let edge = report.graph.edge_attrs("a", "b").expect("original endpoints");
+                assert_eq!(edge.get("id"), Some(&CgseValue::String("ab".to_owned())));
+                assert_eq!(edge.get("label"), Some(&CgseValue::String("AB".to_owned())));
+                assert_eq!(edge.get("weight"), Some(&CgseValue::Float(2.0)));
+            }
+        }
+    }
+
+    #[test]
+    fn gexf_qualified_fields_do_not_supply_missing_required_attributes() {
+        for input in [
+            r#"<gexf xmlns:ext="urn:extension"><graph><nodes>
+<node ext:id="a"/></nodes></graph></gexf>"#,
+            r#"<gexf xmlns:ext="urn:extension"><graph><edges>
+<edge ext:source="a" target="b"/></edges></graph></gexf>"#,
+            r#"<gexf xmlns:ext="urn:extension"><graph><edges>
+<edge source="a" ext:target="b"/></edges></graph></gexf>"#,
+        ] {
+            for validation_only in [false, true] {
+                assert!(
+                    EdgeListEngine::strict()
+                        .read_gexf_report(input, validation_only)
+                        .is_err(),
+                    "qualified extension fields are not GEXF fields: {input}"
+                );
+            }
+        }
     }
 
     #[test]

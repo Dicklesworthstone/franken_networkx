@@ -4467,6 +4467,7 @@ def _gexf_scan_document(raw_bytes):
         "native_required": False,
         "node_depth": 0,
         "edge_depth": 0,
+        "edge_seen": False,
         "missing_label": False,
         "directed": False,
         "attr_class": None,
@@ -4479,6 +4480,15 @@ def _gexf_scan_document(raw_bytes):
         state["xml_depth"] += 1
         tag = _xml_local_name(name)
         namespace = name.rsplit("}", 1)[0] if "}" in name else ""
+        if tag in ("graph", "attributes", "attribute", "node", "edge", "attvalue") and any(
+            "}" in attribute for attribute in attrs
+        ):
+            # XML default namespaces apply to elements, never attributes.
+            # Qualified extension attributes such as ext:id or ext:source
+            # cannot replace the unqualified GEXF fields. Keep these records
+            # on the namespace-aware decoder, including after scalar repair.
+            state["needs_decoder"] = True
+            state["lossy_recovery"] = True
         # The complete reader uses namespace-qualified direct children and
         # only the first data container of each owner. The native
         # projection accepts local record names throughout its graph scope;
@@ -4537,6 +4547,7 @@ def _gexf_scan_document(raw_bytes):
                 state["lossy_recovery"] = True
         elif tag == "edge":
             state["edge_depth"] += 1
+            state["edge_seen"] = True
             source = attrs.get("source")
             target = attrs.get("target")
             if not source or not target:
@@ -4568,6 +4579,12 @@ def _gexf_scan_document(raw_bytes):
                 # string projection as the complete numeric graph.
                 state["lossy_recovery"] = True
         elif tag == "node":
+            if state["edge_seen"]:
+                # The complete reader inserts all declared nodes before
+                # edges, regardless of the XML container order. A streaming
+                # projection may already have inserted implicit endpoints.
+                state["needs_decoder"] = True
+                state["lossy_recovery"] = True
             if not attrs.get("id"):
                 state["native_required"] = True
             if state["node_depth"] > 0 or attrs.get("pid") is not None:

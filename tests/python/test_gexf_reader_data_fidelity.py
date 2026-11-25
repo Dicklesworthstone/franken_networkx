@@ -331,6 +331,91 @@ def test_gexf_scope_inspection_keeps_canonical_static_inputs_native(monkeypatch,
     assert native_inputs == [payload]
 
 
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+@pytest.mark.parametrize("directed", (False, True))
+@pytest.mark.parametrize("qualified_first", (False, True))
+@pytest.mark.parametrize("field", (
+    "direction", "name", "node-id", "node-label", "edge-id", "source",
+    "target", "weight", "edge-label",
+))
+def test_gexf_qualified_attributes_cannot_override_core_fields(
+    mode, directed, qualified_first, field,
+):
+    direction = "directed" if directed else "undirected"
+    graph = f'<graph defaultedgetype="{direction}" name="">'
+    nodes = '<nodes><node id="a" label="A"/><node id="b" label="B"/></nodes>'
+    edges = '<edges><edge id="ab" source="a" target="b" weight="2" label="AB"/></edges>'
+    owner, name, value, shadow = {
+        "direction": ("graph", "defaultedgetype", direction,
+                      "undirected" if directed else "directed"),
+        "name": ("graph", "name", "", "extension graph"),
+        "node-id": ("nodes", "id", "a", "ghost"),
+        "node-label": ("nodes", "label", "A", "overwritten"),
+        "edge-id": ("edges", "id", "ab", "wrong"),
+        "source": ("edges", "source", "a", "ghost"),
+        "target": ("edges", "target", "b", "ghost"),
+        "weight": ("edges", "weight", "2", "7"),
+        "edge-label": ("edges", "label", "AB", "overwritten"),
+    }[field]
+    core = f'{name}="{value}"'
+    qualified = f'ext:{name}="{shadow}"'
+    replacement = f"{qualified} {core}" if qualified_first else f"{core} {qualified}"
+    fragments = {"graph": graph, "nodes": nodes, "edges": edges}
+    fragments[owner] = fragments[owner].replace(core, replacement, 1)
+    payload = (
+        '<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:ext="urn:extension">'
+        + fragments["graph"] + fragments["nodes"] + fragments["edges"]
+        + '</graph></gexf>'
+    ).encode()
+    expected = nx.read_gexf(BytesIO(payload))
+    options = {} if mode is None else {"mode": mode}
+    stream = BytesIO(payload)
+    actual = fnx.read_gexf(stream, **options)
+    _assert_same(actual, expected)
+    assert not stream.closed
+    assert stream.getvalue() == payload
+    if mode is not None:
+        assert actual.mode == mode
+        assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+@pytest.mark.parametrize("directed", (False, True))
+def test_gexf_edges_before_nodes_preserve_declared_node_order(mode, directed):
+    direction = "directed" if directed else "undirected"
+    payload = (
+        '<gexf xmlns="http://www.gexf.net/1.2draft">'
+        f'<graph defaultedgetype="{direction}">'
+        '<edges><edge id="ba" source="b" target="a"/>'
+        '<edge id="ca" source="implicit" target="a"/></edges><nodes>'
+        '<node id="a" label="A"/><node id="isolated" label="I"/>'
+        '<node id="b" label="B"/></nodes></graph></gexf>'
+    ).encode()
+    expected = nx.read_gexf(BytesIO(payload))
+    options = {} if mode is None else {"mode": mode}
+    actual = fnx.read_gexf(BytesIO(payload), **options)
+    _assert_same(actual, expected)
+    assert list(actual) == ["a", "isolated", "b", "implicit"]
+
+
+@pytest.mark.parametrize("mode", ("strict", "hardened"))
+def test_gexf_qualified_empty_fields_do_not_trigger_native_recovery(mode):
+    payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft" xmlns:ext="urn:extension">
+      <graph defaultedgetype="directed"><attributes class="node" ext:class="edge">
+        <attribute id="rank" ext:id="" title="rank" ext:title=""
+          type="long" ext:type="unsupported"/></attributes><nodes>
+        <node id="a" ext:id="" label="A"><attvalues>
+          <attvalue for="rank" ext:for="" value="5" ext:value="invalid"/>
+        </attvalues></node><node id="b" label="B"/></nodes>
+        <edges><edge id="ab" source="a" ext:source="" target="b" ext:target=""/>
+        </edges></graph></gexf>'''
+    expected = nx.read_gexf(BytesIO(payload))
+    actual = fnx.read_gexf(BytesIO(payload), mode=mode)
+    _assert_same(actual, expected)
+    assert actual.mode == mode
+    assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
 def test_gexf_scope_scalar_recovery_keeps_nested_parent_data():
     payload = b'''<gexf xmlns="http://www.gexf.net/1.2draft">
       <graph defaultedgetype="undirected"><attributes class="node">
