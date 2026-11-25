@@ -31,6 +31,11 @@ def dispersion(
     float or dict
     """
     _validate_backend_dispatch_keywords("dispersion", backend, backend_kwargs)
+    if u is None and v is not None:
+        # Either single-endpoint spelling selects that endpoint's outgoing
+        # neighborhood, including on directed graphs. Keep the same local
+        # query and result order instead of computing the whole-graph map.
+        u, v = v, None
     if u is not None and v is not None:
         return _dispersion_pair(G, u, v, normalized, alpha, b, c)
 
@@ -39,6 +44,19 @@ def dispersion(
     # raises KeyError; fnx's ``G.neighbors(u)`` raised NetworkXError.
     if u is not None and u not in G:
         raise KeyError(u)
+    # The native kernels normalize in f64. Only the default formula has the
+    # same scalar contract as that route: coercing arbitrary parameters loses
+    # exact arithmetic and turns Python's complex powers or overflow errors
+    # into NaN/inf. Nondefault parameters retain the owned cached-pair path.
+    native_normalization = (
+        normalized is True
+        and type(alpha) is float
+        and alpha == 1.0
+        and type(b) is float
+        and b == 0.0
+        and type(c) is float
+        and c == 0.0
+    )
     # br-r37-c1-o53cp: native bitset kernel for the full dict form. The
     # Backstrom-Kleinberg ``disp`` count is an order-invariant integer and the
     # predicate is symmetric in the common-neighbour pair, so the result is
@@ -50,14 +68,14 @@ def dispersion(
     if (
         u is None
         and v is None
-        and normalized
+        and native_normalization
         and not G.is_directed()
         and not G.is_multigraph()
         and number_of_selfloops(G) == 0
     ):
         try:
             return _fnx.dispersion_full_rust(
-                _coerce_arg_to_fnx_graph(G), float(alpha), float(b), float(c)
+                _coerce_arg_to_fnx_graph(G), alpha, b, c
             )
         except Exception:
             pass  # fall through to the Python path on any kernel issue
@@ -89,14 +107,14 @@ def dispersion(
         # gate as the full-dict kernel). Falls through to the Python path on any
         # kernel issue (e.g. the gate not met or a directed/multi graph).
         if (
-            normalized
+            native_normalization
             and not G.is_directed()
             and not G.is_multigraph()
             and number_of_selfloops(G) == 0
         ):
             try:
                 _row = _fnx.dispersion_node_rust(
-                    _coerce_arg_to_fnx_graph(G), u, float(alpha), float(b), float(c)
+                    _coerce_arg_to_fnx_graph(G), u, alpha, b, c
                 )
                 if _row is not None:
                     return _row

@@ -3889,3 +3889,22 @@ their existing behavior.
 Regression coverage lives in
 `tests/python/test_current_flow_centrality_parity.py`, including normalized
 and raw scores, output key order, degree ties and loop-free native controls.
+
+## 119. Dispersion Endpoint Selection and Numeric Domains
+
+Dispersion supports four selections. With neither endpoint it returns an
+ordered nested node/neighbor map; with either `u` alone or `v` alone it
+returns an ordered flat map centered on that endpoint's outgoing neighborhood.
+With both endpoints it returns a scalar. Single-endpoint queries on isolates
+return empty maps, and missing endpoints raise `KeyError`.
+
+Normalization retains Python arithmetic and result types for Decimal,
+Fraction, wide integer and other nondefault scalar parameters. Negative-base
+fractional powers preserve complex results; overflow and zero-to-negative
+power errors propagate. When embeddedness plus `c` is zero, the numerator
+is returned without division.
+
+The existing native whole-graph and ego kernels remain admitted for the
+default float formula on their supported graph domain. Other formulas reuse
+the owned cached-pair implementation without coercing parameters to floats.
+Regressions are in `tests/python/test_misc_algorithms_conformance.py`.

@@ -21,6 +21,8 @@ coverage:
 
 from __future__ import annotations
 
+from decimal import Decimal
+from fractions import Fraction
 import math
 import warnings
 
@@ -244,6 +246,103 @@ def test_dispersion_pair_matches_networkx(name, builder, u, v):
     fr = fnx.dispersion(g_fnx, u=u, v=v)
     nr = nx.dispersion(g_nx, u=u, v=v)
     assert _equiv(fr, nr)
+
+
+def _dispersion_graph(module, graph_type="Graph"):
+    graph = getattr(module, graph_type)()
+    graph.add_edges_from([
+        (0, 1), (0, 2), (0, 3), (1, 2), (1, 3),
+        (2, 4), (3, 4), (1, 5),
+    ])
+    graph.add_node("isolated")
+    if graph.is_multigraph():
+        graph.add_edge(0, 1)
+    return graph
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("target", [1, "isolated"])
+@pytest.mark.parametrize("self_loop", [False, True])
+@pytest.mark.parametrize("options", [
+    {}, {"normalized": False}, {"alpha": 2, "b": 1, "c": 1},
+], ids=["default", "unnormalized", "custom-formula"])
+def test_dispersion_target_only_matches_networkx(graph_type, target, self_loop, options):
+    actual_graph = _dispersion_graph(fnx, graph_type)
+    expected_graph = _dispersion_graph(nx, graph_type)
+    if self_loop:
+        actual_graph.add_edge(1, 1)
+        expected_graph.add_edge(1, 1)
+
+    actual = fnx.dispersion(actual_graph, v=target, **options)
+    expected = nx.dispersion(expected_graph, v=target, **options)
+    assert list(actual) == list(expected) == list(expected_graph[target])
+    assert actual == expected
+    assert actual == fnx.dispersion(actual_graph, u=target, **options)
+    for node in expected:
+        assert type(actual[node]) is type(expected[node])
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+def test_dispersion_missing_target_raises_networkx_key_error(graph_type):
+    with pytest.raises(KeyError) as expected:
+        nx.dispersion(_dispersion_graph(nx, graph_type), v="missing")
+    with pytest.raises(KeyError) as actual:
+        fnx.dispersion(_dispersion_graph(fnx, graph_type), v="missing")
+    assert actual.value.args == expected.value.args == ("missing",)
+
+
+@pytest.mark.parametrize("selection", [{}, {"u": 1}, {"v": 1}], ids=["all", "source", "target"])
+@pytest.mark.parametrize("parameters", [
+    {"alpha": Decimal("1"), "b": Decimal("0.125"), "c": Decimal("0.5")},
+    {"alpha": 2, "b": Fraction(1, 3), "c": Fraction(2, 3)},
+    {"alpha": 1, "b": 2**80 + 1, "c": 0},
+    {"alpha": 0.5, "b": -2.0, "c": 0.0},
+], ids=["decimal", "fraction", "wide-integer", "complex-power"])
+def test_dispersion_normalization_preserves_scalar_arithmetic(selection, parameters):
+    actual = fnx.dispersion(_dispersion_graph(fnx), **selection, **parameters)
+    expected = nx.dispersion(_dispersion_graph(nx), **selection, **parameters)
+    assert list(actual) == list(expected)
+    actual_rows = actual.values() if not selection else [actual]
+    expected_rows = expected.values() if not selection else [expected]
+    for actual_row, expected_row in zip(actual_rows, expected_rows):
+        assert list(actual_row) == list(expected_row)
+        assert actual_row == expected_row
+        for node in expected_row:
+            assert type(actual_row[node]) is type(expected_row[node])
+
+
+@pytest.mark.parametrize("selection", [{}, {"u": 1}, {"v": 1}], ids=["all", "source", "target"])
+@pytest.mark.parametrize("parameters,error", [
+    ({"alpha": 2.0, "b": 1e308}, OverflowError),
+    ({"alpha": -1.0}, ZeroDivisionError),
+])
+def test_dispersion_normalization_preserves_python_errors(selection, parameters, error):
+    with pytest.raises(error) as expected:
+        nx.dispersion(_dispersion_graph(nx), **selection, **parameters)
+    with pytest.raises(error) as actual:
+        fnx.dispersion(_dispersion_graph(fnx), **selection, **parameters)
+    assert actual.value.args == expected.value.args
+
+
+@pytest.mark.parametrize("selection", [{}, {"u": 1}, {"v": 1}], ids=["all", "source", "target"])
+def test_dispersion_default_formula_keeps_native_map_routes(monkeypatch, selection):
+    name = "dispersion_node_rust" if selection else "dispersion_full_rust"
+    native = getattr(fnx._fnx, name)
+    calls = []
+
+    def tracked(*args):
+        calls.append(args)
+        return native(*args)
+
+    monkeypatch.setattr(fnx._fnx, name, tracked)
+    graph = _dispersion_graph(fnx)
+    actual = fnx.dispersion(graph, **selection)
+    expected = nx.dispersion(_dispersion_graph(nx), **selection)
+    assert actual == expected
+    assert len(calls) == 1
+    assert calls[0][0] is graph
+    if selection:
+        assert calls[0][1] == 1
 
 
 # ---------------------------------------------------------------------------
