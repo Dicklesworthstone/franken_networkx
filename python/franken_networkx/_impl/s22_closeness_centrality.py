@@ -571,21 +571,9 @@ def katz_centrality_many(
         for beta in queries
     ) and _spectral_centrality_can_snapshot(G, None, weight)
     if can_snapshot and weight is None:
-        # A non-builtin key may compare itself with None during the native
-        # presence probe. Inspect keys without hashing before sharing a graph
-        # snapshot across queries that can otherwise observe those callbacks.
-        for _, _, attrs in G.edges(data=True):
-            if not _attr_dict_has_plain_reads(attrs) or any(
-                type(key) not in plain_keys for key in attrs
-            ):
-                return _solve_queries()
-        has_none_key = (
-            _native_has_none_edge_attr_key(G)
-            if _native_has_none_edge_attr_key is not None else None
-        )
-        if has_none_key is None:
-            has_none_key = _graph_has_edge_attribute(G, None)
-        can_snapshot = not has_none_key
+        # Share the single-query proof: inspecting mirrors must not compare
+        # arbitrary keys with None or invoke edge-dictionary read providers.
+        can_snapshot = _can_use_unit_none_weight(G)
     if not can_snapshot:
         return _solve_queries()
 
@@ -778,13 +766,10 @@ def katz_centrality(
         # A literal None attribute is a real weight, including with every
         # public parameter left at its default. The native unweighted kernel
         # and sparse exporter can only represent the absent-key case.
-        has_none_key = (
-            _native_has_none_edge_attr_key(G)
-            if _native_has_none_edge_attr_key is not None else None
-        )
-        if has_none_key is None:
-            has_none_key = _graph_has_edge_attribute(G, None)
-        can_snapshot = not has_none_key
+        # A membership probe can also call a colliding key's equality under
+        # a native graph borrow. Prove ordinary default reads without calling
+        # those protocols; otherwise leave them to the owned live iteration.
+        can_snapshot = _can_use_unit_none_weight(G)
     if not can_snapshot:
         return _katz_centrality_inproc(
             G, alpha=alpha, beta=beta, max_iter=max_iter, tol=tol,

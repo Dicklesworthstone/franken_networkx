@@ -1821,3 +1821,147 @@ def test_spectral_node_iteration_does_not_probe_subclass_storage(
         )
         assert list(iterator) == [0, 1, 2]
         assert events == []
+
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("batched", [False, True])
+@pytest.mark.parametrize("raises", [False, True])
+def test_katz_none_weight_key_callbacks_keep_live_topology(
+    fnx, nx, graph_type, batched, raises
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 3), (3, 0)])
+        events = []
+        armed = changed = False
+
+        class Key:
+            def __hash__(self):
+                return hash(None)
+
+            def __eq__(self, other):
+                nonlocal changed
+                if armed and other is None:
+                    events.append("read-none")
+                    if not changed:
+                        changed = True
+                        # The current row is node 0's. Changing a later row
+                        # is legal and must affect this same power iteration.
+                        graph.add_edge(1, 3)
+                        if raises:
+                            raise LookupError("Katz None-key callback")
+                return self is other
+
+        graph[0][1][Key()] = 7
+        armed = True
+        betas = [1.0, 2.0] if batched else [1.0]
+
+        def solve():
+            if batched and module is fnx:
+                return module.katz_centrality_many(graph, betas)
+            return [module.katz_centrality(graph, beta=beta) for beta in betas]
+
+        if raises:
+            with pytest.raises(LookupError, match="^Katz None-key callback$"):
+                solve()
+            result = None
+        else:
+            result = solve()
+        return result, events, changed, graph.has_edge(1, 3)
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert actual[1:] == expected[1:]
+    assert actual[1]
+    assert actual[2:] == (True, True)
+    if raises:
+        assert actual[0] is expected[0] is None
+    else:
+        assert len(actual[0]) == len(expected[0])
+        for scores, wanted in zip(actual[0], expected[0]):
+            assert list(scores) == list(wanted)
+            assert scores == pytest.approx(wanted, rel=1e-12, abs=1e-12)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("batched", [False, True])
+def test_katz_beta_validation_precedes_none_weight_key_protocols(
+    fnx, nx, graph_type, batched
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 0)])
+        events = []
+        armed = False
+
+        class Key:
+            def __hash__(self):
+                return hash(None)
+
+            def __eq__(self, other):
+                if armed and other is None:
+                    events.append("read-none")
+                    raise AssertionError("beta validation must precede edge reads")
+                return self is other
+
+        graph[0][1][Key()] = 7
+        armed = True
+        with pytest.raises(
+            module.NetworkXError, match="beta dictionary must have a value for every node"
+        ) as error:
+            if batched and module is fnx:
+                module.katz_centrality_many(graph, [{}, 1.0])
+            else:
+                module.katz_centrality(graph, beta={})
+        return error.value.args, events
+
+    expected = outcome(nx)
+    actual = outcome(fnx)
+    assert actual == expected
+    assert actual[1] == []
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("batched", [False, True])
+def test_katz_none_weight_retains_edge_dictionary_reads(
+    fnx, nx, monkeypatch, graph_type, batched
+):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        reads = []
+
+        def read(attrs, key, default=None):
+            reads.append(key)
+            return dict.get(attrs, "factor" if key is None else key, default)
+
+        class EdgeAttrs(dict):
+            __slots__ = ()
+            get = read
+
+        if module is nx:
+            graph.edge_attr_dict_factory = EdgeAttrs
+        graph.add_edges_from([
+            (0, 1, {"factor": 0.5}),
+            (1, 2, {"factor": 0.25}),
+            (2, 0, {"factor": 0.75}),
+            (2, 3, {"factor": 0.5}),
+        ])
+        reads.clear()
+        betas = [1.0, 2.0] if batched else [1.0]
+        with monkeypatch.context() as patch:
+            if module is fnx:
+                for cls in {type(attrs) for _, _, attrs in graph.edges(data=True)}:
+                    patch.setattr(cls, "get", read)
+            if batched and module is fnx:
+                result = module.katz_centrality_many(graph, betas)
+            else:
+                result = [module.katz_centrality(graph, beta=beta) for beta in betas]
+        return result, reads
+
+    expected, expected_reads = outcome(nx)
+    actual, actual_reads = outcome(fnx)
+    assert actual_reads == expected_reads
+    assert expected_reads and all(key is None for key in expected_reads)
+    assert len(actual) == len(expected)
+    for scores, wanted in zip(actual, expected):
+        assert list(scores) == list(wanted)
+        assert scores == pytest.approx(wanted, rel=1e-12, abs=1e-12)
