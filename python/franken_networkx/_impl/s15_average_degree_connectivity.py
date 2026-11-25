@@ -984,7 +984,7 @@ def _link_prediction_native_scores(G, pairs, metric):
     rows = {}
     plain_keys = (str, int, bool)
 
-    def predict(u, v):
+    def predict(position, u, v):
         nonlocal token, rows
         if (
             type(pairs) not in (list, tuple)
@@ -997,16 +997,21 @@ def _link_prediction_native_scores(G, pairs, metric):
         ):
             return _link_prediction_score(G, u, v, metric)
         current = (G.nodes_seq, G.edges_seq)
-        if current != token:
+        if current != token or (u, v) not in rows:
             token = current
             rows = {}
             # The raw reader returns display objects without hashing them or
             # constructing attribute dictionaries. Inspect only endpoints'
             # rows: a five-pair query must not scan unrelated graph nodes.
+            # Keep native work bounded by demand too: a consumer may request
+            # one score and close, or change the graph before every score.
+            # Rebuilding the entire pair list then makes a live traversal
+            # quadratic. The position follows the actual builtin iterator,
+            # including list insertions/removals between yielded scores.
             if not G._native_has_adj_py_keys():
                 batch = []
                 safe_rows = {}
-                for pair in pairs:
+                for pair in pairs[position:position + 256]:
                     if type(pair) not in (list, tuple) or len(pair) != 2:
                         continue
                     a, b = pair
@@ -1053,8 +1058,12 @@ def _link_prediction_native_scores(G, pairs, metric):
             return sum(1 / math.log(degree) for degree in value[0])
         return sum(1 / degree for degree in value[0])
 
-    # Capture iter(pairs) now, like the reference's generator expression.
-    return ((u, v, predict(u, v)) for u, v in pairs)
+    # enumerate captures iter(pairs) now, like the reference's generator
+    # expression. It records consumption, not a snapshot of the caller's list.
+    return (
+        (u, v, predict(position, u, v))
+        for position, (u, v) in enumerate(pairs)
+    )
 
 
 def _link_prediction_validate_ebunch(G, ebunch):

@@ -534,6 +534,97 @@ def test_explicit_link_prediction_admission_visits_only_queried_rows(name, monke
 
 
 @pytest.mark.parametrize("name", _FUNCS)
+@pytest.mark.parametrize("mutate", [False, True])
+def test_link_prediction_native_work_is_bounded_by_consumption(name, mutate, monkeypatch):
+    """A larger validated queue must not increase work for three requested scores."""
+    scope = fnx._link_prediction_native_scores.__globals__
+    raw_name = {
+        "jaccard_coefficient": "_raw_link_pred_jaccard_counts",
+        "preferential_attachment": "_raw_preferential_attachment",
+        "resource_allocation_index": "_raw_link_pred_common_neighbor_degrees",
+        "adamic_adar_index": "_raw_link_pred_common_neighbor_degrees",
+    }[name]
+    native = scope[raw_name]
+    work = []
+
+    def score_batch(graph, pairs):
+        work.append(len(pairs))
+        return native(graph, pairs)
+
+    monkeypatch.setitem(scope, raw_name, score_batch)
+    workloads = []
+    for size in (2048, 8192):
+        graph, reference = _live_graph(fnx), _live_graph(nx)
+        pairs = [(0, 2), (0, 3), (0, 4), (1, 3)] * (size // 4)
+        work.clear()
+        actual = getattr(fnx, name)(graph, pairs)
+        expected = getattr(nx, name)(reference, pairs)
+        assert not work, "eager pair validation must not score candidates"
+        for step in range(3):
+            assert next(actual) == next(expected)
+            if mutate:
+                graph.add_edge(step, 5)
+                reference.add_edge(step, 5)
+        actual.close()
+        expected.close()
+        workloads.append(tuple(work))
+    assert workloads[0] == workloads[1]
+    assert 0 < sum(workloads[0]) < 2048
+    assert len(workloads[0]) == (3 if mutate else 1)
+
+
+@pytest.mark.parametrize("name", _FUNCS)
+@pytest.mark.parametrize("change", ["replace", "append", "remove", "reverse", "inner", "topology"])
+def test_link_prediction_batches_follow_live_list_position(name, change, monkeypatch):
+    """Advancing across batches must retain list-iterator and graph semantics."""
+    scope = fnx._link_prediction_native_scores.__globals__
+    raw_name = {
+        "jaccard_coefficient": "_raw_link_pred_jaccard_counts",
+        "preferential_attachment": "_raw_preferential_attachment",
+        "resource_allocation_index": "_raw_link_pred_common_neighbor_degrees",
+        "adamic_adar_index": "_raw_link_pred_common_neighbor_degrees",
+    }[name]
+    native = scope[raw_name]
+    batches = []
+
+    def score_batch(graph, pairs):
+        batches.append(len(pairs))
+        return native(graph, pairs)
+
+    def unexpected_fallback(*args):
+        raise AssertionError("ordinary pairs must retain native scoring across batches")
+
+    monkeypatch.setitem(scope, raw_name, score_batch)
+    monkeypatch.setitem(scope, "_link_prediction_score", unexpected_fallback)
+
+    def run(module):
+        graph = module.Graph()
+        graph.add_edges_from((node, (node + 1) % 48) for node in range(48))
+        pairs = [(u, v) for u in range(48) for v in range(u + 1, 48)]
+        if change == "inner":
+            pairs = [list(pair) for pair in pairs]
+        scores = getattr(module, name)(graph, pairs)
+        prefix = [next(scores) for _ in range(300)]
+        if change == "replace":
+            pairs[300] = (0, 47)
+        elif change == "append":
+            pairs.append((0, 47))
+        elif change == "remove":
+            pairs.pop(0)
+        elif change == "reverse":
+            pairs.reverse()
+        elif change == "inner":
+            pairs[300][:] = [0, 47]
+        else:
+            graph.add_edge(0, 5)
+        return prefix + list(scores)
+
+    assert run(fnx) == run(nx)
+    assert len(batches) > 1
+    assert max(batches) < 300
+
+
+@pytest.mark.parametrize("name", _FUNCS)
 def test_link_prediction_does_not_hash_a_later_pairs_custom_neighbors(name):
     events = []
 
