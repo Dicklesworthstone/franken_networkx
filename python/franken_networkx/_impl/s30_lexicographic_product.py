@@ -1304,7 +1304,7 @@ def _current_flow_rcm_ordering(G):
     native_start = getattr(_fnx, "current_flow_pseudo_peripheral_node_rust", None)
     if (
         native_start is None
-        or type(G) is not Graph
+        or not _current_flow_native_graph(G)
         or _fnx.nodes_with_selfloops_rust(G)
     ):
         # The native heuristic currently counts adjacency keys, whereas an
@@ -1312,6 +1312,25 @@ def _current_flow_rcm_ordering(G):
         return list(_reverse_cuthill_mckee_ordering(G))
     start = native_start(G)
     return list(_reverse_cuthill_mckee_ordering(G, heuristic=lambda _graph: start))
+
+
+def _current_flow_native_graph(G):
+    """Admit native topology only when public readers expose that same graph."""
+    if type(G) is not Graph:
+        return False
+    # The current-flow kernels and peripheral-node heuristic bypass the public
+    # readers just like spectral power iteration. Inspect their descriptors
+    # before reading storage, so admission does not invoke a replacement
+    # __dict__/__getattribute__ provider or silently ignore a class override.
+    namespace = vars(Graph)
+    if any(
+        namespace.get(name) is not reader
+        for name, reader in _SPECTRAL_CENTRALITY_NATIVE_READERS[Graph].items()
+    ):
+        return False
+    if not _greedy_color_native_graph(G) or _shared_unsplit_owner(G) is not None:
+        return False
+    return _view_root_node_keys_are_stable(G, G.nodes_seq)
 
 
 class _InverseLaplacian:
@@ -1483,7 +1502,6 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     ``(b - key) * 2 / nb`` rescale), so outputs are identical to the
     delegated path while skipping the fnx->nx graph rebuild.
     """
-    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     if not is_connected(G):
@@ -1496,7 +1514,7 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
         solver == "full"
         and weight is None
         and dtype is float
-        and type(G) is Graph
+        and _current_flow_native_graph(G)
         and (
             not _fnx.nodes_with_selfloops_rust(G)
             or len(_CONVERSION_NATIVE_NODE_KEYS[Graph](G)) <= 2
@@ -1561,7 +1579,7 @@ def edge_current_flow_betweenness_centrality(
         solver == "full"
         and weight is None
         and dtype is float
-        and type(G) is Graph
+        and _current_flow_native_graph(G)
         and (
             not _fnx.nodes_with_selfloops_rust(G)
             or len(_CONVERSION_NATIVE_NODE_KEYS[Graph](G)) <= 2
@@ -1618,7 +1636,6 @@ def _approximate_current_flow_betweenness_centrality_inproc(
 ):
     import numpy as np
 
-    G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     rng = _create_py_random_state(seed)
@@ -1710,4 +1727,3 @@ def approximate_current_flow_betweenness_centrality(
         seed=seed,
         sample_weight=sample_weight,
     )
-

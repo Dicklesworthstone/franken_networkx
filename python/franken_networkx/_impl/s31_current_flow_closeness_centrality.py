@@ -33,7 +33,7 @@ def current_flow_closeness_centrality(
         solver == "lu"
         and weight is None
         and dtype is float
-        and type(G) is Graph
+        and _current_flow_native_graph(G)
         and hasattr(_fnx, "current_flow_closeness_centrality_rust")
     ):
         # br-r37-c1-8n5ni: emit in G's node order, not RCM order — see the

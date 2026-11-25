@@ -1129,6 +1129,96 @@ def test_current_flow_rcm_ordering_uses_native_start_without_changing_order(monk
     _assert_mapping_close(actual, expected, tol=1e-6)
 
 
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "current_flow_betweenness_centrality",
+        "edge_current_flow_betweenness_centrality",
+        "current_flow_closeness_centrality",
+        "information_centrality",
+        "approximate_current_flow_betweenness_centrality",
+    ],
+)
+@pytest.mark.parametrize("owner", ["fnx", "networkx"])
+@pytest.mark.parametrize("variant", ["adjacency", "nodes-and-adjacency", "filtered"])
+@pytest.mark.parametrize("warm", [False, True])
+def test_current_flow_centrality_reads_public_topology(
+    monkeypatch, algorithm, owner, variant, warm
+):
+    def make_graph(module):
+        graph = module.complete_graph(4)
+        if warm:
+            list(graph.nodes)
+            list(graph.edges)
+            list(graph.degree)
+        if variant == "filtered":
+            return module.subgraph_view(graph, filter_edge=lambda u, v: abs(u - v) == 1)
+        nodes = [10, 20, 30, 40] if variant == "nodes-and-adjacency" else list(range(4))
+        path = module.Graph()
+        path.add_edges_from(zip(nodes, nodes[1:]))
+        if variant == "nodes-and-adjacency":
+            graph._node = {node: {} for node in nodes}
+        graph._adj = {node: {neighbor: {} for neighbor in path[node]} for node in path}
+        return graph
+
+    reference = make_graph(nx)
+    graph = make_graph(fnx if owner == "fnx" else nx)
+    kwargs = {"seed": 17, "epsilon": 0.75} if algorithm.startswith("approximate") else {}
+    expected = getattr(nx, algorithm)(reference, **kwargs)
+
+    def stale_native_topology(*args, **kwargs):
+        raise AssertionError("current-flow must read the caller's visible graph")
+
+    for name in (
+        "current_flow_pseudo_peripheral_node_rust",
+        "current_flow_betweenness_centrality_nx_ordered_rust",
+        "edge_current_flow_betweenness_centrality_nx_ordered_rust",
+        "current_flow_closeness_centrality_rust",
+    ):
+        monkeypatch.setattr(fnx._fnx, name, stale_native_topology)
+
+    actual = getattr(fnx, algorithm)(graph, **kwargs)
+    _assert_mapping_close(actual, expected, tol=1e-10)
+    assert list(actual) == list(expected)
+    assert list(graph) == list(reference)
+    assert list(graph.edges) == list(reference.edges)
+
+
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "current_flow_betweenness_centrality",
+        "edge_current_flow_betweenness_centrality",
+        "current_flow_closeness_centrality",
+        "information_centrality",
+        "approximate_current_flow_betweenness_centrality",
+    ],
+)
+@pytest.mark.parametrize("provider", ["instance", "class"])
+def test_current_flow_centrality_preserves_edge_provider_errors(
+    monkeypatch, algorithm, provider
+):
+    kwargs = {"seed": 17} if algorithm.startswith("approximate") else {}
+    outcomes = []
+    for module in (nx, fnx):
+        graph = module.complete_graph(4)
+        events = []
+
+        def edges(*args, **kwargs):
+            events.append("edges")
+            raise LookupError("current-flow edge provider")
+
+        with monkeypatch.context() as context:
+            if provider == "instance":
+                graph.edges = edges
+            else:
+                context.setattr(module.Graph, "edges", property(lambda self: edges))
+            with pytest.raises(LookupError) as error:
+                getattr(module, algorithm)(graph, **kwargs)
+            outcomes.append((error.value.args, events[:]))
+    assert outcomes == [(("current-flow edge provider",), ["edges"])] * 2
+
+
 def test_information_centrality_matches_networkx_without_fallback(monkeypatch):
     graph = fnx.Graph()
     graph.add_edge(0, 1, weight=2.0)
