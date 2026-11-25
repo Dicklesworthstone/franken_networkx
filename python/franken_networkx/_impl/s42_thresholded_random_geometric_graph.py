@@ -1276,20 +1276,15 @@ def vf2pp_is_isomorphic(G1, G2, node_label=None, default_label=None):
 
 
 def vf2pp_isomorphism(G1, G2, node_label=None, default_label=None):
-    """Find one isomorphism mapping using VF2++."""
-    # br-r37-c1-vf2pp-empty: empty-graph short-circuit (see
-    # vf2pp_is_isomorphic).
+    """Find one isomorphism mapping using the owned sparse search."""
+    # VF2++ excludes the empty mapping, unlike ordinary is_isomorphic.
     if G1.number_of_nodes() == 0 or G2.number_of_nodes() == 0:
         return None
-    if (
-        not G1.is_multigraph()
-        and not G2.is_multigraph()
-        and not _vf2pp_uses_node_labels_local(G1, G2, node_label, default_label)
-    ):
-        return _vf2pp_isomorphism_rust(
-            _coerce_arg_to_fnx_graph(G1), _coerce_arg_to_fnx_graph(G2)
-        )
-
+    # The native single-mapping binding still searches in insertion order
+    # with a dense matrix and recursive frames. An isolated prefix can make
+    # a nonisomorphic constrained core repeat factorially. Reuse the same
+    # sparse, constraint-first iterator as all-mapping and labeled queries,
+    # stopping after its first result and retaining the caller's graph.
     return next(
         _vf2pp_labeled_mappings_local(
             G1,

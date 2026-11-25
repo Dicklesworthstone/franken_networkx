@@ -1182,13 +1182,17 @@ projection alone is insufficient. Sparse adjacency counts and an iterative
 search stack avoid a dense quadratic matrix and recursion-depth limits.
 
 These multiplicity checks also apply to unlabeled multigraph predicates and
-single-mapping queries. All `vf2pp_all_isomorphisms` calls use the sparse
-iterator, including calls without a label argument; the native binding that
-collects all mappings cannot satisfy prefix-consumption bounds. Simple-graph
-predicates and single-mapping queries retain their native short-circuit route
-when no actual `None` attribute key or custom label/default needs inspection.
-Order and degree mismatches, and empty inputs, are resolved before hashing an
-otherwise-unused default label.
+single-mapping queries. All `vf2pp_all_isomorphisms` and
+`vf2pp_isomorphism` calls use the sparse iterator, including calls without a
+label argument. Single-mapping queries stop at its first result. The native
+single-mapping binding's insertion-order recursive search can retry an
+impossible constrained core for every permutation of an isolated prefix; its
+dense matrix also imposes quadratic storage. Neither bound is admitted by the
+public single-mapping API. The native all-mapping binding cannot satisfy
+prefix-consumption bounds. Simple-graph predicates retain their native
+short-circuit route when no actual `None` attribute key or custom
+label/default needs inspection. Order and degree mismatches, and empty inputs,
+are resolved before hashing an otherwise-unused default label.
 
 Ordinary `is_isomorphic` ignores attributes unless a callback is supplied,
 including attributes keyed by `None`. Node and edge callbacks prune partial
@@ -1204,8 +1208,8 @@ GraphMatcher, DiGraphMatcher, MultiGraphMatcher and MultiDiGraphMatcher retain
 those original graph objects, so attribute changes made after construction or
 an earlier query remain visible. Labeled and all-mapping VF2++ queries read
 custom node mappings through their original protocols. Conversion belongs only
-to the admitted native predicate/single-mapping boundary, not to the callback
-or custom-reader path.
+to the admitted native predicate boundary, not to single-mapping, callback,
+or custom-reader paths.
 
 NetworkX backend dispatch for `is_isomorphic` and the three VF2++ entry points
 recovers both original inputs before invoking these same owned wrappers,
@@ -1217,8 +1221,8 @@ until first advancement and retains its input owners while its search is
 alive. A caller-supplied native graph stays independent even when it is also
 cached as the conversion of the other argument.
 
-The existing labeled mapping contract accepts any valid first mapping and the
-complete set of valid mappings; input-node positions deterministically break
+Labeled and unlabeled single-mapping queries accept any valid first mapping;
+all-mapping queries return the complete set of valid mappings. Input-node positions deterministically break
 candidate-order ties and order result keys. The canonical tests in
 `tests/python/test_isomorphism_parity.py` compare
 mapping sets with NetworkX 3.6.1 and separately check prefix consumption,

@@ -591,25 +591,30 @@ def test_vf2pp_isomorphism_mapping_preserves_edges():
     assert mapped_edges == expected_edges
 
 
-def test_vf2pp_isomorphism_uses_rust_without_labels(monkeypatch):
+def test_vf2pp_isomorphism_without_labels_stops_after_first_owned_mapping(monkeypatch):
     g1 = fnx.path_graph(3)
     g2 = fnx.relabel_nodes(g1, {0: "a", 1: "b", 2: "c"})
-    called = {"rust": False}
+    owned = fnx._vf2pp_labeled_mappings_local
+    calls = []
 
-    def fake_rust(left, right):
-        called["rust"] = True
+    def first_only(left, right, **kwargs):
         assert left is g1
         assert right is g2
-        return {0: "a", 1: "b", 2: "c"}
+        calls.append(kwargs)
+        yield next(owned(left, right, **kwargs))
+        raise AssertionError("single-mapping query requested a second result")
 
-    def fail_networkx(*args, **kwargs):
-        raise AssertionError("unexpected NetworkX fallback")
+    def reject_other_search(*args, **kwargs):
+        raise AssertionError("unexpected dense native or NetworkX search")
 
-    monkeypatch.setattr(fnx, "_vf2pp_isomorphism_rust", fake_rust)
-    monkeypatch.setattr(nx, "vf2pp_isomorphism", fail_networkx)
+    monkeypatch.setattr(fnx, "_vf2pp_labeled_mappings_local", first_only)
+    monkeypatch.setattr(fnx, "_vf2pp_isomorphism_rust", reject_other_search)
+    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", reject_other_search)
+    for name in ("vf2pp_isomorphism", "vf2pp_all_isomorphisms", "vf2pp_is_isomorphic"):
+        monkeypatch.setattr(nx, name, reject_other_search)
 
     assert fnx.vf2pp_isomorphism(g1, g2) == {0: "a", 1: "b", 2: "c"}
-    assert called["rust"] is True
+    assert calls == [{"node_label": None, "default_label": None}]
 
 
 def test_vf2pp_isomorphism_with_labels_avoids_networkx(monkeypatch):
@@ -766,6 +771,65 @@ def test_labeled_vf2pp_iterator_resumes_with_independent_results():
     assert all(len(mapping) == 4 for mapping in [second, *remaining])
     expected = nx.vf2pp_all_isomorphisms(nx.complete_graph(4), nx.complete_graph(4), node_label="missing")
     assert _mapping_signatures([saved, second, *remaining]) == _mapping_signatures(expected)
+
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_unlabeled_vf2pp_single_mapping_rejects_core_before_isolate_permutations(
+    monkeypatch, class_name
+):
+    left, right = getattr(fnx, class_name)(), getattr(fnx, class_name)()
+    for graph in (left, right):
+        graph.add_nodes_from(range(46))
+    left.add_edges_from((40 + i, 40 + (i + 1) % 6) for i in range(6))
+    right.add_edges_from(
+        [(40, 41), (41, 42), (42, 40), (43, 44), (44, 45), (45, 43)]
+    )
+
+    def reject_unbounded_native_search(*args, **kwargs):
+        # The old insertion-order kernel retries the impossible core for
+        # 40! isolate permutations. Fail immediately if routing regresses.
+        raise AssertionError("single mapping entered the dense recursive search")
+
+    monkeypatch.setattr(fnx, "_vf2pp_isomorphism_rust", reject_unbounded_native_search)
+    assert nx.vf2pp_isomorphism(_to_nx(left), _to_nx(right)) is None
+    assert fnx.vf2pp_isomorphism(left, right) is None
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+def test_unlabeled_vf2pp_single_mapping_handles_deep_sparse_graph(monkeypatch, class_name):
+    size = 1200
+    left, right = getattr(fnx, class_name)(), getattr(fnx, class_name)()
+    left.add_nodes_from(range(size))
+    right.add_nodes_from(f"node-{i}" for i in range(size))
+    left.add_edges_from((i, i + 1) for i in range(size - 1))
+    right.add_edges_from((f"node-{i}", f"node-{i + 1}") for i in range(size - 1))
+
+    def reject_dense_or_eager_search(*args, **kwargs):
+        raise AssertionError("single mapping allocated the dense recursive search")
+
+    monkeypatch.setattr(fnx, "_vf2pp_isomorphism_rust", reject_dense_or_eager_search)
+    monkeypatch.setattr(fnx, "_vf2pp_all_isomorphisms_rust", reject_dense_or_eager_search)
+    mapping = fnx.vf2pp_isomorphism(left, right)
+    assert set(mapping) == set(left)
+    assert set(mapping.values()) == set(right)
+    assert all(right.has_edge(mapping[u], mapping[v]) for u, v in left.edges)
+
+
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("seed", range(10))
+def test_unlabeled_vf2pp_single_mapping_preserves_loops_and_adjacency(class_name, seed):
+    left = nx.gnp_random_graph(7, 0.35, seed=seed, directed=class_name == "DiGraph")
+    left.add_edges_from((node, node) for node in range(7) if (node + seed) % 3 == 0)
+    permutation = list(range(7))
+    random.Random(seed + 100).shuffle(permutation)
+    right = nx.relabel_nodes(left, {node: f"target-{permutation[node]}" for node in left})
+    expected = list(nx.vf2pp_all_isomorphisms(left, right))
+    actual = fnx.vf2pp_isomorphism(
+        getattr(fnx, class_name)(left), getattr(fnx, class_name)(right)
+    )
+    assert actual in expected
+    assert list(actual) == list(left)
 
 
 def test_labeled_vf2pp_rejects_constrained_core_before_isolate_permutations():
