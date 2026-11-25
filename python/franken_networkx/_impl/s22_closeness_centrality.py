@@ -1687,9 +1687,15 @@ def laplacian_matrix(G, nodelist=None, weight="weight"):
 
     if (
         _native_adjacency_index_arrays is not None
-        and type(G) in (Graph, DiGraph)
-        and not _has_networkx_private_storage(G)
-        and (weight is None or isinstance(weight, str))
+        and (
+            # An explicit node order can run user code before the weight lookup.
+            (weight is None and nodelist is None and _can_use_unit_none_weight(G))
+            or (
+                isinstance(weight, str)
+                and type(G) in (Graph, DiGraph)
+                and not _has_networkx_private_storage(G)
+            )
+        )
         and G.number_of_edges() > 0
     ):
         # br-r37-c1-04z53.13: for unit/default-absent weights, assemble

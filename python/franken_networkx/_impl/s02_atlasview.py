@@ -618,13 +618,16 @@ def _plain_read_attr_dict_types():
 
 
 def _attr_dict_has_plain_reads(attrs):
+    return _attr_dict_type_has_plain_reads(type(attrs))
+
+
+def _attr_dict_type_has_plain_reads(cls):
     """Admit builtin dictionary reads, including owned per-graph subclasses.
 
     Bulk edge mirrors inherit the write-watched dictionary without overriding
     its reads. Static MRO inspection admits those mirrors while rejecting a
     caller's read overrides without invoking descriptors during the check.
     """
-    cls = type(attrs)
     if cls is dict:
         return True
     if type(cls) is not type:

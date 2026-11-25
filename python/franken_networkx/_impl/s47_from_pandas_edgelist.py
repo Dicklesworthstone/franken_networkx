@@ -886,21 +886,25 @@ def _sparse_multigraph_sums_are_exact(G, weight):
 
 def _sparse_array_from_edge_values(G, index, dtype, weight, format):
     """Let SciPy infer/cast each original value before reducing duplicates."""
-    import networkx as nx
     import scipy.sparse
 
     rows, cols, values, loops = [], [], [], []
-    directed = G.is_directed()
     native_storage = (
-        type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+        weight is not None
+        and type(G) in (Graph, DiGraph, MultiGraph, MultiDiGraph)
         and not _has_networkx_private_storage(G)
         and G.edge_attr_dict_factory is dict
     )
+    edge_view = G.edges
     if (
-        not isinstance(G, nx.Graph)
-        and (weight is None or not native_storage)
+        (weight is None or not native_storage)
         and weight is not True
         and weight is not False
+        and issubclass(type(edge_view), (
+            _fnx.EdgeView, _fnx.DiEdgeView, _fnx.MultiGraphEdgeView,
+            _fnx.MultiDiGraphEdgeView, _FilteredEdgeView, _ReverseEdgeView,
+            _AssignedPrivateEdgeView, _ConversionEdgeView, _RevEdgeMethodViewBase,
+        ))
     ):
         # Resolve selectors against the actual dictionaries on logical views
         # and custom storage. Their edge-data adapters may only project string
@@ -912,20 +916,20 @@ def _sparse_array_from_edge_values(G, index, dtype, weight, format):
         # must observe the original data/default arguments instead.
         edges = (
             (u, v, attrs[weight] if weight in attrs else 1)
-            for u, v, attrs in G.edges(data=True)
+            for u, v, attrs in edge_view(data=True)
         )
     else:
-        edges = G.edges(data=weight, default=1)
+        edges = edge_view(data=weight, default=1)
     for u, v, value in edges:
-        if u not in index or v not in index:
+        if weight is not None and (u not in index or v not in index):
             continue
         row, col = index[u], index[v]
         rows.append(row)
         cols.append(col)
         values.append(value)
-        if not directed and u == v:
+        if native_storage and row == col:
             loops.append((row, value))
-    if not directed:
+    if not G.is_directed():
         edge_count = len(rows)
         rows.extend(cols)
         cols.extend(rows[:edge_count])
@@ -1012,9 +1016,9 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
         default_nodelist
         and dtype is None
         and format == "csr"
+        and isinstance(weight, str)
         and type(G) in (MultiGraph, MultiDiGraph)
         and not _has_networkx_private_storage(G)
-        and isinstance(weight, str)
         and _sparse_multigraph_sums_are_exact(G, weight)
     )
     if (
@@ -1097,10 +1101,15 @@ def to_scipy_sparse_array(G, nodelist=None, dtype=None, weight="weight", format=
             raise NetworkXError(f"Node {first_missing} in nodelist is not in G")
 
     index = {node: i for i, node in enumerate(nodelist)}
+    if weight is None:
+        # A lookup on an excluded edge may call an arbitrary key's equality
+        # method. Induce the requested graph before reading any edge values.
+        if not default_nodelist and len(nodelist) < len(G):
+            G = G.subgraph(nodelist)
+        return _sparse_array_from_edge_values(G, index, dtype, weight, format)
     is_directed = G.is_directed()
     if (
         G.is_multigraph()
-        or weight is None
         or format in ("coo", None)
         or (not is_directed and number_of_selfloops(G))
     ):

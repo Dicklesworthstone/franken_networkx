@@ -415,3 +415,194 @@ def test_non_finite_matrix_raises_networkx_value_error(fn_name, cls, shape, bad)
     expected = _outcome(getattr(nx, fn_name), _one_bad_weight(nx, cls, shape, bad))
     actual = _outcome(getattr(fnx, fn_name), _one_bad_weight(fnx, cls, shape, bad))
     assert actual == expected
+
+
+@pytest.mark.parametrize("algorithm", ["laplacian_matrix", "normalized_laplacian_matrix"])
+@pytest.mark.parametrize("kind", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph", "view"])
+def test_none_key_laplacian_reads_live_weights(algorithm, kind):
+    def fixture(module):
+        cls = getattr(module, "Graph" if kind == "view" else kind)
+        graph = module.path_graph(4, create_using=cls())
+        if graph.is_multigraph():
+            graph.add_edge(1, 2)
+            attrs = graph[1][2][0]
+        else:
+            attrs = graph[1][2]
+        if kind == "view":
+            graph.add_edge(0, 3)
+            graph = module.subgraph_view(graph, filter_edge=lambda u, v: {u, v} != {0, 3})
+        return graph, attrs
+
+    actual_graph, actual_attrs = fixture(fnx)
+    reference_graph, reference_attrs = fixture(nx)
+    for value in (3.0, 0.25, 2 + 1j, None):
+        for attrs in (actual_attrs, reference_attrs):
+            if value is None:
+                del attrs[None]
+            else:
+                attrs[None] = value
+        for order in (None, [2, 1, 0]):
+            actual = getattr(fnx, algorithm)(actual_graph, weight=None, nodelist=order)
+            expected = getattr(nx, algorithm)(reference_graph, weight=None, nodelist=order)
+            assert actual.dtype == expected.dtype
+            np.testing.assert_allclose(actual.toarray(), expected.toarray(), atol=1e-12)
+
+
+@pytest.mark.parametrize("algorithm", ["laplacian_spectrum", "normalized_laplacian_spectrum"])
+@pytest.mark.parametrize(
+    "shape,args",
+    [
+        ("path_graph", (4,)), ("cycle_graph", (5,)), ("complete_graph", (5,)),
+        ("star_graph", (4,)), ("complete_bipartite_graph", (2, 3)),
+    ],
+)
+def test_none_key_laplacian_spectrum_after_weight_mutation(algorithm, shape, args):
+    graphs = [getattr(module, shape)(*args) for module in (fnx, nx)]
+    edge = next(iter(graphs[1].edges))
+    for value in (3.0, 0.0, 2 + 1j):
+        # A positive weight leaves the normalized spectrum of a star invariant.
+        # A zero on a leaf edge exposes an incorrect closed-form shortcut.
+        for graph in graphs:
+            graph.edges[edge][None] = value
+        actual = getattr(fnx, algorithm)(graphs[0], weight=None)
+        expected = getattr(nx, algorithm)(graphs[1], weight=None)
+        np.testing.assert_allclose(actual, expected, atol=1e-10)
+
+
+@pytest.mark.parametrize("algorithm", ["laplacian_matrix", "normalized_laplacian_matrix"])
+def test_none_key_laplacian_weight_added_during_nodelist_iteration(algorithm):
+    def matrix(module):
+        graph = module.path_graph(4)
+
+        class NodeOrder(list):
+            def __iter__(self):
+                graph[1][2][None] = 3.0
+                return super().__iter__()
+
+        order = NodeOrder([3, 2, 1, 0])
+        return getattr(module, algorithm)(graph, nodelist=order, weight=None).toarray()
+
+    np.testing.assert_allclose(matrix(fnx), matrix(nx), atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "algorithm",
+    ["laplacian_matrix", "normalized_laplacian_matrix",
+     "laplacian_spectrum", "normalized_laplacian_spectrum"],
+)
+def test_none_key_laplacian_preserves_reentrant_key_error(algorithm):
+    def outcome(module):
+        graph = module.path_graph(4)
+        events = []
+
+        class CollidingKey:
+            def __hash__(self):
+                events.append("hash")
+                return hash(None)
+
+            def __eq__(self, other):
+                if other is None:
+                    events.append("compare")
+                    graph.add_node(0)  # Re-enter a mutating API on the same graph.
+                    raise LookupError("edge weight lookup")
+                return self is other
+
+        graph[1][2][CollidingKey()] = 3
+        events.clear()
+        with pytest.raises(LookupError, match="edge weight lookup"):
+            getattr(module, algorithm)(graph, weight=None)
+        return events
+
+    assert outcome(fnx) == outcome(nx) == ["compare"]
+
+
+@pytest.mark.parametrize("algorithm", ["laplacian_matrix", "normalized_laplacian_matrix"])
+def test_none_key_laplacian_skips_excluded_edge_lookup(algorithm):
+    class ExcludedKey:
+        def __hash__(self):
+            return hash(None)
+
+        def __eq__(self, other):
+            if other is None:
+                raise AssertionError("read an edge outside the induced subgraph")
+            return self is other
+
+    def matrix(module):
+        graph = module.path_graph(4)
+        graph[0][1][ExcludedKey()] = 9
+        graph[1][2][None] = 3
+        return getattr(module, algorithm)(graph, nodelist=[1, 2, 3], weight=None).toarray()
+
+    np.testing.assert_allclose(matrix(fnx), matrix(nx), atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "algorithm",
+    ["laplacian_matrix", "normalized_laplacian_matrix",
+     "laplacian_spectrum", "normalized_laplacian_spectrum"],
+)
+def test_none_key_laplacian_preserves_edge_provider_error(algorithm):
+    def outcome(module):
+        graph = module.complete_graph(4)
+        calls = []
+
+        def read_edges(*args, **kwargs):
+            calls.append((args, kwargs))
+            raise LookupError("public edge provider")
+
+        graph.edges = read_edges
+        with pytest.raises(LookupError, match="public edge provider"):
+            getattr(module, algorithm)(graph, weight=None)
+        return calls
+
+    assert outcome(fnx) == outcome(nx) == [((), {"data": None, "default": 1})]
+
+
+@pytest.mark.parametrize(
+    "algorithm,fallback",
+    [
+        ("laplacian_matrix", "to_scipy_sparse_array"),
+        ("normalized_laplacian_matrix", "to_scipy_sparse_array"),
+        ("laplacian_spectrum", "laplacian_matrix"),
+        ("normalized_laplacian_spectrum", "normalized_laplacian_matrix"),
+    ],
+)
+def test_none_key_attribute_free_graph_keeps_shortcut(monkeypatch, algorithm, fallback):
+    graph = fnx.complete_graph(5)
+    expected = getattr(nx, algorithm)(nx.complete_graph(5), weight=None)
+
+    def unexpected_fallback(*args, **kwargs):
+        raise AssertionError("attribute-free graph left its unit-weight shortcut")
+
+    monkeypatch.setattr(fnx, fallback, unexpected_fallback)
+    actual = getattr(fnx, algorithm)(graph, weight=None)
+    if algorithm.endswith("_matrix"):
+        actual, expected = actual.toarray(), expected.toarray()
+    np.testing.assert_allclose(actual, expected, atol=1e-10)
+
+
+@pytest.mark.parametrize("algorithm", ["laplacian_matrix", "normalized_laplacian_matrix"])
+def test_none_key_laplacian_reads_self_loop_again_for_diagonal_correction(algorithm):
+    def outcome(module):
+        graph = module.path_graph(4)
+        graph.add_edge(2, 2)
+        events = []
+
+        class LoopKey:
+            def __hash__(self):
+                return hash(None)
+
+            def __eq__(self, other):
+                if other is not None:
+                    return self is other
+                events.append("compare")
+                if len(events) == 3:
+                    raise LookupError("loop correction")
+                return True
+
+        graph[2][2][LoopKey()] = 3
+        with pytest.raises(LookupError, match="loop correction"):
+            getattr(module, algorithm)(graph, weight=None)
+        return events
+
+    assert outcome(fnx) == outcome(nx) == ["compare"] * 3

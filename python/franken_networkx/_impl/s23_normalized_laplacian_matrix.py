@@ -14,9 +14,9 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
 
     if (
         _native_adjacency_index_arrays is not None
-        and type(G) in (Graph, DiGraph)
-        and not _has_networkx_private_storage(G)
         and weight is None
+        and nodelist is None
+        and _can_use_unit_none_weight(G)
     ):
         # br-r37-c1-04z53.12: for unit/default-absent weights, build
         # D^{-1/2}(D-A)D^{-1/2} directly from native COO indices. This preserves
@@ -24,40 +24,13 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
         # its generic sparse diagonal/matmul route.
         if len(G) == 0:
             raise NetworkXError("Graph has no nodes or edges")
-        if nodelist is None:
-            native_nodelist = list(G)
+        if type(G) is Graph and _native_adjacency_default_order_index_arrays is not None:
+            native_index_result = _native_adjacency_default_order_index_arrays(G, None)
         else:
-            native_nodelist = list(nodelist)
-            if len(native_nodelist) == 0:
-                raise NetworkXError("nodelist has no nodes")
-            if len(set(native_nodelist)) != len(native_nodelist):
-                raise NetworkXError("nodelist contains duplicates.")
-            missing = set(native_nodelist) - set(G)
-            if missing:
-                # br-r37-c1-6cdtz: nx reports the FIRST missing node in nodelist
-                # order, singular & str-formatted, not a set of all missing.
-                first_missing = next(n for n in native_nodelist if n not in G)
-                raise NetworkXError(
-                    f"Node {first_missing} in nodelist is not in G"
-                )
-        absent_weight_attr = weight if isinstance(weight, str) else None
-        if (
-            nodelist is None
-            and type(G) is Graph
-            and _native_adjacency_default_order_index_arrays is not None
-        ):
-            native_index_result = _native_adjacency_default_order_index_arrays(
-                G, absent_weight_attr
-            )
-        else:
-            native_index_result = _native_adjacency_index_arrays(
-                G,
-                native_nodelist,
-                absent_weight_attr,
-            )
+            native_index_result = _native_adjacency_index_arrays(G, list(G), None)
         if native_index_result is not None:
             rows, cols = native_index_result
-            n = len(native_nodelist)
+            n = len(G)
             rows = np.asarray(rows, dtype=np.intp)
             cols = np.asarray(cols, dtype=np.intp)
             degree = np.bincount(rows, minlength=n).astype(float)
@@ -89,7 +62,7 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
 
     A = to_scipy_sparse_array(G, nodelist=nodelist, weight=weight)
     n = A.shape[0]
-    diags = np.asarray(A.sum(axis=1)).flatten().astype(float)
+    diags = A.sum(axis=1)
     # br-r37-c1-mxe39: compute N = D^{-1/2} (D - A) D^{-1/2} exactly like nx,
     # NOT I - D^{-1/2} A D^{-1/2}. The two agree for every node with degree > 0,
     # but for an isolated (degree-0) node the D^{-1/2} D D^{-1/2} term is 0
@@ -97,12 +70,12 @@ def normalized_laplacian_matrix(G, nodelist=None, weight="weight"):
     # constant-identity form leaves a spurious 1. This matters for any graph
     # with an isolated node (e.g. disconnected graphs, where a k-component
     # graph must yield k zero eigenvalues in the spectrum).
-    D = scipy.sparse.diags_array(diags)
+    D = scipy.sparse.dia_array((diags, 0), shape=(n, n)).tocsr()
     L = D - A
     with np.errstate(divide="ignore"):
         diags_sqrt = 1.0 / np.sqrt(diags)
     diags_sqrt[np.isinf(diags_sqrt)] = 0
-    D_inv_sqrt = scipy.sparse.diags_array(diags_sqrt)
+    D_inv_sqrt = scipy.sparse.dia_array((diags_sqrt, 0), shape=(n, n)).tocsr()
     return (D_inv_sqrt @ (L @ D_inv_sqrt)).tocsr()
 
 
@@ -114,6 +87,13 @@ def laplacian_spectrum(G, weight="weight"):
     numpy.ndarray
     """
     import numpy as np
+
+    if weight is None and not _can_use_unit_none_weight(G):
+        # Neither a shape certificate nor the native unweighted eigensolver
+        # accounts for values stored under the literal None key.
+        from scipy.linalg import eigvalsh
+
+        return eigvalsh(laplacian_matrix(G, weight=weight).toarray())
 
     complete_values = _complete_laplacian_spectrum_sorted_value_safe(G, weight)
     if complete_values is not None:

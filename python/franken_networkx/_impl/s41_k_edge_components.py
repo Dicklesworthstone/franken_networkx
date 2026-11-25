@@ -1349,10 +1349,11 @@ def _current_flow_betweenness_subset_impl(
     """
     import numpy as np
 
-    G = _coerce_arg_to_fnx_graph(G)
+    if weight is not None:
+        G = _coerce_arg_to_fnx_graph(G)
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if not is_connected(G):
+    if not _current_flow_is_connected(G, weight):
         raise NetworkXError("Graph not connected.")
 
     n = G.number_of_nodes()
@@ -1364,7 +1365,7 @@ def _current_flow_betweenness_subset_impl(
 
     ordering = list(_reverse_cuthill_mckee_ordering(G))
     mapping = dict(zip(ordering, range(n)))
-    H = relabel_nodes(G, mapping, copy=True)
+    H = _current_flow_relabel(G, mapping, weight)
 
     src_idx = np.array([mapping[s] for s in sources], dtype=np.intp)
     tgt_idx = np.array([mapping[t] for t in targets], dtype=np.intp)

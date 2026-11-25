@@ -205,3 +205,76 @@ def test_current_flow_self_loops_do_not_change_laplacian_closeness(name):
     assert list(actual) == list(expected)
     _close_dict(actual, expected)
 
+
+
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "current_flow_closeness_centrality", "information_centrality",
+        "current_flow_betweenness_centrality", "edge_current_flow_betweenness_centrality",
+        "approximate_current_flow_betweenness_centrality",
+    ],
+)
+@pytest.mark.parametrize("filtered", [False, True])
+def test_none_key_current_flow_after_weight_mutation(algorithm, filtered):
+    graphs = []
+    attrs = []
+    for module in (fnx, nx):
+        graph = module.cycle_graph(4)
+        attrs.append(graph[1][2])
+        if filtered:
+            graph.add_edge(0, 2)
+            graph = module.subgraph_view(graph, filter_edge=lambda u, v: {u, v} != {0, 2})
+        graphs.append(graph)
+    kwargs = {"seed": 17, "epsilon": 0.75} if algorithm.startswith("approximate") else {}
+    for value in (3.0, 0.25):
+        for data in attrs:
+            data[None] = value
+        expected = getattr(nx, algorithm)(graphs[1], weight=None, **kwargs)
+        actual = getattr(fnx, algorithm)(graphs[0], weight=None, **kwargs)
+        assert list(actual) == list(expected)
+        assert actual == pytest.approx(expected, abs=1e-10)
+
+
+@pytest.mark.parametrize(
+    "algorithm",
+    [
+        "current_flow_closeness_centrality", "current_flow_betweenness_centrality",
+        "current_flow_betweenness_centrality_subset",
+        "edge_current_flow_betweenness_centrality_subset",
+    ],
+)
+@pytest.mark.parametrize("filtered", [False, True])
+def test_none_key_current_flow_preserves_key_protocol(algorithm, filtered):
+    def outcome(module):
+        graph = module.cycle_graph(4)
+        original_graph = graph
+        events = []
+
+        class WeightKey:
+            def __hash__(self):
+                events.append("hash")
+                return hash(None)
+
+            def __eq__(self, other):
+                events.append("compare")
+                if other is None:
+                    original_graph.add_node(9)
+                    return True
+                return self is other
+
+            def __str__(self):
+                raise AssertionError("a current-flow calculation coerced an attribute key")
+
+        graph[1][2][WeightKey()] = 3
+        if filtered:
+            graph.add_edge(0, 2)
+            graph = module.subgraph_view(graph, filter_edge=lambda u, v: {u, v} != {0, 2})
+        events.clear()
+        kwargs = {"sources": [0, 1], "targets": [2, 3]} if algorithm.endswith("_subset") else {}
+        return getattr(module, algorithm)(graph, weight=None, **kwargs), events
+
+    expected, expected_events = outcome(nx)
+    actual, actual_events = outcome(fnx)
+    assert actual_events == expected_events
+    assert actual == pytest.approx(expected, abs=1e-10)

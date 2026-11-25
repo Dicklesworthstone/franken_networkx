@@ -1315,22 +1315,37 @@ def _current_flow_rcm_ordering(G):
 
 
 def _current_flow_native_graph(G):
+    return type(G) is Graph and _laplacian_native_graph(G)
+
+
+def _laplacian_native_graph(G):
     """Admit native topology only when public readers expose that same graph."""
-    if type(G) is not Graph:
+    graph_type = type(G)
+    if graph_type is not Graph and graph_type is not DiGraph:
         return False
-    # The current-flow kernels and peripheral-node heuristic bypass the public
-    # readers just like spectral power iteration. Inspect their descriptors
-    # before reading storage, so admission does not invoke a replacement
-    # __dict__/__getattribute__ provider or silently ignore a class override.
-    namespace = vars(Graph)
-    if any(
-        namespace.get(name) is not reader
-        for name, reader in _SPECTRAL_CENTRALITY_NATIVE_READERS[Graph].items()
+    if not _native_graph_class_readers_unchanged(
+        G, graph_type, _SPECTRAL_CENTRALITY_NATIVE_READERS[graph_type]
     ):
         return False
-    if not _greedy_color_native_graph(G) or _shared_unsplit_owner(G) is not None:
+    if not _greedy_color_native_graph(G) or _SHARED_STORAGE_SOURCE in G.__dict__:
         return False
     return _view_root_node_keys_are_stable(G, G.nodes_seq)
+
+
+def _can_use_unit_none_weight(G):
+    """Prove that looking up None on every visible edge yields the default."""
+    if not _laplacian_native_graph(G):
+        return False
+    if vars(type(G)).get("edge_attr_dict_factory") is not dict or (
+        G.__dict__.get("edge_attr_dict_factory", dict) is not dict
+    ):
+        return False
+    # Only Python mirrors can carry non-string keys. Inspect existing mirrors
+    # without calling public edge providers or materializing dictionaries.
+    # An arbitrary key can compare equal to None, mutate G, or raise. Leave
+    # that lookup to the actual algorithm, in its normal edge order.
+    types = _fnx.graph_none_weight_dict_types(G)
+    return types is not None and all(_attr_dict_type_has_plain_reads(cls) for cls in types)
 
 
 class _InverseLaplacian:
@@ -1435,6 +1450,43 @@ class _CGInverseLaplacian(_InverseLaplacian):
         return self._sp.sparse.linalg.cg(self.L1, rhs[1:], M=self.M, atol=0)[0]
 
 
+def _current_flow_is_connected(G, weight):
+    # Materializing a view for the Rust connectivity test also converts its
+    # edge attributes, before the solver has requested a single weight.
+    if weight is not None or _current_flow_native_graph(G):
+        return is_connected(G)
+    return _distance_query_is_connected(G, strong=False)
+
+
+def _current_flow_relabel(G, mapping, weight):
+    """Copy the solver's integer-labeled graph without coercing Python attr keys."""
+    if weight is not None:
+        return relabel_nodes(G, mapping)
+    if isinstance(G, _nx.Graph):
+        return _nx.relabel_nodes(G, mapping, backend="networkx")
+    if type(G) not in (Graph, MultiGraph) and not isinstance(
+        G, (_FilteredGraphView, _ConversionGraphViewBase)
+    ):
+        # User graph subclasses own the construction and insertion protocols
+        # on their relabeled copies.
+        return relabel_nodes(G, mapping)
+
+    # A native relabel converts mirrored keys to strings for its Rust store.
+    # A key equal to None can implement __str__ as well as __eq__. Preserve
+    # the original dictionaries for the solver's actual None lookups.
+    multi = G.is_multigraph()
+    H = _nx.MultiGraph() if multi else _nx.Graph()
+    H.add_nodes_from(mapping[node] for node in G)
+    H._node.update((mapping[node], attrs.copy()) for node, attrs in G.nodes.items())
+    edges = G.edges(keys=True, data=True) if multi else G.edges(data=True)
+    # RCM numbering is bijective, so parallel-edge keys can be retained.
+    H.add_edges_from(
+        (mapping[u], mapping[v], *key, attrs.copy()) for u, v, *key, attrs in edges
+    )
+    H.graph.update(G.graph)
+    return H
+
+
 def _flow_matrix_row(G, weight=None, dtype=float, solver="lu"):
     """Yield rows of the current-flow matrix using local Laplacian helpers."""
     import numpy as np
@@ -1504,7 +1556,7 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     """
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if not is_connected(G):
+    if not _current_flow_is_connected(G, weight):
         raise NetworkXError("Graph not connected.")
 
     # The native kernels omit self-loop flow rows. Keep the existing
@@ -1514,7 +1566,8 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
         solver == "full"
         and weight is None
         and dtype is float
-        and _current_flow_native_graph(G)
+        and type(G) is Graph
+        and _can_use_unit_none_weight(G)
         and (
             not _fnx.nodes_with_selfloops_rust(G)
             or len(_CONVERSION_NATIVE_NODE_KEYS[Graph](G)) <= 2
@@ -1531,7 +1584,7 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     n = G.number_of_nodes()
     ordering = _current_flow_rcm_ordering(G)
     # integer-relabel by RCM ordering (matches nx's H exactly)
-    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
+    H = _current_flow_relabel(G, dict(zip(ordering, range(n))), weight)
     betweenness = dict.fromkeys(H, 0.0)
     # br-cfb-vec: vectorize nx's per-edge O(n) Python accumulation
     # (``for i in range(n): betweenness[s] += (i - pos[i]) * row[i]``) into two
@@ -1572,14 +1625,15 @@ def edge_current_flow_betweenness_centrality(
     )
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
-    if not is_connected(G):
+    if not _current_flow_is_connected(G, weight):
         raise NetworkXError("Graph not connected.")
 
     if (
         solver == "full"
         and weight is None
         and dtype is float
-        and _current_flow_native_graph(G)
+        and type(G) is Graph
+        and _can_use_unit_none_weight(G)
         and (
             not _fnx.nodes_with_selfloops_rust(G)
             or len(_CONVERSION_NATIVE_NODE_KEYS[Graph](G)) <= 2
@@ -1595,7 +1649,7 @@ def edge_current_flow_betweenness_centrality(
 
     n = G.number_of_nodes()
     ordering = _current_flow_rcm_ordering(G)
-    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
+    H = _current_flow_relabel(G, dict(zip(ordering, range(n))), weight)
 
     edges = (tuple(sorted((u, v))) for u, v in H.edges())
     betweenness = dict.fromkeys(edges, 0.0)
@@ -1639,7 +1693,7 @@ def _approximate_current_flow_betweenness_centrality_inproc(
     if G.is_directed():
         raise NetworkXNotImplemented("not implemented for directed type")
     rng = _create_py_random_state(seed)
-    if not is_connected(G):
+    if not _current_flow_is_connected(G, weight):
         raise NetworkXError("Graph not connected.")
 
     n = G.number_of_nodes()
@@ -1665,7 +1719,7 @@ def _approximate_current_flow_betweenness_centrality_inproc(
     if solver not in solvername:
         raise NetworkXError(f"Unknown solver: {solver}.")
     ordering = _current_flow_rcm_ordering(G)
-    H = relabel_nodes(G, dict(zip(ordering, range(n))), copy=True)
+    H = _current_flow_relabel(G, dict(zip(ordering, range(n))), weight)
     L = laplacian_matrix(H, nodelist=range(n), weight=weight).asformat("csc")
     L = L.astype(dtype)
     C = solvername[solver](L, dtype=dtype)

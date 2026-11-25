@@ -4418,6 +4418,42 @@ pub fn graph_has_none_edge_attr_key(
     Ok(found)
 }
 
+fn edge_dict_has_nonstring_key(attrs: &Bound<'_, PyDict>) -> bool {
+    attrs
+        .iter()
+        .any(|(key, _)| !key.is_exact_instance_of::<PyString>())
+}
+
+/// Dict classes whose read methods must be ordinary for None to mean unit
+/// weight. Decline on any non-string key: even an object other than None
+/// could compare equal to it. Only materialized mirrors can hold such keys.
+/// Neither this scan nor deduplicating class identities calls Python hooks.
+#[pyfunction]
+pub fn graph_none_weight_dict_types(
+    py: Python<'_>,
+    g: &Bound<'_, PyAny>,
+) -> PyResult<Option<Vec<Py<pyo3::types::PyType>>>> {
+    let graph = extract_concrete_graph(g)?;
+    let mirrors = match &graph {
+        GraphRef::Undirected(pg) => &pg.edge_py_attrs,
+        GraphRef::Directed { dg, .. } => &dg.edge_py_attrs,
+        GraphRef::MultiUndirected { .. } | GraphRef::MultiDirected { .. } => return Ok(None),
+    };
+    let mut types = Vec::new();
+    let mut seen = rustc_hash::FxHashSet::default();
+    for dict in mirrors.values() {
+        let attrs = dict.bind(py);
+        if edge_dict_has_nonstring_key(attrs) {
+            return Ok(None);
+        }
+        let ty = attrs.get_type();
+        if seen.insert(ty.as_ptr()) {
+            types.push(ty.unbind());
+        }
+    }
+    Ok(Some(types))
+}
+
 /// Return whether any simple graph node or edge has a Python-visible attr.
 ///
 /// ``graph`` attributes are intentionally ignored: product and relabel fast
@@ -5926,12 +5962,7 @@ pub fn dijkstra_path_to_target(
             // Inspect types, not dict.contains(None): a custom key can compare
             // equal to None or raise in __eq__. Never invoke that comparison
             // on an unreachable edge just to admit the unit-weight shortcut.
-            let nonstring_key = |attrs: &Py<PyDict>| {
-                attrs
-                    .bind(py)
-                    .iter()
-                    .any(|(key, _)| !key.is_exact_instance_of::<PyString>())
-            };
+            let nonstring_key = |attrs: &Py<PyDict>| edge_dict_has_nonstring_key(attrs.bind(py));
             let must_read_python_weights = match &gr {
                 GraphRef::Undirected(pg) => pg.edge_py_attrs.values().any(nonstring_key),
                 GraphRef::Directed { dg, .. } => dg.edge_py_attrs.values().any(nonstring_key),
@@ -30778,6 +30809,7 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(fnx_to_nx_adjacency, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_edge_attr, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_none_edge_attr_key, m)?)?;
+    m.add_function(wrap_pyfunction!(graph_none_weight_dict_types, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(graph_has_any_edge_attrs, m)?)?;
     m.add_function(wrap_pyfunction!(bellman_ford_path, m)?)?;

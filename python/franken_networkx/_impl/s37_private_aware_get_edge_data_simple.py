@@ -1505,7 +1505,7 @@ _SPECTRAL_CENTRALITY_NATIVE_READERS = {
         for name in (
             "__len__", "__iter__", "__getitem__", "__getattribute__", "__dict__",
             "is_directed", "is_multigraph", "number_of_nodes", "number_of_edges",
-            "nodes", "edges", "degree", "adj", "succ", "pred",
+            "nodes", "edges", "degree", "adj", "succ", "pred", "nodes_seq",
         )
     }
     for cls in (Graph, DiGraph)

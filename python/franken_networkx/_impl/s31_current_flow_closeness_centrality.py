@@ -23,7 +23,7 @@ def current_flow_closeness_centrality(
         "cg": _CGInverseLaplacian,
     }
 
-    if not is_connected(G):
+    if not _current_flow_is_connected(G, weight):
         raise NetworkXError("Graph not connected.")
 
     import numpy as np
@@ -33,7 +33,8 @@ def current_flow_closeness_centrality(
         solver == "lu"
         and weight is None
         and dtype is float
-        and _current_flow_native_graph(G)
+        and type(G) is Graph
+        and _can_use_unit_none_weight(G)
         and hasattr(_fnx, "current_flow_closeness_centrality_rust")
     ):
         # br-r37-c1-8n5ni: emit in G's node order, not RCM order — see the
@@ -41,7 +42,7 @@ def current_flow_closeness_centrality(
         raw = _fnx.current_flow_closeness_centrality_rust(G, ordering)
         return {node: raw[node] for node in G}
 
-    relabeled = relabel_nodes(G, dict(zip(ordering, range(node_count))))
+    relabeled = _current_flow_relabel(G, dict(zip(ordering, range(node_count))), weight)
 
     laplacian = laplacian_matrix(
         relabeled,
@@ -72,14 +73,11 @@ def current_flow_closeness_centrality(
     # diverges on ``type(v) is float`` and on repr (``np.float64(...)``).
     # current_flow_betweenness already coerces — match it here.
     #
-    # br-r37-c1-8n5ni: iterate G, not ``range(n)``. ``centrality_arr`` is indexed
-    # by RCM RANK, so ``{ordering[i]: ... for i in range(n)}`` emitted keys in RCM
-    # order — nx emits them in G's node order. nx gets there by keying its
-    # accumulator off the relabeled graph (``dict.fromkeys(H)``), whose node order
-    # is ``[mapping[v] for v in G]``, so ``ordering[node]`` maps each key straight
-    # back to G's order. Values are untouched; only the key sequence moves.
-    rank = {node: index for index, node in enumerate(ordering)}
-    return {node: float(1.0 / centrality_arr[rank[node]]) for node in G}
+    # The solver's relabeled nodes retain the input insertion order. Use
+    # that snapshot, since a weight lookup may have mutated the input.
+    return {
+        ordering[node]: float(1.0 / centrality_arr[node]) for node in relabeled
+    }
 
 
 def _subset_betweenness_uses_live_python_rows(G, sources, targets, weight):

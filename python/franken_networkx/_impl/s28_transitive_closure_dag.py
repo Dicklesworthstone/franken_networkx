@@ -824,6 +824,11 @@ def normalized_laplacian_spectrum(G, weight="weight"):
     """Return sorted eigenvalues of the normalized Laplacian."""
     import numpy as np
 
+    if weight is None and not _can_use_unit_none_weight(G):
+        from scipy.linalg import eigvalsh
+
+        return eigvalsh(normalized_laplacian_matrix(G, weight=weight).toarray())
+
     edgeless_values = _edgeless_normalized_laplacian_spectrum_sorted_value_safe(
         G, weight
     )
