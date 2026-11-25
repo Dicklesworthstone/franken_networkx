@@ -292,6 +292,7 @@ _CALLBACK_INPUT_ALGORITHMS = frozenset(
         "edge_betweenness_centrality",
         "voterank",
         "pagerank",
+        "is_directed_acyclic_graph",
         "maximum_flow",
         "maximum_flow_value",
         "minimum_cut",
@@ -439,6 +440,7 @@ _PROVIDER_INPUT_ALGORITHMS = (
         "group_betweenness_centrality", "group_closeness_centrality",
         "minimum_spanning_tree", "maximum_spanning_tree",
         "stoer_wagner", "transitive_closure_dag", "number_of_spanning_trees",
+        "is_directed_acyclic_graph",
     }
 )
 _PROVIDER_CALL_INPUTS = ContextVar("franken_networkx_provider_inputs", default=None)
@@ -453,6 +455,10 @@ def _primary_graph_parameter(name):
 
 def _provider_dispatch_uses_original_graph(name, graph, arguments):
     """Preserve providers only on routes that read the caller's graph protocol."""
+    if name == "is_directed_acyclic_graph":
+        # Degree, directedness and successor providers own the cycle decision;
+        # a cached conversion must not replace the caller.
+        return True
     if name in _COMPONENT_QUERY_ALGORITHMS:
         # Eager component queries still read live rows and node protocols.
         # Conversion can visit unrelated components or replace their state.
@@ -2734,6 +2740,7 @@ class BackendInterface:
                         or name in {
                             "stoer_wagner", "minimum_spanning_tree", "maximum_spanning_tree",
                             "minimum_cycle_basis", "min_edge_cover",
+                            "is_directed_acyclic_graph",
                             "voterank", "common_neighbors", "label_propagation_communities",
                             "chain_decomposition", "voronoi_cells",
                         }

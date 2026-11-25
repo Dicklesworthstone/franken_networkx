@@ -237,3 +237,286 @@ def test_assigned_rows_remain_live_between_topological_yields(cls, fn, assign_be
     expected = run(nx)
     assert expected[1] == "RuntimeError"
     assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["topological_generations", "topological_sort"])
+@pytest.mark.parametrize("warm_degree", [False, True])
+def test_topological_public_readers_run_in_reference_order(
+    graph_type, algorithm, warm_degree
+):
+    def run(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2)])
+        if warm_degree:
+            _ = graph.in_degree
+        events = []
+
+        def directed():
+            events.append("directed")
+            return True
+
+        def multigraph():
+            events.append("multigraph")
+            return graph_type == "MultiDiGraph"
+
+        def in_degree():
+            events.append("in_degree")
+            return iter([(0, 0), (1, 1), (2, 1)])
+
+        def neighbors(node):
+            events.append(("neighbors", node))
+            return iter({0: [1], 1: [2], 2: []}[node])
+
+        graph.is_directed = directed
+        graph.is_multigraph = multigraph
+        graph.in_degree = in_degree
+        graph.neighbors = neighbors
+        iterator = getattr(module, algorithm)(graph)
+        assert events == []
+        return list(iterator), events
+
+    expected = run(nx)
+    assert expected[1][:4] == ["directed", "multigraph", "in_degree", "in_degree"]
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("algorithm", ["topological_generations", "topological_sort"])
+def test_multigraph_kind_is_captured_before_degree_providers(algorithm):
+    def run(module):
+        graph = module.MultiDiGraph([(0, 1), (0, 1), (1, 2)])
+
+        def in_degree():
+            graph.is_multigraph = lambda: False
+            return iter([(0, 0), (1, 2), (2, 1)])
+
+        graph.in_degree = in_degree
+        return _drive(module, algorithm, graph, {})
+
+    expected = run(nx)
+    assert expected[1] is None
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["topological_generations", "topological_sort"])
+@pytest.mark.parametrize("scope", ["instance", "class"])
+@pytest.mark.parametrize("before_start", [False, True])
+def test_topological_neighbor_replacements_stay_live(
+    monkeypatch, graph_type, algorithm, scope, before_start
+):
+    def run(module):
+        graph_class = getattr(module, graph_type)
+        graph = graph_class([(0, 1), (1, 2), (1, 3), (2, 4), (3, 4)])
+        original = graph_class.neighbors
+        events = []
+
+        def neighbors(self, node):
+            events.append(node)
+            return iter(reversed(list(original(self, node))))
+
+        with monkeypatch.context() as patcher:
+            def install(_graph):
+                if scope == "class":
+                    patcher.setattr(graph_class, "neighbors", neighbors)
+                else:
+                    graph.neighbors = lambda node: neighbors(graph, node)
+
+            if before_start:
+                install(graph)
+            schedule = {} if before_start else {0: [install]}
+            return _drive(module, algorithm, graph, schedule), events
+
+    expected = run(nx)
+    assert expected[0][1] is None and expected[1]
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["topological_generations", "topological_sort"])
+def test_suspended_topology_keeps_original_multigraph_flag(graph_type, algorithm):
+    def run(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2)])
+
+        def mutate(graph):
+            graph.add_node("later")
+
+            def multigraph():
+                raise AssertionError("multigraph kind was read after traversal started")
+
+            graph.is_multigraph = multigraph
+
+        return _drive(module, algorithm, graph, {0: [mutate]})
+
+    expected = run(nx)
+    assert expected[1] is None
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("algorithm", ["topological_generations", "topological_sort"])
+@pytest.mark.parametrize("label_kind", ["node", "row_alias"])
+def test_topology_does_not_skip_node_hash_exceptions(graph_type, algorithm, label_kind):
+    def run(module):
+        armed = False
+
+        class Label(int):
+            def __hash__(self):
+                if armed:
+                    raise RuntimeError("topological node hash callback")
+                return int.__hash__(self)
+
+        graph = getattr(module, graph_type)()
+        if label_kind == "node":
+            graph.add_edges_from([(Label(0), Label(1)), (Label(1), Label(2))])
+        else:
+            graph.add_nodes_from(range(3))
+            graph.add_edges_from([(0, Label(1)), (1, 2)])
+        armed = True
+        return _drive(module, algorithm, graph, {})
+
+    expected = run(nx)
+    assert expected[1:] == ("RuntimeError", "topological node hash callback")
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("warm_degree", [False, True])
+def test_plain_topological_generations_keep_native_batch(monkeypatch, graph_type, warm_degree):
+    edges = [(0, 1), (0, 2), (1, 3), (2, 3)]
+    graph = getattr(fnx, graph_type)(edges)
+    reference = getattr(nx, graph_type)(edges)
+    if warm_degree:
+        _ = graph.in_degree
+    calls = []
+    original = fnx._raw_topological_generations_state
+
+    def capture(graph):
+        calls.append(graph)
+        return original(graph)
+
+    monkeypatch.setattr(fnx, "_raw_topological_generations_state", capture)
+    assert list(fnx.topological_generations(graph)) == list(nx.topological_generations(reference))
+    assert len(calls) == 1 and calls[0] is graph
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("input_module", [nx, fnx], ids=["networkx", "franken_networkx"])
+def test_dag_predicate_reads_logical_degree_provider(graph_type, input_module):
+    graph = getattr(input_module, graph_type)([(0, 1), (1, 2)])
+    reference = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    for current in (graph, reference):
+        current.in_degree = lambda: [(0, 1), (1, 1), (2, 1)]
+    expected = nx.is_directed_acyclic_graph(reference)
+    assert expected is False
+    assert fnx.is_directed_acyclic_graph(graph) is expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("warm_cache", [False, True])
+def test_backend_dag_predicate_preserves_original_providers(graph_type, warm_cache):
+    graph = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    reference = getattr(nx, graph_type)([(0, 1), (1, 2)])
+    with nx.config(cache_converted_graphs=True):
+        if warm_cache:
+            assert nx.dijkstra_path_length(graph, 0, 2, backend="franken_networkx") == 2
+            assert graph.__networkx_cache__.get("backends", {}).get("franken_networkx")
+        for current in (graph, reference):
+            current.in_degree = lambda: [(0, 1), (1, 1), (2, 1)]
+        assert nx.is_directed_acyclic_graph(reference) is False
+        assert nx.is_directed_acyclic_graph(graph, backend="franken_networkx") is False
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_dag_predicate_keeps_falsy_directedness_value(graph_type):
+    graph = getattr(fnx, graph_type)([(0, 1)])
+    reference = getattr(nx, graph_type)([(0, 1)])
+    graph.is_directed = lambda: None
+    reference.is_directed = lambda: None
+    assert fnx.is_directed_acyclic_graph(graph) is nx.is_directed_acyclic_graph(reference) is None
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_backend_dag_predicate_preserves_provider_exception(graph_type):
+    graph = getattr(nx, graph_type)([(0, 1)])
+
+    def in_degree():
+        raise nx.NetworkXNotImplemented("custom degree provider")
+
+    graph.in_degree = in_degree
+    with pytest.raises(nx.NetworkXNotImplemented, match="custom degree provider"):
+        nx.is_directed_acyclic_graph(graph, backend="franken_networkx")
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("kind", ["canonical", "filtered", "nested", "conversion", "subclass", "private"])
+@pytest.mark.parametrize("scope", ["instance", "class"])
+def test_reverse_dag_predicate_keeps_live_degree_providers(monkeypatch, graph_type, kind, scope):
+    def run(module):
+        graph = getattr(module, graph_type)([(0, 1), (1, 2), (2, 3)])
+        if kind == "filtered":
+            view = graph.subgraph([0, 1, 2]).reverse(copy=False)
+        elif kind == "nested":
+            first = graph.reverse(copy=False)
+            view = (
+                module._reverse_directed_view_for(first)
+                if module is fnx else nx.classes.graphviews.reverse_view(first)
+            )
+        elif kind == "conversion":
+            view = graph.to_undirected(as_view=True).to_directed(as_view=True).reverse(copy=False)
+        elif kind == "subclass":
+            class CustomGraph(getattr(module, graph_type)):
+                pass
+
+            graph = CustomGraph(graph)
+            view = graph.reverse(copy=False)
+        elif kind == "private":
+            graph._succ = {node: {} for node in graph}
+            graph._adj = graph._succ
+            graph._pred = {node: {} for node in graph}
+            view = graph.reverse(copy=False)
+        else:
+            view = graph.reverse(copy=False)
+        nodes = tuple(view)
+        calls = []
+
+        def in_degree():
+            calls.append("degree")
+            return [(node, 1) for node in nodes]
+
+        with monkeypatch.context() as patcher:
+            if scope == "instance":
+                view.in_degree = in_degree
+            else:
+                patcher.setattr(type(view), "in_degree", lambda self: in_degree())
+            return module.is_directed_acyclic_graph(view), calls
+
+    expected = run(nx)
+    assert expected == (False, ["degree", "degree"])
+    assert run(fnx) == expected
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("label_kind", ["node", "predecessor_alias"])
+def test_reverse_dag_predicate_preserves_node_hash_exceptions(graph_type, label_kind):
+    def run(module):
+        armed = False
+
+        class Label(int):
+            def __hash__(self):
+                if armed:
+                    raise RuntimeError("reverse DAG node hash callback")
+                return int.__hash__(self)
+
+        graph = getattr(module, graph_type)()
+        if label_kind == "node":
+            graph.add_edges_from([(Label(0), Label(1)), (Label(1), Label(2))])
+        else:
+            graph.add_nodes_from(range(3))
+            graph.add_edges_from([(Label(0), 1), (1, 2)])
+        view = graph.reverse(copy=False)
+        armed = True
+        with pytest.raises(RuntimeError, match="reverse DAG node hash callback"):
+            module.is_directed_acyclic_graph(view)
+
+    run(nx)
+    run(fnx)

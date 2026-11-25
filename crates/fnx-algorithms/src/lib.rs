@@ -89670,7 +89670,7 @@ mod tests {
             let mut attrs = AttrMap::new();
             attrs.insert(capacity_attr.to_owned(), CgseValue::Float(capacity));
             graph
-                .add_edge_with_attrs(&left.to_string(), &right.to_string(), attrs)
+                .add_edge_with_attrs(left.to_string(), right.to_string(), attrs)
                 .unwrap();
         }
         graph
@@ -89846,8 +89846,8 @@ mod tests {
         for &(left, right, _) in &edges {
             graph
                 .add_edge_with_attrs(
-                    &left.to_string(),
-                    &right.to_string(),
+                    left.to_string(),
+                    right.to_string(),
                     single_attr("weight", "99.0"),
                 )
                 .unwrap();

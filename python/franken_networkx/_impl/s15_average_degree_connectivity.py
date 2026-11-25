@@ -1219,14 +1219,21 @@ from franken_networkx._fnx import (
 
 
 def is_directed_acyclic_graph(G):
-    """br-isokw: ``G`` matches nx; Rust binding used ``g``."""
-    # Every directed cycle remains a directed cycle when all arcs reverse.
-    root = _reverse_view_root(G)
+    """Return whether the caller's directed graph has an acyclic ordering."""
+    if _topological_generations_can_snapshot(G):
+        return _raw_is_directed_acyclic_graph(G)
+    root = _dag_reverse_view_native_root(G)
     if root is not None:
-        G = root
-    # br-r37-c1-pf5vu: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    return _raw_is_directed_acyclic_graph(G)
+        return _raw_is_directed_acyclic_graph(root)
+    directed = G.is_directed()
+    if not directed:
+        return directed
+    try:
+        for _ in topological_sort(G):
+            pass
+    except NetworkXUnfeasible:
+        return False
+    return True
 
 
 
@@ -1432,6 +1439,86 @@ def topological_sort(G):
         yield from generation
 
 
+def _topological_generations_can_snapshot(G):
+    """Keep native generations only while their public readers are passive."""
+    graph_type = type(G)
+    if graph_type is not DiGraph and graph_type is not MultiDiGraph:
+        return False
+    readers = _DAG_TOPOLOGY_NATIVE_READERS[graph_type]
+    namespace = vars(graph_type)
+    if any(namespace.get(name) is not reader for name, reader in readers.items()):
+        return False
+    if _has_networkx_private_storage(G):
+        return False
+    storage = vars(G)
+    if any(name in storage for name in (
+        "__iter__", "__len__", "__contains__", "__getitem__",
+        "__getattribute__", "is_directed", "is_multigraph", "neighbors",
+        "successors", "predecessors", "get_edge_data", "nbunch_iter",
+        "nodes_seq", "_fnx_revision", "_native_node_keys",
+        "_native_has_succ_py_keys", "_native_has_pred_py_keys",
+    )):
+        return False
+    for name in ("in_degree", "nodes", "adj", "succ", "pred"):
+        if name in storage and (
+            f"_fnx_view_{name}_assigned" in storage
+            or storage[name] is not storage.get(f"_fnx_view_{name}")
+        ):
+            return False
+    # Node hashes may mutate later degree or successor rows. Admission must
+    # inspect the native labels without running those callbacks itself.
+    return (
+        _view_root_node_keys_are_stable(G, G.nodes_seq)
+        and not G._native_has_succ_py_keys()
+    )
+
+
+def _dag_reverse_view_native_root(G):
+    """Keep a canonical passive reverse view on its root's cycle kernel."""
+    view_type = type(G)
+    if view_type is not _ReverseDirectedView and view_type is not _ReverseMultiDirectedView:
+        return None
+    for cls, readers in _DAG_REVERSE_VIEW_NATIVE_READERS.items():
+        namespace = vars(cls)
+        if any(namespace.get(name) is not reader for name, reader in readers.items()):
+            return None
+    storage = vars(G)
+    # Cached/assigned public readers and noncanonical view state need the
+    # caller's live protocol. A fresh canonical reverse view has these six.
+    allowed = {
+        "_graph", _GRAPH_ATTR_OVERRIDE, "frozen",
+        _PRIVATE_ADJ_OVERRIDE, _PRIVATE_SUCC_OVERRIDE, _PRIVATE_PRED_OVERRIDE,
+    }
+    if len(storage) != len(allowed) or any(
+        type(name) is not str or name not in allowed for name in storage
+    ):
+        return None
+    root = storage["_graph"]
+    if not _topological_generations_can_snapshot(root) or root._native_has_pred_py_keys():
+        return None
+    row_type = (
+        _ReverseMultiAdjacencyView
+        if view_type is _ReverseMultiDirectedView
+        else _ReverseGraphAdjacencyView
+    )
+    for key, reverse in (
+        (_PRIVATE_ADJ_OVERRIDE, False),
+        (_PRIVATE_SUCC_OVERRIDE, False),
+        (_PRIVATE_PRED_OVERRIDE, True),
+    ):
+        row = storage[key]
+        if type(row) is not row_type:
+            return None
+        row_state = vars(row)
+        if (
+            len(row_state) != 2
+            or row_state.get("_view") is not G
+            or row_state.get("_reverse") is not reverse
+        ):
+            return None
+    return root
+
+
 def topological_generations(G):
     """Yield the generations of ``G`` in topological order, as networkx does.
 
@@ -1440,26 +1527,29 @@ def topological_generations(G):
     new child raises ``RuntimeError``, and nodes whose in-degree never
     reaches zero (a cycle, or an edge added among unprocessed nodes) raise
     ``NetworkXUnfeasible`` after the last generation. On fnx's own DiGraph
-    and MultiDiGraph the generations come from the native kernel; if the
-    graph's revision has moved when networkx would process generation k,
-    networkx's loop continues on the live graph from the native kernel's
-    in-degree state at that boundary (nro4w.11). Any other directed graph
-    (a subclass, a view, a networkx graph) runs networkx's loop as written.
+    and MultiDiGraph with passive readers, the generations come from the
+    native kernel; if the graph's revision or readers change when networkx
+    would process generation k, networkx's loop continues on the live graph
+    from the native kernel's in-degree state at that boundary (nro4w.11).
+    Other directed graphs run networkx's loop as written.
     """
-    if type(G) in (DiGraph, MultiDiGraph) and not _has_networkx_private_storage(G):
+    if _topological_generations_can_snapshot(G):
         yield from _topological_generations_native(G)
     else:
         yield from _topological_generations_as_networkx(G)
 
 
 def _topological_generations_native(G):
+    # The reference captures graph kind before reading either degree pass.
+    # A later replacement of is_multigraph must not change edge accounting.
+    multigraph = type(G) is MultiDiGraph
     generations, leftover, state = _raw_topological_generations_state(G)
     revision = G._fnx_revision
     start = revision()
     for k, generation in enumerate(generations):
-        if revision() != start or _has_networkx_private_storage(G):
+        if not _topological_generations_can_snapshot(G) or revision() != start:
             yield from _topological_generations_live(
-                G, generation, state.indegree_map(k), G.is_multigraph()
+                G, generation, state.indegree_map(k), multigraph
             )
             return
         yield generation
@@ -1472,10 +1562,11 @@ def _topological_generations_native(G):
 def _topological_generations_as_networkx(G):
     if not G.is_directed():
         raise NetworkXError("Topological sort not defined on undirected graphs.")
+    multigraph = G.is_multigraph()
     indegree_map = {v: d for v, d in G.in_degree() if d > 0}
     zero_indegree = [v for v, d in G.in_degree() if d == 0]
     yield from _topological_generations_live(
-        G, zero_indegree, indegree_map, G.is_multigraph()
+        G, zero_indegree, indegree_map, multigraph
     )
 
 

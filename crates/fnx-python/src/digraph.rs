@@ -9689,6 +9689,10 @@ impl PyMultiDiGraph {
         !self.succ_py_keys.is_empty()
     }
 
+    fn _native_has_pred_py_keys(&self) -> bool {
+        !self.pred_py_keys.is_empty()
+    }
+
     /// br-r37-c1-adjshare: cached form of `adjacency` — serve the nested
     /// {node: {succ: {key: edge_dict}}} snapshot from the (nodes_seq, edges_seq)-
     /// keyed `dict_of_dicts_cache` with SHARED rows (no per-row copy). nx's

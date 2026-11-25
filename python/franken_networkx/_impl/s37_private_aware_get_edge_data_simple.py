@@ -1512,6 +1512,44 @@ _MIN_COST_FLOW_NATIVE_READERS = {
 }
 
 
+_DAG_TOPOLOGY_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__len__", "__iter__", "__contains__", "__getitem__",
+            "__getattribute__", "__dict__", "is_directed", "is_multigraph",
+            "in_degree", "neighbors", "successors", "predecessors",
+            "get_edge_data", "nbunch_iter", "_node", "_adj",
+            "_succ", "_pred", "nodes", "adj", "succ", "pred", "nodes_seq",
+            "_fnx_revision", "_native_node_keys", "_native_has_succ_py_keys",
+            "_native_has_pred_py_keys",
+        )
+    }
+    for cls in (DiGraph, MultiDiGraph)
+}
+
+
+_DAG_REVERSE_VIEW_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__init__", "__len__", "__iter__", "__contains__", "__getitem__",
+            "__getattribute__", "__getattr__", "__dict__",
+            "is_directed", "is_multigraph", "in_degree", "neighbors",
+            "successors", "predecessors", "get_edge_data", "nbunch_iter", "nodes",
+            "_node", "_adj", "_succ", "_pred", "adj", "succ", "pred",
+            "_graph", "_view", "_reverse", "_raw_neighbors",
+        )
+    }
+    for cls in (
+        DiGraph, MultiDiGraph,
+        _ReverseDirectedView, _ReverseMultiDirectedView, _ReverseDirectedViewBase,
+        _ReverseAdjacencyView, _ReverseGraphAdjacencyView,
+        _ReverseMultiAdjacencyView, _ReverseNeighborMap,
+    )
+}
+
+
 _SPECTRAL_CENTRALITY_NATIVE_READERS = {
     cls: {
         name: vars(cls).get(name)

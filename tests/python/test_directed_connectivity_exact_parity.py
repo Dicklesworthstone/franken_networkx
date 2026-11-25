@@ -52,7 +52,15 @@ def test_local_connectivity_both_directions(seed):
 @pytest.mark.parametrize("seed", range(50))
 def test_global_directed_connectivity(seed):
     fg, ng, n, r = _digraph(seed)
-    assert fnx.node_connectivity(fg) == nx.node_connectivity(ng)
+    # NetworkX's global directed shortcut can miss an unreachable ordered
+    # pair and over-report connectivity. The project deliberately preserves
+    # the exact minimum (test_directed_node_connectivity_divergence.py).
+    # Keep every seed and use independent local flows as the global oracle.
+    expected_nodes = min(
+        nc.local_node_connectivity(ng, source, target, backend="networkx")
+        for source in ng for target in ng if source != target
+    )
+    assert fnx.node_connectivity(fg) == expected_nodes
     assert fnx.edge_connectivity(fg) == nx.edge_connectivity(ng)
 
 
@@ -275,7 +283,7 @@ def test_reverse_scalar_backend_errors_do_not_invoke_native(graph_type, name, mo
 @pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
 @pytest.mark.parametrize("name", _REVERSE_SCALARS)
 @pytest.mark.parametrize("kind", ["filtered", "nested", "conversion", "subclass", "private"])
-def test_reverse_scalar_ineligible_views_keep_materialized_route(graph_type, name, kind, monkeypatch):
+def test_reverse_scalar_ineligible_views_follow_logical_graph(graph_type, name, kind, monkeypatch):
     fg, ng = _reverse_scalar_graphs(graph_type, "chain")
     if kind == "filtered":
         fv = fg.subgraph([0, 1, 2]).reverse(copy=False)
@@ -311,7 +319,10 @@ def test_reverse_scalar_ineligible_views_keep_materialized_route(graph_type, nam
     assert _reverse_scalar_outcome(getattr(fnx, name), fv) == (
         _reverse_scalar_outcome(getattr(nx, name), nv)
     )
-    assert copied == [fv]
+    # DAG detection must retain degree and successor providers on the view.
+    # Its live topological walk needs no materialized graph; the other scalar
+    # kernels retain their existing conversion route.
+    assert copied == ([] if name == "is_directed_acyclic_graph" else [fv])
     if kind == "private":
         for graph in (fg, ng):
             for source, target in ((0, 1), (1, 2), (2, 0)):
@@ -324,7 +335,7 @@ def test_reverse_scalar_ineligible_views_keep_materialized_route(graph_type, nam
         assert _reverse_scalar_outcome(getattr(fnx, name), fv) == (
             _reverse_scalar_outcome(getattr(nx, name), nv)
         )
-        assert copied == [fv, fv]
+        assert copied == ([] if name == "is_directed_acyclic_graph" else [fv, fv])
 
 
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
