@@ -3869,3 +3869,23 @@ parallel-key changes and graph clearing update or detach these rows with the
 same lifetime rules as the existing directed cursors. Backend conversion
 caches must not replace the original graph for observable live queries. Cache
 population itself is not part of the weighted average-distance contract.
+
+## 118. Self-loop Rows in Current-Flow Betweenness
+
+For connected undirected graphs with at least three nodes, node and edge
+current-flow betweenness retain self-loop rows in the flow matrix. The row
+builder assigns the source coefficient before the target coefficient; when
+both endpoints are the same, the latter assignment remains observable.
+Dropping a loop changes node scores and removes an edge-result entry.
+
+Reverse Cuthill–McKee ordering counts an undirected self-loop twice in node
+degree comparisons. Looped graphs use the existing owned ordering and matrix
+solvers; ordinary loop-free graphs retain native execution. Native admission
+inspects loop presence and node count without calling public graph readers.
+The established one- and two-node conventions remain unchanged. Self-loops
+still cancel from the Laplacian, so closeness and information centrality retain
+their existing behavior.
+
+Regression coverage lives in
+`tests/python/test_current_flow_centrality_parity.py`, including normalized
+and raw scores, output key order, degree ties and loop-free native controls.

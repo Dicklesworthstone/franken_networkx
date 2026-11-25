@@ -1302,7 +1302,13 @@ def _reverse_cuthill_mckee_ordering(G, heuristic=None):
 def _current_flow_rcm_ordering(G):
     """Return current-flow RCM ordering, using the native start heuristic when safe."""
     native_start = getattr(_fnx, "current_flow_pseudo_peripheral_node_rust", None)
-    if native_start is None or type(G) is not Graph:
+    if (
+        native_start is None
+        or type(G) is not Graph
+        or _fnx.nodes_with_selfloops_rust(G)
+    ):
+        # The native heuristic currently counts adjacency keys, whereas an
+        # undirected self-loop contributes twice to the degree tie-break.
         return list(_reverse_cuthill_mckee_ordering(G))
     start = native_start(G)
     return list(_reverse_cuthill_mckee_ordering(G, heuristic=lambda _graph: start))
@@ -1483,11 +1489,18 @@ def _current_flow_betweenness_impl(G, *, normalized, weight, dtype, solver):
     if not is_connected(G):
         raise NetworkXError("Graph not connected.")
 
+    # The native kernels omit self-loop flow rows. Keep the existing
+    # small-graph convention, but evaluate larger looped graphs through the
+    # owned matrix solver's source-then-target coefficient assignments.
     if (
         solver == "full"
         and weight is None
         and dtype is float
         and type(G) is Graph
+        and (
+            not _fnx.nodes_with_selfloops_rust(G)
+            or len(_CONVERSION_NATIVE_NODE_KEYS[Graph](G)) <= 2
+        )
         and hasattr(_fnx, "current_flow_betweenness_centrality_nx_ordered_rust")
     ):
         ordering = _current_flow_rcm_ordering(G)
@@ -1549,6 +1562,10 @@ def edge_current_flow_betweenness_centrality(
         and weight is None
         and dtype is float
         and type(G) is Graph
+        and (
+            not _fnx.nodes_with_selfloops_rust(G)
+            or len(_CONVERSION_NATIVE_NODE_KEYS[Graph](G)) <= 2
+        )
         and hasattr(_fnx, "edge_current_flow_betweenness_centrality_nx_ordered_rust")
     ):
         ordering = _current_flow_rcm_ordering(G)
@@ -1693,3 +1710,4 @@ def approximate_current_flow_betweenness_centrality(
         seed=seed,
         sample_weight=sample_weight,
     )
+
