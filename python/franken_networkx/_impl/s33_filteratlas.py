@@ -850,73 +850,50 @@ class _FilteredEdgeView:
     values = _adjacency_view_values
 
     # br-filtedgeop: nx.EdgeView inherits from _Set, so `G.edges - some_iter`
-    # works via _Set.__sub__. fnx's _FilteredEdgeView had no set-operator
-    # methods, breaking nx._min_cycle_basis which does
+    # works via _Set.__sub__, and nx._min_cycle_basis does
     # `chords = G.edges - tree_edges - {(v, u) for u, v in tree_edges}`.
-    def __sub__(self, other):
-        return set(self) - set(other)
+    # br-r37-c1-fev-setops: comparisons and isdisjoint come from _Set too.
+    #
+    # Use collections.abc.Set's own mixin methods, with networkx's
+    # `_from_iterable = set`, rather than re-deriving them from set(self).
+    # The result's insertion order is part of the contract: `view - x` and
+    # `view | x` insert in this view's iteration order, `x - view` and
+    # `x & view` in the other operand's. A set's iteration order follows
+    # insertion when hashes collide, so `set(self) - set(other)` (hash order)
+    # gave minimum_cycle_basis a different chord order, and a different
+    # basis order, than networkx under some hash seeds (Python 3.10,
+    # PYTHONHASHSEED=1, two triangles sharing a node). Membership is this
+    # view's own __contains__, as in networkx: a reversed undirected pair is
+    # an edge, so `{(v, u)} - G.edges` is empty and `{(v, u)} & G.edges`
+    # keeps it, where the set(...) forms compared bare tuples. The view is
+    # registered as a Set below, so an operand that is another fnx view is
+    # probed through its own __contains__ too.
+    # br-r37-c1-fev-eq: _Set.__eq__ compares two fresh `sg.edges` views by
+    # content (length plus membership), not identity.
+    @classmethod
+    def _from_iterable(cls, it):
+        return set(it)
 
-    def __rsub__(self, other):
-        return set(other) - set(self)
-
-    def __or__(self, other):
-        return set(self) | set(other)
-
-    def __ror__(self, other):
-        return set(other) | set(self)
-
-    def __and__(self, other):
-        return set(self) & set(other)
-
-    def __rand__(self, other):
-        return set(other) & set(self)
-
-    def __xor__(self, other):
-        return set(self) ^ set(other)
-
-    def __rxor__(self, other):
-        return set(other) ^ set(self)
-
-    def __eq__(self, other):
-        # br-r37-c1-fev-eq: subgraph view's edges crashed `view==view`
-        # because each `sg.edges` access creates a fresh
-        # _FilteredEdgeView instance. The previous __eq__ only
-        # handled set/frozenset, falling through to NotImplemented
-        # for another _FilteredEdgeView — Python then used default
-        # identity comparison which returned False. nx's
-        # filtered EdgeView is set-like; match its content-based
-        # equality across all set-like types.
-        from collections.abc import Set as _Set
-        if isinstance(other, _FilteredEdgeView):
-            return set(self) == set(other)
-        if isinstance(other, _Set):
-            return set(self) == set(other)
-        return NotImplemented
+    __sub__ = _Set.__sub__
+    __rsub__ = _Set.__rsub__
+    __or__ = _Set.__or__
+    __ror__ = _Set.__ror__
+    __and__ = _Set.__and__
+    __rand__ = _Set.__rand__
+    __xor__ = _Set.__xor__
+    __rxor__ = _Set.__rxor__
+    __eq__ = _Set.__eq__
+    __le__ = _Set.__le__
+    __lt__ = _Set.__lt__
+    __ge__ = _Set.__ge__
+    __gt__ = _Set.__gt__
+    isdisjoint = _Set.isdisjoint
 
     def __ne__(self, other):
         eq = self.__eq__(other)
         if eq is NotImplemented:
             return NotImplemented
         return not eq
-
-    # br-r37-c1-fev-setops: nx's filtered EdgeView inherits from _Set
-    # so all comparison + isdisjoint work. The previous fnx wrapper
-    # had partial coverage (-, |, &, ^) but missing <=, <, >=, >,
-    # and isdisjoint.
-    def __le__(self, other):
-        return set(self) <= set(other) if hasattr(other, "__iter__") else NotImplemented
-
-    def __lt__(self, other):
-        return set(self) < set(other) if hasattr(other, "__iter__") else NotImplemented
-
-    def __ge__(self, other):
-        return set(self) >= set(other) if hasattr(other, "__iter__") else NotImplemented
-
-    def __gt__(self, other):
-        return set(self) > set(other) if hasattr(other, "__iter__") else NotImplemented
-
-    def isdisjoint(self, other):
-        return set(self).isdisjoint(other)
 
     __hash__ = None
 
@@ -969,6 +946,10 @@ _FilteredMultiEdgeView.__name__ = "MultiEdgeView"
 class _FilteredOutMultiEdgeView(_FilteredEdgeView):
     _fnx_edge_kind, _fnx_multi = "out", True
 _FilteredOutMultiEdgeView.__name__ = "OutMultiEdgeView"
+
+
+# networkx's subgraph-view edges are EdgeView instances, a Set subclass.
+_Set.register(_FilteredEdgeView)
 
 
 def _default_node_set_filter_chain(view):
