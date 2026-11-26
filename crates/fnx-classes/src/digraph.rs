@@ -1524,9 +1524,10 @@ impl DiGraph {
         self.node_order.reserve(lower_bound);
 
         let mut inserted = 0usize;
+        let mut merged_changed = false;
         for (node, attrs) in iterator {
             if let Some(&slot) = self.node_order.get(&node) {
-                self.node_attrs[slot].extend(attrs);
+                merged_changed |= crate::merge_attrs(&mut self.node_attrs[slot], attrs);
                 continue;
             }
             self.node_order.push(node);
@@ -1535,10 +1536,10 @@ impl DiGraph {
             self.pred_indices.rows_mut().push(Vec::new());
             inserted += 1;
         }
-        if inserted > 0 {
+        if inserted > 0 || merged_changed {
             self.revision = self
                 .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
             self.record_decision(
                 "extend_nodes_unrecorded",
                 0.0,
@@ -1649,6 +1650,7 @@ impl DiGraph {
         N: IntoIterator<Item = String>,
     {
         self.compact_before_growth();
+        let previous_node_count = self.node_order.len();
         for node in new_nodes {
             if self.node_order.contains_key(&node) {
                 continue;
@@ -1686,7 +1688,7 @@ impl DiGraph {
             inserted += 1;
         }
 
-        if inserted > 0 || merged_changed {
+        if inserted > 0 || merged_changed || self.node_order.len() != previous_node_count {
             self.revision = self
                 .revision
                 .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));

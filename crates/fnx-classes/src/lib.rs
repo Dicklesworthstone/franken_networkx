@@ -28,6 +28,17 @@ use std::fmt;
 
 pub use fnx_runtime::AttrMap;
 
+/// Extend an attribute map and report whether an entry was added or overwritten
+/// with a different value. Batch callers use this to invalidate derived state
+/// even when every item already exists.
+fn merge_attrs(existing: &mut AttrMap, attrs: AttrMap) -> bool {
+    let changed = attrs
+        .iter()
+        .any(|(key, value)| existing.get(key) != Some(value));
+    existing.extend(attrs);
+    changed
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphError {
     FailClosed {
@@ -2229,9 +2240,10 @@ impl Graph {
         self.node_order.reserve(lower_bound);
 
         let mut inserted = 0usize;
+        let mut merged_changed = false;
         for (node, attrs) in iterator {
             if let Some(&slot) = self.node_order.get(&node) {
-                self.node_attrs[slot].extend(attrs);
+                merged_changed |= merge_attrs(&mut self.node_attrs[slot], attrs);
                 continue;
             }
             self.node_order.push(node);
@@ -2239,10 +2251,10 @@ impl Graph {
             self.adj_indices.rows_mut().push(Vec::new());
             inserted += 1;
         }
-        if inserted > 0 {
+        if inserted > 0 || merged_changed {
             self.revision = self
                 .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
             self.record_decision(
                 "extend_nodes_with_attrs_unrecorded",
                 0.0,
@@ -2372,7 +2384,7 @@ impl Graph {
             }
             inserted += 1;
         }
-        self.record_bulk_edge_summary(inserted, nodes_added);
+        self.record_bulk_edge_summary(inserted, nodes_added, false);
         inserted
     }
 
@@ -2431,7 +2443,7 @@ impl Graph {
             }
             inserted += 1;
         }
-        self.record_bulk_edge_summary(inserted, false);
+        self.record_bulk_edge_summary(inserted, false, false);
         inserted
     }
 
@@ -2453,6 +2465,7 @@ impl Graph {
         self.edge_index_endpoints.reserve(lower_bound);
 
         let mut inserted = 0usize;
+        let mut merged_changed = false;
         for (left_idx, right_idx, attrs) in iterator {
             debug_assert!(left_idx < self.node_order.len());
             debug_assert!(right_idx < self.node_order.len());
@@ -2468,7 +2481,7 @@ impl Graph {
             let edge_key = Self::canon_pair(left_slot, right_slot);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
                 // Duplicate edge within the batch: merge attrs (last wins).
-                existing.extend(attrs);
+                merged_changed |= merge_attrs(existing, attrs);
                 continue;
             }
 
@@ -2493,7 +2506,7 @@ impl Graph {
             }
             inserted += 1;
         }
-        self.record_bulk_edge_summary(inserted, false);
+        self.record_bulk_edge_summary(inserted, false, merged_changed);
         inserted
     }
 
@@ -2579,10 +2592,7 @@ impl Graph {
             }
             inserted += 1;
         }
-        if merged_changed {
-            self.revision = self.revision.saturating_add(1);
-        }
-        self.record_bulk_edge_summary(inserted, nodes_added || merged_changed);
+        self.record_bulk_edge_summary(inserted, nodes_added, merged_changed);
         inserted
     }
 
@@ -2624,7 +2634,6 @@ impl Graph {
         self.edge_index_endpoints.reserve(lower_bound);
 
         let mut inserted = 0usize;
-        let mut merged_changed = false;
         for (left_idx, right_idx, attrs) in iterator {
             if left_idx >= node_count || right_idx >= node_count {
                 continue;
@@ -2632,15 +2641,6 @@ impl Graph {
 
             let edge_key = Self::canon_pair(left_idx, right_idx);
             if let Some(existing) = self.edges.get_mut(&edge_key) {
-                if attrs.is_empty() {
-                    continue;
-                }
-                if attrs
-                    .iter()
-                    .any(|(key, value)| existing.get(key) != Some(value))
-                {
-                    merged_changed = true;
-                }
                 existing.extend(attrs);
                 continue;
             }
@@ -2659,17 +2659,23 @@ impl Graph {
             inserted += 1;
         }
 
-        self.record_bulk_edge_summary(inserted, node_count > 0 || merged_changed);
+        self.record_bulk_edge_summary(inserted, node_count > 0, false);
         inserted
     }
 
-    fn record_bulk_edge_summary(&mut self, inserted: usize, nodes_added: bool) {
-        if inserted == 0 && !nodes_added {
+    fn record_bulk_edge_summary(
+        &mut self,
+        inserted: usize,
+        nodes_added: bool,
+        merged_changed: bool,
+    ) {
+        if inserted == 0 && !nodes_added && !merged_changed {
             return;
         }
+        let changes = inserted.saturating_add(usize::from(merged_changed)).max(1);
         self.revision = self
             .revision
-            .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+            .saturating_add(u64::try_from(changes).unwrap_or(u64::MAX));
         // One summary record covers the whole batch and keeps the
         // policy ledger non-empty so existing diagnostics still
         // see the operation.

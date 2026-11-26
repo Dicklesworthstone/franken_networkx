@@ -179,7 +179,7 @@ impl CachedDiGraphSnapshotView {
 mod tests {
     use super::{CachedDiGraphSnapshotView, CachedSnapshotView, DiGraphView, GraphView};
     use fnx_classes::digraph::DiGraph;
-    use fnx_classes::{Graph, GraphSnapshot};
+    use fnx_classes::{AttrMap, Graph, GraphSnapshot};
     use std::hint::black_box;
     use std::sync::Arc;
     use std::time::Instant;
@@ -426,6 +426,88 @@ mod tests {
         assert!(cached.is_stale(&digraph));
         assert!(cached.refresh_if_stale(&digraph));
         assert_eq!(cached.snapshot().nodes, vec!["n1", "n2"]);
+    }
+
+    #[test]
+    fn cached_snapshot_tracks_batch_attribute_updates() {
+        let mut graph = Graph::strict();
+        graph.add_edge("a", "b").unwrap();
+        let mut cached = CachedSnapshotView::new(&graph);
+
+        let label = AttrMap::from([("label".to_owned(), "blue".into())]);
+        assert_eq!(
+            graph.extend_nodes_with_attrs_unrecorded([("a".into(), label.clone())]),
+            0
+        );
+        assert!(cached.refresh_if_stale(&graph));
+        assert_eq!(cached.snapshot().node_attrs["a"], label);
+        assert_eq!(
+            graph.extend_nodes_with_attrs_unrecorded([("a".into(), label)]),
+            0
+        );
+        assert!(!cached.is_stale(&graph));
+
+        assert!(graph.edge_weights_all_int("weight"));
+        let weights = AttrMap::from([("weight".to_owned(), 2.5.into())]);
+        assert_eq!(
+            graph.extend_existing_index_edges_with_attrs_unrecorded([(1, 0, weights.clone())]),
+            0
+        );
+        assert!(!graph.edge_weights_all_int("weight"));
+        assert!(cached.refresh_if_stale(&graph));
+        assert_eq!(cached.snapshot().edges[0].attrs, weights);
+        assert_eq!(
+            graph.extend_existing_index_edges_with_attrs_unrecorded([(0, 1, weights)]),
+            0
+        );
+        assert!(!cached.is_stale(&graph));
+    }
+
+    #[test]
+    fn directed_node_batches_refresh_snapshots_and_cached_adjacency() {
+        let mut graph = DiGraph::strict();
+        let mut cached = CachedDiGraphSnapshotView::new(&graph);
+        let empty = graph.csr();
+        assert_eq!(
+            graph.extend_prepared_edges_with_attrs_row_staged_unrecorded(
+                ["isolate".to_owned()],
+                [],
+            ),
+            0
+        );
+        assert!(cached.refresh_if_stale(&graph));
+        assert_eq!(cached.snapshot().nodes, ["isolate"]);
+        assert_eq!(empty.succ_offsets, [0]);
+        assert_eq!(graph.csr().succ_offsets, [0, 0]);
+
+        let label = AttrMap::from([("label".to_owned(), "blue".into())]);
+        assert_eq!(
+            graph.extend_nodes_with_attrs_unrecorded([("isolate".into(), label.clone())]),
+            0
+        );
+        assert!(cached.refresh_if_stale(&graph));
+        assert_eq!(cached.snapshot().node_attrs["isolate"], label);
+        assert_eq!(
+            graph.extend_nodes_with_attrs_unrecorded([("isolate".into(), label)]),
+            0
+        );
+        assert!(!cached.is_stale(&graph));
+    }
+
+    #[test]
+    fn fresh_indexed_isolates_invalidate_empty_snapshot() {
+        let mut graph = Graph::strict();
+        let mut cached = CachedSnapshotView::new(&graph);
+        assert_eq!(
+            graph.extend_fresh_index_edges_with_attrs_unrecorded(
+                ["a".to_owned(), "b".to_owned()],
+                []
+            ),
+            0
+        );
+        assert!(cached.refresh_if_stale(&graph));
+        assert_eq!(cached.snapshot().nodes, ["a", "b"]);
+        assert!(cached.snapshot().edges.is_empty());
     }
 
     // B10: Additional view-coherence tests
