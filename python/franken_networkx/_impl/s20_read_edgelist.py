@@ -118,48 +118,54 @@ def read_adjlist(
 ):
     """Read a graph from an adjacency list.
 
-    br-r37-c1-rdadjnative: route to the native ``parse_adjlist`` (bulk node +
-    edge construction, byte-exact node/edge order vs nx) instead of delegating
-    the entire parse+build to nx and converting the result — that paid nx's
-    per-node graph ops PLUS an fnx<-nx conversion (~3.8x slower, 0.26x). nx's
-    ``open_file`` still handles the path / gzip / bz2 / encoding edge cases, so
-    behaviour is unchanged; only the parser + builder become native.
+    Read compressed paths and caller-owned streams using the requested
+    encoding. Explicit modes apply to graph construction and conversion hooks.
     """
+    from .readwrite import _normalize_io_path, parse_adjlist
+
     mode = backend_kwargs.pop("mode", None)
     _validate_backend_dispatch_keywords("read_adjlist", backend, backend_kwargs)
-    if mode is not None or _rust_get_compatibility_mode() == "hardened":
-        if (
-            comments == "#"
-            and delimiter is None
-            and (create_using is None or create_using is Graph)
-            and nodetype is None
-        ):
-            return _rust_read_adjlist(path, mode=mode)
-    if (
+    plain_schema = (
         comments == "#"
         and delimiter is None
+        and (create_using is None or create_using is Graph)
         and nodetype is None
+    )
+
+    def parse(lines):
+        return parse_adjlist(
+            lines, comments=comments, delimiter=delimiter,
+            create_using=create_using, nodetype=nodetype,
+        )
+
+    effective_mode = mode if mode is not None else _rust_get_compatibility_mode()
+    if mode is not None or effective_mode == "hardened":
+        with compatibility_mode(effective_mode):
+            path = _normalize_io_path(path)
+            if plain_schema:
+                def read(source):
+                    payload = source.read()
+                    if isinstance(payload, (bytes, bytearray)):
+                        payload = payload.decode(encoding)
+                    elif not isinstance(payload, str):
+                        raise TypeError("file-like .read() must return str or bytes")
+                    # Preserve the native reader's policy and decision records.
+                    return _rust_read_adjlist(_io.StringIO(payload))
+
+                return _open_path_and_call(path, "rb", read)
+            return _read_decoded_lines_via_open_file(path, encoding, parse)
+
+    path = _normalize_io_path(path)
+    if (
+        plain_schema
         and encoding == "utf-8"
         and isinstance(path, str)
-        and not path.endswith((".gz", ".bz2"))
-        and (create_using is None or create_using is Graph)
+        and not path.endswith((".gz", ".gzip", ".bz2"))
     ):
         native = _fnx.read_adjlist_simple(path)
         if native is not None:
             return native
-    from .readwrite import parse_adjlist as _parse_adjlist
-
-    return _read_decoded_lines_via_open_file(
-        path,
-        encoding,
-        lambda lines: _parse_adjlist(
-            lines,
-            comments=comments,
-            delimiter=delimiter,
-            create_using=create_using,
-            nodetype=nodetype,
-        ),
-    )
+    return _read_decoded_lines_via_open_file(path, encoding, parse)
 
 
 def write_adjlist(G, path, comments="#", delimiter=" ", encoding="utf-8"):

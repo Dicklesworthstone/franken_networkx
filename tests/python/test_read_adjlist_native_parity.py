@@ -7,6 +7,7 @@ against upstream networkx: node order, edge order, adjacency order, attrs,
 error surfaces, and the delegation gates for non-default kwargs.
 """
 
+import io
 import random
 
 import networkx as nx
@@ -123,3 +124,66 @@ def test_missing_file_error_parity(tmp_path):
     with pytest.raises(Exception) as fnx_err:
         fnx.read_adjlist(missing)
     assert type(fnx_err.value) is type(nx_err.value)
+
+
+@pytest.mark.parametrize("suffix", ["", ".gz", ".bz2"])
+@pytest.mark.parametrize("mode", ["strict", "hardened", None])
+def test_encoded_path_in_mode_round_trips(tmp_path, suffix, mode):
+    path = tmp_path / ("labels.adjlist" + suffix)
+    graph = nx.Graph()
+    graph.add_edge("café", "niño")
+    graph.add_edge("café", "café")
+    graph.add_node("isolé")
+    nx.write_adjlist(graph, path, encoding="latin-1")
+    with fnx.compatibility_mode("hardened"):
+        result = fnx.read_adjlist(path, mode=mode, encoding="latin-1")
+    assert _canon(result) == _canon(nx.read_adjlist(path, encoding="latin-1"))
+    assert result.mode == (mode or "hardened")
+    assert any(r["operation"] == "read_adjlist" for r in result.decision_records())
+
+
+@pytest.mark.parametrize("ambient, explicit", [("strict", "hardened"), ("hardened", "strict")])
+def test_custom_format_preserves_mode_multiplicity_and_stream(ambient, explicit):
+    payload = b"prefix\n1,2,2!twice\n2,1\n"
+    stream = io.BytesIO(payload)
+    stream.seek(len(b"prefix\n"))
+    modes = []
+
+    def convert(label):
+        modes.append(fnx.get_compatibility_mode())
+        return int(label)
+
+    with fnx.compatibility_mode(ambient):
+        result = fnx.readwrite.read_adjlist(
+            stream, comments="!", delimiter=",", create_using=fnx.MultiDiGraph,
+            nodetype=convert, mode=explicit,
+        )
+        assert fnx.get_compatibility_mode() == ambient
+    expected = nx.read_adjlist(
+        io.BytesIO(payload[len(b"prefix\n"):]), comments="!", delimiter=",",
+        create_using=nx.MultiDiGraph, nodetype=int,
+    )
+    assert list(result.edges(keys=True)) == list(expected.edges(keys=True))
+    assert result.mode == explicit
+    assert modes and set(modes) == {explicit}
+    assert not stream.closed
+    assert stream.tell() == len(payload)
+
+
+def test_invalid_mode_leaves_source_and_target_untouched():
+    stream = io.BytesIO(b"1,2\n")
+    target = fnx.DiGraph()
+    target.add_node("original")
+    with pytest.raises(ValueError, match="invalid compatibility mode"):
+        fnx.read_adjlist(stream, create_using=target, delimiter=",", mode="invalid")
+    assert list(target) == ["original"]
+    assert stream.tell() == 0
+
+
+def test_decode_failure_restores_mode_and_leaves_caller_stream_open():
+    source = io.BytesIO(b"1 \xff\n")
+    with fnx.compatibility_mode("strict"):
+        with pytest.raises(UnicodeDecodeError):
+            fnx.read_adjlist(source, encoding="ascii", mode="hardened")
+        assert fnx.get_compatibility_mode() == "strict"
+    assert not source.closed
