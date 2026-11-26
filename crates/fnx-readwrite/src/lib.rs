@@ -7924,7 +7924,10 @@ weight="2" ext:weight="7" label="AB" ext:label="wrong"/>
                 let node = report.graph.node_attrs("a").expect("original node id");
                 assert_eq!(node.get("rank"), Some(&CgseValue::Int(5)));
                 assert_eq!(node.get("label"), Some(&CgseValue::String("A".to_owned())));
-                let edge = report.graph.edge_attrs("a", "b").expect("original endpoints");
+                let edge = report
+                    .graph
+                    .edge_attrs("a", "b")
+                    .expect("original endpoints");
                 assert_eq!(edge.get("id"), Some(&CgseValue::String("ab".to_owned())));
                 assert_eq!(edge.get("label"), Some(&CgseValue::String("AB".to_owned())));
                 assert_eq!(edge.get("weight"), Some(&CgseValue::Float(2.0)));

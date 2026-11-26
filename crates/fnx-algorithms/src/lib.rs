@@ -21210,7 +21210,9 @@ impl NodeConnectivityFlow {
         if source == target {
             return (0, 0, 0);
         }
-        let limit = cutoff.min(self.out_degree[source]).min(self.in_degree[target]);
+        let limit = cutoff
+            .min(self.out_degree[source])
+            .min(self.in_degree[target]);
         if limit == 0 {
             return (0, 0, 0);
         }
@@ -21443,7 +21445,9 @@ pub fn node_connectivity_directed(
         };
     }
 
-    let source_idx = digraph.get_node_index(source).expect("source checked above");
+    let source_idx = digraph
+        .get_node_index(source)
+        .expect("source checked above");
     let sink_idx = digraph.get_node_index(sink).expect("sink checked above");
     let (value, edges_scanned, queue_peak) =
         NodeConnectivityFlow::new(digraph).local(source_idx, sink_idx, usize::MAX);
@@ -61212,9 +61216,9 @@ mod tests {
             let mut count = 0usize;
             for i in 0..m {
                 for j in (i + 1)..m {
-                    total +=
-                        super::local_node_connectivity_string_flow_reference(graph, nodes[i], nodes[j])
-                            as f64;
+                    total += super::local_node_connectivity_string_flow_reference(
+                        graph, nodes[i], nodes[j],
+                    ) as f64;
                     count += 1;
                 }
             }
@@ -87971,10 +87975,12 @@ mod tests {
                     if source == target {
                         continue;
                     }
-                    let expected =
-                        connectivity_from_exhaustive_internal_vertex_cuts(&adjacency, source, target);
+                    let expected = connectivity_from_exhaustive_internal_vertex_cuts(
+                        &adjacency, source, target,
+                    );
                     assert_eq!(
-                        super::node_connectivity_directed(&graph, labels[source], labels[target]).value,
+                        super::node_connectivity_directed(&graph, labels[source], labels[target])
+                            .value,
                         expected,
                         "directed edges {mask}, source {source}, target {target}"
                     );
@@ -88028,8 +88034,9 @@ mod tests {
             let mut expected_matrix = std::collections::HashMap::new();
             for source in 0..labels.len() {
                 for target in source + 1..labels.len() {
-                    let expected =
-                        connectivity_from_exhaustive_internal_vertex_cuts(&adjacency, source, target);
+                    let expected = connectivity_from_exhaustive_internal_vertex_cuts(
+                        &adjacency, source, target,
+                    );
                     expected_matrix.insert(
                         (labels[source].to_owned(), labels[target].to_owned()),
                         expected,
@@ -88068,13 +88075,14 @@ mod tests {
                 "full matrix edges {mask}"
             );
             let subset = [labels[4], labels[2], labels[0]];
-            let expected_subset: std::collections::HashMap<(String, String), usize> = expected_matrix
-                .iter()
-                .filter(|((source, target), _)| {
-                    subset.contains(&source.as_str()) && subset.contains(&target.as_str())
-                })
-                .map(|(pair, &value)| (pair.clone(), value))
-                .collect();
+            let expected_subset: std::collections::HashMap<(String, String), usize> =
+                expected_matrix
+                    .iter()
+                    .filter(|((source, target), _)| {
+                        subset.contains(&source.as_str()) && subset.contains(&target.as_str())
+                    })
+                    .map(|(pair, &value)| (pair.clone(), value))
+                    .collect();
             assert_eq!(
                 super::all_pairs_node_connectivity_subset(&graph, &subset),
                 Some(expected_subset),
@@ -88104,7 +88112,10 @@ mod tests {
             let mut directed = DiGraph::strict();
             assert_eq!(graph.extend_nodes_unrecorded(labels), labels.len());
             assert_eq!(directed.extend_nodes_unrecorded(labels), labels.len());
-            assert_eq!(graph.extend_edges_unrecorded(ordered.iter().copied()), edges.len());
+            assert_eq!(
+                graph.extend_edges_unrecorded(ordered.iter().copied()),
+                edges.len()
+            );
             assert_eq!(
                 directed.extend_edges_unrecorded(ordered.iter().copied()),
                 edges.len()
@@ -88112,13 +88123,22 @@ mod tests {
             // Greedy removal chooses s-a-b-t and destroys both alternatives.
             // Residual rerouting recovers s-a-c-t together with s-d-b-t.
             assert_eq!(super::node_connectivity(&graph, "s", "t").value, 2);
-            assert_eq!(super::node_connectivity_directed(&directed, "s", "t").value, 2);
-            assert_eq!(super::node_connectivity_directed(&directed, "t", "s").value, 0);
+            assert_eq!(
+                super::node_connectivity_directed(&directed, "s", "t").value,
+                2
+            );
+            assert_eq!(
+                super::node_connectivity_directed(&directed, "t", "s").value,
+                0
+            );
             let full = super::all_pairs_node_connectivity(&graph);
             let subset = super::all_pairs_node_connectivity_subset(&graph, &["s", "t"])
                 .expect("present endpoints");
             assert_eq!(subset.len(), 2);
-            for pair in [("s".to_owned(), "t".to_owned()), ("t".to_owned(), "s".to_owned())] {
+            for pair in [
+                ("s".to_owned(), "t".to_owned()),
+                ("t".to_owned(), "s".to_owned()),
+            ] {
                 assert_eq!(full.get(&pair), Some(&2));
                 assert_eq!(subset.get(&pair), Some(&2));
             }
@@ -88131,10 +88151,19 @@ mod tests {
             // The undirected graph is a six-cycle plus chord a-b. Every pair
             // has connectivity two, except a,b which have connectivity three.
             assert_eq!(super::global_node_connectivity(&graph).value, 2);
-            assert_eq!(super::global_node_connectivity_directed(&symmetric).value, 2);
-            assert_eq!(super::node_connectivity_directed_global(&symmetric).value, 2);
+            assert_eq!(
+                super::global_node_connectivity_directed(&symmetric).value,
+                2
+            );
+            assert_eq!(
+                super::node_connectivity_directed_global(&symmetric).value,
+                2
+            );
             assert_eq!(super::average_node_connectivity(&graph), 31.0 / 15.0);
-            assert_eq!(super::average_node_connectivity_directed(&symmetric), 31.0 / 15.0);
+            assert_eq!(
+                super::average_node_connectivity_directed(&symmetric),
+                31.0 / 15.0
+            );
         }
     }
 
@@ -88158,7 +88187,10 @@ mod tests {
         graph.add_edge("s", "t").expect("direct edge");
         directed.add_edge("s", "t").expect("direct arc");
         assert_eq!(super::node_connectivity(&graph, "s", "t").value, 1);
-        assert_eq!(super::node_connectivity_directed(&directed, "s", "t").value, 1);
+        assert_eq!(
+            super::node_connectivity_directed(&directed, "s", "t").value,
+            1
+        );
         for (source, target) in [("s", "s"), ("missing", "t"), ("s", "missing")] {
             assert_eq!(super::node_connectivity(&graph, source, target).value, 0);
             assert_eq!(
@@ -88167,21 +88199,42 @@ mod tests {
             );
         }
         assert_eq!(graph.extend_edges_unrecorded([("s", "v"), ("v", "t")]), 2);
-        assert_eq!(directed.extend_edges_unrecorded([("s", "v"), ("v", "t")]), 2);
+        assert_eq!(
+            directed.extend_edges_unrecorded([("s", "v"), ("v", "t")]),
+            2
+        );
         assert_eq!(super::node_connectivity(&graph, "s", "t").value, 2);
-        assert_eq!(super::node_connectivity_directed(&directed, "s", "t").value, 2);
-        assert_eq!(super::node_connectivity_directed(&directed, "t", "s").value, 0);
+        assert_eq!(
+            super::node_connectivity_directed(&directed, "s", "t").value,
+            2
+        );
+        assert_eq!(
+            super::node_connectivity_directed(&directed, "t", "s").value,
+            0
+        );
     }
 
     #[test]
     fn exact_directed_global_connectivity_checks_both_directions() {
         let mut graph = DiGraph::strict();
-        assert_eq!(graph.extend_nodes_unrecorded((0..6).map(|node| node.to_string())), 6);
+        assert_eq!(
+            graph.extend_nodes_unrecorded((0..6).map(|node| node.to_string())),
+            6
+        );
         assert_eq!(
             graph.extend_edges_unrecorded([
-                ("0", "1"), ("0", "3"), ("1", "0"), ("1", "2"),
-                ("2", "3"), ("2", "5"), ("3", "0"), ("3", "4"),
-                ("3", "5"), ("4", "0"), ("4", "1"), ("5", "1"),
+                ("0", "1"),
+                ("0", "3"),
+                ("1", "0"),
+                ("1", "2"),
+                ("2", "3"),
+                ("2", "5"),
+                ("3", "0"),
+                ("3", "4"),
+                ("3", "5"),
+                ("4", "0"),
+                ("4", "1"),
+                ("5", "1"),
                 ("5", "4"),
             ]),
             13
@@ -88199,25 +88252,44 @@ mod tests {
             let mut graph = Graph::strict();
             let mut directed = DiGraph::strict();
             assert_eq!(graph.extend_nodes_unrecorded(labels.iter().cloned()), size);
-            assert_eq!(directed.extend_nodes_unrecorded(labels.iter().cloned()), size);
+            assert_eq!(
+                directed.extend_nodes_unrecorded(labels.iter().cloned()),
+                size
+            );
             for left in 0..size {
                 for right in left + 1..size {
                     graph.add_edge(&labels[left], &labels[right]).expect("edge");
-                    directed.add_edge(&labels[left], &labels[right]).expect("arc");
-                    directed.add_edge(&labels[right], &labels[left]).expect("reverse arc");
+                    directed
+                        .add_edge(&labels[left], &labels[right])
+                        .expect("arc");
+                    directed
+                        .add_edge(&labels[right], &labels[left])
+                        .expect("reverse arc");
                 }
             }
             assert_eq!(super::global_node_connectivity(&graph).value, size - 1);
-            assert_eq!(super::global_node_connectivity_directed(&directed).value, size - 1);
+            assert_eq!(
+                super::global_node_connectivity_directed(&directed).value,
+                size - 1
+            );
             for label in &labels {
                 graph.add_edge(label, label).expect("self-loop");
                 directed.add_edge(label, label).expect("self-loop");
             }
             assert_eq!(super::global_node_connectivity(&graph).value, size - 1);
-            assert_eq!(super::global_node_connectivity_directed(&directed).value, size - 1);
-            assert_eq!(super::node_connectivity_directed_global(&directed).value, size - 1);
+            assert_eq!(
+                super::global_node_connectivity_directed(&directed).value,
+                size - 1
+            );
+            assert_eq!(
+                super::node_connectivity_directed_global(&directed).value,
+                size - 1
+            );
             assert_eq!(super::average_node_connectivity(&graph), (size - 1) as f64);
-            assert_eq!(super::average_node_connectivity_directed(&directed), (size - 1) as f64);
+            assert_eq!(
+                super::average_node_connectivity_directed(&directed),
+                (size - 1) as f64
+            );
         }
     }
 
@@ -89683,7 +89755,10 @@ mod tests {
     ) {
         let tree = gomory_hu_tree(graph, capacity_attr);
         let n = graph.node_count();
-        assert!(n <= 5, "the independent oracle enumerates small vertex cuts");
+        assert!(
+            n <= 5,
+            "the independent oracle enumerates small vertex cuts"
+        );
         assert_eq!(tree.nodes_ordered(), graph.nodes_ordered());
         assert_eq!(tree.edge_count(), n.saturating_sub(1));
 
@@ -89714,7 +89789,10 @@ mod tests {
                     }
                 }
             }
-            assert!(seen.iter().all(|&present| present), "the output must be a tree");
+            assert!(
+                seen.iter().all(|&present| present),
+                "the output must be a tree"
+            );
 
             for target in (source + 1)..n {
                 let mut minimum = f64::INFINITY;
