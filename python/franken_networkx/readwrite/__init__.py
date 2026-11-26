@@ -3173,7 +3173,7 @@ def _read_gexf_payload(path):
     """Read once with the GEXF writer's compression and stream ownership rules."""
     import franken_networkx as fnx
 
-    raw = fnx._open_path_and_call(path, "rb", lambda handle: handle.read())
+    raw = fnx._read_xml_payload(path)
     return raw.encode("utf-8") if isinstance(raw, str) else raw
 
 

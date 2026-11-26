@@ -256,8 +256,8 @@ def _validate_graph_graphml_attrs(graph_attrs):
                 ) from None
 
 
-def _read_graphml_mode_payload(path):
-    """Buffer input with NetworkX's path/compression and ownership contract."""
+def _read_xml_payload(path):
+    """Read to EOF using the XML readers' path and stream ownership rules."""
     from pathlib import Path
 
     def read_all(stream):
@@ -469,7 +469,7 @@ def read_graphml(
     _validate_backend_dispatch_keywords("read_graphml", backend, backend_kwargs)
     if mode is not None or _rust_get_compatibility_mode() == "hardened":
         return _graphml_from_mode_payload(
-            _read_graphml_mode_payload(path), node_type=node_type,
+            _read_xml_payload(path), node_type=node_type,
             edge_key_type=edge_key_type, force_multigraph=force_multigraph,
             mode=mode,
         )
@@ -487,7 +487,7 @@ def read_graphml(
         and (isinstance(path, (str, Path)) or hasattr(path, "read"))
     ):
         def read(source):
-            payload = _read_graphml_mode_payload(source)
+            payload = _read_xml_payload(source)
             return _parse_graphml_payload(
                 payload, node_type=node_type, parse_string=False, file_source=source
             )

@@ -488,6 +488,27 @@ def test_caller_owned_streams_stay_open(stream_type):
     assert not stream.closed
 
 
+@pytest.mark.parametrize("text", (False, True))
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+def test_gexf_reads_short_chunks_to_eof(text, mode):
+    payload = _payload(_rich_graph("MultiDiGraph"))
+    expected = nx.read_gexf(BytesIO(payload))
+
+    class ChunkedStream:
+        def __init__(self):
+            self.source = StringIO(payload.decode()) if text else BytesIO(payload)
+
+        def read(self, size):
+            return self.source.read(min(size, 17))
+
+    stream = ChunkedStream()
+    options = {} if mode is None else {"mode": mode}
+    actual = fnx.read_gexf(stream, **options)
+    _assert_same(actual, expected)
+    assert stream.source.tell() == len(stream.source.getvalue())
+    assert not stream.source.closed
+
+
 @pytest.mark.parametrize("encoding", ("iso-8859-1", "utf-16"))
 def test_xml_declared_encoding_is_respected(encoding):
     graph = nx.Graph()
