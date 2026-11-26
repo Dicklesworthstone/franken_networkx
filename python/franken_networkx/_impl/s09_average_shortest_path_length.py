@@ -1081,9 +1081,11 @@ def shortest_path(
     # crashed on fnx with `TypeError: shortest_path() got an unexpected
     # keyword argument 'backend'`. Match the dispatch surface.
     _validate_backend_dispatch_keywords("shortest_path", backend, backend_kwargs)
+    if method not in ("dijkstra", "bellman-ford"):
+        raise ValueError(f"method not supported: {method}")
+    if weight is None and source is not None and target is not None:
+        return bidirectional_shortest_path(G, source, target)
     if source is None and target is None:
-        if method not in ("dijkstra", "bellman-ford"):
-            raise ValueError(f"method not supported: {method}")
         # All-pairs queries start a new search at every advancement. Keep the
         # caller's graph so later sources observe live rows and view filters.
         if weight is None:
@@ -1092,8 +1094,6 @@ def shortest_path(
             return all_pairs_bellman_ford_path(G, weight=weight)
         return all_pairs_dijkstra_path(G, weight=weight)
     if _weighted_query_uses_live_python_rows(G, weight):
-        if method not in ("dijkstra", "bellman-ford"):
-            raise ValueError(f"method not supported: {method}")
         if source is None or target is None:
             endpoint = target if source is None else source
             H = G.reverse(copy=False) if source is None and G.is_directed() else G
@@ -1106,19 +1106,13 @@ def shortest_path(
             if source is None:
                 return {node: list(reversed(path)) for node, path in paths.items()}
             return paths
-        if weight is None:
-            return bidirectional_shortest_path(G, source, target)
         if method == "bellman-ford":
             return bellman_ford_path(G, source, target, weight=weight)
         return bidirectional_dijkstra(G, source, target, weight=weight)[1]
     # br-r37-c1-phy2p: accept nx-typed inputs.
     G = _coerce_arg_to_fnx_graph(G)
-    if method not in ("dijkstra", "bellman-ford"):
-        raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
         if source is not None and target is not None:
-            if weight is None:
-                return bidirectional_shortest_path(G, source, target)
             if method == "bellman-ford":
                 return bellman_ford_path(G, source, target, weight=weight)
             return bidirectional_dijkstra(G, source, target, weight=weight)[1]
@@ -1179,17 +1173,6 @@ def shortest_path(
                 paths = single_source_bellman_ford_path(H, target, weight=weight)
                 return {u: list(reversed(p)) for u, p in paths.items()}
             return all_pairs_bellman_ford_path(G, weight=weight)
-    if weight is None and source is not None and target is not None:
-        # br-gauntlet-sp-bidir: nx.shortest_path routes the unweighted
-        # point-to-point case through ``bidirectional_shortest_path``, whose
-        # meet-in-the-middle predecessor construction selects one specific path
-        # among equal-length alternatives. ``_raw_shortest_path`` used a plain
-        # forward BFS, returning a different (still valid, same length) path and
-        # breaking byte-for-byte parity on grids / regular graphs / any graph
-        # with multiple shortest paths. fnx's ``bidirectional_shortest_path``
-        # already matches nx exactly (incl. the NetworkXNoPath wording and the
-        # source==target single-node path), so delegate to it.
-        return bidirectional_shortest_path(G, source, target)
     if weight is None and source is not None and target is None:
         # br-r37-c1-spsrc (cc): nx.shortest_path(G, source) returns EXACTLY
         # single_source_shortest_path(G, source). fnx's single_source kernel is
@@ -1256,17 +1239,18 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
     Native-root views materialize as needed; private-root queries
     walk their current Python rows without copying to native storage.
     """
+    if method not in ("dijkstra", "bellman-ford"):
+        raise ValueError(f"method not supported: {method}")
+    if weight is None and source is not None and target is not None:
+        if not _unweighted_pair_uses_native_rows(G):
+            return len(bidirectional_shortest_path(G, source, target)) - 1
     if source is None and target is None:
-        if method not in ("dijkstra", "bellman-ford"):
-            raise ValueError(f"method not supported: {method}")
         if weight is None:
             return all_pairs_shortest_path_length(G)
         if method == "bellman-ford":
             return all_pairs_bellman_ford_path_length(G, weight=weight)
         return all_pairs_dijkstra_path_length(G, weight=weight)
     if _weighted_query_uses_live_python_rows(G, weight):
-        if method not in ("dijkstra", "bellman-ford"):
-            raise ValueError(f"method not supported: {method}")
         if source is None or target is None:
             endpoint = target if source is None else source
             H = G.reverse(copy=False) if source is None and G.is_directed() else G
@@ -1281,8 +1265,6 @@ def shortest_path_length(G, source=None, target=None, weight=None, method="dijks
             return bellman_ford_path_length(G, source, target, weight=weight)
         return dijkstra_path_length(G, source, target, weight=weight)
     G = _coerce_arg_to_fnx_graph(G)
-    if method not in ("dijkstra", "bellman-ford"):
-        raise ValueError(f"method not supported: {method}")
     if _path_query_has_missing_nodes(G, source=source, target=target):
         if source is not None and target is not None:
             if weight is None:
@@ -1400,19 +1382,16 @@ def has_path(G, source, target):
     ``G``. Mirrors ``networkx.has_path``.
     """
     # br-r37-c1-rg8jh: accept nx-typed inputs.
-    private_rows = _point_query_uses_private_rows(G)
-    if not private_rows:
-        G = _coerce_arg_to_fnx_graph(G)
+    if source is None or target is None or not _unweighted_pair_uses_native_rows(G):
+        try:
+            shortest_path(G, source, target)
+        except NetworkXNoPath:
+            return False
+        return True
     if source not in G:
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
-    if private_rows:
-        try:
-            bidirectional_shortest_path(G, source, target)
-        except NetworkXNoPath:
-            return False
-        return True
     return _raw_has_path(G, source, target)
 
 

@@ -1486,6 +1486,17 @@ def _subgraph_with_view(subgraph_impl):
 
 
 _CONVERSION_EDGE_ATTR_DEEPCOPY = _EdgeAttrDict.__deepcopy__
+_UNWEIGHTED_PAIR_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__getattribute__", "__dict__", "__contains__", "is_directed",
+            "_node", "_adj", "_succ", "_pred", "adj", "succ", "pred",
+        )
+    }
+    for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
+
 _COMPONENT_QUERY_NATIVE_READERS = {
     cls: {
         name: vars(cls).get(name)

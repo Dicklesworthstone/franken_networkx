@@ -792,6 +792,25 @@ def _reraise_no_path_with_display_keys(source, target):
     raise NetworkXNoPath(f"No path between {source} and {target}.") from None
 
 
+def _unweighted_pair_uses_native_rows(G):
+    """Native point searches bypass public row readers on the input graph."""
+    cls = type(G)
+    if type(cls) is not type or cls not in _CONCRETE_FNX_GRAPH_TYPES:
+        return False
+    if not _native_graph_class_readers_unchanged(G, cls, _UNWEIGHTED_PAIR_NATIVE_READERS[cls]):
+        return False
+    if _has_networkx_private_storage(G):
+        return False
+    storage = vars(G)
+    if "is_directed" in storage:
+        return False
+    names = ("pred", "succ") if cls in (DiGraph, MultiDiGraph) else ("adj",)
+    return all(
+        name not in storage or storage[name] is storage.get("_fnx_view_" + name, _PRIVATE_MISSING)
+        for name in names
+    )
+
+
 def bidirectional_shortest_path(G, source, target):
     """Return the shortest path between source and target via two-way BFS.
 
@@ -802,9 +821,7 @@ def bidirectional_shortest_path(G, source, target):
     reverse-frontier tie-break (br-r37-c1-w7nn3) — and it paid the
     conversion tax on every call.
     """
-    live_rows = _weighted_query_uses_live_python_rows(G, None)
-    if not live_rows:
-        G = _coerce_arg_to_fnx_graph(G)
+    native_rows = _unweighted_pair_uses_native_rows(G)
     # br-r37-c1-qmu8x: validate membership up front with nx's exact wording.
     # The native binding otherwise leaks a repr-quoted "Source 'x' is not in G"
     # whereas nx emits the unquoted "Source x is not in G" (source first).
@@ -812,16 +829,16 @@ def bidirectional_shortest_path(G, source, target):
         raise NodeNotFound(f"Source {source} is not in G")
     if target not in G:
         raise NodeNotFound(f"Target {target} is not in G")
-    if live_rows:
+    if not native_rows:
         # The caller's live mappings, not the hidden native topology, own
         # these rows. Forward-only BFS is insufficient: NetworkX expands
         # the smaller frontier and uses predecessor order for reverse ties.
         if target == source:
             return [source]
         if G.is_directed():
-            forward_adj, reverse_adj = G._succ, G._pred
+            reverse_adj, forward_adj = G.pred, G.succ
         else:
-            forward_adj = reverse_adj = G._adj
+            reverse_adj, forward_adj = G.adj, G.adj
         pred, succ = {source: None}, {target: None}
         forward, reverse = [source], [target]
 
