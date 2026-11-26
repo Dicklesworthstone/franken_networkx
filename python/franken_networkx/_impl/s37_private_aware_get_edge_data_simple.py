@@ -1510,6 +1510,15 @@ _REACHABILITY_NATIVE_READERS = {
 }
 
 
+# Global cut bounds bypass the auxiliary construction and its public readers.
+_CONNECTIVITY_BOUND_READERS = {
+    name: vars(Graph).get(name)
+    for name in (
+        "__getattribute__", "__dict__", "number_of_nodes", "number_of_edges",
+        "neighbors", "nbunch_iter", "nodes", "edges", "degree", "adj",
+    )
+}
+
 _COMPONENT_QUERY_NATIVE_READERS = {
     cls: {
         name: vars(cls).get(name)

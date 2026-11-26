@@ -1,4 +1,13 @@
 
+def _connectivity_has_plain_undirected_rows(G):
+    """Only skip auxiliary graph reads when the graph and labels are passive."""
+    return (
+        type(G) is Graph
+        and _native_graph_class_readers_unchanged(G, Graph, _CONNECTIVITY_BOUND_READERS)
+        and _greedy_color_native_graph(G)
+        and _component_query_native_graph(G)
+    )
+
 
 def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Return the node connectivity of the graph.
@@ -48,7 +57,7 @@ def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **back
     if s is not None and t is not None:
         H = _build_auxiliary_node_connectivity_fast(G)
         mapping = H.graph["mapping"]
-        val, _ = _minimum_cut_raw(H, f"{mapping[s]}B", f"{mapping[t]}A", capacity="capacity")
+        val = _minimum_cut_value_raw(H, f"{mapping[s]}B", f"{mapping[t]}A", capacity="capacity")
         return int(val)
 
     # Global node connectivity
@@ -75,16 +84,25 @@ def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **back
         iter_func = _itertools.combinations
         neighbors = G.neighbors
 
-    H = _build_auxiliary_node_connectivity_fast(G)
-    mapping = H.graph["mapping"]
+    ordinary = _connectivity_has_plain_undirected_rows(G)
+    H = None if ordinary else _build_auxiliary_node_connectivity_fast(G)
     v, K = min(G.degree(), key=_operator.itemgetter(1))
+    if ordinary:
+        if K <= 1:
+            return K
+        if K == 2 and len(G) > 2:
+            # Connected graphs of this size have node connectivity at least
+            # two exactly when they have no articulation point.
+            return 1 if _fnx.articulation_points(G) else 2
+        H = _build_auxiliary_node_connectivity_fast(G)
+    mapping = H.graph["mapping"]
     for w in set(G) - set(neighbors(v)) - {v}:
-        val, _ = _minimum_cut_raw(H, f"{mapping[v]}B", f"{mapping[w]}A", capacity="capacity")
+        val = _minimum_cut_value_raw(H, f"{mapping[v]}B", f"{mapping[w]}A", capacity="capacity")
         K = min(K, int(val))
     for x, y in iter_func(neighbors(v), 2):
         if y in G[x]:
             continue
-        val, _ = _minimum_cut_raw(H, f"{mapping[x]}B", f"{mapping[y]}A", capacity="capacity")
+        val = _minimum_cut_value_raw(H, f"{mapping[x]}B", f"{mapping[y]}A", capacity="capacity")
         K = min(K, int(val))
     return K
 
@@ -192,14 +210,11 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend
         if s == t:
             raise NetworkXError("source and sink are the same node")
         H = _build_auxiliary_edge_connectivity_fast(G)
-        val, _ = _minimum_cut_raw(H, s, t, capacity="capacity")
-        val = int(val)
-        if cutoff is not None:
-            return min(val, cutoff)
-        return val
+        return int(_minimum_cut_value_raw(H, s, t, capacity="capacity"))
 
     # Global edge connectivity
-    H = _build_auxiliary_edge_connectivity_fast(G)
+    ordinary = _connectivity_has_plain_undirected_rows(G)
+    H = None if ordinary else _build_auxiliary_edge_connectivity_fast(G)
     if G.is_directed():
         if not is_weakly_connected(G):
             return 0
@@ -209,20 +224,24 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend
         L = min(d for n, d in G.degree())
         nodes = list(G)
         n = len(nodes)
-        if cutoff is not None:
-            L = min(cutoff, L)
 
         for i in range(n):
             nxt = nodes[i + 1] if i + 1 < n else nodes[0]
-            val, _ = _minimum_cut_raw(H, nodes[i], nxt, capacity="capacity")
+            val = _minimum_cut_value_raw(H, nodes[i], nxt, capacity="capacity")
             L = min(L, int(val))
         return L
     else:
         if not is_connected(G):
             return 0
         L = min(d for n, d in G.degree())
-        if cutoff is not None:
-            L = min(cutoff, L)
+
+        if ordinary:
+            if L <= 1:
+                return L
+            if L == 2 and len(G) > 2:
+                # An edge cut of size one is a bridge. A cut vertex alone
+                # does not imply that such an edge exists.
+                return 1 if _fnx.bridges(G) else 2
 
         for node in G:
             D = set(dominating_set(G, start_with=node))
@@ -232,8 +251,10 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend
         else:
             return L
 
+        if ordinary:
+            H = _build_auxiliary_edge_connectivity_fast(G)
         for w in D:
-            val, _ = _minimum_cut_raw(H, v, w, capacity="capacity")
+            val = _minimum_cut_value_raw(H, v, w, capacity="capacity")
             L = min(L, int(val))
         return L
 
