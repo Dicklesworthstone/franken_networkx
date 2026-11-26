@@ -663,14 +663,7 @@ def _spectral_centrality_nodes(G):
     return iter(G)
 
 
-def _spectral_centrality_can_snapshot(G, nstart, weight):
-    """Whether sparse iteration can freeze these rows and initial values.
-
-    Custom mappings and numbers can change the graph during iteration. Read
-    those through the owned Python solver, before any graph conversion. Signed
-    values also retain that solver's per-edge accumulation order: a sparse
-    reduction can erase cancellation and report a spurious convergence.
-    """
+def _spectral_centrality_has_native_readers(G):
     # Public readers can change the graph at the iteration's node-count or
     # adjacency boundary. Admit them statically before probing edges or start
     # keys: a sparse snapshot must not skip those callbacks or introduce reads
@@ -682,13 +675,20 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
     # touching the instance: a replacement __getattribute__ or __dict__ can
     # otherwise run while admission is deciding whether to retain live reads.
     # The registry is captured after the final public descriptors are installed.
-    namespace = vars(graph_type)
-    if any(
-        namespace.get(name) is not reader
-        for name, reader in _SPECTRAL_CENTRALITY_NATIVE_READERS[graph_type].items()
-    ):
-        return False
-    if not _greedy_color_native_graph(G):
+    return _native_graph_class_readers_unchanged(
+        G, graph_type, _SPECTRAL_CENTRALITY_NATIVE_READERS[graph_type]
+    ) and _greedy_color_native_graph(G)
+
+
+def _spectral_centrality_can_snapshot(G, nstart, weight):
+    """Whether sparse iteration can freeze these rows and initial values.
+
+    Custom mappings and numbers can change the graph during iteration. Read
+    those through the owned Python solver, before any graph conversion. Signed
+    values also retain that solver's per-edge accumulation order: a sparse
+    reduction can erase cancellation and report a spurious convergence.
+    """
+    if not _spectral_centrality_has_native_readers(G):
         return False
     # Iterating a graph does not hash its labels in NetworkX. Building the
     # initial score dictionary does, and a label callback can change the
@@ -724,6 +724,13 @@ def _spectral_centrality_can_snapshot(G, nstart, weight):
         if not _spectral_centrality_plain_value(attrs.get(weight, 1)):
             return False
     return True
+
+
+def _spectral_centrality_neighbors(G, node):
+    """Open the live row without hashing its existing neighbors."""
+    if _spectral_centrality_has_native_readers(G):
+        return type(G)._fnx_unhashed_neighbors_iter(G, node)
+    return G[node]
 
 
 def _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight):
@@ -789,7 +796,7 @@ def _eigenvector_centrality_inproc(G, max_iter=100, tol=1e-6, nstart=None, weigh
                         x[nbr] += xlast[n] * w
         else:
             for n in x:
-                for nbr in G[n]:
+                for nbr in _spectral_centrality_neighbors(G, n):
                     w = G[n][nbr].get(weight, 1) if weight else 1
                     x[nbr] += xlast[n] * w
         norm = math.hypot(*x.values()) or 1

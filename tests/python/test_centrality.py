@@ -857,6 +857,38 @@ def test_eigenvector_zero_start_precedes_custom_key_hashing(fnx, nx, graph_type)
 
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("weight", [None, "weight"])
+def test_iterative_centrality_hash_resizes_active_neighbor_row(fnx, nx, graph_type, algorithm, weight):
+    def outcome(module):
+        graph = getattr(module, graph_type)()
+        armed = False
+        calls = 0
+
+        class Node(int):
+            def __hash__(self):
+                nonlocal calls
+                if armed:
+                    calls += 1
+                    # The first eight hashes initialize the two score maps.
+                    # The ninth opens row 0. The next hash in the update
+                    # expression mutates the row while its iterator is live.
+                    if calls == 10:
+                        graph.add_edge(0, 2)
+                return int.__hash__(self)
+
+        nodes = [Node(i) for i in range(4)]
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+        armed = True
+        with pytest.raises(RuntimeError) as error:
+            getattr(module, algorithm)(graph, weight=weight)
+        armed = False
+        return error.value.args, graph.has_edge(0, 2)
+
+    assert outcome(fnx) == outcome(nx) == (("dictionary changed size during iteration",), True)
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("label_kind", ["integer-subclass", "tuple"])
 @pytest.mark.parametrize("warm", [False, True])
 @pytest.mark.parametrize("weight", [None, "weight"])

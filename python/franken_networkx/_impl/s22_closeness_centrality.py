@@ -689,7 +689,7 @@ def _katz_centrality_inproc(
         xlast = x
         x = dict.fromkeys(xlast, 0)
         for n in x:
-            for nbr in G[n]:
+            for nbr in _spectral_centrality_neighbors(G, n):
                 x[nbr] += xlast[n] * G[n][nbr].get(weight, 1)
         for n in x:
             x[n] = alpha * x[n] + b[n]
