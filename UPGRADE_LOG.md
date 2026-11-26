@@ -105,6 +105,41 @@ I ran a paired, alternating criterion A/B: `fnx-algorithms` `algorithm_benchmark
 
 Held for that reason. The 0.17.2 changes look internal: `std::hash::RandomState`, an allocator-leak fix for empty tables, wrapping `ProbeSeq` arithmetic, and lint and import cleanups. So the cause may be code layout rather than the table itself. Re-measure before taking it, or wait for 0.17.3.
 
+### Re-measured and taken: `hashbrown` 0.17.1 -> 0.17.2 (Cargo.lock and fuzz/Cargo.lock)
+
+The hold above asked for a re-measure because the cause looked like code layout. That was the cause. The control is to relink the *same* base binary with lld's `--shuffle-sections=*=<seed>`: the code is identical and only the section placement changes. A difference smaller than what reordering alone produces is not evidence against the lock.
+
+Method:
+- Built `fnx-algorithms` `algorithm_benchmarks` with `--profile bench --locked` (thin LTO, one codegen unit) from one commit with two locks:
+  - base: hashbrown 0.17.1;
+  - new: `cargo update -p hashbrown@0.17.1 --precise 0.17.2`, which changes only the hashbrown version and checksum lines.
+- Arms: base, new, three shuffled relinks of base (seeds 1-3) and one of new (seed 1).
+- 8 benchmarks: the three flagged above, plus `shortest_path_weighted/complete/50`, `shortest_path_unweighted/complete/50`, `single_source_dijkstra/grid/2025`, `minimum_spanning_tree/complete/100` and `pagerank/complete/100`.
+- 5 rounds on one 64-thread worker, with arm order rotating per round. Criterion: 2 s warm-up, 4 s measurement.
+- Values are the median of per-round ratios against base.
+
+| Benchmark | new (0.17.2) | base relinks (identical code) |
+|---|---|---|
+| `shortest_path_weighted/complete/100` | -0.36% | +3.85% .. +6.31% |
+| `shortest_path_weighted/complete/50` | -0.52% | +4.74% .. +6.30% |
+| `shortest_path_unweighted/complete/20` | +0.84% | +0.98% .. +4.10% |
+| `shortest_path_unweighted/complete/50` | +1.35% | +1.05% .. +1.91% |
+| `common_neighbors/overlap_rows/l32_r512_c32` | +0.06% | -0.19% .. +1.02% |
+| `single_source_dijkstra/grid/2025` | +0.14% | +0.58% .. +3.86% |
+| `minimum_spanning_tree/complete/100` | +0.22% | +1.48% .. +7.75% |
+| `pagerank/complete/100` | +0.54% | -0.56% .. +0.32% |
+
+Every 0.17.2 difference is within 1.4% and inside, or below, the spread that relinking alone produces (up to +7.75%). On this host the earlier +9.5% on `shortest_path_weighted/complete/100` is -0.36%.
+
+Code check:
+- The 803 `fnx_` / `hashbrown` / `indexmap` symbols in the two bench binaries have identical sizes.
+- The 0.17.1 -> 0.17.2 source diff changes no release-mode semantics on these paths. It has import and `size_of` prelude cleanups, `cfg_select!` for `cfg_if!`, wrapping arithmetic in `ProbeSeq`, `ManuallyDrop` in `into_allocation`, and new `debug_assert!`s.
+
+Gates on the new locks, run remotely:
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+- `cargo test --workspace --exclude fnx-python --no-fail-fast --locked`: 1953 passed (1953 ran, 246 ignored), 0 failed.
+- `cargo check --manifest-path fuzz/Cargo.toml --locked`: clean (the fuzz lock's only change is hashbrown).
+
 ## Held majors
 
 - **`pyo3` 0.29.3 in fnx-python and fnx-conformance (0.30.1 available).** Held for a dedicated port with a Python-side A/B.
