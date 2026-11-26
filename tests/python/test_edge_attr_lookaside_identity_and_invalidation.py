@@ -515,3 +515,55 @@ def test_mirror_validation_never_calls_custom_numeric_protocols(class_name):
     assert fnx._fnx.dijkstra_weight_cache_token(graph)[2]
     first = fnx._fnx.edge_attr_epoch(graph)
     assert fnx._fnx.edge_attr_epoch(graph) != first
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+def test_weighted_multiedge_snapshots_reuse_and_recheck_held_dicts(class_name):
+    graph = getattr(fnx, class_name)()
+    graph.add_weighted_edges_from([(0, 1, 2), (0, 1, 5), (1, 2, 3)])
+    view = graph.subgraph([0, 1, 2])
+    attrs = graph.get_edge_data(0, 1, 0)
+    epoch = fnx._fnx.edge_attr_epoch
+    first_epoch = epoch(graph)
+    first = fnx._materialize_view(view)
+    assert epoch(graph) == first_epoch
+    assert fnx._materialize_view(view) is first
+
+    dict.__setitem__(attrs, "weight", 9)
+    second_epoch = epoch(graph)
+    second = fnx._materialize_view(view)
+    assert second_epoch != first_epoch
+    assert epoch(graph) == second_epoch
+    assert fnx._materialize_view(view) is second
+    assert first.get_edge_data(0, 1, 0)["weight"] == 2
+    assert second.get_edge_data(0, 1, 0)["weight"] == 9
+    assert fnx.dijkstra_path_length(view, 0, 2) == 8
+
+    dict.__delitem__(attrs, "weight")
+    assert epoch(graph) != second_epoch
+    assert fnx.dijkstra_path_length(view, 0, 2) == 4
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+def test_multiedge_snapshot_validation_leaves_python_objects_untouched(class_name):
+    class Payload:
+        def __eq__(self, other):
+            raise AssertionError("cache validation compared an opaque object")
+
+        def __str__(self):
+            raise AssertionError("cache validation converted an opaque object")
+
+    graph = getattr(fnx, class_name)()
+    graph.add_weighted_edges_from([(0, 1, 2), (1, 2, 3)])
+    attrs = graph.get_edge_data(1, 2, 0)
+    payload = Payload()
+    dict.__setitem__(attrs, "weight", payload)
+    epoch = fnx._fnx.edge_attr_epoch
+    dirty = epoch(graph)
+    assert epoch(graph) != dirty
+    assert attrs["weight"] is payload
+
+    dict.__setitem__(attrs, "weight", 4)
+    recovered = epoch(graph)
+    assert epoch(graph) == recovered
+    assert fnx.dijkstra_path_length(graph, 0, 2) == 6

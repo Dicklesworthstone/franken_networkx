@@ -5373,14 +5373,109 @@ pub fn dijkstra_weight_cache_token(
     }
 }
 
+/// Reconcile only mirrors whose contents the native store can reproduce exactly.
+/// Small or mixed multigraph batches install attrs through the live dict after
+/// adding the edge. Without this check, an untouched weighted graph gets a new
+/// view token on every read. Keep other native dirty tracking in place.
+fn reconcile_scalar_multiedges<S>(
+    py: Python<'_>,
+    store: &mut S,
+    mirrors: &rustc_hash::FxHashMap<(String, String, usize), Py<PyDict>>,
+    writes: &mut crate::EdgeAttrWrites,
+    get: for<'a> fn(&'a S, &str, &str, usize) -> Option<&'a AttrMap>,
+    replace: fn(&mut S, &str, &str, usize, AttrMap) -> bool,
+) -> bool {
+    let mut updates = Vec::new();
+    for ((u, v, key), mirror) in mirrors {
+        let dict = mirror.bind(py);
+        // Inspect storage directly. Arbitrary dict subclasses may supply
+        // additional behavior which their native key/value entries cannot encode.
+        let ty = dict.get_type();
+        let base_dict = crate::EDGE_ATTR_DICT_CLASS
+            .get(py)
+            .is_some_and(|cls| ty.is(cls.bind(py)));
+        let bulk_dict = writes
+            .bulk_cls
+            .get(py)
+            .is_some_and(|cls| ty.is(cls.bind(py)));
+        if !dict.is_exact_instance_of::<PyDict>() && !base_dict && !bulk_dict {
+            return false;
+        }
+        let Some(stored) = get(store, u, v, *key) else {
+            return false;
+        };
+        if crate::attr_dict_matches_store(dict, Some(stored)) {
+            continue;
+        }
+        // Conversion of general Python objects can run user code. Validate
+        // exact types first, including custom string keys and numeric subclasses.
+        if !crate::attr_dict_is_batch_lossless(dict) {
+            return false;
+        }
+        let Ok((attrs, true)) = crate::py_dict_to_attr_map_with_lossless(dict) else {
+            return false;
+        };
+        // replace_edge_attrs uses AttrMap equality, which can elide a change
+        // of key order or the sign of a zero. That mirror stays authoritative.
+        if *stored == attrs {
+            return false;
+        }
+        updates.push((u, v, *key, attrs));
+    }
+    if !updates.is_empty() {
+        writes.note_rewrite();
+        for (u, v, key, attrs) in updates {
+            if !replace(store, u, v, key, attrs) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Freshness token for a cached copy of `g`'s edge attributes. Python mirrors
-/// are revalidated against the store, and dirty snapshots have a
-/// volatile token. Clean snapshots include the rewrite counter so a base-dict
+/// are revalidated against the store. Unreconciled snapshots have a volatile
+/// token. Clean snapshots include the rewrite counter so a base-dict
 /// write followed by synchronization cannot revive an older cached copy.
 #[pyfunction]
 #[pyo3(signature = (g))]
 pub fn edge_attr_epoch(g: &Bound<'_, PyAny>) -> PyResult<u64> {
     let py = g.py();
+    // A borrowed graph or a Python view/subclass retains the regular read-only
+    // dispatch below, including its native-graph hook.
+    if g.is_exact_instance_of::<PyMultiGraph>()
+        && let Ok(mut graph) = g.extract::<PyRefMut<'_, PyMultiGraph>>()
+    {
+        graph.refresh_edges_dirty(py);
+        let graph = &mut *graph;
+        let untracked = graph.edges_dirty.load(Ordering::Relaxed)
+            && (graph.edge_mirrors_stale
+                || !reconcile_scalar_multiedges(
+                    py,
+                    &mut graph.inner,
+                    &graph.edge_py_attrs,
+                    &mut graph.edge_attr_writes,
+                    fnx_classes::MultiGraph::edge_attrs,
+                    fnx_classes::MultiGraph::replace_edge_attrs,
+                ));
+        return Ok(graph.edge_attr_writes.snapshot_epoch(py, untracked));
+    }
+    if g.is_exact_instance_of::<PyMultiDiGraph>()
+        && let Ok(mut graph) = g.extract::<PyRefMut<'_, PyMultiDiGraph>>()
+    {
+        graph.refresh_edges_dirty(py);
+        let graph = &mut *graph;
+        let untracked = graph.edges_dirty.load(Ordering::Relaxed)
+            && !reconcile_scalar_multiedges(
+                py,
+                &mut graph.inner,
+                &graph.edge_py_attrs,
+                &mut graph.edge_attr_writes,
+                fnx_classes::digraph::MultiDiGraph::edge_attrs,
+                fnx_classes::digraph::MultiDiGraph::replace_edge_attrs,
+            );
+        return Ok(graph.edge_attr_writes.snapshot_epoch(py, untracked));
+    }
     let gr = extract_graph(g)?;
     Ok(match &gr {
         GraphRef::Undirected(pg) => {
