@@ -9373,6 +9373,23 @@ impl PyMultiGraph {
         }
     }
 
+    /// Publish the new edge to outstanding iterators before marking their rows
+    /// current. Every single-edge insertion, including an explicit-key fast
+    /// insertion, must maintain both endpoints before the next cache hit.
+    fn edge_added_to_neighbor_rows(&mut self, py: Python<'_>, u: &str, v: &str) -> PyResult<()> {
+        if self.neighbor_rows_live() {
+            self.cached_neighbor_row_set(py, u, v)?;
+            if u != v {
+                self.cached_neighbor_row_set(py, v, u)?;
+            }
+            self.bump_edges_seq();
+            self.restamp_neighbor_rows();
+        } else {
+            self.bump_edges_seq();
+        }
+        Ok(())
+    }
+
     #[inline]
     fn neighbor_rows_live(&self) -> bool {
         self.neighbor_key_rows
@@ -12528,21 +12545,7 @@ impl PyMultiGraph {
                 .map_err(|e| NetworkXError::new_err(e.to_string()))?,
         };
 
-        // br-r37-c1-dwy1n: maintain any live neighbour rows IN PLACE, then
-        // re-stamp the cache, so an outstanding `G.neighbors(n)` iterator sees
-        // the mutation and CPython raises the same RuntimeError networkx does.
-        // Guarded so a graph nobody has asked neighbours of pays nothing.
-        if self.neighbor_rows_live() {
-            self.cached_neighbor_row_set(py, &u_canonical, &v_canonical)?;
-            if u_canonical != v_canonical {
-                self.cached_neighbor_row_set(py, &v_canonical, &u_canonical)?;
-            }
-        }
-        // br-r37-c1-jft0i: bump edges_seq so view-materialization caches invalidate.
-        self.bump_edges_seq();
-        if self.neighbor_rows_live() {
-            self.restamp_neighbor_rows();
-        }
+        self.edge_added_to_neighbor_rows(py, &u_canonical, &v_canonical)?;
         // Prefer the user's explicit key; otherwise echo the nx-computed public
         // auto key (NOT the internal usize key).
         let external = key.or_else(|| auto_public_key.as_ref().map(|o| o.bind(py)));
@@ -14563,7 +14566,7 @@ impl PyMultiGraph {
             ) else {
                 return Ok(None);
             };
-            self.bump_edges_seq();
+            self.edge_added_to_neighbor_rows(py, &u_canonical, &v_canonical)?;
             return Ok(Some(key.clone().unbind()));
         }
 
@@ -14577,7 +14580,7 @@ impl PyMultiGraph {
         let py_key = key.clone().unbind();
         self.note_public_key_value(actual_key, key);
         self.edge_py_keys.insert(ek, py_key.clone_ref(py));
-        self.bump_edges_seq();
+        self.edge_added_to_neighbor_rows(py, &u_canonical, &v_canonical)?;
         Ok(Some(py_key))
     }
 
