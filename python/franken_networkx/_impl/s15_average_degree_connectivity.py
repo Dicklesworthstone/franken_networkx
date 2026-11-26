@@ -1359,72 +1359,44 @@ def _ancestors_descendants_missing_node_msg(G, source):
     return f"The node {source} is not in the {kind}."
 
 
-def ancestors(G, source):
-    """Return all nodes having a path to ``source`` in ``G``.
+def _reachable_nodes(G, source, *, reverse):
+    if not _is_plain_immutable_label(source):
+        return {child for _, child in _py_bfs_edges(G, source, reverse=reverse)}
 
-    Matches nx (br-7f0fn): accepts undirected and multigraph inputs as
-    well as DiGraph, returning all nodes in the connected / reachable
-    set (excluding ``source`` itself). Raises NetworkXError if source
-    isn't in G (message distinguishes graph vs digraph). Returns a
-    plain ``set`` (not ``frozenset``).
-
-    br-r37-c1-i9whv: hash check up front for nx parity on unhashable
-    inputs (TypeError, not NetworkXError).
-    """
-    # br-r37-c1-8xp4a: a reverse view's ancestors are its root's descendants.
-    root = _reverse_view_root(G)
+    root = _dag_reverse_view_native_root(G)
     if root is not None:
-        return descendants(root, source)
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    _HASH_PROBE.get(source)
+        G, reverse = root, not reverse
+
+    cls = type(G)
+    if (
+        type(cls) is not type
+        or cls not in _CONCRETE_FNX_GRAPH_TYPES
+        or not _native_graph_class_readers_unchanged(G, cls, _REACHABILITY_NATIVE_READERS[cls])
+        or not _adc_has_native_graph_access(G)
+        or "is_directed" in vars(G)
+    ):
+        # NetworkX asks for each row only when its owner is discovered.
+        # Copying a view can touch disconnected components, and a copy
+        # cannot represent a caller's replacement neighbors/predecessors.
+        return {child for _, child in _py_bfs_edges(G, source, reverse=reverse)}
+
     if source not in G:
         raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
-    # br-r37-c1-descbfs: native kernel handles undirected (component BFS) and
-    # directed (predecessor reachability) — see algorithms.rs::ancestors. The
-    # previous undirected Python BFS over G[n] paid the per-neighbor PyO3 tax.
-    # Returns a plain set built in networkx's order (br-r37-c1-n4j4k).
-    # br-cc-descmg: undirected multigraph -> connected component minus source (the
-    # native BFS is 0.03x there; ancestors == descendants on undirected). See
-    # descendants().
-    if not G.is_directed() and G.is_multigraph():
+    if cls is MultiGraph:
+        # The component kernel visits each neighboring node once regardless
+        # of how many parallel edges connect it to the current node.
         return set(_raw_node_connected_component(G, source)[1:])
-    return _raw_ancestors(G, source)
+    return _raw_ancestors(G, source) if reverse else _raw_descendants(G, source)
+
+
+def ancestors(G, source):
+    """Return the set of nodes with a path to source, excluding source."""
+    return _reachable_nodes(G, source, reverse=True)
 
 
 def descendants(G, source):
-    """Return all nodes reachable from ``source`` in ``G``.
-
-    Matches nx (br-7f0fn): on undirected / multigraph, returns the
-    reachable node set (symmetric with ``ancestors``). Returns a
-    plain ``set``.
-
-    br-r37-c1-i9whv: hash check up front for nx parity.
-    """
-    # br-r37-c1-8xp4a: a reverse view's descendants are its root's ancestors.
-    root = _reverse_view_root(G)
-    if root is not None:
-        return ancestors(root, source)
-    # br-r37-c1-eghxq: accept nx-typed inputs.
-    G = _coerce_arg_to_fnx_graph(G)
-    _HASH_PROBE.get(source)
-    if source not in G:
-        raise NetworkXError(_ancestors_descendants_missing_node_msg(G, source))
-    # br-r37-c1-descbfs: the native kernel handles BOTH directed (successor
-    # reachability) and undirected (component BFS via bfs_edges) — see
-    # algorithms.rs::descendants. The previous undirected branch ran a Python
-    # BFS over the lazy AtlasView (per-neighbor PyO3 tax, ~5x slower than nx);
-    # route it through the native kernel too. Returns a plain set built in
-    # networkx's order: each child added as bfs_edges discovers it
-    # (br-r37-c1-n4j4k).
-    # br-cc-descmg: on an UNDIRECTED MULTIGRAPH the native BFS re-walks the
-    # parallel-edge adjacency (0.03x / 25-47x slower than nx). descendants there
-    # is exactly the connected component minus source, and node_connected_component
-    # is a fnx WIN on multigraphs — route it through that: its BFS list less the
-    # source, its first entry, is bfs_edges' children in discovery order.
-    if not G.is_directed() and G.is_multigraph():
-        return set(_raw_node_connected_component(G, source)[1:])
-    return _raw_descendants(G, source)
+    """Return the set of nodes reachable from source, excluding source."""
+    return _reachable_nodes(G, source, reverse=False)
 
 
 def topological_sort(G):

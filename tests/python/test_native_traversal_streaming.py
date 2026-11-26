@@ -597,3 +597,41 @@ def test_native_dfs_state_participates_in_cyclic_garbage_collection(order):
     reference = abandoned()
     gc.collect()
     assert reference() is None
+
+@pytest.mark.parametrize("graph_type", GRAPH_TYPES)
+@pytest.mark.parametrize("algorithm", ["ancestors", "descendants"])
+@pytest.mark.parametrize("input_module", [fnx, nx])
+def test_reachability_uses_the_bound_neighbor_provider(graph_type, algorithm, input_module):
+    def run(module, factory):
+        graph = getattr(factory, graph_type)()
+        graph.add_nodes_from(range(6))
+        graph.add_edges_from([(0, 1), (1, 2)])
+        provider = "predecessors" if algorithm == "ancestors" and graph.is_directed() else "neighbors"
+        opened = []
+        rows = {0: [3], 3: [4]}
+
+        def neighbors(node):
+            opened.append(node)
+            return iter(rows.get(node, ()))
+
+        setattr(graph, provider, neighbors)
+        return getattr(module, algorithm)(graph, 0), opened
+
+    assert run(fnx, input_module) == run(nx, nx) == ({3, 4}, [0, 3, 4])
+
+
+@pytest.mark.parametrize("algorithm,source,expected", [
+    ("ancestors", 2, {0, 1}),
+    ("descendants", 0, {1, 2}),
+])
+def test_reachability_skips_unreachable_filtered_edges(algorithm, source, expected):
+    for module in (nx, fnx):
+        graph = module.DiGraph([(0, 1), (1, 2), (8, 9)])
+
+        def visible(u, v):
+            if u == 8 or v == 9:
+                raise AssertionError("visited an edge outside the reachable component")
+            return True
+
+        view = module.subgraph_view(graph, filter_edge=visible)
+        assert getattr(module, algorithm)(view, source) == expected

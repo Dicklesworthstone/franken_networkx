@@ -1497,6 +1497,19 @@ _UNWEIGHTED_PAIR_NATIVE_READERS = {
     for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
 }
 
+_REACHABILITY_NATIVE_READERS = {
+    cls: {
+        name: vars(cls).get(name)
+        for name in (
+            "__getattribute__", "__dict__", "__len__", "__contains__",
+            "is_directed", "neighbors", "predecessors", "successors",
+            "_node", "_adj", "_succ", "_pred", "adj", "succ", "pred",
+        )
+    }
+    for cls in (Graph, DiGraph, MultiGraph, MultiDiGraph)
+}
+
+
 _COMPONENT_QUERY_NATIVE_READERS = {
     cls: {
         name: vars(cls).get(name)
