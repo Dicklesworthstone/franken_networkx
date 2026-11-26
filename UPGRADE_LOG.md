@@ -144,3 +144,35 @@ Held for that reason. The 0.17.2 changes look internal: `std::hash::RandomState`
   - `cargo test -p fnx-runtime`: 133 passed, 5 ignored.
   - `cargo clippy --workspace --all-targets -- -D warnings`: clean.
   - `cargo audit`: 0 vulnerabilities, 0 warnings.
+
+## Python: `uv.lock` refresh (2026-11-26)
+
+**How the lock was made.**
+- `pyproject.toml` is unchanged.
+- `uv lock --upgrade-package <pkg>` was run for every locked package except `networkx`.
+- It was written with uv 0.9.13 to keep lock **revision 3**.
+- The networkx oracle pins stay at 3.6.1, and 3.4.2 on Python 3.10.
+
+| Package | From | To |
+|---|---|---|
+| numpy | 2.4.4 (py>=3.11) | 2.5.5 (py>=3.12); 2.4.6 on 3.11, which numpy 2.5 drops; 2.2.6 on 3.10, unchanged |
+| scipy | 1.17.1 (py>=3.11) | 1.18.1 (py>=3.12); 1.17.1 on 3.11; 1.15.3 on 3.10, unchanged |
+| pandas | 3.0.5 (py>=3.11) | 3.1.1 (py>=3.11); 2.3.3 on 3.10, unchanged |
+| pytest / pluggy / iniconfig | 9.0.3 / 1.6.0 / 2.3.0 | 9.2.0 / 1.7.0 / 2.3.1 |
+| hypothesis | 6.151.12 | 6.170.17; 6.168.5 on 3.10 |
+| pytest-benchmark | 5.2.3 (with py-cpuinfo 9.0.0) | 5.3.1 (with py-cpuinfo2 10.1.1) |
+| python-dateutil | 2.9.0.post0 | 4.0.0; 3.0.0 on 3.10 (comes in through pandas) |
+| packaging, pygments, tzdata, pytz, tomli, typing-extensions, exceptiongroup | | patch and minor moves |
+
+**Tests.**
+- Old-lock and new-lock venvs used the same extension build, on Python 3.14 (networkx 3.6.1) and on 3.10 (networkx 3.4.2).
+- 122 test files were run: every file that imports numpy, scipy, pandas or hypothesis, plus the release-guarded list.
+
+| Python | Old lock | New lock | Failures only with the new lock |
+|---|---|---|---|
+| 3.14 | 25,682 passed, 145 failed, 3 errors | 25,682 passed, 145 failed, 3 errors | none (identical failing ids) |
+| 3.10 | 24,635 passed, 1,166 failed, 30 errors | 24,718 passed, 1,083 failed, 30 errors | none |
+
+The 3.10 failures are oracle differences with networkx 3.4.2 that predate this refresh. Both 3.10 venvs carry the same numpy 2.2.6, scipy 1.15.3 and pandas 2.3.3. Even so, 83 tests that fail with the old lock pass with the new one, 44 of them in `test_to_numpy_array_value_dtype_parity.py`. I did not investigate why.
+
+**Audit.** `pip-audit` on `uv export --all-extras` for Python 3.14 and 3.10, old and new lock: 0 known vulnerabilities.
