@@ -860,7 +860,7 @@ class _FilteredEdgeView:
     # br-filtedgeop: nx.EdgeView inherits from _Set, so `G.edges - some_iter`
     # works via _Set.__sub__, and nx._min_cycle_basis does
     # `chords = G.edges - tree_edges - {(v, u) for u, v in tree_edges}`.
-    # br-r37-c1-fev-setops: comparisons and isdisjoint come from _Set too.
+    # The comparisons and isdisjoint come from _Set too.
     #
     # Use collections.abc.Set's own mixin methods, with networkx's
     # `_from_iterable = set`, rather than re-deriving them from set(self).
