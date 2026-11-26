@@ -20,7 +20,7 @@ asupersync = { version = ">=0.3.4, <0.8", optional = true, default-features = fa
 # Registry dependency so clean checkouts resolve without the author's local
 # /dp/frankentui sibling (GH #2). For local frankentui development, use an
 # untracked .cargo/config.toml with [patch.crates-io] ftui = { path = ... }.
-ftui = { version = "0.5.0", optional = true, default-features = false }
+ftui = { version = "0.11.0", optional = true, default-features = false }
 
 [[bin]]
 name = "cgse_policy_bench"

@@ -134,3 +134,13 @@ Held for that reason. The 0.17.2 changes look internal: `std::hash::RandomState`
 - **Tests, with `asupersync-integration,ftui-integration`:**
   - `cargo test -p fnx-runtime`: 133 passed, 5 ignored.
   - `cargo clippy -p fnx-runtime --all-targets -- -D warnings`: clean.
+
+### `ftui` (fnx-runtime, optional): `0.5.0` -> `0.11.0`
+- **Scope.** Only the `ftui-integration` feature reaches it, and no default build, wheel or CLI enables that feature. The feature names `ftui::Theme` in a `type_name` probe. No runtime path changes, so there is nothing to benchmark.
+- **Unchanged.** The registry requirement and the local-path `[patch]` note stay as they were.
+- **Lock.** `ftui` and the `ftui-*` crates go from 0.5.x to 0.11.0, and `lru` from 0.18.5 to 0.19.2. The ftui chain now also uses `base64`, `bumpalo`, `rustix` and `getrandom` 0.4, all already in the lock.
+- **Breaking.** Nothing at the call site above.
+- **Tests, with `asupersync-integration,ftui-integration`, asupersync 0.7 and ftui 0.11 together:**
+  - `cargo test -p fnx-runtime`: 133 passed, 5 ignored.
+  - `cargo clippy --workspace --all-targets -- -D warnings`: clean.
+  - `cargo audit`: 0 vulnerabilities, 0 warnings.
