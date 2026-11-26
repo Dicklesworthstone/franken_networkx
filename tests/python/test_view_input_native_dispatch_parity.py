@@ -751,3 +751,85 @@ def test_a_reverse_view_traversal_follows_its_root_after_a_write():
     assert list(fnx.bfs_edges(views["franken_networkx"][1], 0)) == list(
         nx.bfs_edges(views["networkx"][1], 0)
     )
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_reverse_neighbor_readers_use_the_views_own_rows(graph_type):
+    def unexpected_reader(node):
+        raise AssertionError(f"traversal called the source graph reader for {node}")
+
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_type)()
+        graph.add_edges_from([(0, 1), (1, 2)])
+        view = graph.reverse(copy=False)
+        graph.successors = graph.predecessors = unexpected_reader
+        assert list(view.neighbors(1)) == [0]
+        assert list(view.successors(1)) == [0]
+        assert list(view.predecessors(1)) == [2]
+
+        # neighbors is its own method alias. An instance replacement of
+        # successors on the view affects only calls to that spelling.
+        view.successors = lambda node: iter([9])
+        assert list(view.neighbors(1)) == [0]
+        assert list(view.successors(1)) == [9]
+
+
+@pytest.mark.parametrize("multi", [False, True])
+@pytest.mark.parametrize("kind", ["reverse", "to_directed", "to_undirected"])
+def test_view_neighbor_readers_follow_assigned_rows_and_missing_errors(multi, kind):
+    for lib in (nx, fnx):
+        if kind == "to_directed":
+            graph = lib.MultiGraph() if multi else lib.Graph()
+            graph.add_edge(0, 1)
+            view = graph.to_directed(as_view=True)
+        else:
+            graph = lib.MultiDiGraph() if multi else lib.DiGraph()
+            graph.add_edge(0, 1)
+            if kind == "reverse":
+                view = graph.reverse(copy=False)
+            else:
+                view = graph.to_undirected(as_view=True)
+
+        readers = [view.neighbors]
+        if view.is_directed():
+            readers.extend((view.successors, view.predecessors))
+        graph_kind = "digraph" if view.is_directed() else "graph"
+        for reader in readers:
+            with pytest.raises(nx.NetworkXError) as error:
+                list(reader("missing"))
+            assert error.value.args == (f"The node missing is not in the {graph_kind}.",)
+            with pytest.raises(TypeError):
+                list(reader([]))
+
+        # A row can exist independently of the node mapping, and successors
+        # and predecessors can be replaced independently on a directed view.
+        if view.is_directed():
+            view._succ = {7: {8: {}}}
+            view._pred = {7: {9: {}}}
+            assert list(view.successors(7)) == [8]
+            assert list(view.predecessors(7)) == [9]
+        else:
+            view._adj = {7: {8: {}}}
+        assert list(view.neighbors(7)) == [8]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_reverse_adjacency_can_expose_a_row_outside_the_node_mapping(graph_type):
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_type)()
+        graph.add_edge(0, 1)
+        graph._node = {0: {}}
+        view = graph.reverse(copy=False)
+        assert 1 not in view
+        assert list(view.neighbors(1)) == [0]
+
+
+@pytest.mark.parametrize("graph_type", ["DiGraph", "MultiDiGraph"])
+def test_reverse_of_filtered_view_preserves_unhashable_row_error(graph_type):
+    for lib in (nx, fnx):
+        graph = getattr(lib, graph_type)()
+        graph.add_edge(0, 1)
+        view = graph.subgraph([0, 1]).reverse(copy=False)
+        for reader in (view.neighbors, view.predecessors):
+            with pytest.raises(TypeError, match="unhashable type: 'list'"):
+                list(reader([]))

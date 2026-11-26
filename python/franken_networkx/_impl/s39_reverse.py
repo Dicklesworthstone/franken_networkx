@@ -598,23 +598,19 @@ class _ConversionGraphViewBase:
         return result
 
     def neighbors(self, node):
-        if node not in self._graph:
-            raise NetworkXError(f"The node {node} is not in the graph.")
-        return iter(self.adj[node])
+        if self._directed:
+            return _neighbors_from_view_rows(self._succ, node, "digraph")
+        return _neighbors_from_view_rows(self._adj, node, "graph")
 
     def successors(self, node):
-        if not self.is_directed():
+        if not self._directed:
             return self.neighbors(node)
-        if node not in self._graph:
-            raise NetworkXError(f"The node {node} is not in the graph.")
-        return iter(self.succ[node])
+        return _neighbors_from_view_rows(self._succ, node, "digraph")
 
     def predecessors(self, node):
-        if not self.is_directed():
+        if not self._directed:
             return self.neighbors(node)
-        if node not in self._graph:
-            raise NetworkXError(f"The node {node} is not in the graph.")
-        return iter(self.pred[node])
+        return _neighbors_from_view_rows(self._pred, node, "digraph")
 
     def number_of_nodes(self):
         return len(self)

@@ -639,6 +639,13 @@ def _view_repr(view):
     )
 
 
+def _neighbors_from_view_rows(rows, node, graph_kind):
+    try:
+        return iter(rows[node])
+    except KeyError as exc:
+        raise NetworkXError(f"The node {node} is not in the {graph_kind}.") from exc
+
+
 class _ReverseDirectedViewBase:
     adjlist_inner_dict_factory = dict
     adjlist_outer_dict_factory = dict
@@ -1148,14 +1155,13 @@ class _ReverseDirectedViewBase:
         except KeyError:
             return default
 
-    def neighbors(self, node):
-        return self._graph.predecessors(node)
-
     def successors(self, node):
-        return self._graph.predecessors(node)
+        return _neighbors_from_view_rows(self._succ, node, "digraph")
+
+    neighbors = successors
 
     def predecessors(self, node):
-        return self._graph.successors(node)
+        return _neighbors_from_view_rows(self._pred, node, "digraph")
 
     def __getattr__(self, name):
         if name in _FILTERED_VIEW_MUTATORS:
@@ -1461,19 +1467,12 @@ class _ReverseAdjacencyView(_Mapping):
         return len(self._view)
 
     def __getitem__(self, node):
-        # br-r37-c1-sc825: nx reaches a dict lookup here, so an UNHASHABLE
-        # index raises TypeError, not KeyError. The membership test below
-        # answers False for an unhashable argument instead of propagating, so
-        # without this the view reported "no such node" for something that is
-        # not a valid node at all. Every sibling view already opens this way —
-        # see br-r37-c1-i9whv, which established the contract.
-        _HASH_PROBE.get(node)
-        if node not in self._view._graph:
-            # br-r37-c1-k4nsd: an UNFILTERED reverse view reaches a plain dict
-            # in nx, so it raises the bare key — the "Key n not found" wording
-            # belongs to FilterAtlas, i.e. only when something underneath is
-            # actually filtered.
-            raise _missing_node_key_error(self._view._graph, node)
+        # A filtered row uses node membership, which can swallow an unhashable
+        # key's TypeError. Its underlying dict would hash the key first.
+        if isinstance(self._view._graph, _FilteredGraphView):
+            _HASH_PROBE.get(node)
+        # Look up the captured row itself. An assigned node mapping can omit
+        # a valid row, and a filtered mapping supplies its own KeyError.
         return _ReverseNeighborMap(self._view, node, reverse=self._reverse)
 
     def __repr__(self):
