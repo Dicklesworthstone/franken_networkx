@@ -1457,6 +1457,50 @@ fn node_key_to_string(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<String
     node_key_to_string_with_hash(py, key, None)
 }
 
+/// Read G[u][v], retaining the selected row across the second lookup. Either
+/// endpoint can edit topology from its hash/equality hooks. In particular v
+/// can replace u, leaving this lookup attached to the original row.
+#[pyfunction]
+fn _live_simple_edge_data(
+    graph: &Bound<'_, PyAny>,
+    u: &Bound<'_, PyAny>,
+    v: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyDict>> {
+    let py = graph.py();
+    let lookup_key = |key: &Bound<'_, PyAny>| {
+        let hash = if node_key_hash_cannot_raise(key) {
+            None
+        } else {
+            Some(key.hash()?)
+        };
+        node_key_to_string_with_hash(py, key, hash)
+    };
+    let owner = lookup_key(u)?;
+    let row = if let Ok(graph_ref) = graph.cast::<PyGraph>() {
+        let mut g = graph_ref.try_borrow_mut()?;
+        if !g.inner.has_node(&owner) {
+            return Err(missing_key_error(u));
+        }
+        g.unhashed_neighbor_data_row(graph, &owner)?
+    } else {
+        let mut g = graph.cast::<digraph::PyDiGraph>()?.try_borrow_mut()?;
+        if !g.inner.has_node(&owner) {
+            return Err(missing_key_error(u));
+        }
+        g.unhashed_neighbor_data_row_by_canonical(py, graph, &owner, false)?
+    };
+    let neighbor = lookup_key(v)?;
+    let entry = row
+        .bind(py)
+        .get_item(neighbor)?
+        .ok_or_else(|| missing_key_error(v))?;
+    Ok(entry
+        .cast::<PyTuple>()?
+        .get_item(1)?
+        .cast_into::<PyDict>()?
+        .unbind())
+}
+
 fn node_key_to_string_with_hash(
     py: Python<'_>,
     key: &Bound<'_, PyAny>,
@@ -6763,6 +6807,17 @@ impl PyGraph {
             nbr,
             || self.py_adj_key(py, owner, nbr),
         )?;
+        if let Some((row, _)) =
+            NodeIterationMirrors::neighbor_data_context(py, &self.node_iter_mirror, owner, false)
+        {
+            let attrs = self.materialize_edge_py_attrs(py, owner, nbr);
+            NodeIterationMirrors::neighbor_data_insert(
+                row.bind(py),
+                nbr,
+                || self.py_adj_key(py, owner, nbr),
+                attrs.into_any(),
+            )?;
+        }
         // br-r37-c1-3rtyk: the two rows are maintained INDEPENDENTLY. A node can
         // hold a key row without an attr row (it was read through `neighbors()`
         // and never through `G[n]`), so an early return on a missing attr row
@@ -6778,6 +6833,41 @@ impl PyGraph {
         let attrs = self.materialize_edge_py_attrs(py, owner, nbr);
         row.bind(py).set_item(py_nbr, attrs.bind(py))?;
         Ok(())
+    }
+
+    fn unhashed_neighbor_data_row(
+        &mut self,
+        graph: &Bound<'_, PyAny>,
+        owner: &str,
+    ) -> PyResult<Py<PyDict>> {
+        let py = graph.py();
+        if let Some((row, _)) =
+            NodeIterationMirrors::neighbor_data_context(py, &self.node_iter_mirror, owner, false)
+        {
+            return Ok(row);
+        }
+        let neighbors: Vec<_> = self
+            .inner
+            .neighbors_iter(owner)
+            .into_iter()
+            .flatten()
+            .map(str::to_owned)
+            .collect();
+        let row = PyDict::new(py);
+        for neighbor in neighbors {
+            let label = self.py_adj_key(py, owner, &neighbor);
+            let attrs = self.materialize_edge_py_attrs(py, owner, &neighbor);
+            row.set_item(neighbor, (label, attrs))?;
+        }
+        Ok(NodeIterationMirrors::register_neighbor_data_row(
+            py,
+            &self.node_iter_mirror,
+            owner,
+            false,
+            false,
+            graph,
+            row.unbind(),
+        ))
     }
 
     fn cached_adj_remove_key(&self, py: Python<'_>, owner: &str, nbr: &str) -> PyResult<()> {
@@ -25714,6 +25804,7 @@ fn _fnx(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
 
     m.add_function(wrap_pyfunction!(validate_ctor_edge_list, m)?)?;
+    m.add_function(wrap_pyfunction!(_live_simple_edge_data, m)?)?;
     m.add_function(wrap_pyfunction!(geometric_pairs_grid, m)?)?;
     m.add_function(wrap_pyfunction!(node_redundancy_overlaps, m)?)?;
     m.add_function(wrap_pyfunction!(network_simplex::network_simplex_int, m)?)?;

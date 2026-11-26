@@ -12652,7 +12652,7 @@ impl PyDiGraph {
         }
     }
 
-    fn unhashed_neighbor_data_row_by_canonical(
+    pub(crate) fn unhashed_neighbor_data_row_by_canonical(
         &mut self,
         py: Python<'_>,
         graph: &Bound<'_, PyAny>,

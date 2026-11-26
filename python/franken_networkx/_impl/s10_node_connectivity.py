@@ -733,6 +733,20 @@ def _spectral_centrality_neighbors(G, node):
     return G[node]
 
 
+def _spectral_centrality_edge_weight(G, node, neighbor, weight):
+    # An endpoint hash can detach the selected row or replace its edge data.
+    # Finish both indexed lookups before invoking the live attribute provider.
+    if (
+        _spectral_centrality_has_native_readers(G)
+        and vars(type(G)).get("edge_attr_dict_factory") is dict
+        and vars(G).get("edge_attr_dict_factory", dict) is dict
+    ):
+        attrs = _fnx._live_simple_edge_data(G, node, neighbor)
+    else:
+        attrs = G[node][neighbor]
+    return attrs.get(weight, 1)
+
+
 def _eigenvector_centrality_scipy(G, max_iter, tol, nstart, weight):
     """scipy.sparse matvec mirror of ``networkx.eigenvector_centrality`` for the
     weight / nstart cases (br-r37-c1-eigscipy, cc).
@@ -797,7 +811,7 @@ def _eigenvector_centrality_inproc(G, max_iter=100, tol=1e-6, nstart=None, weigh
         else:
             for n in x:
                 for nbr in _spectral_centrality_neighbors(G, n):
-                    w = G[n][nbr].get(weight, 1) if weight else 1
+                    w = _spectral_centrality_edge_weight(G, n, nbr, weight) if weight else 1
                     x[nbr] += xlast[n] * w
         norm = math.hypot(*x.values()) or 1
         x = {k: v / norm for k, v in x.items()}

@@ -887,6 +887,117 @@ def test_iterative_centrality_hash_resizes_active_neighbor_row(fnx, nx, graph_ty
     assert outcome(fnx) == outcome(nx) == (("dictionary changed size during iteration",), True)
 
 
+@pytest.mark.parametrize("graph_type,trigger", [("Graph", 20), ("DiGraph", 15)])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+@pytest.mark.parametrize("change", [False, True])
+@pytest.mark.parametrize("backend", [False, True])
+def test_weighted_centrality_reads_edge_at_reference_hash_boundary(
+    fnx, nx, graph_type, trigger, algorithm, change, backend
+):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        events = None
+
+        class Node(int):
+            def __hash__(self):
+                if events is not None:
+                    events.append(int(self))
+                    if change and len(events) == trigger:
+                        graph.add_edge(0, 2)
+                return int.__hash__(self)
+
+        nodes = [Node(i) for i in range(4)]
+        graph.add_edges_from(zip(nodes, nodes[1:] + nodes[:1]))
+        events = []
+        if backend and module is fnx:
+            scores = getattr(nx, algorithm)(
+                graph, weight="weight", max_iter=1, tol=1000, backend="franken_networkx"
+            )
+        else:
+            scores = getattr(module, algorithm)(graph, weight="weight", max_iter=1, tol=1000)
+        return {int(k): v for k, v in scores.items()}, events
+
+    expected, expected_events = run(nx)
+    actual, actual_events = run(fnx)
+    assert actual == pytest.approx(expected, rel=1e-14, abs=1e-14)
+    assert actual_events == expected_events
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
+def test_weighted_centrality_reads_real_edge_factory(fnx, nx, graph_type, algorithm):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        graph._node = {}
+        graph._adj = {}
+        if graph.is_directed():
+            graph._pred = {}
+        reads = []
+
+        class Attributes(dict):
+            def get(self, key, default=None):
+                reads.append(key)
+                return super().get(key, default)
+
+        graph.edge_attr_dict_factory = Attributes
+        graph.add_edges_from([(0, 1, {"cost": 2}), (1, 2, {"cost": 3}), (2, 0, {"cost": 1})])
+        assert type(graph[0][1]) is Attributes
+        reads.clear()
+        options = {"weight": "cost", "nstart": {2: 0.5, 1: 1.0, 0: 0.25}}
+        if algorithm == "katz_centrality":
+            options.update(beta={0: 1.0, 1: 0.5, 2: 2.0}, normalized=False)
+        scores = getattr(module, algorithm)(graph, **options)
+        return scores, reads
+
+    expected, expected_reads = run(nx)
+    actual, actual_reads = run(fnx)
+    assert actual == pytest.approx(expected, rel=1e-14, abs=1e-14)
+    assert actual_reads == expected_reads
+    assert expected_reads
+
+
+@pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
+@pytest.mark.parametrize("mutation", ["detach", "replace", "clear", "clear_edges", "remove"])
+def test_weighted_centrality_lookup_holds_row_across_neighbor_hash(
+    fnx, nx, graph_type, mutation
+):
+    def run(module):
+        graph = getattr(module, graph_type)()
+        armed = False
+
+        class Neighbor(int):
+            def __hash__(self):
+                nonlocal armed
+                if armed:
+                    armed = False
+                    if mutation == "clear_edges":
+                        graph.clear_edges()
+                    elif mutation == "clear":
+                        graph.clear()
+                    elif mutation == "detach":
+                        graph.remove_node(0)
+                        graph.add_edge(0, 1, cost=9)
+                    else:
+                        graph.remove_edge(0, 1)
+                        if mutation == "replace":
+                            graph.add_edge(0, 1, cost=9)
+                return int.__hash__(self)
+
+        neighbor = Neighbor(1)
+        graph.add_edge(0, neighbor, cost=3)
+        armed = True
+        try:
+            if module is nx:
+                value = graph[0][neighbor].get("cost", 1)
+            else:
+                value = module._spectral_centrality_edge_weight(graph, 0, neighbor, "cost")
+        except KeyError as exc:
+            value = (type(exc), exc.args[0] is neighbor)
+        return value, armed
+
+    assert run(fnx) == run(nx)
+
+
 @pytest.mark.parametrize("graph_type", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("algorithm", ["eigenvector_centrality", "katz_centrality"])
 @pytest.mark.parametrize("label_kind", ["integer-subclass", "tuple"])
