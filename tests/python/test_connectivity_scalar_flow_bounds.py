@@ -105,3 +105,55 @@ def test_explicit_flow_solver_runs_on_a_path(name):
     expected, calls = run(nx)
     assert calls
     assert run(fnx) == (expected, calls)
+
+
+@pytest.mark.parametrize("order", [3, 8, 32])
+def test_complete_graph_connectivity_uses_its_degree_bound(monkeypatch, order):
+    reference = nx.complete_graph(order)
+    graph = fnx.Graph()
+    graph.add_edges_from(reference.edges)
+    expected_node = nx.node_connectivity(reference)
+    expected_edge = nx.edge_connectivity(reference)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("a complete graph scanned candidate cuts")
+
+    monkeypatch.setattr(fnx, "_build_auxiliary_node_connectivity_fast", unexpected)
+    monkeypatch.setattr(fnx, "_build_auxiliary_edge_connectivity_fast", unexpected)
+    monkeypatch.setattr(fnx, "dominating_set", unexpected)
+    assert fnx.node_connectivity(graph) == expected_node == order - 1
+    assert fnx.edge_connectivity(graph) == expected_edge == order - 1
+
+
+def test_loops_cannot_certify_complete_graph_connectivity():
+    # Each vertex has degree n - 1, but its loop replaces two distinct neighbors.
+    reference = nx.cycle_graph(5)
+    reference.add_edges_from((v, v) for v in reference)
+    graph = fnx.Graph()
+    graph.add_edges_from(reference.edges)
+    assert fnx.node_connectivity(graph) == nx.node_connectivity(reference) == 2
+    assert fnx.edge_connectivity(graph) == nx.edge_connectivity(reference) == 2
+
+
+@pytest.mark.parametrize("name", ["node_connectivity", "edge_connectivity"])
+def test_dense_components_stop_after_a_unit_cut(monkeypatch, name):
+    # A dominating set needs a representative from every clique. Each clique
+    # is separated from the next by a single edge at its last vertex.
+    reference = nx.Graph()
+    for start in range(0, 20, 5):
+        reference.add_edges_from(nx.complete_graph(range(start, start + 5)).edges)
+        if start:
+            reference.add_edge(start - 1, start + 4)
+    graph = fnx.Graph()
+    graph.add_edges_from(reference.edges)
+    solve = fnx._minimum_cut_value_raw
+    values = []
+
+    def observe(*args, **kwargs):
+        value = solve(*args, **kwargs)
+        values.append(value)
+        return value
+
+    monkeypatch.setattr(fnx, "_minimum_cut_value_raw", observe)
+    assert getattr(fnx, name)(graph) == getattr(nx, name)(reference) == 1
+    assert values == [1]

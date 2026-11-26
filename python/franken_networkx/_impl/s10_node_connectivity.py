@@ -9,6 +9,22 @@ def _connectivity_has_plain_undirected_rows(G):
     )
 
 
+def _connectivity_from_degree(G, degree, *, node_cut):
+    """Resolve structural bounds on a connected, passive undirected Graph."""
+    if degree <= 1:
+        return degree
+    order = len(G)
+    if degree == order - 1 and _fnx.number_of_selfloops_rust(G) == 0:
+        # Every vertex must be adjacent to all other vertices.
+        return degree
+    if degree == 2 and order > 2:
+        # The cut is either one or two. A cut vertex need not be a bridge.
+        if node_cut:
+            return 1 if _fnx.articulation_points(G) else 2
+        return 1 if _fnx.bridges(G) else 2
+    return None
+
+
 def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **backend_kwargs):
     """Return the node connectivity of the graph.
 
@@ -88,22 +104,23 @@ def node_connectivity(G, s=None, t=None, flow_func=None, *, backend=None, **back
     H = None if ordinary else _build_auxiliary_node_connectivity_fast(G)
     v, K = min(G.degree(), key=_operator.itemgetter(1))
     if ordinary:
-        if K <= 1:
-            return K
-        if K == 2 and len(G) > 2:
-            # Connected graphs of this size have node connectivity at least
-            # two exactly when they have no articulation point.
-            return 1 if _fnx.articulation_points(G) else 2
+        proved = _connectivity_from_degree(G, K, node_cut=True)
+        if proved is not None:
+            return proved
         H = _build_auxiliary_node_connectivity_fast(G)
     mapping = H.graph["mapping"]
     for w in set(G) - set(neighbors(v)) - {v}:
         val = _minimum_cut_value_raw(H, f"{mapping[v]}B", f"{mapping[w]}A", capacity="capacity")
         K = min(K, int(val))
+        if ordinary and K == 1:
+            return K
     for x, y in iter_func(neighbors(v), 2):
         if y in G[x]:
             continue
         val = _minimum_cut_value_raw(H, f"{mapping[x]}B", f"{mapping[y]}A", capacity="capacity")
         K = min(K, int(val))
+        if ordinary and K == 1:
+            return K
     return K
 
 
@@ -236,12 +253,9 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend
         L = min(d for n, d in G.degree())
 
         if ordinary:
-            if L <= 1:
-                return L
-            if L == 2 and len(G) > 2:
-                # An edge cut of size one is a bridge. A cut vertex alone
-                # does not imply that such an edge exists.
-                return 1 if _fnx.bridges(G) else 2
+            proved = _connectivity_from_degree(G, L, node_cut=False)
+            if proved is not None:
+                return proved
 
         for node in G:
             D = set(dominating_set(G, start_with=node))
@@ -256,6 +270,8 @@ def edge_connectivity(G, s=None, t=None, flow_func=None, cutoff=None, *, backend
         for w in D:
             val = _minimum_cut_value_raw(H, v, w, capacity="capacity")
             L = min(L, int(val))
+            if ordinary and L == 1:
+                return L
         return L
 
 
