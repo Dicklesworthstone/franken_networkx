@@ -770,23 +770,10 @@ def _simple_graph_adjacency(self):
 
 
 def _multigraph_adjacency(self):
-    """br-adjiter: return a generator matching nx.MultiGraph.adjacency.
-
-    br-r37-c1-adjdict: nx yields ``(node, inner_dict)`` where
-    ``inner_dict`` is a real ``dict`` mapping neighbour → keyed-attrs.
-    fnx's ``self.adj[node]`` returned an ``AdjacencyView``,
-    breaking ``isinstance(adj, dict)`` in drop-in code.  Materialise
-    a snapshot dict for type parity (recursive: each neighbour's
-    keyed-attrs map is also unwrapped from AtlasView to dict).
-    """
+    """Iterate neighbor dictionaries whose parallel-edge cells share graph storage."""
     owner = _shared_unsplit_owner(self)
     if owner is not None:
         return _multigraph_adjacency(owner)
-    # br-r37-c1-mdadj: build the nested {node: {nbr: {key: attrs}}} snapshot
-    # natively (reusing the live edge attr dicts, in node x nbr x key order)
-    # instead of unwrapping self.adj[node] via the per-element MultiAdjacencyView
-    # lambda chain (~33000x slower than nx). Identical snapshot; iterating the
-    # native dict's items yields the same (node, inner_dict) pairs.
     # br-r37-c1-vbe1o: a graph carrying ASSIGNED private storage yields that
     # mapping's rows, exactly as networkx does (`iter(self._adj.items())`). The
     # native paths below read the Rust store and cannot see it, and the final
@@ -797,6 +784,18 @@ def _multigraph_adjacency(self):
     # and networkx hands out the live raw rows here.
     if _nbunch_membership_container(self) is not None:
         return iter(self._adj.items())
+
+    if type(self) in (MultiGraph, MultiDiGraph):
+        stamp = self.nodes_seq, self.edges_seq
+        state = getattr(self, "_fnx_multigraph_adjacency_rows", None)
+        if state is None or state[0] != stamp:
+            # Cache the rows returned by adjacency(). Each cell is the graph's
+            # own key dictionary, shared across both ends of an undirected edge.
+            # to_dict_of_dicts() keeps separate, caller-owned neighbor dicts.
+            rows = self._native_to_dict_of_dicts_live()
+            state = stamp, rows
+            self._fnx_multigraph_adjacency_rows = state
+        return iter(state[1].items())
 
     native = getattr(self, "_native_adjacency_dict", None)
     if native is not None:
