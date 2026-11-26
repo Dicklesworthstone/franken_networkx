@@ -26,6 +26,8 @@ needs_nx = pytest.mark.skipif(not HAS_NX, reason="networkx not installed")
 
 @needs_nx
 def test_describe_signature_matches_networkx():
+    if not hasattr(nx, "describe"):
+        pytest.skip("this networkx release (3.4, the Python 3.10 oracle) has no describe")
     fnx_params = list(inspect.signature(fnx.describe).parameters.keys())
     nx_params = [k for k in inspect.signature(nx.describe).parameters.keys()
                  if k not in ("backend", "backend_kwargs")]

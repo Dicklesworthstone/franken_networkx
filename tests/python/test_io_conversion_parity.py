@@ -94,6 +94,8 @@ def test_generalized_degree_matches_networkx():
 
 
 def test_describe_matches_networkx_output(capsys):
+    if not hasattr(nx, "describe"):
+        pytest.skip("this networkx release (3.4, the Python 3.10 oracle) has no describe")
     graph = fnx.path_graph(3)
     expected = nx.path_graph(3)
 

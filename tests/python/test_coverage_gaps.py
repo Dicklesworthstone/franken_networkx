@@ -3375,7 +3375,12 @@ class TestDelegateFixes:
         expected_graph = nx.path_graph(3)
 
         expected_neighbors = tuple(nx.neighbors(expected_graph, 1))
-        nx.describe(expected_graph)
+        # networkx 3.4 (the Python 3.10 oracle) has no describe. There is no
+        # output to compare against, but fnx.describe must still not route
+        # through networkx, so the guard below is created when it is absent.
+        oracle_has_describe = hasattr(nx, "describe")
+        if oracle_has_describe:
+            nx.describe(expected_graph)
         expected_out = capsys.readouterr().out
 
         with (
@@ -3388,6 +3393,7 @@ class TestDelegateFixes:
                 nx,
                 "describe",
                 side_effect=AssertionError("NetworkX describe fallback used"),
+                create=True,
             ),
         ):
             neighbors = fnx.neighbors(graph, 1)
@@ -3397,7 +3403,10 @@ class TestDelegateFixes:
 
         out = capsys.readouterr().out
         assert actual_neighbors == expected_neighbors
-        assert out == expected_out
+        if oracle_has_describe:
+            assert out == expected_out
+        else:
+            assert out.startswith("Number of nodes")
 
     @needs_nx
     def test_mixing_and_resistance_helpers_match_networkx_without_to_nx_fallback(self):
