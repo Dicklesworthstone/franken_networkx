@@ -59,6 +59,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54dae3d1d7b8956f3506c4e999a74e77f932a59153ccf38ab8cf96db74bb9dc0"
 dependencies = [
  "cfg-if",
+ "getrandom 0.3.4",
  "getrandom 0.4.3",
  "once_cell",
  "serde",
@@ -134,9 +135,9 @@ checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
 name = "asupersync"
-version = "0.6.2"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e5b2e20bf4312b9fedbc06d6c7244e994119b987946f44f82a447e3bc3c9bb03"
+checksum = "dd9be531765145b804069bc42322f736ef5b03e73717f0ff139110126eca7bf2"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -160,9 +161,9 @@ dependencies = [
  "parking_lot",
  "pin-project",
  "polling",
+ "portable-atomic",
  "prost",
  "rmp-serde",
- "semver",
  "serde",
  "serde_json",
  "sha1",
@@ -537,7 +538,7 @@ dependencies = [
  "ciborium",
  "clap",
  "criterion-plot",
- "itertools 0.13.0",
+ "itertools",
  "num-traits",
  "oorandom",
  "page_size",
@@ -557,7 +558,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8d80a2f4f5b554395e47b5d8305bc3d27813bacb73493eb1001e8f76dae29ea"
 dependencies = [
  "cast",
- "itertools 0.13.0",
+ "itertools",
 ]
 
 [[package]]
@@ -1010,9 +1011,9 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "franken-decision"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "956e18ba3100209106f822c5c2c461ec3b7593e6e3c6aeca42ace2f4b9030d8f"
+checksum = "890e526005830aa9e8421e0bff6d5ff5c9b373670717d8d3144d993f31a1dff1"
 dependencies = [
  "franken-evidence",
  "franken-kernel",
@@ -1021,9 +1022,9 @@ dependencies = [
 
 [[package]]
 name = "franken-evidence"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1739367640cb3e46f5b90a5cdf6ccf5a3352298ac335e55d161a786ab8c11a90"
+checksum = "a39a2796f4da0f2b58a9102f6418e5f910f6bb4db6f1a74094ba90d0ca2d9504"
 dependencies = [
  "serde",
  "serde_json",
@@ -1031,9 +1032,9 @@ dependencies = [
 
 [[package]]
 name = "franken-kernel"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "613cf2a909466f1d8964018860814c64e959f2bef28289b0e6f56b247aeaaaed"
+checksum = "e5f87b64b45bc3951dc602ec21e0f9f92c8a924ee9db8a97730030a743386947"
 dependencies = [
  "serde",
 ]
@@ -1395,15 +1396,6 @@ name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.15.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
 dependencies = [
  "either",
 ]
@@ -1900,7 +1892,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ad9c5423459fa2f729b8d9235fab810aa29628b171467744fc86d21460ad70d"
 dependencies = [
  "anyhow",
- "itertools 0.15.0",
+ "itertools",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -2247,10 +2239,6 @@ name = "semver"
 version = "1.0.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a7852d02fc848982e0c167ef163aaff9cd91dc640ba85e263cb1ce46fae51cd"
-dependencies = [
- "serde",
- "serde_core",
-]
 
 [[package]]
 name = "serde"
@@ -2481,9 +2469,9 @@ dependencies = [
 
 [[package]]
 name = "sysinfo"
-version = "0.39.6"
+version = "0.40.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2071df9448915b71c4fe6d25deaf1c22f12bd234f01540b77312bb8e41361e6"
+checksum = "3e80749408e2d8bec0ffa303012cf4e1b3b355f4a09087b4fdf7473680f6a2de"
 dependencies = [
  "libc",
  "memchr",
@@ -2507,7 +2495,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys",

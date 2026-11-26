@@ -124,3 +124,13 @@ Held for that reason. The 0.17.2 changes look internal: `std::hash::RandomState`
 - Four commits on 2026-11-25 edited `docs/planning/EXISTING_NETWORKX_STRUCTURE.md` after `artifacts/docs/v1/doc_pass00_gap_matrix_v1.json` was last regenerated on 2026-11-21.
 - The test compares only those two files, through serde_json, which no update here touches.
 - The fix is to regenerate the matrix.
+
+## Rust: major bumps (2026-11-26)
+
+### `asupersync` (fnx-runtime, optional): `>=0.3.4, <0.7` -> `>=0.3.4, <0.8` (lock 0.6.2 -> 0.7.0)
+- **Scope.** Only the `asupersync-integration` feature reaches it, and no default build, wheel or CLI enables that feature. The feature is a compile-time marker: `asupersync::Cx` appears in two signatures and a `type_name` probe. No runtime path changes, so there is nothing to benchmark.
+- **Lock.** asupersync 0.6.2 -> 0.7.0. `franken-decision` / `franken-evidence` / `franken-kernel` 0.6.0 -> 0.7.0. `sysinfo` 0.39.6 -> 0.40.4 (MSRV 1.95, below the pinned nightly). `itertools` 0.15.0 is removed.
+- **Breaking.** Nothing at the call sites above.
+- **Tests, with `asupersync-integration,ftui-integration`:**
+  - `cargo test -p fnx-runtime`: 133 passed, 5 ignored.
+  - `cargo clippy -p fnx-runtime --all-targets -- -D warnings`: clean.
