@@ -28,6 +28,8 @@ improvement, and this file would show it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import networkx as nx
 import pytest
 
@@ -76,6 +78,62 @@ def test_private_node_storage_accepts_mutation_in_both(cls_name):
         graph._node["fresh"] = {}
     assert gfx.nodes["a"]["tag"] == gnx.nodes["a"]["tag"] == 7
     assert ("fresh" in gfx._node) == ("fresh" in gnx._node) is True
+
+
+@pytest.mark.parametrize("cls_name", ALL)
+def test_private_node_storage_compares_live_attributes_as_a_mapping(cls_name):
+    """Residual solvers return this storage to NetworkX graph comparisons."""
+    gnx, gfx = _pair(cls_name)
+    for graph in (gnx, gfx):
+        graph.nodes["a"]["payload"] = {"numbers": [1, 2]}
+    actual, expected = gfx._node, gnx._node
+    assert isinstance(actual, Mapping)
+    assert actual == expected
+    assert expected == actual
+    assert actual == getattr(fnx, cls_name)(gnx)._node
+    assert not actual != expected
+    assert not expected != actual
+
+    # Held facades compare current attributes and topology, not a snapshot.
+    gfx.nodes["a"]["payload"]["numbers"].append(3)
+    assert actual != expected
+    assert expected != actual
+    gnx.nodes["a"]["payload"]["numbers"].append(3)
+    assert actual == expected
+    gfx.add_node("fresh", status="new")
+    assert actual != expected
+    gnx.add_node("fresh", status="new")
+    assert actual == expected
+    gfx.remove_node("b")
+    assert actual != expected
+    gnx.remove_node("b")
+    assert actual == expected
+
+
+@pytest.mark.parametrize("cls_name", ALL)
+def test_private_node_storage_equality_keeps_dict_operand_contract(cls_name):
+    gnx, gfx = _pair(cls_name)
+    for operand in (None, list(gnx._node.items()), set(gnx._node), object()):
+        assert (gfx._node == operand) == (gnx._node == operand)
+        assert (operand == gfx._node) == (operand == gnx._node)
+        assert (gfx._node != operand) == (gnx._node != operand)
+        assert (operand != gfx._node) == (operand != gnx._node)
+    for storage in (gnx._node, gfx._node):
+        with pytest.raises(TypeError):
+            hash(storage)
+
+
+@pytest.mark.parametrize("cls_name", ALL)
+def test_private_node_storage_equality_does_not_suppress_attribute_errors(cls_name):
+    class Uncomparable:
+        def __eq__(self, other):
+            raise ValueError("node attribute comparison")
+
+    for module in (nx, fnx):
+        graph = getattr(module, cls_name)()
+        graph.add_node("node", value=Uncomparable())
+        with pytest.raises(ValueError, match="node attribute comparison"):
+            graph._node == {"node": {"value": Uncomparable()}}
 
 
 # --- the divergence --------------------------------------------------------

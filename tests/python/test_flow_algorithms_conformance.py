@@ -1149,6 +1149,32 @@ def test_backend_flow_solver_keeps_explicit_native_graph(algorithm):
     assert original["a"]["t"]["capacity"] == 2
 
 
+@pytest.mark.parametrize("algorithm", ALGORITHMS)
+def test_upstream_backend_comparison_accepts_native_residual(monkeypatch, algorithm):
+    """Custom connectivity solvers return their shared residual unchanged.
+
+    The upstream backend harness compares that native residual's private
+    node mapping with a converted dictionary. Identical attributes must
+    compare equal; object identity cannot determine the graph comparison.
+    """
+    graph = fnx.DiGraph()
+    graph.add_weighted_edges_from(
+        [("s", "a", 4), ("a", "t", 3), ("s", "t", 2)], weight="capacity"
+    )
+    residual = fnx.flow.build_residual_network(graph, "capacity")
+    held_attributes = {(u, v): attrs for u, v, attrs in residual.edges(data=True)}
+    monkeypatch.setattr(nx.utils.backends._dispatchable, "_is_testing", True)
+    monkeypatch.setattr(nx.config.backend_priority, "algos", ["franken_networkx"])
+    monkeypatch.setattr(nx.config.backend_priority, "generators", ["franken_networkx"])
+    monkeypatch.setattr(nx.config, "fallback_to_nx", True)
+
+    result = getattr(nx_flow, algorithm)(graph, "s", "t", residual=residual)
+
+    assert result is residual
+    assert result.graph["flow_value"] == 5
+    assert all(result[u][v] is attrs for (u, v), attrs in held_attributes.items())
+
+
 @pytest.mark.parametrize("name", _HIGH_LEVEL_FLOW_APIS)
 @pytest.mark.parametrize("graph_class", ["Graph", "DiGraph"])
 @pytest.mark.parametrize("kind", ["networkx", "subclass", "assigned"])

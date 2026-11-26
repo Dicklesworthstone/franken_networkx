@@ -1541,13 +1541,16 @@ MultiDiGraph.out_degree = property(_multidigraph_out_degree)
 # views so nx's internal read paths work on fnx graphs; writes through
 # these aliases fall back to the AdjacencyView which already forwards to
 # the Rust storage.
-class _PrivateNodeFacade:
+class _PrivateNodeFacade(_Mapping):
     """br-nvupdt: nx internals (relabel._relabel_copy) do
     ``H._node.update((node, attrs_dict) for ...)`` — a dict-style bulk
     insert. The NodeView has no way to reach the parent graph, so the
     public ``_node`` alias returns this thin facade that wraps the
     NodeView for reads and forwards bulk writes back through
-    ``graph.add_node``.
+    ``graph.add_node``. Mapping equality compares the live node attributes,
+    as the upstream storage dictionary does. This also lets a caller-owned
+    native residual participate in NetworkX's graph comparisons after a flow
+    solver returns it unchanged.
     """
 
     __slots__ = ("_graph",)
