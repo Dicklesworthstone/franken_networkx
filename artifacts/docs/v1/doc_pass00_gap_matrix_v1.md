@@ -1,10 +1,10 @@
 # DOC-PASS-00 Baseline Gap Matrix (V1)
 
-- generated_at_utc: 2026-11-21T15:42:03.903439+00:00
+- generated_at_utc: 2026-11-26T11:34:57.065425+00:00
 - baseline_comparator: legacy_networkx/main@python3.12
-- total_sections: 233
-- risk_split: high=163, medium=60, low=10
-- words_current_to_target: 34053 -> 181691
+- total_sections: 253
+- risk_split: high=169, medium=72, low=12
+- words_current_to_target: 39865 -> 209901
 
 ## Top Priority Sections
 
@@ -38,8 +38,8 @@
 | 26 | `EXISTING_NETWORKX_STRUCTURE.md` | `EXISTING_NETWORKX_STRUCTURE > 14. Verification Crosswalk Index (DOC-PASS-09)` | high | 0.14 | 12 | 90 | 7.50 | behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
 | 27 | `EXISTING_NETWORKX_STRUCTURE.md` | `EXISTING_NETWORKX_STRUCTURE > 6. V1 Extraction Boundary` | high | 0.14 | 27 | 203 | 7.50 | behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
 | 28 | `EXHAUSTIVE_LEGACY_ANALYSIS.md` | `EXHAUSTIVE_LEGACY_ANALYSIS.md — FrankenNetworkX > 2. Quantitative Legacy Inventory (Measured)` | high | 0.14 | 28 | 210 | 7.50 | legacy_anchor_specificity, behavioral_invariants, strict_hardened_split, performance_evidence, durability_forensics, drop_in_parity_claims |
-| 29 | `EXISTING_NETWORKX_STRUCTURE.md` | `EXISTING_NETWORKX_STRUCTURE > 88. Graph Resilience Backend Contract` | high | 0.00 | 86 | 559 | 6.50 | legacy_anchor_specificity, behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
-| 30 | `EXHAUSTIVE_LEGACY_ANALYSIS.md` | `EXHAUSTIVE_LEGACY_ANALYSIS.md — FrankenNetworkX > 25. Pass-B Expansion: Source-Anchored Behavioral Contract and Risk Topology (DOC-PASS-11)` | high | 0.14 | 36 | 270 | 7.50 | legacy_anchor_specificity, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
+| 29 | `EXHAUSTIVE_LEGACY_ANALYSIS.md` | `EXHAUSTIVE_LEGACY_ANALYSIS.md — FrankenNetworkX > 25. Pass-B Expansion: Source-Anchored Behavioral Contract and Risk Topology (DOC-PASS-11)` | high | 0.14 | 36 | 270 | 7.50 | legacy_anchor_specificity, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
+| 30 | `EXISTING_NETWORKX_STRUCTURE.md` | `EXISTING_NETWORKX_STRUCTURE > 82. Core Decomposition Backend Availability` | high | 0.00 | 91 | 592 | 6.50 | legacy_anchor_specificity, behavioral_invariants, strict_hardened_split, verification_coverage, performance_evidence, durability_forensics, drop_in_parity_claims |
 
 ## Expansion Rule
 
