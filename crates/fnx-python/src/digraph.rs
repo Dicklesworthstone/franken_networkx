@@ -6344,6 +6344,10 @@ impl PyMultiDiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Option<Py<PyList>>> {
+        // Bulk insertion skips the per-edge updates required by held row iterators.
+        if self.direction_rows_live() {
+            return Ok(None);
+        }
         const ATTR_EDGE_BATCH_MIN: usize = 8;
         // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge/global attr -> per-edge
         // add_edge (sub-batches rebuild lazy mirrors from the scalar-only store).
@@ -6562,6 +6566,9 @@ impl PyMultiDiGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<bool> {
+        if self.direction_rows_live() {
+            return Ok(false);
+        }
         // A fresh-graph batch skips per-edge keydict maintenance: bail if a
         // ghost keydict row exists (the only kind an edgeless graph can hold).
         if self.inner.edge_count() != 0

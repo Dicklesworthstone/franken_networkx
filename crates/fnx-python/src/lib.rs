@@ -12897,6 +12897,10 @@ impl PyMultiGraph {
         ebunch_to_add: &Bound<'_, PyAny>,
         global_attr: Option<&Bound<'_, PyDict>>,
     ) -> PyResult<Option<Py<PyList>>> {
+        // Bulk insertion skips the per-edge updates required by held row iterators.
+        if self.neighbor_rows_live() {
+            return Ok(None);
+        }
         self.clear_stale_edge_mirrors();
         // br-r37-c1-edgebatchlossless (cc): non-scalar per-edge/global attr -> per-edge
         // add_edge (sub-batches rebuild lazy mirrors from the scalar-only store).
@@ -13081,6 +13085,9 @@ impl PyMultiGraph {
         py: Python<'_>,
         ebunch_to_add: &Bound<'_, PyAny>,
     ) -> PyResult<Option<Py<PyList>>> {
+        if self.neighbor_rows_live() {
+            return Ok(None);
+        }
         self.clear_stale_edge_mirrors();
         const STR_KEYED_EDGE_BATCH_MIN: usize = 8;
         if let Some(keys) =

@@ -55,3 +55,39 @@ def test_explicit_edge_invalidates_outstanding_neighbor_iterator(key, endpoints)
         graph.add_edge(*endpoints, key=key)
         with pytest.raises(RuntimeError, match="dictionary changed size"):
             next(neighbors)
+
+
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("shape", ["pair", "data", "key", "key-data", "weighted", "update"])
+def test_bulk_insert_updates_observed_empty_rows(class_name, shape):
+    def observe(lib):
+        graph = getattr(lib, class_name)()
+        graph.add_nodes_from(range(11))
+        targets = range(1, 11)
+        row = graph.neighbors(0)
+        reverse_row = graph.predecessors(1) if graph.is_directed() else graph.neighbors(1)
+        if shape == "weighted":
+            graph.add_weighted_edges_from([(0, v, 2) for v in targets])
+        elif shape == "update":
+            graph.update(edges=[(0, v, {"w": 2}) for v in targets])
+        else:
+            suffix = {
+                "pair": (),
+                "data": ({"w": 2},),
+                "key": ("k",),
+                "key-data": (7, {"w": 2}),
+            }[shape]
+            graph.add_edges_from([(0, v, *suffix) for v in targets])
+        # Reading a fresh row before this mutation would refresh its cache
+        # generation and mask the missing neighbors.
+        graph.add_edge(20, 21)
+        for iterator in (row, reverse_row):
+            with pytest.raises(RuntimeError, match="dictionary changed size"):
+                next(iterator)
+        return (
+            list(graph.neighbors(0)),
+            list(graph.predecessors(1) if graph.is_directed() else graph.neighbors(1)),
+            sorted(graph.subgraph(list(graph)).copy().edges(keys=True)),
+        )
+
+    assert observe(fnx) == observe(nx)
