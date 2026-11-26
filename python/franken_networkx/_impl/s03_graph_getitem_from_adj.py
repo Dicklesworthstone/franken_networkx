@@ -55,7 +55,7 @@ _multigraph_private_adj_view = _cached_view(
             lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph),
             owner=self,
             native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
-            native_contains=_MULTIGRAPH_ADJ_NATIVE_CONTAINS.__get__(self, MultiGraph),
+            native_contains=_MULTIGRAPH_ADJ_NATIVE_NODES.__get__(self, MultiGraph).__contains__,
             native_len=_MULTIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiGraph),
         ),
         self,
@@ -71,9 +71,9 @@ _multidigraph_private_adj_view = _cached_view(
             owner=self,
             row_kind="succ",
             native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
-            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_NODES.__get__(
                 self, MultiDiGraph
-            ),
+            ).__contains__,
             native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
         ),
         self,
@@ -90,9 +90,9 @@ _multidigraph_private_succ_view = _cached_view(
             owner=self,
             row_kind="succ",
             native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
-            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_NODES.__get__(
                 self, MultiDiGraph
-            ),
+            ).__contains__,
             native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
         ),
         self,
@@ -109,9 +109,9 @@ _multidigraph_private_pred_view = _cached_view(
             owner=self,
             row_kind="pred",
             native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
-            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+            native_contains=_MULTIDIGRAPH_ADJ_NATIVE_NODES.__get__(
                 self, MultiDiGraph
-            ),
+            ).__contains__,
             native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
         ),
         self,

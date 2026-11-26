@@ -1529,10 +1529,12 @@ _GRAPH_ADJ_NATIVE_ITER = Graph._fnx_native_node_iter
 _DIGRAPH_ADJ_NATIVE_ITER = DiGraph._fnx_native_node_iter
 _MULTIGRAPH_ADJ_NATIVE_ITER = MultiGraph._fnx_native_node_iter
 _MULTIDIGRAPH_ADJ_NATIVE_ITER = MultiDiGraph._fnx_native_node_iter
-_MULTIGRAPH_ADJ_NATIVE_CONTAINS = MultiGraph.has_node
-_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS = MultiDiGraph.has_node
+# A native NodeView probes the topology even when the Python node table is
+# reassigned. Graph.has_node follows the assigned table, whose keys may differ.
+_MULTIGRAPH_ADJ_NATIVE_NODES = MultiGraph.nodes
+_MULTIDIGRAPH_ADJ_NATIVE_NODES = MultiDiGraph.nodes
 # br-r37-c1-2r06n: the raw node count, bound for the same reason as the raw
-# `has_node` above. `owner.number_of_nodes()` is SHADOWED on any instance
+# node view above. `owner.number_of_nodes()` is SHADOWED on any instance
 # carrying private storage, so it answers the assigned `_node` mapping -- while
 # `__iter__` keeps yielding the adjacency's own keys, which an independent
 # `_node` override must not change. len(view) then disagreed with
@@ -1547,7 +1549,7 @@ _multigraph_adj_view = _cached_view(
         lambda: _MULTIGRAPH_ADJ_DESCRIPTOR.__get__(self, MultiGraph),
         owner=self,
         native_iter=_MULTIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiGraph),
-        native_contains=_MULTIGRAPH_ADJ_NATIVE_CONTAINS.__get__(self, MultiGraph),
+        native_contains=_MULTIGRAPH_ADJ_NATIVE_NODES.__get__(self, MultiGraph).__contains__,
         native_len=_MULTIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiGraph),
     ),
 )
@@ -1584,9 +1586,9 @@ _multidigraph_adj_view = _cached_view(
         owner=self,
         row_kind="succ",
         native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
-        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_NODES.__get__(
             self, MultiDiGraph
-        ),
+        ).__contains__,
         native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
@@ -1623,9 +1625,9 @@ _multidigraph_succ_view = _cached_view(
         owner=self,
         row_kind="succ",
         native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
-        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_NODES.__get__(
             self, MultiDiGraph
-        ),
+        ).__contains__,
         native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )
@@ -1638,9 +1640,9 @@ _multidigraph_pred_view = _cached_view(
         owner=self,
         row_kind="pred",
         native_iter=_MULTIDIGRAPH_ADJ_NATIVE_ITER.__get__(self, MultiDiGraph),
-        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_CONTAINS.__get__(
+        native_contains=_MULTIDIGRAPH_ADJ_NATIVE_NODES.__get__(
             self, MultiDiGraph
-        ),
+        ).__contains__,
         native_len=_MULTIDIGRAPH_ADJ_NATIVE_LEN.__get__(self, MultiDiGraph),
     ),
 )

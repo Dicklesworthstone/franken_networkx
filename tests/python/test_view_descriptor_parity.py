@@ -2195,24 +2195,27 @@ def test_multi_adjacency_iter_keeps_native_storage_under_node_override(cls_name)
     assert list(gfx) == list(gnx) == ["private-only"]
 
 
-@pytest.mark.parametrize("cls_name", ["MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize(
+    ("cls_name", "accessor"),
+    [
+        ("MultiGraph", "adj"),
+        ("MultiGraph", "_adj"),
+        *(("MultiDiGraph", name) for name in ("adj", "succ", "pred", "_adj", "_succ", "_pred")),
+    ],
+)
 def test_multi_adjacency_contains_keeps_native_storage_under_node_override(
-    cls_name,
+    cls_name, accessor,
 ):
     gnx, gfx = _pair(cls_name)
-    old_nx, old_fnx = gnx.adj, gfx.adj
+    old_nx, old_fnx = getattr(gnx, accessor), getattr(gfx, accessor)
 
     gnx._node = {"private-only": {}}
     gfx._node = {"private-only": {}}
 
-    assert "n0" in old_fnx
-    assert ("n0" in old_fnx) == ("n0" in old_nx)
-    assert "private-only" not in old_fnx
-    assert ("private-only" in old_fnx) == ("private-only" in old_nx)
-    assert "n0" in gfx.adj
-    assert ("n0" in gfx.adj) == ("n0" in gnx.adj)
-    assert "private-only" in gfx
-    assert ("private-only" in gfx) == ("private-only" in gnx)
+    for node in ("n0", "private-only", "missing"):
+        assert (node in old_fnx) == (node in old_nx)
+        assert (node in getattr(gfx, accessor)) == (node in getattr(gnx, accessor))
+        assert (node in gfx) == (node in gnx)
 
 
 @pytest.mark.parametrize("cls_name", ["Graph", "DiGraph"])
