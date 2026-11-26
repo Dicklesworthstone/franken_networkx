@@ -708,7 +708,15 @@ class _ViewNodeDataView(_Set):
 _ViewNodeDataView.__name__ = _ViewNodeDataView.__qualname__ = "NodeDataView"
 
 
-class NodeView(_Mapping):
+class NodeView(_Mapping, _Set):
+    # networkx's NodeView is a Mapping and a Set, so `sub.nodes - {n}`,
+    # `&`, `|`, `^`, the subset comparisons and isdisjoint work on a
+    # subgraph view's nodes; as a bare Mapping they raised TypeError. The
+    # bases are in networkx's order, so equality stays Mapping's.
+    @classmethod
+    def _from_iterable(cls, it):
+        return set(it)
+
     def __init__(self, view):
         self._view = view
 

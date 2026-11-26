@@ -206,3 +206,55 @@ def test_filtered_edge_view_difference_drops_reversed_undirected_pairs():
         assert {("b", "a"), ("c", "d")} & view == {("b", "a")}
         assert view >= {("b", "a")}
         assert not view.isdisjoint([("c", "b")])
+
+
+# A subgraph or restricted view's .nodes is networkx's NodeView, a Mapping and
+# a Set: the Set operators, comparisons and isdisjoint return what networkx's
+# do, in the same insertion order. As a bare Mapping they raised TypeError.
+@pytest.mark.parametrize("class_name", ["Graph", "DiGraph", "MultiGraph", "MultiDiGraph"])
+@pytest.mark.parametrize("operator", list(_SET_OPERATORS))
+def test_filtered_node_view_set_protocol_matches_networkx(class_name, operator):
+    import random
+
+    function = _SET_OPERATORS[operator]
+    for seed in range(40):
+        (fg, ng), keep, _ = _random_graph_pair(class_name, seed)
+        order = len(ng)
+        rng = random.Random(1000 + seed)
+        operands = {
+            "labels": rng.sample(range(order + 6), order // 2),
+            "kept": list(keep),
+            "foreign": [order + i for i in range(1, 6)],
+        }
+        hidden = keep[:2]
+        views = (
+            (fg.subgraph(keep).nodes, ng.subgraph(keep).nodes),
+            (
+                fnx.restricted_view(fg, hidden, []).nodes,
+                nx.restricted_view(ng, hidden, []).nodes,
+            ),
+        )
+        for fview, nview in views:
+            for name, values in operands.items():
+                for container in (set, list, frozenset):
+                    expected = _set_operator_outcome(function, nview, container(values))
+                    actual = _set_operator_outcome(function, fview, container(values))
+                    assert actual == expected, (seed, name, container.__name__)
+
+
+def test_filtered_node_view_is_a_set_like_networkx():
+    from collections.abc import Mapping, Set
+
+    fg = fnx.Graph([("a", "b"), ("b", "c")])
+    ng = nx.Graph([("a", "b"), ("b", "c")])
+    for graph in (fg, ng):
+        nodes = graph.subgraph(["a", "b"]).nodes
+        assert isinstance(nodes, Set) and isinstance(nodes, Mapping)
+        assert nodes - {"a"} == {"b"}
+        assert {"b", "z"} & nodes == {"b"}
+        assert nodes | ["z"] == {"a", "b", "z"}
+        assert nodes <= {"a", "b", "c"}
+        assert not nodes.isdisjoint(["b"])
+        # Equality stays the Mapping's, as in networkx.
+        assert (nodes == {"a", "b"}) is False
+        assert nodes == graph.subgraph(["a", "b"]).nodes
