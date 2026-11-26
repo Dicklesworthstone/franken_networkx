@@ -1577,7 +1577,7 @@ fn ftui_workflow_event_contract_is_complete_and_deterministic() {
     );
     assert!(
         runtime_cargo
-            .contains("ftui = { version = \"0.5.0\", optional = true, default-features = false }"),
+            .contains("ftui = { version = \"0.11.0\", optional = true, default-features = false }"),
         "fnx-runtime Cargo.toml should pin the registry ftui dependency"
     );
     assert!(

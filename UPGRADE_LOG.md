@@ -144,6 +144,10 @@ Held for that reason. The 0.17.2 changes look internal: `std::hash::RandomState`
   - `cargo test -p fnx-runtime`: 133 passed, 5 ignored.
   - `cargo clippy --workspace --all-targets -- -D warnings`: clean.
   - `cargo audit`: 0 vulnerabilities, 0 warnings.
+- **Follow-up.** The workspace test run was not repeated after this bump. fnx-conformance's
+  `ftui_workflow_event_contract_gate` asserts the exact registry line in `crates/fnx-runtime/Cargo.toml`,
+  so it failed ("fnx-runtime Cargo.toml should pin the registry ftui dependency"). Its expected line now
+  names 0.11.0. The test still requires a registry dependency, the `[patch]` note and no local path.
 
 ## Python: `uv.lock` refresh (2026-11-26)
 
