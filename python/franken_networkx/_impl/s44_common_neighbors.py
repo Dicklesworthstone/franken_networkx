@@ -184,6 +184,10 @@ def describe(G, describe_hook=None):
             )
         else:
             info["Number of connected components"] = number_connected_components(G)
+        # NetworkX 3.7 prints the density after the component counts;
+        # 3.6 and earlier do not print it.
+        if _networkx_release() >= (3, 7):
+            info["Density"] = density(G)
 
     if describe_hook is not None:
         extra = describe_hook(G)
