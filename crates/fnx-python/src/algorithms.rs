@@ -5391,9 +5391,12 @@ fn reconcile_scalar_multiedges<S>(
         // Inspect storage directly. Arbitrary dict subclasses may supply
         // additional behavior which their native key/value entries cannot encode.
         let ty = dict.get_type();
-        let base_dict = crate::EDGE_ATTR_DICT_CLASS
-            .get(py)
-            .is_some_and(|cls| ty.is(cls.bind(py)));
+        let base_dict = [
+            &crate::EDGE_ATTR_DICT_CLASS,
+            &crate::SLOTTED_EDGE_ATTR_DICT_CLASS,
+        ]
+        .into_iter()
+        .any(|registered| registered.get(py).is_some_and(|cls| ty.is(cls.bind(py))));
         let bulk_dict = writes
             .bulk_cls
             .get(py)

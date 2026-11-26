@@ -567,3 +567,22 @@ def test_multiedge_snapshot_validation_leaves_python_objects_untouched(class_nam
     recovered = epoch(graph)
     assert epoch(graph) == recovered
     assert fnx.dijkstra_path_length(graph, 0, 2) == 6
+
+@pytest.mark.parametrize("class_name", ["MultiGraph", "MultiDiGraph"])
+def test_initial_and_bulk_edge_dicts_share_snapshot_validation(class_name):
+    graph = getattr(fnx, class_name)()
+    attrs = []
+    for node in range(8):
+        graph.add_edge(node, node + 1)
+        attrs.append(graph.get_edge_data(node, node + 1, 0))
+    # Early per-edge watches and the later per-graph bulk class can coexist.
+    assert type(attrs[0]) is not type(attrs[-1])
+    epoch = fnx._fnx.edge_attr_epoch
+    before = epoch(graph)
+    for index in (0, 7):
+        dict.__setitem__(attrs[index], "weight", index + 2)
+        after = epoch(graph)
+        assert after != before
+        assert epoch(graph) == after
+        before = after
+    assert fnx.dijkstra_path_length(graph, 0, 8) == 17
