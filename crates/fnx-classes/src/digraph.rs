@@ -3447,9 +3447,10 @@ impl MultiDiGraph {
         I: IntoIterator<Item = (String, AttrMap)>,
     {
         let mut inserted = 0usize;
+        let mut merged_changed = false;
         for (node, attrs) in nodes {
             if let Some(existing) = self.nodes.get_mut(&node) {
-                existing.extend(attrs);
+                merged_changed |= crate::merge_attrs(existing, attrs);
                 continue;
             }
             self.nodes.insert(node.clone(), attrs);
@@ -3457,10 +3458,10 @@ impl MultiDiGraph {
             self.predecessors.entry(node).or_default();
             inserted += 1;
         }
-        if inserted > 0 {
+        if inserted > 0 || merged_changed {
             self.revision = self
                 .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
             self.record_decision(
                 "extend_nodes_with_attrs_unrecorded",
                 0.0,
@@ -3530,6 +3531,7 @@ impl MultiDiGraph {
         let (lower_bound, _) = iterator.size_hint();
         self.edges.reserve(lower_bound);
         let mut inserted = 0usize;
+        let mut merged_changed = false;
         for (source, target, key, attrs) in iterator {
             if !self.nodes.contains_key(&source) {
                 self.nodes.insert(source.clone(), AttrMap::new());
@@ -3544,7 +3546,9 @@ impl MultiDiGraph {
             let edge_key = DirectedEdgeKey::new(&source, &target);
             match self.edges.entry(edge_key) {
                 indexmap::map::Entry::Occupied(mut entry) => {
-                    if entry.get_mut().merge(key, attrs) {
+                    let (is_new, changed) = entry.get_mut().merge_with_outcome(key, attrs);
+                    merged_changed |= changed;
+                    if is_new {
                         self.edge_count += 1;
                         inserted += 1;
                     }
@@ -3573,10 +3577,10 @@ impl MultiDiGraph {
                 }
             }
         }
-        if inserted > 0 {
+        if inserted > 0 || merged_changed {
             self.revision = self
                 .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
             self.record_decision(
                 "extend_keyed_edges_with_attrs_unrecorded",
                 0.0,

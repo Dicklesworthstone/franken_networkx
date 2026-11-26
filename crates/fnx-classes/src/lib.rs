@@ -3750,28 +3750,31 @@ pub(crate) mod multigraph_storage {
         /// `entry(key).or_default().extend(attrs)` analog; returns true if the
         /// (key) cell is new.
         pub fn merge(&mut self, key: usize, attrs: AttrMap) -> bool {
+            self.merge_with_outcome(key, attrs).0
+        }
+
+        /// Return (key inserted, contents changed) from the same cell lookup.
+        pub fn merge_with_outcome(&mut self, key: usize, attrs: AttrMap) -> (bool, bool) {
             match self {
                 Self::One(existing, existing_attrs) => {
                     if *existing == key {
-                        existing_attrs.extend(attrs);
-                        return false;
+                        return (false, crate::merge_attrs(existing_attrs, attrs));
                     }
                     let mut map =
                         crate::FxIndexMap::with_capacity_and_hasher(2, rustc_hash::FxBuildHasher);
                     map.insert(*existing, std::mem::take(existing_attrs));
                     map.insert(key, attrs);
                     *self = Self::Many(map);
-                    true
+                    (true, true)
                 }
                 // One hash: the entry decides both the merge and the answer.
                 Self::Many(map) => match map.entry(key) {
                     indexmap::map::Entry::Occupied(mut cell) => {
-                        cell.get_mut().extend(attrs);
-                        false
+                        (false, crate::merge_attrs(cell.get_mut(), attrs))
                     }
                     indexmap::map::Entry::Vacant(cell) => {
                         cell.insert(attrs);
-                        true
+                        (true, true)
                     }
                 },
             }
@@ -4194,7 +4197,7 @@ pub(crate) mod multigraph_storage {
             right: &str,
             key: usize,
             attrs: AttrMap,
-        ) -> bool {
+        ) -> (bool, bool) {
             let l = self.ensure_node(left);
             let r = if left == right {
                 l
@@ -4215,13 +4218,15 @@ pub(crate) mod multigraph_storage {
             r: usize,
             key: usize,
             attrs: AttrMap,
-        ) -> bool {
+        ) -> (bool, bool) {
             let pair = (l.min(r), l.max(r));
-            let is_new = match self.edges.entry(pair) {
-                indexmap::map::Entry::Occupied(mut bucket) => bucket.get_mut().merge(key, attrs),
+            let (is_new, changed) = match self.edges.entry(pair) {
+                indexmap::map::Entry::Occupied(mut bucket) => {
+                    bucket.get_mut().merge_with_outcome(key, attrs)
+                }
                 indexmap::map::Entry::Vacant(slot) => {
                     slot.insert(CompactBucket::One(key, attrs));
-                    true
+                    (true, true)
                 }
             };
             if is_new {
@@ -4245,7 +4250,7 @@ pub(crate) mod multigraph_storage {
                     }
                 }
             }
-            is_new
+            (is_new, changed)
         }
 
         /// Bulk loader mirroring the S5/S6 int-prefix arms (fresh graph, slots
@@ -5775,7 +5780,7 @@ impl MultiGraph {
         if self.storage.has_edge(&left, &right) {
             return None;
         }
-        let inserted = self
+        let (inserted, _) = self
             .storage
             .add_keyed_edge(&left, &right, key, AttrMap::new());
         debug_assert!(inserted, "fresh edge unexpectedly merged");
@@ -5792,16 +5797,18 @@ impl MultiGraph {
         I: IntoIterator<Item = (String, AttrMap)>,
     {
         let mut inserted = 0usize;
+        let mut changed = false;
         for (node, attrs) in nodes {
-            let (existed, _, _) = self.storage.set_node_attrs(&node, attrs);
+            let (existed, node_changed, _) = self.storage.set_node_attrs(&node, attrs);
+            changed |= node_changed;
             if !existed {
                 inserted += 1;
             }
         }
-        if inserted > 0 {
+        if changed {
             self.revision = self
                 .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
             self.record_decision(
                 "extend_nodes_with_attrs_unrecorded",
                 0.0,
@@ -5858,16 +5865,19 @@ impl MultiGraph {
         I: IntoIterator<Item = (String, String, usize, AttrMap)>,
     {
         let mut inserted = 0usize;
+        let mut changed = false;
         for (left, right, key, attrs) in edges {
-            if self.storage.add_keyed_edge(&left, &right, key, attrs) {
+            let (is_new, edge_changed) = self.storage.add_keyed_edge(&left, &right, key, attrs);
+            changed |= edge_changed;
+            if is_new {
                 self.edge_count += 1;
                 inserted += 1;
             }
         }
-        if inserted > 0 {
+        if changed {
             self.revision = self
                 .revision
-                .saturating_add(u64::try_from(inserted).unwrap_or(u64::MAX));
+                .saturating_add(u64::try_from(inserted.max(1)).unwrap_or(u64::MAX));
             self.record_decision(
                 "extend_keyed_edges_with_attrs_unrecorded",
                 0.0,
@@ -5912,10 +5922,10 @@ impl MultiGraph {
                 slots[v_idx] = s;
                 s
             };
-            if self
+            let (is_new, _) = self
                 .storage
-                .add_keyed_edge_by_pair(l, r, key, AttrMap::new())
-            {
+                .add_keyed_edge_by_pair(l, r, key, AttrMap::new());
+            if is_new {
                 self.edge_count += 1;
                 inserted += 1;
             }
@@ -6234,15 +6244,7 @@ impl MultiGraph {
                 .next_edge_key_by_pair(left_slot, right_slot)
         });
         let pair_was_present = self.slab_store().has_edge_by_pair(left_slot, right_slot);
-        let changed = self
-            .slab_store()
-            .edge_attrs_by_pair(left_slot, right_slot, key)
-            .is_none_or(|edge_attrs| {
-                attrs
-                    .iter()
-                    .any(|(attr_key, value)| edge_attrs.get(attr_key) != Some(value))
-            });
-        let inserted = self
+        let (inserted, changed) = self
             .slab_store_mut()
             .add_keyed_edge_by_pair(left_slot, right_slot, key, attrs);
         if inserted {
@@ -12272,6 +12274,69 @@ mod tests {
         assert_eq!(graph.edge_count(), 2);
         assert_eq!(graph.edge_keys("a", "b"), Some(vec![0, 1]));
         assert_multigraph_core_invariants(&graph);
+    }
+
+    #[test]
+    fn multigraph_batch_revisions_follow_node_and_parallel_edge_changes() {
+        macro_rules! check_graph {
+            ($graph:expr) => {{
+                let mut graph = $graph;
+                let label = single_attr("label", "red");
+                graph.add_node("a");
+                let before = graph.revision();
+                assert_eq!(
+                    graph.extend_nodes_with_attrs_unrecorded([("a".into(), label.clone())]),
+                    0
+                );
+                assert!(graph.revision() > before);
+                assert_eq!(graph.node_attrs("a"), Some(&label));
+                let before = graph.revision();
+                assert_eq!(
+                    graph.extend_nodes_with_attrs_unrecorded([("a".into(), label)]),
+                    0
+                );
+                assert_eq!(graph.revision(), before);
+
+                // Exercise both the single-key bucket and the promoted multi-key bucket.
+                for key in [0, 7] {
+                    assert_eq!(
+                        graph.extend_keyed_edges_with_attrs_unrecorded([(
+                            "a".into(),
+                            "b".into(),
+                            key,
+                            single_attr("keep", "yes")
+                        ),]),
+                        1
+                    );
+                    let before = graph.revision();
+                    let update = || {
+                        (
+                            "a".into(),
+                            "b".into(),
+                            key,
+                            single_attr("weight", "changed"),
+                        )
+                    };
+                    assert_eq!(
+                        graph.extend_keyed_edges_with_attrs_unrecorded([update()]),
+                        0
+                    );
+                    assert!(graph.revision() > before);
+                    let attrs = graph.edge_attrs("a", "b", key).unwrap();
+                    assert_eq!(attrs.get("keep"), Some(&"yes".into()));
+                    assert_eq!(attrs.get("weight"), Some(&"changed".into()));
+                    let before = graph.revision();
+                    assert_eq!(
+                        graph.extend_keyed_edges_with_attrs_unrecorded([update()]),
+                        0
+                    );
+                    assert_eq!(graph.revision(), before);
+                }
+                assert_eq!(graph.edge_count(), 2);
+            }};
+        }
+        check_graph!(MultiGraph::strict());
+        check_graph!(crate::digraph::MultiDiGraph::strict());
     }
 
     #[test]
