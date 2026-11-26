@@ -3236,7 +3236,9 @@ def _gexf_repaired_values_payload(payload):
     if len(groups) != sum(1 for _ in root.iter(namespace + "attributes")):
         return None
     declarations = {}
-    identifiers = set()
+    # A new declaration must never make a pre-existing unresolved reference
+    # valid when the native reader rechecks the document.
+    identifiers = {element.attrib["for"] for element in root.iter() if "for" in element.attrib}
     supported = {"boolean", "integer", "int", "long", "float", "double",
                  "string", "liststring", "anyURI"}
 
@@ -3285,6 +3287,11 @@ def _gexf_repaired_values_payload(payload):
             for value in values.findall(namespace + "attvalue"):
                 key, raw = value.get("for"), value.get("value")
                 definition = declarations.get((scope, key))
+                if scope == "edge" and key == "weight":
+                    # The reader installs this static double after loading
+                    # declarations. Its string alternative needs a static
+                    # group even when an XML declaration is dynamic.
+                    definition = None, "weight", "double"
                 if definition is None:
                     continue
                 if raw is None:
@@ -3320,6 +3327,11 @@ def _gexf_repaired_values_payload(payload):
                         repair_key = f"_fnx_recovered_{index}"
                     identifiers.add(repair_key)
                     repairs[scope, key] = repair_key
+                    if group is None:
+                        group = Element(namespace + "attributes", {
+                            "class": "edge", "mode": "static",
+                        })
+                        graph.insert(0, group)
                     group.append(Element(namespace + "attribute", {
                         "id": repair_key, "title": title, "type": "string",
                     }))
@@ -4614,6 +4626,12 @@ def _gexf_scan_document(raw_bytes):
             scope = "edge" if state["edge_depth"] else "node" if state["node_depth"] else "graph"
             attr_id = attrs.get("for")
             attr_type = attr_defs.get((scope, attr_id))
+            if scope == "edge" and attr_id == "weight":
+                # Gephi's built-in weight is a static double and is resolved
+                # before the inline edge weight takes precedence.
+                attr_type = "double"
+                state["needs_decoder"] = True
+                state["lossy_recovery"] = True
             if attr_type is None:
                 attr_type = attr_defs.get(("", attr_id))
             if attr_type is None:

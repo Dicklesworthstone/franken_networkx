@@ -3496,6 +3496,21 @@ impl EdgeListEngine {
                 } else {
                     "graph"
                 };
+                // The complete GEXF reader defines Gephi's legacy edge
+                // weight as a static double, even without a declaration.
+                // Match that schema when validating its input, including
+                // when a document reuses the same ID for a node attribute.
+                if validation_only && target_class == "edge" && attr_id == "weight" {
+                    let value = self.parse_gexf_typed_value(
+                        &attr_id,
+                        "double",
+                        raw_value,
+                        warnings,
+                        validation_only,
+                    )?;
+                    pending_edge_attrs.insert(attr_id, value);
+                    return Ok(());
+                }
                 // GEXF reuses attribute IDs across independent node/edge
                 // scopes. Resolve the matching declaration before validating
                 // its value; a later edge declaration cannot replace a node
@@ -7984,6 +7999,25 @@ weight="2" ext:weight="7" label="AB" ext:label="wrong"/>
         assert!(
             engine.validate_gexf(input).is_ok(),
             "validation state must not leak into ordinary reads"
+        );
+    }
+
+    #[test]
+    fn gexf_validation_understands_implicit_edge_weight() {
+        let input = r#"<gexf><graph><edges><edge source="a" target="b">
+<attvalues><attvalue for="weight" value="2.5"/></attvalues></edge></edges></graph></gexf>"#;
+        let report = EdgeListEngine::strict().validate_gexf(input).unwrap();
+        assert!(report.warnings.is_empty());
+        assert_eq!(
+            report.graph.edge_attrs("a", "b").unwrap().get("weight"),
+            Some(&CgseValue::Float(2.5))
+        );
+        let invalid = input.replace("2.5", "unknown");
+        assert!(EdgeListEngine::strict().validate_gexf(&invalid).is_err());
+        let repaired = EdgeListEngine::hardened().validate_gexf(&invalid).unwrap();
+        assert_eq!(
+            repaired.graph.edge_attrs("a", "b").unwrap().get("weight"),
+            Some(&CgseValue::String("unknown".to_owned()))
         );
     }
 

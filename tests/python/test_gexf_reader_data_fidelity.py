@@ -1306,6 +1306,55 @@ def test_gexf_reader_dynamic_attributes_keep_order_and_separate_defaults(timefor
     assert actual["a"]["b"]["weight"] == 4.5
 
 
+@pytest.mark.parametrize("mode", (None, "strict", "hardened"))
+@pytest.mark.parametrize("declared", (False, True))
+def test_gephi_builtin_weight_through_public_reader(mode, declared):
+    declarations = (
+        '<attributes class="node"><attribute id="weight" title="rating" type="string"/>'
+        '</attributes><attributes class="edge" mode="dynamic">'
+        '<attribute id="weight" title="ignored" type="string"/></attributes>'
+        if declared else ""
+    )
+    node_values = '<attvalues><attvalue for="weight" value="heavy"/></attvalues>' if declared else ""
+    payload = _document(
+        declarations + '<nodes><node id="a">' + node_values + '</node><node id="b"/></nodes>'
+        '<edges><edge id="first" source="a" target="b"><attvalues>'
+        '<attvalue for="weight" value="2.5"/></attvalues></edge>'
+        '<edge id="second" source="a" target="b" weight="9"><attvalues>'
+        '<attvalue for="weight" value="3.5"/></attvalues></edge></edges>',
+        direction="directed",
+    )
+    expected = nx.read_gexf(BytesIO(payload))
+    actual = fnx.read_gexf(BytesIO(payload), mode=mode)
+    _assert_same(actual, expected)
+    assert actual["a"]["b"]["first"]["weight"] == 2.5
+    assert actual["a"]["b"]["second"]["weight"] == 9.0
+    assert all(record["action"] == "allow" for record in actual.decision_records())
+
+
+def test_hardened_gephi_weight_recovery_keeps_parallel_edges():
+    payload = _document(
+        '<nodes><node id="a"/><node id="b"/></nodes><edges>'
+        '<edge id="bad" source="a" target="b"><attvalues>'
+        '<attvalue for="weight" value="unknown"/></attvalues></edge>'
+        '<edge id="ok" source="a" target="b"><attvalues>'
+        '<attvalue for="weight" value="4.5"/></attvalues></edge></edges>'
+    )
+    with pytest.raises(OSError):
+        fnx.read_gexf(BytesIO(payload), mode="strict")
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+    assert actual.number_of_edges() == 2
+    assert actual["a"]["b"]["bad"]["weight"] == "unknown"
+    assert actual["a"]["b"]["ok"]["weight"] == 4.5
+    assert any(record["action"] == "full_validate" for record in actual.decision_records())
+
+    # A private string declaration cannot resolve an unrelated dangling key.
+    invalid = payload.replace(b'value="unknown"/>', b'value="unknown"/>'
+                              b'<attvalue for="_fnx_recovered_0" value="other"/>')
+    with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
+        fnx.read_gexf(BytesIO(invalid), mode="hardened")
+
+
 @pytest.mark.parametrize("key_values", [(7, 7), (7, 8)])
 def test_gexf_reader_detects_parallelism_before_converted_key_collision(key_values):
     payload = _reader_document(
