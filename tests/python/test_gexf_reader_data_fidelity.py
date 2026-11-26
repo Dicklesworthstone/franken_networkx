@@ -780,7 +780,22 @@ def test_scalar_recovery_preserves_existing_simple_native_values(extra):
     assert any(record["action"] == "full_validate" for record in actual.decision_records())
 
 
-def test_scalar_recovery_rechecks_entire_gexf_beyond_retained_ledger(monkeypatch):
+def test_clean_hardened_gexf_decodes_without_attempting_scalar_repair(monkeypatch):
+    payload = _payload(_rich_graph("MultiDiGraph"))
+    expected = nx.read_gexf(BytesIO(payload))
+
+    def unexpected_repair(_payload):
+        pytest.fail("Clean native validation must not start an XML repair")
+
+    monkeypatch.setattr(readwrite, "_gexf_repaired_values_payload", unexpected_repair)
+    actual = fnx.read_gexf(BytesIO(payload), mode="hardened")
+    _assert_same(actual, expected)
+    assert actual.mode == "hardened"
+    records = actual.decision_records()
+    assert records and all(record["action"] == "allow" for record in records)
+
+
+def test_scalar_recovery_rechecks_entire_gexf_after_ledger_retirement(monkeypatch):
     payload = _document(
         '<attributes class="edge"><attribute id="r" title="rank" type="long"/></attributes>'
         '<nodes><node/><node id="a"/><node id="b"/></nodes><edges>'
@@ -790,8 +805,10 @@ def test_scalar_recovery_rechecks_entire_gexf_beyond_retained_ledger(monkeypatch
     )
     validate = fnx._fnx.validate_gexf
     validations = []
+    attempts = []
 
     def capture_validation(*args, **kwargs):
+        attempts.append(kwargs["mode"])
         graph = validate(*args, **kwargs)
         validations.append(graph.decision_records())
         return graph
@@ -799,14 +816,16 @@ def test_scalar_recovery_rechecks_entire_gexf_beyond_retained_ledger(monkeypatch
     monkeypatch.setattr(fnx._fnx, "validate_gexf", capture_validation)
     with pytest.raises(fnx.NetworkXNotImplemented, match="GEXF recovery"):
         fnx.read_gexf(BytesIO(payload), mode="hardened")
-    # The early structural recovery was evicted; checking only the remaining
-    # scalar warnings would incorrectly admit the original malformed graph.
+    # Both recoveries must survive retirement of intervening Allow records.
+    # Repairing a scalar cannot authorize the unrelated missing node ID.
+    assert attempts == ["hardened", "strict"]
     assert len(validations) == 1  # The strict recheck raises before returning.
-    assert not any("node missing id" in record["rationale"] for record in validations[0])
-    assert any("attr parse failed" in record["rationale"] for record in validations[0])
+    recoveries = [r["rationale"] for r in validations[0] if r["action"] == "full_validate"]
+    assert any("node missing id" in reason for reason in recoveries)
+    assert any("attr parse failed" in reason for reason in recoveries)
 
 
-def test_early_scalar_recovery_survives_eviction_from_gexf_ledger(monkeypatch):
+def test_early_scalar_recovery_survives_gexf_ledger_retirement(monkeypatch):
     payload = _document(
         '<attributes class="node"><attribute id="r" title="rank" type="long"/></attributes>'
         '<nodes><node id="a"><attvalues><attvalue for="r" value="not-an-int"/>'
@@ -828,8 +847,12 @@ def test_early_scalar_recovery_survives_eviction_from_gexf_ledger(monkeypatch):
     _assert_same(actual, expected)
     assert actual.number_of_edges() == 8300
     assert len(validations) == 2
-    assert not any(record["action"] == "full_validate" for record in validations[0])
-    # Retain the policy owner's real ledger; do not invent an evicted entry.
+    assert any(
+        r["action"] == "full_validate" and "attr parse failed" in r["rationale"]
+        for r in validations[0]
+    )
+    assert all(r["action"] == "allow" for r in validations[1])
+    # The exported graph retains the original evidence of repair.
     assert actual.decision_records() == validations[0]
     assert actual.mode == "hardened"
 

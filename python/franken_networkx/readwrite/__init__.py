@@ -3367,14 +3367,11 @@ def read_gexf(path, node_type=None, relabel=False, version="1.2draft", *, backen
     recovered = any(
         record["action"] == "full_validate" for record in graph.decision_records()
     )
-    # A bounded ledger can evict an early scalar recovery after many valid
-    # records. Inspect hardened rich documents before treating that ledger
-    # tail as evidence that the original XML is clean.
-    repaired = _gexf_repaired_values_payload(raw) if (
-        recovered or (needs_decoder and graph.mode == "hardened")
-    ) else None
+    # Native ledger retirement discards only Allow decisions. A scalar repair
+    # always records FullValidate, including before thousands of valid edges.
+    # Clean documents can proceed straight to the complete decoder.
+    repaired = _gexf_repaired_values_payload(raw) if recovered else None
     if repaired is not None:
-        recovered = True
         try:
             checked = _fnx.validate_gexf(_BytesIO(repaired), mode="strict")
         except OSError:
