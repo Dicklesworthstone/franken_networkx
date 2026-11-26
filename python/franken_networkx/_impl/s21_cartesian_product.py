@@ -1467,7 +1467,19 @@ def _pagerank_inproc(
     nlen = len(nodelist)
     if nlen == 0:
         raise NetworkXError("nodelist has no nodes")
-    nodeset = set(G.nbunch_iter(nodelist))
+    if (
+        type(G) in (Graph, DiGraph)
+        and not _has_networkx_private_storage(G)
+        and type(G).nbunch_iter is _graph_nbunch_iter
+        and "nbunch_iter" not in vars(G)
+        and _spectral_centrality_has_native_readers(G)
+        and not _view_root_node_keys_are_stable(G, G.nodes_seq)
+    ):
+        # A cold nbunch membership mirror hashes every label under a native
+        # borrow. Probe one live key at a time so a hash can change this graph.
+        nodeset = set(_triangles_native_nbunch_iter(G, nodelist))
+    else:
+        nodeset = set(G.nbunch_iter(nodelist))
     if nlen != len(nodeset):
         for node in nodelist:
             if node not in G:
@@ -1536,6 +1548,9 @@ def _pagerank_uses_python_graph(G, weight, max_iter, alpha, tol):
         or _has_networkx_private_storage(G)
         or G.edge_attr_dict_factory is not dict
         or _pagerank_has_assigned_edge_provider(G)
+        # Node validation precedes the edge traversal in sparse conversion.
+        # Its hash callbacks can change the matrix for this very call.
+        or (type(G) in (Graph, DiGraph) and not _view_root_node_keys_are_stable(G, G.nodes_seq))
         or type(max_iter) not in (int, bool)
         or type(alpha) not in (int, float, bool)
         or type(tol) not in (int, float, bool)
