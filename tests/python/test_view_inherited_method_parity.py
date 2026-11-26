@@ -131,7 +131,16 @@ def test_public_method_on_a_view_answers_like_networkx(kind, call):
         pytest.param(lambda L, G: L.to_scipy_sparse_array(G).toarray(), id="to_scipy_sparse_array"),
         pytest.param(lambda L, G: L.laplacian_matrix(G).toarray(), id="laplacian"),
         pytest.param(lambda L, G: L.bellman_ford_predecessor_and_distance(G, 0), id="bellman_ford"),
-        pytest.param(lambda L, G: L.describe(G), id="describe"),
+        # networkx 3.4 (the Python 3.10 oracle) has no describe, so there is
+        # nothing to compare against on that release.
+        pytest.param(
+            lambda L, G: L.describe(G),
+            id="describe",
+            marks=pytest.mark.skipif(
+                not hasattr(nx, "describe"),
+                reason="this networkx release (3.4, the Python 3.10 oracle) has no describe",
+            ),
+        ),
     ],
 )
 def test_conversion_view_answers_like_networkx(kind, call):
